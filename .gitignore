@@ -1,0 +1,39 @@
+# Build output
+build/
+bin/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Local/server configuration
+*.conf
+*.conf.dist.local
+.env
+
+# Database exports / backups
+*.sql.gz
+*.dump
+*.bak
+*.backup
+
+# WoW client/server binary data
+*.dbc
+*.db2
+*.mpq
+*.MPQ
+*.patch
+
+# Archives
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*~
