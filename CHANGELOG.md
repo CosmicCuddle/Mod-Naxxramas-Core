@@ -25,6 +25,11 @@
 - Blood Elf Arcane Torrent retains its WotLK silence while restoring Mana Tap charge/resource interaction.
 - Documented Forsaken DBC work including Will of the Forsaken, Shadow Resistance, Forsaken Swordsmanship, and Touch of the Grave.
 
+### Build fixes
+
+- Added `Define.h` before `SpellAuras.h` in the Blood Elf Arcane Torrent and Orc Blood Fury scripts.
+- Fixes the compile error: `SpellAuraDefines.h: fatal error: unknown type name 'uint8'`.
+
 ### Database / compatibility
 
 - Added world SQL bindings for Rend Flurry and racial scripts.
