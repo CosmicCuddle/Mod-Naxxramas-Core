@@ -13,6 +13,7 @@
  * the 50% healing-received penalty for 25 seconds.
  */
 
+#include "Define.h"
 #include "SpellAuras.h"
 #include "SpellInfo.h"
 #include "SpellScript.h"
