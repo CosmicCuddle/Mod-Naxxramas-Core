@@ -29,6 +29,8 @@
 
 - Added `Define.h` before `SpellAuras.h` in the Blood Elf Arcane Torrent and Orc Blood Fury scripts.
 - Fixes the compile error: `SpellAuraDefines.h: fatal error: unknown type name 'uint8'`.
+- Added `SpellScriptLoader.h` to Troll Berserking and Blood Elf Arcane Torrent so `RegisterSpellScript(...)` is defined during compilation.
+- Fixes the Troll compile error: `spell_custom_troll_berserking does not refer to a value`.
 
 ### Database / compatibility
 
