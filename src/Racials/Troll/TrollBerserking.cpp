@@ -9,6 +9,7 @@
  */
 
 #include "SpellScript.h"
+#include "SpellScriptLoader.h"
 #include "Unit.h"
 
 class spell_custom_troll_berserking : public AuraScript

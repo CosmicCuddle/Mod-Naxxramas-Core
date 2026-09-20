@@ -17,6 +17,7 @@
 #include "SpellAuras.h"
 #include "SpellInfo.h"
 #include "SpellScript.h"
+#include "SpellScriptLoader.h"
 #include "Unit.h"
 
 enum BloodElfArcaneTorrentSpells
