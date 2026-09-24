@@ -5,12 +5,19 @@
  *
  * Converts Honor earned above the configured AzerothCore Honor cap
  * into gold at a configurable conversion rate.
+ *
+ * Battleground behavior:
+ * - Currency is awarded immediately.
+ * - Individual conversion messages are suppressed during the Battleground.
+ * - A single summary message is shown when the Battleground ends or the
+ *   player leaves early.
  */
 
 #include "Chat.h"
 #include "Config.h"
 #include "Player.h"
 #include "ScriptMgr.h"
+#include "ScriptDefines/AllBattlegroundScript.h"
 #include "World.h"
 
 #if __has_include("Playerbots.h")
@@ -37,7 +44,15 @@ namespace
         uint32 TodayContribution = 0;
     };
 
+    struct BattlegroundHonorSummary
+    {
+        uint64 ExcessHonor = 0;
+        uint64 RequestedCopper = 0;
+        uint64 AwardedCopper = 0;
+    };
+
     std::unordered_map<ObjectGuid::LowType, HonorSnapshot> HonorSnapshots;
+    std::unordered_map<ObjectGuid::LowType, BattlegroundHonorSummary> BattlegroundHonorSummaries;
 
     bool IsPlayerBot(Player* player)
     {
@@ -48,12 +63,12 @@ namespace
 #endif
     }
 
-    std::string FormatMoney(uint32 copper)
+    std::string FormatMoney(uint64 copper)
     {
-        uint32 gold = copper / GOLD;
+        uint64 gold = copper / GOLD;
         copper %= GOLD;
 
-        uint32 silver = copper / SILVER;
+        uint64 silver = copper / SILVER;
         copper %= SILVER;
 
         std::ostringstream output;
@@ -93,67 +108,64 @@ namespace
             player->GetUInt32Value(PLAYER_FIELD_TODAY_CONTRIBUTION)
         };
     }
-}
 
-class NaxxramasCoreHonorOverflowConfig : public WorldScript
-{
-public:
-    NaxxramasCoreHonorOverflowConfig()
-        : WorldScript("NaxxramasCoreHonorOverflowConfig",
+    void AddBattlegroundSummary(
+        Player* player,
+        uint32 excessHonor,
+        uint64 requestedCopper,
+        uint32 awardedCopper)
+    {
+        BattlegroundHonorSummary& summary =
+            BattlegroundHonorSummaries[player->GetGUID().GetCounter()];
+
+        summary.ExcessHonor += excessHonor;
+        summary.RequestedCopper += requestedCopper;
+        summary.AwardedCopper += awardedCopper;
+    }
+
+    void SendBattlegroundSummary(Player* player)
+    {
+        if (!player)
+            return;
+
+        ObjectGuid::LowType guid = player->GetGUID().GetCounter();
+
+        auto itr = BattlegroundHonorSummaries.find(guid);
+        if (itr == BattlegroundHonorSummaries.end())
+            return;
+
+        BattlegroundHonorSummary summary = itr->second;
+        BattlegroundHonorSummaries.erase(itr);
+
+        if (!HonorOverflowNotify || !player->GetSession() || summary.ExcessHonor == 0)
+            return;
+
+        if (summary.AwardedCopper == 0)
         {
-            WORLDHOOK_ON_BEFORE_CONFIG_LOAD
-        })
-    {
-    }
+            ChatHandler(player->GetSession()).PSendSysMessage(
+                "Your Honor was capped during this Battleground. {} excess Honor was earned, but no gold could be added because you are at the gold cap.",
+                summary.ExcessHonor);
 
-    void OnBeforeConfigLoad(bool /*reload*/) override
-    {
-        HonorOverflowEnabled =
-            sConfigMgr->GetOption<bool>(
-                "NaxxramasCore.HonorOverflow.Enabled",
-                true);
+            return;
+        }
 
-        HonorOverflowCopperPerHonor =
-            sConfigMgr->GetOption<uint32>(
-                "NaxxramasCore.HonorOverflow.CopperPerHonor",
-                10);
-
-        HonorOverflowNotify =
-            sConfigMgr->GetOption<bool>(
-                "NaxxramasCore.HonorOverflow.Notify",
-                true);
-
-        HonorOverflowIncludeBots =
-            sConfigMgr->GetOption<bool>(
-                "NaxxramasCore.HonorOverflow.IncludeBots",
-                false);
-    }
-};
-
-class NaxxramasCoreHonorOverflowPlayer : public PlayerScript
-{
-public:
-    NaxxramasCoreHonorOverflowPlayer()
-        : PlayerScript("NaxxramasCoreHonorOverflowPlayer",
+        if (summary.AwardedCopper < summary.RequestedCopper)
         {
-            PLAYERHOOK_ON_LOGIN,
-            PLAYERHOOK_ON_LOGOUT,
-            PLAYERHOOK_ON_UPDATE
-        })
-    {
+            ChatHandler(player->GetSession()).PSendSysMessage(
+                "Your Honor was capped during this Battleground. {} excess Honor was converted, but you could only receive {} because you reached the gold cap.",
+                summary.ExcessHonor,
+                FormatMoney(summary.AwardedCopper));
+
+            return;
+        }
+
+        ChatHandler(player->GetSession()).PSendSysMessage(
+            "Your Honor was capped during this Battleground. {} excess Honor has been converted into {}.",
+            summary.ExcessHonor,
+            FormatMoney(summary.AwardedCopper));
     }
 
-    void OnPlayerLogin(Player* player) override
-    {
-        StoreHonorSnapshot(player);
-    }
-
-    void OnPlayerLogout(Player* player) override
-    {
-        HonorSnapshots.erase(player->GetGUID().GetCounter());
-    }
-
-    void OnPlayerUpdate(Player* player, uint32 /*diff*/) override
+    void ProcessHonorOverflow(Player* player, bool forceBattlegroundSummary = false)
     {
         if (!player)
             return;
@@ -174,7 +186,7 @@ public:
 
         HonorSnapshot previous = itr->second;
 
-        // Update the snapshot immediately so every server update starts
+        // Update the snapshot immediately so every check starts
         // from the latest known values.
         itr->second.Honor = currentHonor;
         itr->second.TodayContribution = currentTodayContribution;
@@ -238,6 +250,20 @@ public:
         if (rewardCopper > 0)
             player->ModifyMoney(static_cast<int32>(rewardCopper));
 
+        bool useBattlegroundSummary =
+            forceBattlegroundSummary || player->InBattleground();
+
+        if (useBattlegroundSummary)
+        {
+            AddBattlegroundSummary(
+                player,
+                excessHonor,
+                requestedCopper,
+                rewardCopper);
+
+            return;
+        }
+
         if (!HonorOverflowNotify || !player->GetSession())
             return;
 
@@ -264,10 +290,117 @@ public:
             excessHonor,
             FormatMoney(rewardCopper));
     }
+}
+
+class NaxxramasCoreHonorOverflowConfig : public WorldScript
+{
+public:
+    NaxxramasCoreHonorOverflowConfig()
+        : WorldScript("NaxxramasCoreHonorOverflowConfig",
+        {
+            WORLDHOOK_ON_BEFORE_CONFIG_LOAD
+        })
+    {
+    }
+
+    void OnBeforeConfigLoad(bool /*reload*/) override
+    {
+        HonorOverflowEnabled =
+            sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.HonorOverflow.Enabled",
+                true);
+
+        HonorOverflowCopperPerHonor =
+            sConfigMgr->GetOption<uint32>(
+                "NaxxramasCore.HonorOverflow.CopperPerHonor",
+                10);
+
+        HonorOverflowNotify =
+            sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.HonorOverflow.Notify",
+                true);
+
+        HonorOverflowIncludeBots =
+            sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.HonorOverflow.IncludeBots",
+                false);
+    }
+};
+
+class NaxxramasCoreHonorOverflowPlayer : public PlayerScript
+{
+public:
+    NaxxramasCoreHonorOverflowPlayer()
+        : PlayerScript("NaxxramasCoreHonorOverflowPlayer",
+        {
+            PLAYERHOOK_ON_LOGIN,
+            PLAYERHOOK_ON_LOGOUT,
+            PLAYERHOOK_ON_UPDATE
+        })
+    {
+    }
+
+    void OnPlayerLogin(Player* player) override
+    {
+        StoreHonorSnapshot(player);
+
+        // A fresh login should never inherit an old in-memory BG summary.
+        BattlegroundHonorSummaries.erase(
+            player->GetGUID().GetCounter());
+    }
+
+    void OnPlayerLogout(Player* player) override
+    {
+        ObjectGuid::LowType guid = player->GetGUID().GetCounter();
+
+        HonorSnapshots.erase(guid);
+        BattlegroundHonorSummaries.erase(guid);
+    }
+
+    void OnPlayerUpdate(Player* player, uint32 /*diff*/) override
+    {
+        ProcessHonorOverflow(player);
+    }
+};
+
+class NaxxramasCoreHonorOverflowBattleground : public BGScript
+{
+public:
+    NaxxramasCoreHonorOverflowBattleground()
+        : BGScript(
+            "NaxxramasCoreHonorOverflowBattleground",
+            {
+                ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_END_REWARD,
+                ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_REMOVE_PLAYER_AT_LEAVE
+            })
+    {
+    }
+
+    void OnBattlegroundEndReward(
+        Battleground* /*bg*/,
+        Player* player,
+        TeamId /*winnerTeamId*/) override
+    {
+        // Catch any final Honor awarded at Battleground completion before
+        // showing the single combined summary.
+        ProcessHonorOverflow(player, true);
+        SendBattlegroundSummary(player);
+    }
+
+    void OnBattlegroundRemovePlayerAtLeave(
+        Battleground* /*bg*/,
+        Player* player) override
+    {
+        // Leaving early is the end of this player's Battleground session.
+        // Awarded currency is already safe; show one summary and clear it.
+        ProcessHonorOverflow(player, true);
+        SendBattlegroundSummary(player);
+    }
 };
 
 void AddHonorOverflowScripts()
 {
     new NaxxramasCoreHonorOverflowConfig();
     new NaxxramasCoreHonorOverflowPlayer();
+    new NaxxramasCoreHonorOverflowBattleground();
 }
