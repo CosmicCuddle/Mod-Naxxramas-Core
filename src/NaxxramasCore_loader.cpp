@@ -19,6 +19,13 @@ void AddTouchOfTheGraveScripts();
 void AddBrewfestDarkIronAttackScripts();
 void AddHallowsEndShadeOfTheHorsemanScripts();
 
+// Items
+void AddNaxxramasItemSpellScripts();
+
+// Systems
+void AddHonorOverflowScripts();
+void AddHonorResetScripts();
+
 void Addmod_naxxramas_coreScripts()
 {
     // Warrior
@@ -34,4 +41,11 @@ void Addmod_naxxramas_coreScripts()
     // Events
     AddBrewfestDarkIronAttackScripts();
     AddHallowsEndShadeOfTheHorsemanScripts();
+
+    // Items
+    AddNaxxramasItemSpellScripts();
+
+    // Systems
+    AddHonorOverflowScripts();
+    AddHonorResetScripts();
 }

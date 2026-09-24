@@ -1,0 +1,76 @@
+#####################################
+# Honor Overflow
+#####################################
+
+# Enable conversion of Honor earned above the normal Honor cap.
+# Default: 1
+NaxxramasCore.HonorOverflow.Enabled = 1
+
+# Copper awarded for every 1 excess Honor point.
+#
+# 10 Copper per Honor means:
+# 100 Honor   = 10 Silver
+# 1,000 Honor = 1 Gold
+#
+# Default: 10
+NaxxramasCore.HonorOverflow.CopperPerHonor = 10
+
+# Send the player a message when excess Honor is converted.
+# Default: 1
+NaxxramasCore.HonorOverflow.Notify = 1
+
+# Allow Playerbots to receive gold from excess Honor.
+# Recommended: 0
+# Default: 0
+NaxxramasCore.HonorOverflow.IncludeBots = 0
+
+
+#####################################
+# Fortnightly Honor Reset
+#####################################
+
+# Enable automatic Honor resets.
+# Default: 0
+NaxxramasCore.HonorReset.Enabled = 1
+
+# Number of weeks between Honor resets.
+# 2 = every fortnight.
+# Default: 2
+NaxxramasCore.HonorReset.IntervalWeeks = 2
+
+# Day of the week to perform the reset.
+# 0 = Sunday
+# 1 = Monday
+# 2 = Tuesday
+# 3 = Wednesday
+# 4 = Thursday
+# 5 = Friday
+# 6 = Saturday
+# Default: 3
+NaxxramasCore.HonorReset.DayOfWeek = 3
+
+# Hour of the reset, using server local time.
+# 0-23
+# Default: 6
+NaxxramasCore.HonorReset.Hour = 6
+
+# Minute of the reset.
+# Default: 0
+NaxxramasCore.HonorReset.Minute = 0
+
+# Anchor date used to determine the first Wednesday
+# of the fortnightly reset cycle.
+#
+# Format: YYYY-MM-DD
+#
+# 2026-10-07 gives:
+#   7 October 2026
+#   21 October 2026
+#   4 November 2026
+#   18 November 2026
+#   etc.
+NaxxramasCore.HonorReset.AnchorDate = "2026-10-07"
+
+# Notify online players when the reset occurs.
+# Default: 1
+NaxxramasCore.HonorReset.Notify = 1
