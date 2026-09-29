@@ -27,6 +27,7 @@ void AddNaxxramasItemSpellScripts();
 void AddHonorOverflowScripts();
 void AddHonorResetScripts();
 void AddForcedPvPScripts();
+void AddAltMailDelayScripts();
 
 void Addmod_naxxramas_coreScripts()
 {
@@ -52,4 +53,5 @@ void Addmod_naxxramas_coreScripts()
     AddHonorOverflowScripts();
     AddHonorResetScripts();
     AddForcedPvPScripts();
+    AddAltMailDelayScripts();
 }
