@@ -74,3 +74,27 @@ NaxxramasCore.HonorReset.AnchorDate = "2026-10-07"
 # Notify online players when the reset occurs.
 # Default: 1
 NaxxramasCore.HonorReset.Notify = 1
+
+#####################################
+# Forced PvP Zones
+#####################################
+
+# Master switch for forced PvP zones.
+# Default: 1
+NaxxramasCore.ForcedPvP.Enabled = 1
+
+# Force normal faction PvP throughout Silithus.
+# Default: 1
+NaxxramasCore.ForcedPvP.Silithus = 1
+
+# Force normal faction PvP throughout Eastern Plaguelands.
+# Default: 1
+NaxxramasCore.ForcedPvP.EasternPlaguelands = 1
+
+# Apply forced PvP rules to Playerbots.
+# Default: 1
+NaxxramasCore.ForcedPvP.IncludeBots = 1
+
+# Notify players when they enter a forced PvP zone.
+# Default: 1
+NaxxramasCore.ForcedPvP.Notify = 1

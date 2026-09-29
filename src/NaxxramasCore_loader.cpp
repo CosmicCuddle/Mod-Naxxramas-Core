@@ -17,6 +17,7 @@ void AddTouchOfTheGraveScripts();
 
 // Events
 void AddBrewfestDarkIronAttackScripts();
+void AddBrewfestSoberGossipScripts();
 void AddHallowsEndShadeOfTheHorsemanScripts();
 
 // Items
@@ -25,6 +26,7 @@ void AddNaxxramasItemSpellScripts();
 // Systems
 void AddHonorOverflowScripts();
 void AddHonorResetScripts();
+void AddForcedPvPScripts();
 
 void Addmod_naxxramas_coreScripts()
 {
@@ -40,6 +42,7 @@ void Addmod_naxxramas_coreScripts()
 
     // Events
     AddBrewfestDarkIronAttackScripts();
+    AddBrewfestSoberGossipScripts();
     AddHallowsEndShadeOfTheHorsemanScripts();
 
     // Items
@@ -48,4 +51,5 @@ void Addmod_naxxramas_coreScripts()
     // Systems
     AddHonorOverflowScripts();
     AddHonorResetScripts();
+    AddForcedPvPScripts();
 }
