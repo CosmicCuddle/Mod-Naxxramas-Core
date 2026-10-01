@@ -1,9 +1,9 @@
 /*
  * Naxxramas Core
  *
- * Bot Raid Consumables
+ * Bot Consumables
  *
- * Provides raid consumables to controlled Playerbots.
+ * Provides instance-scoped raid and dungeon consumables to controlled Playerbots.
  *
  * Initial profile:
  *   Molten Core
@@ -15,7 +15,7 @@
  *
  * Behaviour:
  * - Applies long-duration consumable effects directly as auras.
- * - Tops usable inventory consumables up to one native maximum stack.
+ * - Uses explicit Vanilla-era stack targets for supplied inventory items.
  * - Supplies Cache of Mau'ari automatically when Juju buffs are required.
  * - Supplies sharpening stones or weightstones based on equipped weapon type.
  * - Supports Alliance and Horde bots.
@@ -28,6 +28,7 @@
 #include "CommandScript.h"
 #include "Item.h"
 #include "ItemTemplate.h"
+#include "Map.h"
 #include "ObjectMgr.h"
 #include "Pet.h"
 #include "Player.h"
@@ -52,11 +53,33 @@ namespace
 
     constexpr uint32 AURA_CHECK_INTERVAL = 10 * IN_MILLISECONDS;
 
+    constexpr uint32 MAP_MOLTEN_CORE = 409;
+
     // =========================================================
     // Important prerequisite items
     // =========================================================
 
     constexpr uint32 ITEM_CACHE_OF_MAUARI = 12384;
+
+    // Vanilla class reagents. Raid profiles only.
+    constexpr uint32 ITEM_IRONWOOD_SEED = 17038;
+    constexpr uint32 ITEM_WILD_THORNROOT = 17026;
+    constexpr uint32 ITEM_RUNE_OF_TELEPORTATION = 17031;
+    constexpr uint32 ITEM_RUNE_OF_PORTALS = 17032;
+    constexpr uint32 ITEM_ARCANE_POWDER = 17020;
+    constexpr uint32 ITEM_LIGHT_FEATHER = 17056;
+    constexpr uint32 ITEM_SYMBOL_OF_KINGS = 21177;
+    constexpr uint32 ITEM_SACRED_CANDLE = 17029;
+    constexpr uint32 ITEM_EARTH_TOTEM = 5175;
+    constexpr uint32 ITEM_FIRE_TOTEM = 5176;
+    constexpr uint32 ITEM_WATER_TOTEM = 5177;
+    constexpr uint32 ITEM_AIR_TOTEM = 5178;
+    constexpr uint32 ITEM_ANKH = 17030;
+    constexpr uint32 ITEM_SHINY_FISH_SCALES = 17057;
+    constexpr uint32 ITEM_FISH_OIL = 17058;
+    constexpr uint32 ITEM_FLASH_POWDER = 5140;
+    constexpr uint32 ITEM_BLINDING_POWDER = 5530;
+    constexpr uint32 ITEM_SOUL_SHARD = 6265;
 
     // =========================================================
     // General inventory consumables
@@ -156,11 +179,10 @@ namespace
     {
         ObjectGuid::LowType BotGuid = 0;
         uint32 SpellId = 0;
-
         std::string BotName;
         std::string AuraName;
-
         bool IsPetAura = false;
+        bool WarnOnMissing = true;
         bool MissingNotified = false;
     };
 
@@ -168,10 +190,8 @@ namespace
     {
         ObjectGuid::LowType BotGuid = 0;
         uint32 SpellId = 0;
-
         std::string BotName;
         std::string AuraName;
-
         uint32 ApplicationsUsed = 0;
         uint32 MaxApplications = 0;
         uint32 NextApplicationTimer = 0;
@@ -181,7 +201,7 @@ namespace
     {
         std::string Profile;
         uint32 UpdateTimer = 0;
-
+        uint32 RequiredMapId = 0;
         std::vector<TrackedAura> Auras;
         std::vector<TimedAura> TimedAuras;
     };
@@ -190,14 +210,12 @@ namespace
     {
         uint32 BotsPrepared = 0;
         uint32 UnsupportedBots = 0;
-
         uint32 AurasApplied = 0;
         uint32 AuraFailures = 0;
-
         uint32 ItemsAdded = 0;
         uint32 ItemFailures = 0;
-
         uint32 CachesAdded = 0;
+        uint32 ReagentsAdded = 0;
         uint32 PetBuffsSkipped = 0;
     };
 
@@ -234,12 +252,14 @@ namespace
         return 0;
     }
 
-    bool TopUpOneStack(
+    bool TopUpToCount(
         Player* bot,
         uint32 itemId,
-        PreparationStats& stats)
+        uint32 targetCount,
+        PreparationStats& stats,
+        bool raidReagent = false)
     {
-        if (!bot)
+        if (!bot || !targetCount)
             return false;
 
         ItemTemplate const* itemTemplate =
@@ -251,10 +271,6 @@ namespace
             return false;
         }
 
-        uint32 targetCount =
-            itemTemplate->GetMaxStackSize();
-
-        // Respect unique-item limits.
         if (itemTemplate->MaxCount > 0)
         {
             targetCount =
@@ -279,7 +295,48 @@ namespace
         }
 
         stats.ItemsAdded += amountToAdd;
+
+        if (raidReagent)
+            stats.ReagentsAdded += amountToAdd;
+
         return true;
+    }
+
+    uint32 GetVanillaStackTarget(uint32 itemId)
+    {
+        switch (itemId)
+        {
+            case ITEM_MAJOR_HEALING_POTION:
+            case ITEM_MAJOR_MANA_POTION:
+            case ITEM_LIMITED_INVULNERABILITY_POTION:
+                return 5;
+
+            case ITEM_HEAVY_RUNECLOTH_BANDAGE:
+            case ITEM_ELEMENTAL_SHARPENING_STONE:
+            case ITEM_DENSE_WEIGHTSTONE:
+            case ITEM_INSTANT_POISON_VI:
+            case ITEM_DEADLY_POISON_IV:
+                return 20;
+
+            case ITEM_BRILLIANT_WIZARD_OIL:
+            case ITEM_BRILLIANT_MANA_OIL:
+                return 1;
+
+            default:
+                return 1;
+        }
+    }
+
+    bool TopUpVanillaStack(
+        Player* bot,
+        uint32 itemId,
+        PreparationStats& stats)
+    {
+        return TopUpToCount(
+            bot,
+            itemId,
+            GetVanillaStackTarget(itemId),
+            stats);
     }
 
     bool EnsureCacheOfMauari(
@@ -319,7 +376,8 @@ namespace
         Player* bot,
         uint32 spellId,
         std::string const& auraName,
-        bool isPetAura)
+        bool isPetAura,
+        bool warnOnMissing = true)
     {
         if (!bot || !spellId)
             return;
@@ -327,25 +385,26 @@ namespace
         ObjectGuid::LowType botGuid =
             bot->GetGUID().GetCounter();
 
-        // Prevent duplicate tracker entries.
         for (TrackedAura& existing : tracker.Auras)
         {
             if (existing.BotGuid == botGuid &&
                 existing.SpellId == spellId &&
                 existing.IsPetAura == isPetAura)
             {
+                existing.AuraName = auraName;
+                existing.WarnOnMissing = warnOnMissing;
                 existing.MissingNotified = false;
                 return;
             }
         }
 
         TrackedAura aura;
-
         aura.BotGuid = botGuid;
         aura.SpellId = spellId;
         aura.BotName = bot->GetName();
         aura.AuraName = auraName;
         aura.IsPetAura = isPetAura;
+        aura.WarnOnMissing = warnOnMissing;
         aura.MissingNotified = false;
 
         tracker.Auras.push_back(aura);
@@ -358,7 +417,8 @@ namespace
         std::string const& auraName,
         bool isPetAura,
         RaidConsumableTracker& tracker,
-        PreparationStats& stats)
+        PreparationStats& stats,
+        bool warnOnMissing = true)
     {
         if (!bot || !target || !spellId)
         {
@@ -366,7 +426,6 @@ namespace
             return false;
         }
 
-        // Refresh the effect when the raid-prep command is rerun.
         target->RemoveAurasDueToSpell(spellId);
 
         if (!bot->AddAura(spellId, target))
@@ -380,7 +439,8 @@ namespace
             bot,
             spellId,
             auraName,
-            isPetAura);
+            isPetAura,
+            warnOnMissing);
 
         ++stats.AurasApplied;
         return true;
@@ -393,7 +453,8 @@ namespace
         std::string const& auraName,
         bool isPetAura,
         RaidConsumableTracker& tracker,
-        PreparationStats& stats)
+        PreparationStats& stats,
+        bool warnOnMissing = true)
     {
         uint32 spellId =
             GetItemUseSpell(itemId);
@@ -411,7 +472,8 @@ namespace
             auraName,
             isPetAura,
             tracker,
-            stats);
+            stats,
+            warnOnMissing);
     }
 
     void ApplyJuju(
@@ -423,12 +485,8 @@ namespace
         RaidConsumableTracker& tracker,
         PreparationStats& stats)
     {
-        if (!EnsureCacheOfMauari(
-                bot,
-                stats))
-        {
+        if (!EnsureCacheOfMauari(bot, stats))
             return;
-        }
 
         ApplyItemAura(
             bot,
@@ -440,43 +498,31 @@ namespace
             stats);
     }
 
-    void ApplyJujuUntracked(
+    void ApplyJujuTactical(
         Player* bot,
         Unit* target,
         uint32 jujuItemId,
+        std::string const& name,
+        bool isPetAura,
+        RaidConsumableTracker& tracker,
         PreparationStats& stats)
     {
         if (!bot ||
             !target ||
-            !EnsureCacheOfMauari(
-                bot,
-                stats))
+            !EnsureCacheOfMauari(bot, stats))
         {
             return;
         }
 
-        uint32 spellId =
-            GetItemUseSpell(
-                jujuItemId);
-
-        if (!spellId)
-        {
-            ++stats.AuraFailures;
-            return;
-        }
-
-        target->RemoveAurasDueToSpell(
-            spellId);
-
-        if (!bot->AddAura(
-                spellId,
-                target))
-        {
-            ++stats.AuraFailures;
-            return;
-        }
-
-        ++stats.AurasApplied;
+        ApplyItemAura(
+            bot,
+            target,
+            jujuItemId,
+            name,
+            isPetAura,
+            tracker,
+            stats,
+            false);
     }
 
     void ApplyTimedJujuFlurry(
@@ -485,16 +531,13 @@ namespace
         PreparationStats& stats)
     {
         if (!bot ||
-            !EnsureCacheOfMauari(
-                bot,
-                stats))
+            !EnsureCacheOfMauari(bot, stats))
         {
             return;
         }
 
         uint32 spellId =
-            GetItemUseSpell(
-                ITEM_JUJU_FLURRY);
+            GetItemUseSpell(ITEM_JUJU_FLURRY);
 
         if (!spellId)
         {
@@ -502,42 +545,26 @@ namespace
             return;
         }
 
-        bot->RemoveAurasDueToSpell(
-            spellId);
+        bot->RemoveAurasDueToSpell(spellId);
 
-        if (!bot->AddAura(
-                spellId,
-                bot))
+        if (!bot->AddAura(spellId, bot))
         {
             ++stats.AuraFailures;
             return;
         }
 
         TimedAura timed;
-
         timed.BotGuid =
-            bot->GetGUID().
-                GetCounter();
-
-        timed.SpellId =
-            spellId;
-
-        timed.BotName =
-            bot->GetName();
-
-        timed.AuraName =
-            "Juju Flurry";
-
-        // Application 1 happens immediately.
-        // Applications 2 and 3 happen at 60-second intervals.
+            bot->GetGUID().GetCounter();
+        timed.SpellId = spellId;
+        timed.BotName = bot->GetName();
+        timed.AuraName = "Juju Flurry";
         timed.ApplicationsUsed = 1;
         timed.MaxApplications = 3;
         timed.NextApplicationTimer =
             60 * IN_MILLISECONDS;
 
-        tracker.TimedAuras.push_back(
-            timed);
-
+        tracker.TimedAuras.push_back(timed);
         ++stats.AurasApplied;
     }
 
@@ -634,7 +661,7 @@ namespace
 
         if (needsSharpeningStone)
         {
-            TopUpOneStack(
+            TopUpVanillaStack(
                 bot,
                 ITEM_ELEMENTAL_SHARPENING_STONE,
                 stats);
@@ -642,10 +669,72 @@ namespace
 
         if (needsWeightstone)
         {
-            TopUpOneStack(
+            TopUpVanillaStack(
                 bot,
                 ITEM_DENSE_WEIGHTSTONE,
                 stats);
+        }
+    }
+
+    // =========================================================
+    // Raid-only class reagents
+    // =========================================================
+
+    void SupplyRaidReagents(
+        Player* bot,
+        PreparationStats& stats)
+    {
+        if (!bot)
+            return;
+
+        auto topUp =
+            [&](uint32 itemId, uint32 target)
+            {
+                TopUpToCount(
+                    bot,
+                    itemId,
+                    target,
+                    stats,
+                    true);
+            };
+
+        switch (bot->getClass())
+        {
+            case CLASS_DRUID:
+                topUp(ITEM_IRONWOOD_SEED, 20);
+                topUp(ITEM_WILD_THORNROOT, 20);
+                break;
+            case CLASS_MAGE:
+                topUp(ITEM_RUNE_OF_TELEPORTATION, 10);
+                topUp(ITEM_RUNE_OF_PORTALS, 10);
+                topUp(ITEM_ARCANE_POWDER, 20);
+                topUp(ITEM_LIGHT_FEATHER, 20);
+                break;
+            case CLASS_PALADIN:
+                topUp(ITEM_SYMBOL_OF_KINGS, 100);
+                break;
+            case CLASS_PRIEST:
+                topUp(ITEM_SACRED_CANDLE, 20);
+                topUp(ITEM_LIGHT_FEATHER, 20);
+                break;
+            case CLASS_ROGUE:
+                topUp(ITEM_FLASH_POWDER, 20);
+                topUp(ITEM_BLINDING_POWDER, 20);
+                break;
+            case CLASS_SHAMAN:
+                topUp(ITEM_EARTH_TOTEM, 1);
+                topUp(ITEM_FIRE_TOTEM, 1);
+                topUp(ITEM_WATER_TOTEM, 1);
+                topUp(ITEM_AIR_TOTEM, 1);
+                topUp(ITEM_ANKH, 10);
+                topUp(ITEM_SHINY_FISH_SCALES, 20);
+                topUp(ITEM_FISH_OIL, 20);
+                break;
+            case CLASS_WARLOCK:
+                topUp(ITEM_SOUL_SHARD, 5);
+                break;
+            default:
+                break;
         }
     }
 
@@ -669,17 +758,17 @@ namespace
             stats);
 
         // Playerbots already understands these inventory items.
-        TopUpOneStack(
+        TopUpVanillaStack(
             bot,
             ITEM_MAJOR_HEALING_POTION,
             stats);
 
-        TopUpOneStack(
+        TopUpVanillaStack(
             bot,
             ITEM_HEAVY_RUNECLOTH_BANDAGE,
             stats);
 
-        TopUpOneStack(
+        TopUpVanillaStack(
             bot,
             ITEM_LIMITED_INVULNERABILITY_POTION,
             stats);
@@ -690,7 +779,7 @@ void PrepareManaUser(
     RaidConsumableTracker& tracker,
     PreparationStats& stats)
 {
-    TopUpOneStack(
+    TopUpVanillaStack(
         bot,
         ITEM_MAJOR_MANA_POTION,
         stats);
@@ -827,10 +916,13 @@ void PrepareManaUser(
             "Juju Might",
             false, tracker, stats);
 
-        ApplyJujuUntracked(
+        ApplyJujuTactical(
             bot,
             bot,
             ITEM_JUJU_ESCAPE,
+            "Juju Escape",
+            false,
+            tracker,
             stats);
 
         SupplyWeaponConsumables(
@@ -931,7 +1023,7 @@ void PrepareManaUser(
             tracker,
             stats);
 
-        TopUpOneStack(
+        TopUpVanillaStack(
             bot,
             ITEM_BRILLIANT_MANA_OIL,
             stats);
@@ -1087,12 +1179,12 @@ void PrepareManaUser(
             tracker,
             stats);
 
-        TopUpOneStack(
+        TopUpVanillaStack(
             bot,
             ITEM_INSTANT_POISON_VI,
             stats);
 
-        TopUpOneStack(
+        TopUpVanillaStack(
             bot,
             ITEM_DEADLY_POISON_IV,
             stats);
@@ -1129,7 +1221,7 @@ void PrepareManaUser(
             tracker,
             stats);
 
-        TopUpOneStack(
+        TopUpVanillaStack(
             bot,
             ITEM_BRILLIANT_MANA_OIL,
             stats);
@@ -1172,7 +1264,7 @@ void PrepareManaUser(
             tracker,
             stats);
 
-        TopUpOneStack(
+        TopUpVanillaStack(
             bot,
             ITEM_BRILLIANT_WIZARD_OIL,
             stats);
@@ -1351,6 +1443,10 @@ void PrepareManaUser(
         PrepareMoltenCoreCommon(
             bot,
             tracker,
+            stats);
+
+        SupplyRaidReagents(
+            bot,
             stats);
 
         switch (playerClass)
@@ -1630,6 +1726,9 @@ void PrepareManaUser(
             if (!bot ||
                 !bot->IsInWorld() ||
                 !bot->IsAlive() ||
+                (tracker.RequiredMapId != 0 &&
+                    (master->GetMapId() != tracker.RequiredMapId ||
+                     bot->GetMapId() != tracker.RequiredMapId)) ||
                 !BotIsInPreparationScope(
                     master,
                     bot))
@@ -1722,6 +1821,9 @@ void PrepareManaUser(
         for (TrackedAura const& tracked :
              tracker.Auras)
         {
+            if (!tracked.WarnOnMissing)
+                continue;
+
             Unit* target =
                 ResolveTrackedAuraTarget(
                     manager,
@@ -1765,6 +1867,9 @@ void PrepareManaUser(
         for (TrackedAura& tracked :
              tracker.Auras)
         {
+            if (!tracked.WarnOnMissing)
+                continue;
+
             Unit* target =
                 ResolveTrackedAuraTarget(
                     manager,
@@ -1805,7 +1910,7 @@ void PrepareManaUser(
             master->GetSession());
 
         chat.SendSysMessage(
-            "[Bot Consumables] Raid consumable buffs need refreshing.");
+            "[Bot Consumables] Consumable buffs need refreshing.");
 
         constexpr std::size_t MAX_LINES = 8;
 
@@ -1967,6 +2072,13 @@ public:
         if (!master)
             return false;
 
+        if (master->GetMapId() != MAP_MOLTEN_CORE)
+        {
+            handler->SendSysMessage(
+                "[Bot Consumables] The Molten Core profile can only be used inside Molten Core.");
+            return true;
+        }
+
         PlayerbotMgr* manager =
             PlayerbotsMgr::instance().
                 GetPlayerbotMgr(master);
@@ -1983,14 +2095,18 @@ public:
             master->GetGUID().
                 GetCounter();
 
-        // Running the command again replaces the previous
-        // tracking set with a fresh Molten Core set.
+        auto oldTracker =
+            RaidConsumableTrackers.find(masterGuid);
+
+        if (oldTracker != RaidConsumableTrackers.end())
+            ClearTrackedAuras(master, oldTracker->second);
+
         RaidConsumableTracker& tracker =
-            RaidConsumableTrackers[
-                masterGuid];
+            RaidConsumableTrackers[masterGuid];
 
         tracker.Profile = "mc";
         tracker.UpdateTimer = 0;
+        tracker.RequiredMapId = MAP_MOLTEN_CORE;
         tracker.Auras.clear();
         tracker.TimedAuras.clear();
 
@@ -2045,6 +2161,13 @@ public:
             handler->PSendSysMessage(
                 "{} Cache of Mau'ari items supplied.",
                 stats.CachesAdded);
+        }
+
+        if (stats.ReagentsAdded > 0)
+        {
+            handler->PSendSysMessage(
+                "{} raid reagent items supplied.",
+                stats.ReagentsAdded);
         }
 
         if (stats.PetBuffsSkipped > 0)
@@ -2241,6 +2364,22 @@ public:
 
         RaidConsumableTracker& tracker =
             itr->second;
+
+        if (tracker.RequiredMapId != 0 &&
+            player->GetMapId() != tracker.RequiredMapId)
+        {
+            ClearTrackedAuras(player, tracker);
+            RaidConsumableTrackers.erase(itr);
+
+            if (player->GetSession())
+            {
+                ChatHandler(player->GetSession()).
+                    SendSysMessage(
+                        "[Bot Consumables] Consumable profile cleared because you left its allowed instance.");
+            }
+
+            return;
+        }
 
         ProcessTimedAuras(
             player,
