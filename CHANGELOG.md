@@ -2,32 +2,126 @@
 
 ## Naxxramas Core Patch 1.0.6.8.4
 
-### Playerbots — Molten Core raid consumables
+### Playerbots — Instance consumables
 
-- Added the first automated Playerbot raid-consumables profile for **Molten Core**.
-- Added player commands:
+- Expanded the original Molten Core preparation system into an instance-scoped raid/dungeon consumables framework.
+- Reworked the command parser so `.bot consumables` accepts named profiles and any exact level from **1 through 54**.
+- Added commands:
+  - `.bot consumables 1-54`
+  - `.bot consumables mara`
+  - `.bot consumables sunken`
+  - `.bot consumables brd`
+  - `.bot consumables scholo`
+  - `.bot consumables stratud`
+  - `.bot consumables dm`
+  - `.bot consumables lbrs`
+  - `.bot consumables ubrs`
   - `.bot consumables mc`
   - `.bot consumables status`
   - `.bot consumables clear`
-- Molten Core preparation applies class/spec-appropriate long-duration consumable effects directly as auras.
-- Usable inventory consumables are topped up to one native maximum stack rather than being applied as permanent effects.
+
+#### Instance and anti-exploit scope
+
+- Molten Core can only be prepared from inside **Map 409**.
+- Bots must also be physically inside the allowed instance/wing before receiving a profile.
+- Named shared-map profiles validate the player's physical section:
+  - Lower vs Upper Blackrock Spire;
+  - Stratholme Undead/Service side;
+  - Dire Maul East, West, and North.
+- Tracked effects are automatically removed and timed effects cancelled when the controlling player leaves the profile's allowed instance/wing.
+- Grouped players prepare only controlled bots in the same group/raid.
+- Ungrouped players can only prepare eligible controlled bots already inside the same valid instance scope.
+
+#### Exact level-scaled dungeon preparation
+
+- Added exact-number generic profiles from **1 to 54** rather than fixed 10-level brackets.
+- Each bot's effective consumable level is the minimum of:
+  - requested command level;
+  - the bot's actual level;
+  - the dungeon's LFG/target-level cap;
+  - level 54.
+- Buff progression inherits the strongest previously unlocked option until a better one becomes legal.
+- Added role/spec-aware elixir progression for:
+  - tanks;
+  - Strength melee;
+  - Agility melee/hunters;
+  - healers;
+  - casters.
+- Added school-specific caster handling:
+  - Shadow Power for Shadow-oriented specs;
+  - Frost Power for Frost Mage;
+  - Firepower/Greater Firepower for Fire Mage and Destruction Warlock;
+  - general Arcane elixirs for Arcane/Elemental/Balance-style casters.
+- Added role-appropriate scrolls.
+- Scrolls are cleanup-tracked without missing-aura warnings because normal class buffs may replace them.
+- Added level-scaled buff food.
+- Added level-scaled healing potion stacks and mana potion stacks for mana users.
+
+#### Named dungeon profiles
+
+- **Maraudon** — adds Nature Protection.
+- **Sunken Temple** — adds Nature Protection.
+- **Blackrock Depths** — adds Fire Protection.
+- **Scholomance** — adds Shadow Protection.
+- **Stratholme Undead** — adds Shadow Protection and is restricted to the Service/Undead side.
+- **Dire Maul** — automatically detects:
+  - East: Nature Protection;
+  - West: Shadow Protection;
+  - North: enhanced endgame inventory support.
+- **Lower Blackrock Spire** — standard endgame dungeon package.
+- **Upper Blackrock Spire** — restricted to the Upper Spire section and receives a stronger package plus Fire Protection.
+- Named dungeon protection effects automatically select the strongest level-valid normal/Greater protection version.
+- Dungeon profiles do not create raid class reagents.
+
+#### Molten Core raid preparation
+
+- Keeps the larger class/spec-specific Molten Core profile.
+- Applies long-duration consumable effects directly as auras.
+- Supplies Vanilla-sized usable inventory consumables rather than later-expansion maximum stacks.
 - Automatically supplies **Cache of Mau'ari** when Juju effects require it.
-- Supplies weapon consumables according to equipped weapon type, including sharpening stones and weightstones.
-- Supports class/spec weapon consumables such as caster oils and Rogue poisons where appropriate.
+- Supplies sharpening stones or weightstones according to equipped weapon type.
+- Supports class/spec weapon oils and Rogue poisons where appropriate.
 - Supports Hunter pet consumable preparation when an active pet is available.
 - Supports Alliance and Horde controlled bots.
-- When the controlling player is grouped/raiding, only controlled bots in the same group are prepared.
-- When the controlling player is not grouped, controlled bots currently in the world are eligible.
-- Added consumable-aura tracking and missing/expired buff warnings.
-- Rerunning the Molten Core command refreshes the tracked preparation set.
-- Added status reporting for prepared bots, applied auras, supplied items, supplied Cache of Mau'ari items, skipped pet buffs, unsupported bots, and failures.
-- Warrior Arms intentionally uses the Warrior DPS/Fury preparation profile.
-- Added Greater Stoneshield handling for tank-oriented profiles.
-- Added Dense Weightstone handling for blunt Warrior weapons.
-- Current intentional exclusions:
-  - Protection Paladin has no automatic Classic Molten Core profile yet.
-  - Death Knight has no Molten Core profile because the class did not exist in Vanilla.
-- Registered the new system through `NaxxramasCore_loader.cpp`.
+- Warrior Arms uses the Warrior DPS/Fury preparation profile.
+- Protection Paladin remains intentionally unsupported by the Molten Core profile.
+- Death Knight remains unsupported by Classic profiles.
+
+#### Raid-only class reagents
+
+- Added top-up-only raid reagent preparation.
+- Existing quantities are never reduced or replaced; only the missing amount is added.
+- Added Vanilla-style targets:
+  - Druid: Ironwood Seed ×20; Wild Thornroot ×20.
+  - Mage: Rune of Teleportation ×10; Rune of Portals ×10; Arcane Powder ×20; Light Feather ×20.
+  - Paladin: Symbol of Kings ×100; Symbol of Divinity ×5.
+  - Priest: Sacred Candle ×20; Light Feather ×20.
+  - Rogue: Flash Powder ×20; Blinding Powder ×20.
+  - Shaman: Ankh ×5; elemental totems ensured; Shiny Fish Scales ×20; Fish Oil ×20.
+  - Warlock: Soul Shard reserve ×5.
+- Raid reagent top-ups are not used by dungeon or generic level profiles.
+
+#### Vanilla inventory quantities
+
+- Replaced generic WotLK max-stack top-ups with explicit Vanilla-era targets for supplied raid consumables.
+- Major healing/mana potions and Limited Invulnerability Potions target stacks of 5.
+- Heavy Runecloth Bandages, sharpening/weightstones, and Rogue poisons target stacks of 20.
+- Brilliant Wizard/Mana Oil targets one charged oil item.
+- Generic dungeon healing/mana potions also target Vanilla stacks of 5.
+
+#### Juju and tracker improvements
+
+- Added timed Juju Flurry handling:
+  - application 1 immediately;
+  - application 2 at +60 seconds;
+  - application 3 at +120 seconds;
+  - then stop.
+- Juju Flurry no longer creates false missing-buff warnings during its normal downtime.
+- Juju Escape is treated as a one-use tactical effect without normal-expiry warnings.
+- Timed Juju sequences stop when the profile is cleared or the controlling player leaves the valid instance.
+- Short Greater Stoneshield expiries no longer create normal missing-buff warnings.
+- Removed conflicting/redundant Warrior Molten Core combinations involving Rumsey Rum Black Label and Elixir of Giants where the stronger selected effects already cover those roles.
+- `.bot consumables status` now reports tracked auras and active timed consumable sequences.
 
 ### Honor Overflow
 
