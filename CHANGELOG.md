@@ -29,8 +29,9 @@
   - Stratholme Undead/Service side;
   - Dire Maul East, West, and North.
 - Tracked effects are automatically removed and timed effects cancelled when the controlling player leaves the profile's allowed instance/wing.
-- Grouped players prepare only controlled bots in the same group/raid.
-- Ungrouped players can only prepare eligible controlled bots already inside the same valid instance scope.
+- Grouped players can prepare both personally controlled alt/account bots and random Playerbots in the same group/raid.
+- Random Playerbots are never processed globally and must be grouped with the player.
+- Ungrouped players can only prepare eligible personally controlled alt/account bots already inside the same valid instance scope.
 
 #### Exact level-scaled dungeon preparation
 
