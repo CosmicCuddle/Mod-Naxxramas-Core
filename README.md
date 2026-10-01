@@ -218,8 +218,9 @@ Consumable profiles are instance-scoped.
 - Named shared-map profiles also validate the correct wing/section.
 - Tracked aura effects are cleared automatically when the controlling player leaves the allowed instance/wing.
 - Controlled bots must also be physically inside the required instance/wing before they are prepared.
-- If the controlling player is grouped/raiding, only controlled bots in that group are prepared.
-- If the controlling player is not grouped, only eligible controlled bots inside the same valid instance scope are prepared.
+- If the controlling player is grouped/raiding, eligible alt/account bots and random Playerbots in that same group are prepared.
+- Random Playerbots are never swept globally; they must be explicitly grouped/raided with the player.
+- If the controlling player is not grouped, only eligible personally controlled alt/account bots inside the same valid instance scope are prepared.
 
 #### Level-scaled dungeon profile — `.bot consumables 1-54`
 
