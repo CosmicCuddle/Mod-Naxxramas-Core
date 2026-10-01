@@ -35,6 +35,7 @@
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotMgr.h"
+#include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "WorldSession.h"
@@ -2580,6 +2581,38 @@ void PrepareManaUser(
                 54));
     }
 
+    bool RandomBotIsInPreparationScope(
+        Player* master,
+        Player* bot)
+    {
+        // Random bots are never swept globally. They are eligible
+        // only while explicitly grouped/raided with the player.
+        return master &&
+            master->GetGroup() &&
+            bot &&
+            bot->IsInWorld() &&
+            bot->GetGroup() ==
+                master->GetGroup();
+    }
+
+    Player* ResolvePreparedBot(
+        PlayerbotMgr* manager,
+        ObjectGuid::LowType botGuid)
+    {
+        if (manager)
+        {
+            if (Player* bot =
+                    manager->GetPlayerBot(
+                        botGuid))
+            {
+                return bot;
+            }
+        }
+
+        return sRandomPlayerbotMgr.
+            GetPlayerBot(botGuid);
+    }
+
     // =========================================================
     // Timed consumable effects
     // =========================================================
@@ -2618,7 +2651,8 @@ void PrepareManaUser(
             }
 
             Player* bot =
-                manager->GetPlayerBot(
+                ResolvePreparedBot(
+                    manager,
                     timed.BotGuid);
 
             // A bot that is temporarily unavailable, dead, or no
@@ -2693,7 +2727,8 @@ void PrepareManaUser(
             return nullptr;
 
         Player* bot =
-            manager->GetPlayerBot(
+            ResolvePreparedBot(
+                manager,
                 tracked.BotGuid);
 
         if (!bot ||
@@ -2885,7 +2920,8 @@ void PrepareManaUser(
              tracker.TimedAuras)
         {
             Player* bot =
-                manager->GetPlayerBot(
+                ResolvePreparedBot(
+                    manager,
                     timed.BotGuid);
 
             if (!bot ||
@@ -3196,10 +3232,49 @@ public:
                 stats);
         }
 
+        if (master->GetGroup())
+        {
+            for (PlayerBotMap::const_iterator itr =
+                     sRandomPlayerbotMgr.
+                         GetPlayerBotsBegin();
+                 itr !=
+                     sRandomPlayerbotMgr.
+                         GetPlayerBotsEnd();
+                 ++itr)
+            {
+                Player* bot = itr->second;
+
+                if (!RandomBotIsInPreparationScope(
+                        master,
+                        bot) ||
+                    !IsProfileLocationValid(
+                        bot,
+                        MAP_MOLTEN_CORE,
+                        ProfileArea::Any))
+                {
+                    continue;
+                }
+
+                // Avoid a duplicate if a bot is somehow visible
+                // through both holders.
+                if (manager->GetPlayerBot(
+                        bot->GetGUID().
+                            GetCounter()))
+                {
+                    continue;
+                }
+
+                PrepareMoltenCoreBot(
+                    bot,
+                    tracker,
+                    stats);
+            }
+        }
+
         if (stats.BotsPrepared == 0)
         {
             handler->SendSysMessage(
-                "[Bot Consumables] No supported controlled bots were found in your current group/raid.");
+                "[Bot Consumables] No supported grouped/controlled bots were found in your current group/raid.");
             return true;
         }
 
@@ -3283,10 +3358,55 @@ public:
                 stats);
         }
 
+        if (master->GetGroup())
+        {
+            for (PlayerBotMap::const_iterator itr =
+                     sRandomPlayerbotMgr.
+                         GetPlayerBotsBegin();
+                 itr !=
+                     sRandomPlayerbotMgr.
+                         GetPlayerBotsEnd();
+                 ++itr)
+            {
+                Player* bot = itr->second;
+
+                if (!RandomBotIsInPreparationScope(
+                        master,
+                        bot) ||
+                    bot->GetMapId() !=
+                        master->GetMapId())
+                {
+                    continue;
+                }
+
+                if (manager->GetPlayerBot(
+                        bot->GetGUID().
+                            GetCounter()))
+                {
+                    continue;
+                }
+
+                uint32 effectiveLevel =
+                    std::min<uint32>(
+                        requestedLevel,
+                        std::min<uint32>(
+                            bot->GetLevel(),
+                            dungeonCap));
+
+                PrepareDungeonBot(
+                    bot,
+                    effectiveLevel,
+                    ProtectionSchool::None,
+                    false,
+                    tracker,
+                    stats);
+            }
+        }
+
         if (stats.BotsPrepared == 0)
         {
             handler->SendSysMessage(
-                "[Bot Consumables] No supported controlled bots were found in this dungeon.");
+                "[Bot Consumables] No supported grouped/controlled bots were found in this dungeon.");
             return true;
         }
 
@@ -3527,10 +3647,55 @@ public:
                 stats);
         }
 
+        if (master->GetGroup())
+        {
+            for (PlayerBotMap::const_iterator itr =
+                     sRandomPlayerbotMgr.
+                         GetPlayerBotsBegin();
+                 itr !=
+                     sRandomPlayerbotMgr.
+                         GetPlayerBotsEnd();
+                 ++itr)
+            {
+                Player* bot = itr->second;
+
+                if (!RandomBotIsInPreparationScope(
+                        master,
+                        bot) ||
+                    !IsProfileLocationValid(
+                        bot,
+                        mapId,
+                        area))
+                {
+                    continue;
+                }
+
+                if (manager->GetPlayerBot(
+                        bot->GetGUID().
+                            GetCounter()))
+                {
+                    continue;
+                }
+
+                uint32 effectiveLevel =
+                    std::min<uint32>(
+                        bot->GetLevel(),
+                        levelCap);
+
+                PrepareDungeonBot(
+                    bot,
+                    effectiveLevel,
+                    protection,
+                    enhanced,
+                    tracker,
+                    stats);
+            }
+        }
+
         if (stats.BotsPrepared == 0)
         {
             handler->SendSysMessage(
-                "[Bot Consumables] No supported controlled bots were found in this dungeon/wing.");
+                "[Bot Consumables] No supported grouped/controlled bots were found in this dungeon/wing.");
             return true;
         }
 
