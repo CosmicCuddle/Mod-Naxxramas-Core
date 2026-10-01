@@ -164,12 +164,26 @@ namespace
         bool MissingNotified = false;
     };
 
+    struct TimedAura
+    {
+        ObjectGuid::LowType BotGuid = 0;
+        uint32 SpellId = 0;
+
+        std::string BotName;
+        std::string AuraName;
+
+        uint32 ApplicationsUsed = 0;
+        uint32 MaxApplications = 0;
+        uint32 NextApplicationTimer = 0;
+    };
+
     struct RaidConsumableTracker
     {
         std::string Profile;
         uint32 UpdateTimer = 0;
 
         std::vector<TrackedAura> Auras;
+        std::vector<TimedAura> TimedAuras;
     };
 
     struct PreparationStats
@@ -424,6 +438,107 @@ namespace
             isPetAura,
             tracker,
             stats);
+    }
+
+    void ApplyJujuUntracked(
+        Player* bot,
+        Unit* target,
+        uint32 jujuItemId,
+        PreparationStats& stats)
+    {
+        if (!bot ||
+            !target ||
+            !EnsureCacheOfMauari(
+                bot,
+                stats))
+        {
+            return;
+        }
+
+        uint32 spellId =
+            GetItemUseSpell(
+                jujuItemId);
+
+        if (!spellId)
+        {
+            ++stats.AuraFailures;
+            return;
+        }
+
+        target->RemoveAurasDueToSpell(
+            spellId);
+
+        if (!bot->AddAura(
+                spellId,
+                target))
+        {
+            ++stats.AuraFailures;
+            return;
+        }
+
+        ++stats.AurasApplied;
+    }
+
+    void ApplyTimedJujuFlurry(
+        Player* bot,
+        RaidConsumableTracker& tracker,
+        PreparationStats& stats)
+    {
+        if (!bot ||
+            !EnsureCacheOfMauari(
+                bot,
+                stats))
+        {
+            return;
+        }
+
+        uint32 spellId =
+            GetItemUseSpell(
+                ITEM_JUJU_FLURRY);
+
+        if (!spellId)
+        {
+            ++stats.AuraFailures;
+            return;
+        }
+
+        bot->RemoveAurasDueToSpell(
+            spellId);
+
+        if (!bot->AddAura(
+                spellId,
+                bot))
+        {
+            ++stats.AuraFailures;
+            return;
+        }
+
+        TimedAura timed;
+
+        timed.BotGuid =
+            bot->GetGUID().
+                GetCounter();
+
+        timed.SpellId =
+            spellId;
+
+        timed.BotName =
+            bot->GetName();
+
+        timed.AuraName =
+            "Juju Flurry";
+
+        // Application 1 happens immediately.
+        // Applications 2 and 3 happen at 60-second intervals.
+        timed.ApplicationsUsed = 1;
+        timed.MaxApplications = 3;
+        timed.NextApplicationTimer =
+            60 * IN_MILLISECONDS;
+
+        tracker.TimedAuras.push_back(
+            timed);
+
+        ++stats.AurasApplied;
     }
 
     // =========================================================
@@ -712,11 +827,11 @@ void PrepareManaUser(
             "Juju Might",
             false, tracker, stats);
 
-        ApplyJuju(
-            bot, bot,
+        ApplyJujuUntracked(
+            bot,
+            bot,
             ITEM_JUJU_ESCAPE,
-            "Juju Escape",
-            false, tracker, stats);
+            stats);
 
         SupplyWeaponConsumables(
             bot,
@@ -775,11 +890,10 @@ void PrepareManaUser(
             "Juju Might",
             false, tracker, stats);
 
-        ApplyJuju(
-            bot, bot,
-            ITEM_JUJU_FLURRY,
-            "Juju Flurry",
-            false, tracker, stats);
+        ApplyTimedJujuFlurry(
+            bot,
+            tracker,
+            stats);
 
         SupplyWeaponConsumables(
             bot,
@@ -868,11 +982,10 @@ void PrepareManaUser(
             "Juju Might",
             false, tracker, stats);
 
-        ApplyJuju(
-            bot, bot,
-            ITEM_JUJU_FLURRY,
-            "Juju Flurry",
-            false, tracker, stats);
+        ApplyTimedJujuFlurry(
+            bot,
+            tracker,
+            stats);
 
         SupplyWeaponConsumables(
             bot,
@@ -969,11 +1082,10 @@ void PrepareManaUser(
             "Juju Might",
             false, tracker, stats);
 
-        ApplyJuju(
-            bot, bot,
-            ITEM_JUJU_FLURRY,
-            "Juju Flurry",
-            false, tracker, stats);
+        ApplyTimedJujuFlurry(
+            bot,
+            tracker,
+            stats);
 
         TopUpOneStack(
             bot,
@@ -1472,6 +1584,99 @@ void PrepareManaUser(
     }
 
     // =========================================================
+    // Timed consumable effects
+    // =========================================================
+
+    void ProcessTimedAuras(
+        Player* master,
+        RaidConsumableTracker& tracker,
+        uint32 diff)
+    {
+        if (!master)
+            return;
+
+        PlayerbotMgr* manager =
+            PlayerbotsMgr::instance().
+                GetPlayerbotMgr(master);
+
+        if (!manager)
+            return;
+
+        for (TimedAura& timed :
+             tracker.TimedAuras)
+        {
+            if (timed.ApplicationsUsed >=
+                timed.MaxApplications)
+            {
+                continue;
+            }
+
+            if (timed.NextApplicationTimer >
+                diff)
+            {
+                timed.NextApplicationTimer -=
+                    diff;
+
+                continue;
+            }
+
+            Player* bot =
+                manager->GetPlayerBot(
+                    timed.BotGuid);
+
+            // A bot that is temporarily unavailable, dead, or no
+            // longer in the master's preparation scope is retried
+            // shortly instead of consuming one of the three uses.
+            if (!bot ||
+                !bot->IsInWorld() ||
+                !bot->IsAlive() ||
+                !BotIsInPreparationScope(
+                    master,
+                    bot))
+            {
+                timed.NextApplicationTimer =
+                    5 * IN_MILLISECONDS;
+
+                continue;
+            }
+
+            // Do not duplicate the aura if another source has
+            // already restored it. Retry shortly after it ends.
+            if (bot->HasAura(
+                    timed.SpellId))
+            {
+                timed.NextApplicationTimer =
+                    5 * IN_MILLISECONDS;
+
+                continue;
+            }
+
+            if (!bot->AddAura(
+                    timed.SpellId,
+                    bot))
+            {
+                timed.NextApplicationTimer =
+                    5 * IN_MILLISECONDS;
+
+                continue;
+            }
+
+            ++timed.ApplicationsUsed;
+
+            if (timed.ApplicationsUsed <
+                timed.MaxApplications)
+            {
+                timed.NextApplicationTimer =
+                    60 * IN_MILLISECONDS;
+            }
+            else
+            {
+                timed.NextApplicationTimer = 0;
+            }
+        }
+    }
+
+    // =========================================================
     // Tracker checks
     // =========================================================
 
@@ -1664,6 +1869,25 @@ void PrepareManaUser(
             target->RemoveAurasDueToSpell(
                 tracked.SpellId);
         }
+
+        for (TimedAura const& timed :
+             tracker.TimedAuras)
+        {
+            Player* bot =
+                manager->GetPlayerBot(
+                    timed.BotGuid);
+
+            if (!bot ||
+                !bot->IsInWorld())
+            {
+                continue;
+            }
+
+            bot->RemoveAurasDueToSpell(
+                timed.SpellId);
+        }
+
+        tracker.TimedAuras.clear();
     }
 }
 
@@ -1768,6 +1992,7 @@ public:
         tracker.Profile = "mc";
         tracker.UpdateTimer = 0;
         tracker.Auras.clear();
+        tracker.TimedAuras.clear();
 
         PreparationStats stats;
 
@@ -1894,6 +2119,25 @@ public:
             "{} consumable auras are being tracked.",
             tracker.Auras.size());
 
+        uint32 timedActive = 0;
+
+        for (TimedAura const& timed :
+             tracker.TimedAuras)
+        {
+            if (timed.ApplicationsUsed <
+                timed.MaxApplications)
+            {
+                ++timedActive;
+            }
+        }
+
+        if (timedActive > 0)
+        {
+            handler->PSendSysMessage(
+                "{} timed consumable sequence(s) are still active.",
+                timedActive);
+        }
+
         if (missing == 0)
         {
             handler->SendSysMessage(
@@ -1997,6 +2241,11 @@ public:
 
         RaidConsumableTracker& tracker =
             itr->second;
+
+        ProcessTimedAuras(
+            player,
+            tracker,
+            diff);
 
         tracker.UpdateTimer += diff;
 
