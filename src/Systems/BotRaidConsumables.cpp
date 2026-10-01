@@ -3190,7 +3190,11 @@ public:
 
             if (!BotIsInPreparationScope(
                     master,
-                    bot))
+                    bot) ||
+                !IsProfileLocationValid(
+                    bot,
+                    MAP_MOLTEN_CORE,
+                    ProfileArea::Any))
             {
                 continue;
             }
