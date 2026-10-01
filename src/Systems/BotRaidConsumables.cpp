@@ -79,6 +79,7 @@ namespace
     constexpr uint32 ITEM_ARCANE_POWDER = 17020;
     constexpr uint32 ITEM_LIGHT_FEATHER = 17056;
     constexpr uint32 ITEM_SYMBOL_OF_KINGS = 21177;
+    constexpr uint32 ITEM_SYMBOL_OF_DIVINITY = 17033;
     constexpr uint32 ITEM_SACRED_CANDLE = 17029;
     constexpr uint32 ITEM_EARTH_TOTEM = 5175;
     constexpr uint32 ITEM_FIRE_TOTEM = 5176;
@@ -834,6 +835,7 @@ namespace
                 break;
             case CLASS_PALADIN:
                 topUp(ITEM_SYMBOL_OF_KINGS, 100);
+                topUp(ITEM_SYMBOL_OF_DIVINITY, 5);
                 break;
             case CLASS_PRIEST:
                 topUp(ITEM_SACRED_CANDLE, 20);
@@ -848,7 +850,7 @@ namespace
                 topUp(ITEM_FIRE_TOTEM, 1);
                 topUp(ITEM_WATER_TOTEM, 1);
                 topUp(ITEM_AIR_TOTEM, 1);
-                topUp(ITEM_ANKH, 10);
+                topUp(ITEM_ANKH, 5);
                 topUp(ITEM_SHINY_FISH_SCALES, 20);
                 topUp(ITEM_FISH_OIL, 20);
                 break;
@@ -1449,7 +1451,7 @@ void PrepareManaUser(
             bot, bot,
             ITEM_GREATER_STONESHIELD_POTION,
             "Greater Stoneshield",
-            false, tracker, stats);
+            false, tracker, stats, false);
 
         ApplyBlessedSunfruit(
             bot,
