@@ -56,15 +56,6 @@ namespace
 
     constexpr uint32 AURA_CHECK_INTERVAL = 10 * IN_MILLISECONDS;
 
-    constexpr uint32 MAP_SUNKEN_TEMPLE = 109;
-    constexpr uint32 MAP_BLACKROCK_SPIRE = 229;
-    constexpr uint32 MAP_BLACKROCK_DEPTHS = 230;
-    constexpr uint32 MAP_SCHOLOMANCE = 289;
-    constexpr uint32 MAP_STRATHOLME = 329;
-    constexpr uint32 MAP_MARAUDON = 349;
-    constexpr uint32 MAP_MOLTEN_CORE = 409;
-    constexpr uint32 MAP_DIRE_MAUL = 429;
-
     // =========================================================
     // Important prerequisite items
     // =========================================================
