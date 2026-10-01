@@ -183,58 +183,197 @@ NaxxramasCore.ForcedPvP.Notify
 - Normal player-to-player mail rules remain unchanged.
 - GM/customer-support mail, returned mail, COD payments, invalid mail, and self-mail are excluded.
 
-### Playerbot raid consumables
+### Playerbot instance consumables
 
-The module contains a Playerbot raid-preparation system. The first profile is **Molten Core**.
+The module contains an instance-scoped Playerbot consumables system for Classic-era raids and dungeons.
 
-Commands available to normal players:
+All consumable commands are available to normal players through:
 
 ```text
+.bot consumables <profile>
+```
+
+Available profiles:
+
+```text
+.bot consumables 1-54
+.bot consumables mara
+.bot consumables sunken
+.bot consumables brd
+.bot consumables scholo
+.bot consumables stratud
+.bot consumables dm
+.bot consumables lbrs
+.bot consumables ubrs
 .bot consumables mc
 .bot consumables status
 .bot consumables clear
 ```
 
-#### `.bot consumables mc`
+#### Instance safety
 
-Prepares supported controlled bots for Molten Core.
+Consumable profiles are instance-scoped.
 
-- If the player is in a group/raid, only controlled bots in that same group are prepared.
-- If the player is not grouped, controlled bots currently in the world are eligible.
-- Applies long-duration consumable effects directly as auras.
-- Refreshes tracked consumable auras when the command is rerun.
-- Tops usable inventory consumables up to one native maximum stack.
-- Supplies **Cache of Mau'ari** when Juju effects require it.
-- Supplies sharpening stones or weightstones according to equipped weapon type.
-- Supplies class/spec-appropriate weapon oils or Rogue poisons where required.
-- Supports Hunter pet consumable preparation when an active pet is present.
-- Supports both Alliance and Horde bots.
-- Tracks applied raid-consumable auras and warns the controlling player when tracked buffs disappear or expire.
+- Raid/dungeon profiles can only be started while the controlling player is physically inside the correct instance.
+- Named shared-map profiles also validate the correct wing/section.
+- Tracked aura effects are cleared automatically when the controlling player leaves the allowed instance/wing.
+- Controlled bots must also be physically inside the required instance/wing before they are prepared.
+- If the controlling player is grouped/raiding, only controlled bots in that group are prepared.
+- If the controlling player is not grouped, only eligible controlled bots inside the same valid instance scope are prepared.
 
-Supported Vanilla classes/spec families include:
+#### Level-scaled dungeon profile — `.bot consumables 1-54`
+
+A whole number from **1 through 54** can be supplied directly. For example:
+
+```text
+.bot consumables 14
+.bot consumables 37
+.bot consumables 52
+.bot consumables 54
+```
+
+The system does not use fixed 10-level brackets. It calculates an individual effective level for each bot:
+
+```text
+minimum of:
+- requested command level
+- bot's actual level
+- dungeon's LFG/target level cap
+- 54
+```
+
+This means a level-34 bot never receives a level-40-only consumable because the player typed `.bot consumables 40`. Likewise, using `.bot consumables 54` in a low-level dungeon is reduced by that dungeon's target-level cap.
+
+The generic profile supplies a deliberately modest package:
+
+- one role/spec-appropriate elixir;
+- one appropriate buff-food effect;
+- one role-appropriate scroll;
+- one Vanilla-sized stack of the best level-appropriate healing potion;
+- one Vanilla-sized stack of the best level-appropriate mana potion for mana users.
+
+The system keeps using the strongest already-unlocked option until a better one becomes legal; gaps between unlock levels do **not** mean the bot receives no buff.
+
+Caster elixirs are spec-aware:
+
+- Shadow Priest and Affliction/Demonology Warlock prefer **Elixir of Shadow Power** when level-appropriate.
+- Frost Mage prefers **Elixir of Frost Power**.
+- Fire Mage and Destruction Warlock prefer **Firepower / Greater Firepower**.
+- Arcane Mage, Elemental Shaman, and Balance Druid use the general Arcane-elixir path.
+- Healers use Intellect/Sages-style support instead of school-damage elixirs.
+
+Scrolls are role-specific and are tracked for cleanup without generating false expiry warnings when a normal class buff replaces them.
+
+#### Named dungeon profiles
+
+Named profiles add a dungeon-specific protection effect on top of the normal class/spec package.
+
+| Command | Allowed location | Specialist treatment |
+|---|---|---|
+| `.bot consumables mara` | Maraudon | Nature Protection / Greater Nature Protection |
+| `.bot consumables sunken` | Sunken Temple | Nature Protection / Greater Nature Protection |
+| `.bot consumables brd` | Blackrock Depths | Fire Protection / Greater Fire Protection |
+| `.bot consumables scholo` | Scholomance | Shadow Protection / Greater Shadow Protection |
+| `.bot consumables stratud` | Stratholme Undead/Service side | Shadow Protection / Greater Shadow Protection |
+| `.bot consumables dm` | Dire Maul | Automatically detects East, West, or North |
+| `.bot consumables lbrs` | Lower Blackrock Spire section | Standard endgame-dungeon package |
+| `.bot consumables ubrs` | Upper Blackrock Spire section | Stronger package + Fire Protection |
+
+Dire Maul automatically adapts by wing:
+
+- **East** — Nature Protection.
+- **West** — Shadow Protection.
+- **North** — stronger physical/endgame inventory support without forcing an elemental protection potion.
+
+UBRS and Dire Maul North use the enhanced dungeon package, which can additionally supply level-valid bandages, Limited Invulnerability Potions, caster/healer oils, or Rogue poisons as appropriate.
+
+Dungeon profiles do **not** supply raid class reagents.
+
+#### Molten Core — `.bot consumables mc`
+
+The Molten Core profile can only be started on **Map 409 — Molten Core**, and only bots physically inside Molten Core are prepared.
+
+It uses the larger raid package:
+
+- class/spec-appropriate long-duration consumable effects;
+- Greater Fire Protection;
+- Vanilla-sized healing/mana potion stacks;
+- Heavy Runecloth Bandages;
+- Limited Invulnerability Potions;
+- appropriate weapon stones, oils, and Rogue poisons;
+- Cache of Mau'ari when Juju effects are required;
+- Hunter pet Juju support when an active pet is present;
+- raid-only class reagent top-ups.
+
+Raid reagents are **top-up only**. The module never resets or reduces an existing amount. If a target is 20 and the bot already owns 19, exactly 1 is added.
+
+Current Vanilla-style raid reagent targets include:
+
+| Class | Raid reagent target |
+|---|---|
+| Druid | Ironwood Seed ×20; Wild Thornroot ×20 |
+| Mage | Rune of Teleportation ×10; Rune of Portals ×10; Arcane Powder ×20; Light Feather ×20 |
+| Paladin | Symbol of Kings ×100; Symbol of Divinity ×5 |
+| Priest | Sacred Candle ×20; Light Feather ×20 |
+| Rogue | Flash Powder ×20; Blinding Powder ×20 |
+| Shaman | Ankh ×5; elemental totems ensured; Shiny Fish Scales ×20; Fish Oil ×20 |
+| Warlock | Soul Shard reserve ×5 |
+| Warrior / Hunter | no class reagent top-up |
+
+The raid reagent logic is used only by raid profiles.
+
+#### Vanilla inventory stack targets
+
+Although the server runs AzerothCore WotLK 3.3.5a, this system deliberately uses Classic/Vanilla-sized inventory targets for the consumables it supplies rather than blindly using later-expansion stack sizes.
+
+For example:
+
+- healing and mana potions — 5;
+- Limited Invulnerability Potion — 5;
+- Heavy Runecloth Bandage — 20;
+- sharpening/weightstones — 20;
+- Rogue poisons — 20;
+- Brilliant weapon oils — one charged oil item.
+
+Existing quantities are respected. The system only adds the missing difference.
+
+#### Juju behaviour
+
+- **Juju Power** — normal tracked raid aura.
+- **Juju Might** — normal tracked raid aura.
+- **Juju Escape** — one tactical application; its natural expiry does not generate a missing-buff warning.
+- **Juju Flurry** — three total applications:
+  - immediately when `.bot consumables mc` is run;
+  - again after 60 seconds;
+  - a third time after another 60 seconds;
+  - then stops.
+
+Juju Flurry's normal gaps do not create missing-buff warnings. `.bot consumables clear`, leaving Molten Core, or replacing the active profile cancels the timed sequence.
+
+Supported Classic class/spec families include:
 
 - Warrior — Protection and DPS; Arms uses the Warrior DPS profile.
-- Paladin — Holy and Retribution.
+- Paladin — dungeon profiles support Holy, Protection, and Retribution; Molten Core currently supports Holy and Retribution.
 - Hunter.
 - Rogue.
 - Priest — healing and Shadow.
 - Shaman — Restoration, Elemental, and Enhancement.
-- Mage — including Frost-specific consumable handling.
-- Warlock.
+- Mage — Arcane, Fire, and Frost handling.
+- Warlock — Affliction/Demonology Shadow handling and Destruction Fire handling.
 - Druid — Restoration, Balance, Feral tank, and Feral DPS.
 
-Current intentional exclusions:
+Current Molten Core exclusions:
 
 - **Protection Paladin** — no automatic Classic Molten Core profile yet.
-- **Death Knight** — no Molten Core profile because the class did not exist in Vanilla.
+- **Death Knight** — no Classic profile because the class did not exist in Vanilla.
 
 #### `.bot consumables status`
 
-Shows the active tracked consumable profile and reports missing tracked auras.
+Shows the active profile, tracked aura count, missing warning-enabled auras, and active timed consumable sequences.
 
 #### `.bot consumables clear`
 
-Removes the consumable auras tracked by this system and clears its tracking state.
+Removes effects tracked by this system and cancels timed sequences.
 
 ## Dependencies and integrations
 
@@ -363,6 +502,6 @@ See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) before deploying talent
 
 - AzerothCore WotLK 3.3.5a
 - Naxxramas Core patch line: **1.0.6.8.4**
-- Current Playerbot raid-consumables code expects Playerbots support.
+- Current Playerbot consumables code expects Playerbots support.
 - Touch of the Grave contains Individual Progression compensation.
 - DBC-dependent features require matching server/client DBC data.
