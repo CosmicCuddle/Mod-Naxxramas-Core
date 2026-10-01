@@ -26,6 +26,7 @@
 #include "AiFactory.h"
 #include "Chat.h"
 #include "CommandScript.h"
+#include "DBCStores.h"
 #include "Item.h"
 #include "ItemTemplate.h"
 #include "Map.h"
@@ -39,6 +40,8 @@
 #include "WorldSession.h"
 
 #include <algorithm>
+#include <cctype>
+#include <initializer_list>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -53,7 +56,14 @@ namespace
 
     constexpr uint32 AURA_CHECK_INTERVAL = 10 * IN_MILLISECONDS;
 
+    constexpr uint32 MAP_SUNKEN_TEMPLE = 109;
+    constexpr uint32 MAP_BLACKROCK_SPIRE = 229;
+    constexpr uint32 MAP_BLACKROCK_DEPTHS = 230;
+    constexpr uint32 MAP_SCHOLOMANCE = 289;
+    constexpr uint32 MAP_STRATHOLME = 329;
+    constexpr uint32 MAP_MARAUDON = 349;
     constexpr uint32 MAP_MOLTEN_CORE = 409;
+    constexpr uint32 MAP_DIRE_MAUL = 429;
 
     // =========================================================
     // Important prerequisite items
@@ -85,8 +95,20 @@ namespace
     // General inventory consumables
     // =========================================================
 
+    constexpr uint32 ITEM_MINOR_HEALING_POTION = 118;
+    constexpr uint32 ITEM_LESSER_HEALING_POTION = 858;
+    constexpr uint32 ITEM_HEALING_POTION = 929;
+    constexpr uint32 ITEM_GREATER_HEALING_POTION = 1710;
+    constexpr uint32 ITEM_SUPERIOR_HEALING_POTION = 3928;
     constexpr uint32 ITEM_MAJOR_HEALING_POTION = 13446;
+
+    constexpr uint32 ITEM_MINOR_MANA_POTION = 2455;
+    constexpr uint32 ITEM_LESSER_MANA_POTION = 3385;
+    constexpr uint32 ITEM_MANA_POTION = 3827;
+    constexpr uint32 ITEM_GREATER_MANA_POTION = 6149;
+    constexpr uint32 ITEM_SUPERIOR_MANA_POTION = 13443;
     constexpr uint32 ITEM_MAJOR_MANA_POTION = 13444;
+
     constexpr uint32 ITEM_HEAVY_RUNECLOTH_BANDAGE = 14530;
     constexpr uint32 ITEM_LIMITED_INVULNERABILITY_POTION = 3387;
 
@@ -119,23 +141,43 @@ namespace
     constexpr uint32 ITEM_FLASK_OF_SUPREME_POWER = 13512;
 
     constexpr uint32 ITEM_ELIXIR_OF_THE_MONGOOSE = 13452;
+    constexpr uint32 ITEM_ELIXIR_OF_GREATER_AGILITY = 9187;
+    constexpr uint32 ITEM_ELIXIR_OF_AGILITY = 8949;
+    constexpr uint32 ITEM_ELIXIR_OF_LESSER_AGILITY = 3390;
+    constexpr uint32 ITEM_ELIXIR_OF_MINOR_AGILITY = 2457;
+
+    constexpr uint32 ITEM_ELIXIR_OF_GIANTS = 9206;
+    constexpr uint32 ITEM_ELIXIR_OF_OGRES_STRENGTH = 3391;
+    constexpr uint32 ITEM_ELIXIR_OF_LIONS_STRENGTH = 2454;
+
     constexpr uint32 ITEM_GREATER_ARCANE_ELIXIR = 13454;
+    constexpr uint32 ITEM_ARCANE_ELIXIR = 9155;
     constexpr uint32 ITEM_ELIXIR_OF_THE_SAGES = 13447;
     constexpr uint32 ITEM_ELIXIR_OF_GREATER_INTELLECT = 9179;
+    constexpr uint32 ITEM_ELIXIR_OF_WISDOM = 3383;
 
     constexpr uint32 ITEM_ELIXIR_OF_SHADOW_POWER = 9264;
     constexpr uint32 ITEM_ELIXIR_OF_FROST_POWER = 17708;
+    constexpr uint32 ITEM_ELIXIR_OF_GREATER_FIREPOWER = 21546;
+    constexpr uint32 ITEM_ELIXIR_OF_FIREPOWER = 6373;
 
-    constexpr uint32 ITEM_ELIXIR_OF_GIANTS = 9206;
     constexpr uint32 ITEM_ELIXIR_OF_FORTITUDE = 3825;
     constexpr uint32 ITEM_ELIXIR_OF_SUPERIOR_DEFENSE = 13445;
+    constexpr uint32 ITEM_ELIXIR_OF_GREATER_DEFENSE = 8951;
+    constexpr uint32 ITEM_ELIXIR_OF_DEFENSE = 3389;
+    constexpr uint32 ITEM_ELIXIR_OF_MINOR_FORTITUDE = 2458;
 
     // =========================================================
     // Protection / defensive potion effects
     // Applied as auras rather than supplied as potion items.
     // =========================================================
 
+    constexpr uint32 ITEM_FIRE_PROTECTION_POTION = 6049;
     constexpr uint32 ITEM_GREATER_FIRE_PROTECTION_POTION = 13457;
+    constexpr uint32 ITEM_NATURE_PROTECTION_POTION = 6052;
+    constexpr uint32 ITEM_GREATER_NATURE_PROTECTION_POTION = 13458;
+    constexpr uint32 ITEM_SHADOW_PROTECTION_POTION = 6048;
+    constexpr uint32 ITEM_GREATER_SHADOW_PROTECTION_POTION = 13459;
     constexpr uint32 ITEM_GREATER_STONESHIELD_POTION = 13455;
 
     // =========================================================
@@ -171,9 +213,78 @@ namespace
     constexpr uint32 SPELL_GRILLED_SQUID = 18192;
     constexpr uint32 SPELL_NIGHTFIN_SOUP = 18194;
 
+    constexpr uint32 SPELL_WELL_FED_2 = 19705;
+    constexpr uint32 SPELL_WELL_FED_4 = 19706;
+    constexpr uint32 SPELL_WELL_FED_6 = 19708;
+    constexpr uint32 SPELL_WELL_FED_8 = 19709;
+    constexpr uint32 SPELL_WELL_FED_12 = 19710;
+
+    // Scroll item ranks I-IV.
+    constexpr uint32 ITEM_SCROLL_STRENGTH_I = 954;
+    constexpr uint32 ITEM_SCROLL_STRENGTH_II = 2289;
+    constexpr uint32 ITEM_SCROLL_STRENGTH_III = 4426;
+    constexpr uint32 ITEM_SCROLL_STRENGTH_IV = 10310;
+
+    constexpr uint32 ITEM_SCROLL_AGILITY_I = 3012;
+    constexpr uint32 ITEM_SCROLL_AGILITY_II = 1477;
+    constexpr uint32 ITEM_SCROLL_AGILITY_III = 4425;
+    constexpr uint32 ITEM_SCROLL_AGILITY_IV = 10309;
+
+    constexpr uint32 ITEM_SCROLL_INTELLECT_I = 955;
+    constexpr uint32 ITEM_SCROLL_INTELLECT_II = 2290;
+    constexpr uint32 ITEM_SCROLL_INTELLECT_III = 4419;
+    constexpr uint32 ITEM_SCROLL_INTELLECT_IV = 10308;
+
+    constexpr uint32 ITEM_SCROLL_SPIRIT_I = 1181;
+    constexpr uint32 ITEM_SCROLL_SPIRIT_II = 1712;
+    constexpr uint32 ITEM_SCROLL_SPIRIT_III = 4424;
+    constexpr uint32 ITEM_SCROLL_SPIRIT_IV = 10306;
+
+    constexpr uint32 ITEM_SCROLL_PROTECTION_I = 3013;
+    constexpr uint32 ITEM_SCROLL_PROTECTION_II = 1478;
+    constexpr uint32 ITEM_SCROLL_PROTECTION_III = 4421;
+    constexpr uint32 ITEM_SCROLL_PROTECTION_IV = 10305;
+
     // =========================================================
     // Tracking
     // =========================================================
+
+    enum class ProfileArea : uint8
+    {
+        Any,
+        StratholmeUndead,
+        DireMaulEast,
+        DireMaulWest,
+        DireMaulNorth,
+        BlackrockLower,
+        BlackrockUpper
+    };
+
+    enum class BotConsumableRole : uint8
+    {
+        Unsupported,
+        Tank,
+        StrengthDps,
+        AgilityDps,
+        Healer,
+        Caster
+    };
+
+    enum class CasterSchool : uint8
+    {
+        General,
+        Shadow,
+        Frost,
+        Fire
+    };
+
+    enum class ProtectionSchool : uint8
+    {
+        None,
+        Fire,
+        Nature,
+        Shadow
+    };
 
     struct TrackedAura
     {
@@ -202,6 +313,7 @@ namespace
         std::string Profile;
         uint32 UpdateTimer = 0;
         uint32 RequiredMapId = 0;
+        ProfileArea RequiredArea = ProfileArea::Any;
         std::vector<TrackedAura> Auras;
         std::vector<TimedAura> TimedAuras;
     };
@@ -306,7 +418,17 @@ namespace
     {
         switch (itemId)
         {
+            case ITEM_MINOR_HEALING_POTION:
+            case ITEM_LESSER_HEALING_POTION:
+            case ITEM_HEALING_POTION:
+            case ITEM_GREATER_HEALING_POTION:
+            case ITEM_SUPERIOR_HEALING_POTION:
             case ITEM_MAJOR_HEALING_POTION:
+            case ITEM_MINOR_MANA_POTION:
+            case ITEM_LESSER_MANA_POTION:
+            case ITEM_MANA_POTION:
+            case ITEM_GREATER_MANA_POTION:
+            case ITEM_SUPERIOR_MANA_POTION:
             case ITEM_MAJOR_MANA_POTION:
             case ITEM_LIMITED_INVULNERABILITY_POTION:
                 return 5;
@@ -885,18 +1007,12 @@ void PrepareManaUser(
             bot, bot,
             ITEM_GREATER_STONESHIELD_POTION,
             "Greater Stoneshield",
-            false, tracker, stats);
+            false, tracker, stats, false);
 
         ApplyItemAura(
             bot, bot,
             ITEM_LUNG_JUICE_COCKTAIL,
             "Lung Juice Cocktail",
-            false, tracker, stats);
-
-        ApplyItemAura(
-            bot, bot,
-            ITEM_RUMSEY_RUM_BLACK_LABEL,
-            "Rumsey Rum Black Label",
             false, tracker, stats);
 
         ApplyBlessedSunfruit(
@@ -949,20 +1065,8 @@ void PrepareManaUser(
 
         ApplyItemAura(
             bot, bot,
-            ITEM_ELIXIR_OF_GIANTS,
-            "Elixir of Giants",
-            false, tracker, stats);
-
-        ApplyItemAura(
-            bot, bot,
             ITEM_ROIDS,
             "R.O.I.D.S.",
-            false, tracker, stats);
-
-        ApplyItemAura(
-            bot, bot,
-            ITEM_RUMSEY_RUM_BLACK_LABEL,
-            "Rumsey Rum Black Label",
             false, tracker, stats);
 
         ApplyBlessedSunfruit(
@@ -1406,6 +1510,674 @@ void PrepareManaUser(
     }
 
     // =========================================================
+    // Dungeon consumable helpers
+    // =========================================================
+
+    struct ItemAuraChoice
+    {
+        uint32 ItemId;
+        char const* Name;
+    };
+
+    bool IsItemUsableAtLevel(
+        uint32 itemId,
+        uint32 level)
+    {
+        ItemTemplate const* itemTemplate =
+            sObjectMgr->GetItemTemplate(itemId);
+
+        return itemTemplate &&
+            itemTemplate->RequiredLevel <= level;
+    }
+
+    bool ApplyFirstUsableItemAura(
+        Player* bot,
+        uint32 level,
+        std::initializer_list<ItemAuraChoice> choices,
+        RaidConsumableTracker& tracker,
+        PreparationStats& stats,
+        bool warnOnMissing = true)
+    {
+        for (ItemAuraChoice const& choice : choices)
+        {
+            if (!IsItemUsableAtLevel(
+                    choice.ItemId,
+                    level))
+            {
+                continue;
+            }
+
+            return ApplyItemAura(
+                bot,
+                bot,
+                choice.ItemId,
+                choice.Name,
+                false,
+                tracker,
+                stats,
+                warnOnMissing);
+        }
+
+        return false;
+    }
+
+    uint32 GetFirstUsableItem(
+        uint32 level,
+        std::initializer_list<uint32> choices)
+    {
+        for (uint32 itemId : choices)
+        {
+            if (IsItemUsableAtLevel(
+                    itemId,
+                    level))
+            {
+                return itemId;
+            }
+        }
+
+        return 0;
+    }
+
+    bool ClassUsesMana(Player* bot)
+    {
+        if (!bot)
+            return false;
+
+        return bot->getClass() != CLASS_WARRIOR &&
+            bot->getClass() != CLASS_ROGUE;
+    }
+
+    BotConsumableRole GetBotConsumableRole(
+        Player* bot,
+        CasterSchool& school)
+    {
+        school = CasterSchool::General;
+
+        if (!bot)
+            return BotConsumableRole::Unsupported;
+
+        uint8 spec =
+            AiFactory::GetPlayerSpecTab(bot);
+
+        switch (bot->getClass())
+        {
+            case CLASS_WARRIOR:
+                return (spec == WARRIOR_TAB_PROTECTION ||
+                        PlayerbotAI::IsTank(bot))
+                    ? BotConsumableRole::Tank
+                    : BotConsumableRole::StrengthDps;
+
+            case CLASS_PALADIN:
+                if (spec == PALADIN_TAB_PROTECTION ||
+                    PlayerbotAI::IsTank(bot))
+                {
+                    return BotConsumableRole::Tank;
+                }
+                if (spec == PALADIN_TAB_HOLY)
+                    return BotConsumableRole::Healer;
+                return BotConsumableRole::StrengthDps;
+
+            case CLASS_HUNTER:
+            case CLASS_ROGUE:
+                return BotConsumableRole::AgilityDps;
+
+            case CLASS_PRIEST:
+                if (spec == PRIEST_TAB_SHADOW)
+                {
+                    school = CasterSchool::Shadow;
+                    return BotConsumableRole::Caster;
+                }
+                return BotConsumableRole::Healer;
+
+            case CLASS_SHAMAN:
+                if (spec == SHAMAN_TAB_ENHANCEMENT)
+                    return BotConsumableRole::StrengthDps;
+                if (spec == SHAMAN_TAB_ELEMENTAL)
+                    return BotConsumableRole::Caster;
+                return BotConsumableRole::Healer;
+
+            case CLASS_MAGE:
+                if (spec == MAGE_TAB_FROST)
+                    school = CasterSchool::Frost;
+                else if (spec == MAGE_TAB_FIRE)
+                    school = CasterSchool::Fire;
+                return BotConsumableRole::Caster;
+
+            case CLASS_WARLOCK:
+                if (spec == WARLOCK_TAB_DESTRUCTION)
+                    school = CasterSchool::Fire;
+                else
+                    school = CasterSchool::Shadow;
+                return BotConsumableRole::Caster;
+
+            case CLASS_DRUID:
+                if (spec == DRUID_TAB_FERAL)
+                {
+                    return PlayerbotAI::IsTank(bot)
+                        ? BotConsumableRole::Tank
+                        : BotConsumableRole::AgilityDps;
+                }
+                if (spec == DRUID_TAB_BALANCE)
+                    return BotConsumableRole::Caster;
+                return BotConsumableRole::Healer;
+
+            default:
+                return BotConsumableRole::Unsupported;
+        }
+    }
+
+    void ApplyRoleElixir(
+        Player* bot,
+        uint32 level,
+        BotConsumableRole role,
+        CasterSchool school,
+        RaidConsumableTracker& tracker,
+        PreparationStats& stats)
+    {
+        switch (role)
+        {
+            case BotConsumableRole::Tank:
+                ApplyFirstUsableItemAura(
+                    bot,
+                    level,
+                    {
+                        {ITEM_ELIXIR_OF_SUPERIOR_DEFENSE, "Elixir of Superior Defense"},
+                        {ITEM_ELIXIR_OF_GREATER_DEFENSE, "Elixir of Greater Defense"},
+                        {ITEM_ELIXIR_OF_DEFENSE, "Elixir of Defense"},
+                        {ITEM_ELIXIR_OF_MINOR_FORTITUDE, "Elixir of Minor Fortitude"}
+                    },
+                    tracker,
+                    stats);
+                break;
+
+            case BotConsumableRole::StrengthDps:
+                ApplyFirstUsableItemAura(
+                    bot,
+                    level,
+                    {
+                        {ITEM_ELIXIR_OF_THE_MONGOOSE, "Elixir of the Mongoose"},
+                        {ITEM_ELIXIR_OF_GIANTS, "Elixir of Giants"},
+                        {ITEM_ELIXIR_OF_OGRES_STRENGTH, "Elixir of Ogre's Strength"},
+                        {ITEM_ELIXIR_OF_LIONS_STRENGTH, "Elixir of Lion's Strength"}
+                    },
+                    tracker,
+                    stats);
+                break;
+
+            case BotConsumableRole::AgilityDps:
+                ApplyFirstUsableItemAura(
+                    bot,
+                    level,
+                    {
+                        {ITEM_ELIXIR_OF_THE_MONGOOSE, "Elixir of the Mongoose"},
+                        {ITEM_ELIXIR_OF_GREATER_AGILITY, "Elixir of Greater Agility"},
+                        {ITEM_ELIXIR_OF_AGILITY, "Elixir of Agility"},
+                        {ITEM_ELIXIR_OF_LESSER_AGILITY, "Elixir of Lesser Agility"},
+                        {ITEM_ELIXIR_OF_MINOR_AGILITY, "Elixir of Minor Agility"}
+                    },
+                    tracker,
+                    stats);
+                break;
+
+            case BotConsumableRole::Healer:
+                ApplyFirstUsableItemAura(
+                    bot,
+                    level,
+                    {
+                        {ITEM_ELIXIR_OF_THE_SAGES, "Elixir of the Sages"},
+                        {ITEM_ELIXIR_OF_GREATER_INTELLECT, "Elixir of Greater Intellect"},
+                        {ITEM_ELIXIR_OF_WISDOM, "Elixir of Wisdom"}
+                    },
+                    tracker,
+                    stats);
+                break;
+
+            case BotConsumableRole::Caster:
+            {
+                bool applied = false;
+
+                if (school == CasterSchool::Shadow)
+                {
+                    applied = ApplyFirstUsableItemAura(
+                        bot,
+                        level,
+                        {
+                            {ITEM_ELIXIR_OF_SHADOW_POWER, "Elixir of Shadow Power"}
+                        },
+                        tracker,
+                        stats);
+                }
+                else if (school == CasterSchool::Frost)
+                {
+                    applied = ApplyFirstUsableItemAura(
+                        bot,
+                        level,
+                        {
+                            {ITEM_ELIXIR_OF_FROST_POWER, "Elixir of Frost Power"}
+                        },
+                        tracker,
+                        stats);
+                }
+                else if (school == CasterSchool::Fire)
+                {
+                    applied = ApplyFirstUsableItemAura(
+                        bot,
+                        level,
+                        {
+                            {ITEM_ELIXIR_OF_GREATER_FIREPOWER, "Elixir of Greater Firepower"},
+                            {ITEM_ELIXIR_OF_FIREPOWER, "Elixir of Firepower"}
+                        },
+                        tracker,
+                        stats);
+                }
+
+                if (!applied)
+                {
+                    ApplyFirstUsableItemAura(
+                        bot,
+                        level,
+                        {
+                            {ITEM_GREATER_ARCANE_ELIXIR, "Greater Arcane Elixir"},
+                            {ITEM_ARCANE_ELIXIR, "Arcane Elixir"},
+                            {ITEM_ELIXIR_OF_WISDOM, "Elixir of Wisdom"}
+                        },
+                        tracker,
+                        stats);
+                }
+
+                break;
+            }
+
+            default:
+                break;
+        }
+    }
+
+    void ApplyRoleScroll(
+        Player* bot,
+        uint32 level,
+        BotConsumableRole role,
+        RaidConsumableTracker& tracker,
+        PreparationStats& stats)
+    {
+        // Scrolls are cleanup-tracked but do not generate missing warnings,
+        // because a normal class buff may replace them.
+        switch (role)
+        {
+            case BotConsumableRole::Tank:
+                ApplyFirstUsableItemAura(
+                    bot, level,
+                    {
+                        {ITEM_SCROLL_PROTECTION_IV, "Scroll of Protection IV"},
+                        {ITEM_SCROLL_PROTECTION_III, "Scroll of Protection III"},
+                        {ITEM_SCROLL_PROTECTION_II, "Scroll of Protection II"},
+                        {ITEM_SCROLL_PROTECTION_I, "Scroll of Protection"}
+                    },
+                    tracker, stats, false);
+                break;
+
+            case BotConsumableRole::StrengthDps:
+                ApplyFirstUsableItemAura(
+                    bot, level,
+                    {
+                        {ITEM_SCROLL_STRENGTH_IV, "Scroll of Strength IV"},
+                        {ITEM_SCROLL_STRENGTH_III, "Scroll of Strength III"},
+                        {ITEM_SCROLL_STRENGTH_II, "Scroll of Strength II"},
+                        {ITEM_SCROLL_STRENGTH_I, "Scroll of Strength"}
+                    },
+                    tracker, stats, false);
+                break;
+
+            case BotConsumableRole::AgilityDps:
+                ApplyFirstUsableItemAura(
+                    bot, level,
+                    {
+                        {ITEM_SCROLL_AGILITY_IV, "Scroll of Agility IV"},
+                        {ITEM_SCROLL_AGILITY_III, "Scroll of Agility III"},
+                        {ITEM_SCROLL_AGILITY_II, "Scroll of Agility II"},
+                        {ITEM_SCROLL_AGILITY_I, "Scroll of Agility"}
+                    },
+                    tracker, stats, false);
+                break;
+
+            case BotConsumableRole::Healer:
+                ApplyFirstUsableItemAura(
+                    bot, level,
+                    {
+                        {ITEM_SCROLL_SPIRIT_IV, "Scroll of Spirit IV"},
+                        {ITEM_SCROLL_SPIRIT_III, "Scroll of Spirit III"},
+                        {ITEM_SCROLL_SPIRIT_II, "Scroll of Spirit II"},
+                        {ITEM_SCROLL_SPIRIT_I, "Scroll of Spirit"}
+                    },
+                    tracker, stats, false);
+                break;
+
+            case BotConsumableRole::Caster:
+                ApplyFirstUsableItemAura(
+                    bot, level,
+                    {
+                        {ITEM_SCROLL_INTELLECT_IV, "Scroll of Intellect IV"},
+                        {ITEM_SCROLL_INTELLECT_III, "Scroll of Intellect III"},
+                        {ITEM_SCROLL_INTELLECT_II, "Scroll of Intellect II"},
+                        {ITEM_SCROLL_INTELLECT_I, "Scroll of Intellect"}
+                    },
+                    tracker, stats, false);
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    void ApplyGenericWellFed(
+        Player* bot,
+        uint32 level,
+        RaidConsumableTracker& tracker,
+        PreparationStats& stats)
+    {
+        uint32 spellId = SPELL_WELL_FED_2;
+        char const* name = "Well Fed (+2)";
+
+        if (level >= 35)
+        {
+            spellId = SPELL_WELL_FED_12;
+            name = "Well Fed (+12)";
+        }
+        else if (level >= 25)
+        {
+            spellId = SPELL_WELL_FED_8;
+            name = "Well Fed (+8)";
+        }
+        else if (level >= 15)
+        {
+            spellId = SPELL_WELL_FED_6;
+            name = "Well Fed (+6)";
+        }
+        else if (level >= 5)
+        {
+            spellId = SPELL_WELL_FED_4;
+            name = "Well Fed (+4)";
+        }
+
+        ApplyTrackedAura(
+            bot,
+            bot,
+            spellId,
+            name,
+            false,
+            tracker,
+            stats);
+    }
+
+    void ApplyRoleFood(
+        Player* bot,
+        uint32 level,
+        BotConsumableRole role,
+        RaidConsumableTracker& tracker,
+        PreparationStats& stats)
+    {
+        if (level >= 35 &&
+            role == BotConsumableRole::AgilityDps)
+        {
+            ApplyGrilledSquid(
+                bot,
+                tracker,
+                stats);
+            return;
+        }
+
+        if (level >= 35 &&
+            (role == BotConsumableRole::Caster ||
+             role == BotConsumableRole::Healer))
+        {
+            ApplyNightfin(
+                bot,
+                tracker,
+                stats);
+            return;
+        }
+
+        ApplyGenericWellFed(
+            bot,
+            level,
+            tracker,
+            stats);
+    }
+
+    void SupplyLevelPotions(
+        Player* bot,
+        uint32 level,
+        PreparationStats& stats)
+    {
+        uint32 healing =
+            GetFirstUsableItem(
+                level,
+                {
+                    ITEM_MAJOR_HEALING_POTION,
+                    ITEM_SUPERIOR_HEALING_POTION,
+                    ITEM_GREATER_HEALING_POTION,
+                    ITEM_HEALING_POTION,
+                    ITEM_LESSER_HEALING_POTION,
+                    ITEM_MINOR_HEALING_POTION
+                });
+
+        if (healing)
+            TopUpToCount(bot, healing, 5, stats);
+
+        if (!ClassUsesMana(bot))
+            return;
+
+        uint32 mana =
+            GetFirstUsableItem(
+                level,
+                {
+                    ITEM_MAJOR_MANA_POTION,
+                    ITEM_SUPERIOR_MANA_POTION,
+                    ITEM_GREATER_MANA_POTION,
+                    ITEM_MANA_POTION,
+                    ITEM_LESSER_MANA_POTION,
+                    ITEM_MINOR_MANA_POTION
+                });
+
+        if (mana)
+            TopUpToCount(bot, mana, 5, stats);
+    }
+
+    void ApplyProtectionForDungeon(
+        Player* bot,
+        uint32 level,
+        ProtectionSchool school,
+        RaidConsumableTracker& tracker,
+        PreparationStats& stats)
+    {
+        switch (school)
+        {
+            case ProtectionSchool::Fire:
+                ApplyFirstUsableItemAura(
+                    bot, level,
+                    {
+                        {ITEM_GREATER_FIRE_PROTECTION_POTION, "Greater Fire Protection"},
+                        {ITEM_FIRE_PROTECTION_POTION, "Fire Protection"}
+                    },
+                    tracker, stats);
+                break;
+
+            case ProtectionSchool::Nature:
+                ApplyFirstUsableItemAura(
+                    bot, level,
+                    {
+                        {ITEM_GREATER_NATURE_PROTECTION_POTION, "Greater Nature Protection"},
+                        {ITEM_NATURE_PROTECTION_POTION, "Nature Protection"}
+                    },
+                    tracker, stats);
+                break;
+
+            case ProtectionSchool::Shadow:
+                ApplyFirstUsableItemAura(
+                    bot, level,
+                    {
+                        {ITEM_GREATER_SHADOW_PROTECTION_POTION, "Greater Shadow Protection"},
+                        {ITEM_SHADOW_PROTECTION_POTION, "Shadow Protection"}
+                    },
+                    tracker, stats);
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    void SupplyEnhancedDungeonExtras(
+        Player* bot,
+        uint32 level,
+        BotConsumableRole role,
+        PreparationStats& stats)
+    {
+        if (IsItemUsableAtLevel(
+                ITEM_HEAVY_RUNECLOTH_BANDAGE,
+                level))
+        {
+            TopUpToCount(
+                bot,
+                ITEM_HEAVY_RUNECLOTH_BANDAGE,
+                20,
+                stats);
+        }
+
+        if (IsItemUsableAtLevel(
+                ITEM_LIMITED_INVULNERABILITY_POTION,
+                level))
+        {
+            TopUpToCount(
+                bot,
+                ITEM_LIMITED_INVULNERABILITY_POTION,
+                5,
+                stats);
+        }
+
+        if (role == BotConsumableRole::Caster)
+        {
+            if (IsItemUsableAtLevel(
+                    ITEM_BRILLIANT_WIZARD_OIL,
+                    level))
+            {
+                TopUpToCount(
+                    bot,
+                    ITEM_BRILLIANT_WIZARD_OIL,
+                    1,
+                    stats);
+            }
+        }
+        else if (role == BotConsumableRole::Healer)
+        {
+            if (IsItemUsableAtLevel(
+                    ITEM_BRILLIANT_MANA_OIL,
+                    level))
+            {
+                TopUpToCount(
+                    bot,
+                    ITEM_BRILLIANT_MANA_OIL,
+                    1,
+                    stats);
+            }
+        }
+        else if (bot->getClass() == CLASS_ROGUE)
+        {
+            if (IsItemUsableAtLevel(
+                    ITEM_INSTANT_POISON_VI,
+                    level))
+            {
+                TopUpToCount(
+                    bot,
+                    ITEM_INSTANT_POISON_VI,
+                    20,
+                    stats);
+            }
+
+            if (IsItemUsableAtLevel(
+                    ITEM_DEADLY_POISON_IV,
+                    level))
+            {
+                TopUpToCount(
+                    bot,
+                    ITEM_DEADLY_POISON_IV,
+                    20,
+                    stats);
+            }
+        }
+    }
+
+    bool PrepareDungeonBot(
+        Player* bot,
+        uint32 effectiveLevel,
+        ProtectionSchool protection,
+        bool enhanced,
+        RaidConsumableTracker& tracker,
+        PreparationStats& stats)
+    {
+        CasterSchool school =
+            CasterSchool::General;
+
+        BotConsumableRole role =
+            GetBotConsumableRole(
+                bot,
+                school);
+
+        if (role ==
+            BotConsumableRole::Unsupported)
+        {
+            ++stats.UnsupportedBots;
+            return false;
+        }
+
+        ApplyRoleElixir(
+            bot,
+            effectiveLevel,
+            role,
+            school,
+            tracker,
+            stats);
+
+        ApplyRoleFood(
+            bot,
+            effectiveLevel,
+            role,
+            tracker,
+            stats);
+
+        ApplyRoleScroll(
+            bot,
+            effectiveLevel,
+            role,
+            tracker,
+            stats);
+
+        SupplyLevelPotions(
+            bot,
+            effectiveLevel,
+            stats);
+
+        ApplyProtectionForDungeon(
+            bot,
+            effectiveLevel,
+            protection,
+            tracker,
+            stats);
+
+        if (enhanced)
+        {
+            SupplyEnhancedDungeonExtras(
+                bot,
+                effectiveLevel,
+                role,
+                stats);
+        }
+
+        ++stats.BotsPrepared;
+        return true;
+    }
+
+    // =========================================================
     // Main Molten Core class/spec dispatcher
     // =========================================================
 
@@ -1679,6 +2451,142 @@ void PrepareManaUser(
         return true;
     }
 
+    bool IsBlackrockUpper(
+        Player const* player)
+    {
+        if (!player ||
+            player->GetMapId() !=
+                MAP_BLACKROCK_SPIRE)
+        {
+            return false;
+        }
+
+        // The shared BRS entrance and LBRS are below/forward of this.
+        // Dragonspire Hall and the UBRS route begin around Y -319 / Z 65.
+        return player->GetPositionY() <= -315.0f &&
+            player->GetPositionZ() >= 60.0f;
+    }
+
+    ProfileArea GetDireMaulArea(
+        Player const* player)
+    {
+        if (!player ||
+            player->GetMapId() != MAP_DIRE_MAUL)
+        {
+            return ProfileArea::Any;
+        }
+
+        if (player->GetPositionX() > 120.0f)
+            return ProfileArea::DireMaulNorth;
+
+        if (player->GetPositionY() > 0.0f)
+            return ProfileArea::DireMaulWest;
+
+        return ProfileArea::DireMaulEast;
+    }
+
+    bool IsStratholmeUndeadSide(
+        Player const* player)
+    {
+        if (!player ||
+            player->GetMapId() !=
+                MAP_STRATHOLME)
+        {
+            return false;
+        }
+
+        float x = player->GetPositionX();
+        float y = player->GetPositionY();
+
+        float mainDx = x - 3395.09f;
+        float mainDy = y + 3380.25f;
+        float serviceDx = x - 3593.15f;
+        float serviceDy = y + 3646.56f;
+
+        float mainDistanceSq =
+            mainDx * mainDx +
+            mainDy * mainDy;
+
+        float serviceDistanceSq =
+            serviceDx * serviceDx +
+            serviceDy * serviceDy;
+
+        return serviceDistanceSq <
+            mainDistanceSq;
+    }
+
+    bool IsProfileLocationValid(
+        Player const* player,
+        uint32 requiredMapId,
+        ProfileArea area)
+    {
+        if (!player)
+            return false;
+
+        if (requiredMapId != 0 &&
+            player->GetMapId() !=
+                requiredMapId)
+        {
+            return false;
+        }
+
+        switch (area)
+        {
+            case ProfileArea::Any:
+                return true;
+            case ProfileArea::StratholmeUndead:
+                return IsStratholmeUndeadSide(player);
+            case ProfileArea::DireMaulEast:
+            case ProfileArea::DireMaulWest:
+            case ProfileArea::DireMaulNorth:
+                return GetDireMaulArea(player) == area;
+            case ProfileArea::BlackrockUpper:
+                return IsBlackrockUpper(player);
+            case ProfileArea::BlackrockLower:
+                return player->GetMapId() ==
+                        MAP_BLACKROCK_SPIRE &&
+                    !IsBlackrockUpper(player);
+        }
+
+        return false;
+    }
+
+    uint32 GetGenericDungeonLevelCap(
+        Player* player)
+    {
+        if (!player)
+            return 1;
+
+        LFGDungeonEntry const* dungeon =
+            GetLFGDungeon(
+                player->GetMapId(),
+                DUNGEON_DIFFICULTY_NORMAL);
+
+        uint32 cap = 0;
+
+        if (dungeon)
+        {
+            cap = dungeon->TargetLevelMax;
+
+            if (!cap)
+                cap = dungeon->MaxLevel;
+
+            if (!cap)
+                cap = dungeon->TargetLevel;
+        }
+
+        // If the map has no LFG row, use the player's own level as
+        // a conservative fallback rather than granting level-54 buffs.
+        if (!cap)
+            cap = player->GetLevel();
+
+        return std::max<uint32>(
+            1,
+            std::min<uint32>(
+                cap,
+                54));
+    }
+
     // =========================================================
     // Timed consumable effects
     // =========================================================
@@ -1726,9 +2634,14 @@ void PrepareManaUser(
             if (!bot ||
                 !bot->IsInWorld() ||
                 !bot->IsAlive() ||
-                (tracker.RequiredMapId != 0 &&
-                    (master->GetMapId() != tracker.RequiredMapId ||
-                     bot->GetMapId() != tracker.RequiredMapId)) ||
+                !IsProfileLocationValid(
+                    master,
+                    tracker.RequiredMapId,
+                    tracker.RequiredArea) ||
+                !IsProfileLocationValid(
+                    bot,
+                    tracker.RequiredMapId,
+                    tracker.RequiredArea) ||
                 !BotIsInPreparationScope(
                     master,
                     bot))
@@ -2012,40 +2925,17 @@ public:
 
     ChatCommandTable GetCommands() const override
     {
-        static ChatCommandTable
-            consumablesCommandTable =
-        {
-            {
-                "mc",
-                HandleMoltenCoreCommand,
-                SEC_PLAYER,
-                Console::No
-            },
-            {
-                "status",
-                HandleStatusCommand,
-                SEC_PLAYER,
-                Console::No
-            },
-            {
-                "clear",
-                HandleClearCommand,
-                SEC_PLAYER,
-                Console::No
-            }
-        };
-
-        static ChatCommandTable
-            botCommandTable =
+        static ChatCommandTable botCommandTable =
         {
             {
                 "consumables",
-                consumablesCommandTable
+                HandleConsumablesCommand,
+                SEC_PLAYER,
+                Console::No
             }
         };
 
-        static ChatCommandTable
-            commandTable =
+        static ChatCommandTable commandTable =
         {
             {
                 "bot",
@@ -2056,93 +2946,136 @@ public:
         return commandTable;
     }
 
-    static bool HandleMoltenCoreCommand(
+    static std::string NormalizeArgument(
+        char const* args)
+    {
+        std::string value =
+            args ? args : "";
+
+        std::size_t first =
+            value.find_first_not_of(
+                " \t\r\n");
+
+        if (first == std::string::npos)
+            return "";
+
+        std::size_t last =
+            value.find_last_not_of(
+                " \t\r\n");
+
+        value =
+            value.substr(
+                first,
+                last - first + 1);
+
+        std::transform(
+            value.begin(),
+            value.end(),
+            value.begin(),
+            [](unsigned char ch)
+            {
+                return static_cast<char>(
+                    std::tolower(ch));
+            });
+
+        return value;
+    }
+
+    static bool ParseRequestedLevel(
+        std::string const& value,
+        uint32& level)
+    {
+        if (value.empty())
+            return false;
+
+        uint32 result = 0;
+
+        for (char ch : value)
+        {
+            if (!std::isdigit(
+                    static_cast<unsigned char>(
+                        ch)))
+            {
+                return false;
+            }
+
+            result =
+                result * 10 +
+                static_cast<uint32>(
+                    ch - '0');
+
+            if (result > 54)
+                return false;
+        }
+
+        if (result < 1 ||
+            result > 54)
+        {
+            return false;
+        }
+
+        level = result;
+        return true;
+    }
+
+    static void SendUsage(
         ChatHandler* handler)
     {
-        if (!handler ||
-            !handler->GetSession())
-        {
-            return false;
-        }
+        handler->SendSysMessage(
+            "[Bot Consumables] Usage:");
+        handler->SendSysMessage(
+            ".bot consumables 1-54");
+        handler->SendSysMessage(
+            ".bot consumables mara | sunken | brd | scholo | stratud | dm | lbrs | ubrs | mc");
+        handler->SendSysMessage(
+            ".bot consumables status | clear");
+    }
 
-        Player* master =
-            handler->GetSession()->
-                GetPlayer();
-
-        if (!master)
-            return false;
-
-        if (master->GetMapId() != MAP_MOLTEN_CORE)
-        {
-            handler->SendSysMessage(
-                "[Bot Consumables] The Molten Core profile can only be used inside Molten Core.");
-            return true;
-        }
-
-        PlayerbotMgr* manager =
-            PlayerbotsMgr::instance().
-                GetPlayerbotMgr(master);
-
-        if (!manager)
-        {
-            handler->SendSysMessage(
-                "[Bot Consumables] No Playerbot manager was found.");
-
-            return false;
-        }
-
+    static RaidConsumableTracker&
+        ResetTracker(
+            Player* master,
+            std::string const& profile,
+            uint32 mapId,
+            ProfileArea area)
+    {
         ObjectGuid::LowType masterGuid =
             master->GetGUID().
                 GetCounter();
 
         auto oldTracker =
-            RaidConsumableTrackers.find(masterGuid);
+            RaidConsumableTrackers.find(
+                masterGuid);
 
-        if (oldTracker != RaidConsumableTrackers.end())
-            ClearTrackedAuras(master, oldTracker->second);
+        if (oldTracker !=
+            RaidConsumableTrackers.end())
+        {
+            ClearTrackedAuras(
+                master,
+                oldTracker->second);
+        }
 
         RaidConsumableTracker& tracker =
-            RaidConsumableTrackers[masterGuid];
+            RaidConsumableTrackers[
+                masterGuid];
 
-        tracker.Profile = "mc";
+        tracker.Profile = profile;
         tracker.UpdateTimer = 0;
-        tracker.RequiredMapId = MAP_MOLTEN_CORE;
+        tracker.RequiredMapId = mapId;
+        tracker.RequiredArea = area;
         tracker.Auras.clear();
         tracker.TimedAuras.clear();
 
-        PreparationStats stats;
+        return tracker;
+    }
 
-        for (PlayerBotMap::const_iterator itr =
-                 manager->GetPlayerBotsBegin();
-             itr != manager->GetPlayerBotsEnd();
-             ++itr)
-        {
-            Player* bot =
-                itr->second;
-
-            if (!BotIsInPreparationScope(
-                    master,
-                    bot))
-            {
-                continue;
-            }
-
-            PrepareMoltenCoreBot(
-                bot,
-                tracker,
-                stats);
-        }
-
-        if (stats.BotsPrepared == 0)
-        {
-            handler->SendSysMessage(
-                "[Bot Consumables] No supported controlled bots were found in your current group/raid.");
-
-            return true;
-        }
-
-        handler->SendSysMessage(
-            "[Bot Consumables] Molten Core preparation complete.");
+    static void SendPreparationSummary(
+        ChatHandler* handler,
+        std::string const& label,
+        PreparationStats const& stats)
+    {
+        handler->PSendSysMessage(
+            "[Bot Consumables] {} preparation complete.",
+            label);
 
         handler->PSendSysMessage(
             "{} bots prepared.",
@@ -2180,7 +3113,7 @@ public:
         if (stats.UnsupportedBots > 0)
         {
             handler->PSendSysMessage(
-                "{} bot(s) had no Molten Core consumable profile and were left unchanged.",
+                "{} bot(s) had no supported Classic consumable profile and were left unchanged.",
                 stats.UnsupportedBots);
         }
 
@@ -2192,6 +3125,422 @@ public:
                 stats.ItemFailures,
                 stats.AuraFailures);
         }
+    }
+
+    static PlayerbotMgr* GetManager(
+        ChatHandler* handler,
+        Player* master)
+    {
+        PlayerbotMgr* manager =
+            PlayerbotsMgr::instance().
+                GetPlayerbotMgr(master);
+
+        if (!manager)
+        {
+            handler->SendSysMessage(
+                "[Bot Consumables] No Playerbot manager was found.");
+        }
+
+        return manager;
+    }
+
+    static bool HandleMoltenCoreCommand(
+        ChatHandler* handler)
+    {
+        Player* master =
+            handler->GetSession()->
+                GetPlayer();
+
+        if (!master)
+            return false;
+
+        if (master->GetMapId() !=
+            MAP_MOLTEN_CORE)
+        {
+            handler->SendSysMessage(
+                "[Bot Consumables] The Molten Core profile can only be used inside Molten Core.");
+            return true;
+        }
+
+        PlayerbotMgr* manager =
+            GetManager(
+                handler,
+                master);
+
+        if (!manager)
+            return false;
+
+        RaidConsumableTracker& tracker =
+            ResetTracker(
+                master,
+                "mc",
+                MAP_MOLTEN_CORE,
+                ProfileArea::Any);
+
+        PreparationStats stats;
+
+        for (PlayerBotMap::const_iterator itr =
+                 manager->GetPlayerBotsBegin();
+             itr != manager->GetPlayerBotsEnd();
+             ++itr)
+        {
+            Player* bot = itr->second;
+
+            if (!BotIsInPreparationScope(
+                    master,
+                    bot))
+            {
+                continue;
+            }
+
+            PrepareMoltenCoreBot(
+                bot,
+                tracker,
+                stats);
+        }
+
+        if (stats.BotsPrepared == 0)
+        {
+            handler->SendSysMessage(
+                "[Bot Consumables] No supported controlled bots were found in your current group/raid.");
+            return true;
+        }
+
+        SendPreparationSummary(
+            handler,
+            "Molten Core",
+            stats);
+
+        return true;
+    }
+
+    static bool HandleGenericLevelCommand(
+        ChatHandler* handler,
+        uint32 requestedLevel)
+    {
+        Player* master =
+            handler->GetSession()->
+                GetPlayer();
+
+        if (!master ||
+            !master->GetMap() ||
+            !master->GetMap()->
+                IsNonRaidDungeon())
+        {
+            handler->SendSysMessage(
+                "[Bot Consumables] Level-scaled consumables can only be used inside a non-raid dungeon.");
+            return true;
+        }
+
+        PlayerbotMgr* manager =
+            GetManager(
+                handler,
+                master);
+
+        if (!manager)
+            return false;
+
+        uint32 dungeonCap =
+            GetGenericDungeonLevelCap(
+                master);
+
+        RaidConsumableTracker& tracker =
+            ResetTracker(
+                master,
+                std::to_string(
+                    requestedLevel),
+                master->GetMapId(),
+                ProfileArea::Any);
+
+        PreparationStats stats;
+
+        for (PlayerBotMap::const_iterator itr =
+                 manager->GetPlayerBotsBegin();
+             itr != manager->GetPlayerBotsEnd();
+             ++itr)
+        {
+            Player* bot = itr->second;
+
+            if (!BotIsInPreparationScope(
+                    master,
+                    bot) ||
+                bot->GetMapId() !=
+                    master->GetMapId())
+            {
+                continue;
+            }
+
+            uint32 effectiveLevel =
+                std::min<uint32>(
+                    requestedLevel,
+                    std::min<uint32>(
+                        bot->GetLevel(),
+                        dungeonCap));
+
+            PrepareDungeonBot(
+                bot,
+                effectiveLevel,
+                ProtectionSchool::None,
+                false,
+                tracker,
+                stats);
+        }
+
+        if (stats.BotsPrepared == 0)
+        {
+            handler->SendSysMessage(
+                "[Bot Consumables] No supported controlled bots were found in this dungeon.");
+            return true;
+        }
+
+        handler->PSendSysMessage(
+            "[Bot Consumables] Requested level {}, dungeon cap {}.",
+            requestedLevel,
+            dungeonCap);
+
+        SendPreparationSummary(
+            handler,
+            "level-scaled dungeon",
+            stats);
+
+        return true;
+    }
+
+    static bool ResolveNamedProfile(
+        Player* master,
+        std::string const& command,
+        uint32& mapId,
+        uint32& levelCap,
+        ProfileArea& area,
+        ProtectionSchool& protection,
+        bool& enhanced,
+        std::string& label)
+    {
+        area = ProfileArea::Any;
+        protection =
+            ProtectionSchool::None;
+        enhanced = false;
+
+        if (command == "mara")
+        {
+            mapId = MAP_MARAUDON;
+            levelCap = 54;
+            protection =
+                ProtectionSchool::Nature;
+            label = "Maraudon";
+        }
+        else if (command == "sunken")
+        {
+            mapId = MAP_SUNKEN_TEMPLE;
+            levelCap = 54;
+            protection =
+                ProtectionSchool::Nature;
+            label = "Sunken Temple";
+        }
+        else if (command == "brd")
+        {
+            mapId = MAP_BLACKROCK_DEPTHS;
+            levelCap = 60;
+            protection =
+                ProtectionSchool::Fire;
+            label = "Blackrock Depths";
+        }
+        else if (command == "scholo")
+        {
+            mapId = MAP_SCHOLOMANCE;
+            levelCap = 60;
+            protection =
+                ProtectionSchool::Shadow;
+            label = "Scholomance";
+        }
+        else if (command == "stratud" ||
+                 command == "strat")
+        {
+            mapId = MAP_STRATHOLME;
+            levelCap = 60;
+            area =
+                ProfileArea::StratholmeUndead;
+            protection =
+                ProtectionSchool::Shadow;
+            label =
+                "Stratholme Undead";
+        }
+        else if (command == "lbrs")
+        {
+            mapId = MAP_BLACKROCK_SPIRE;
+            levelCap = 60;
+            area =
+                ProfileArea::BlackrockLower;
+            label =
+                "Lower Blackrock Spire";
+        }
+        else if (command == "ubrs")
+        {
+            mapId = MAP_BLACKROCK_SPIRE;
+            levelCap = 60;
+            area =
+                ProfileArea::BlackrockUpper;
+            protection =
+                ProtectionSchool::Fire;
+            enhanced = true;
+            label =
+                "Upper Blackrock Spire";
+        }
+        else if (command == "dm")
+        {
+            mapId = MAP_DIRE_MAUL;
+            levelCap = 60;
+
+            area =
+                GetDireMaulArea(
+                    master);
+
+            if (area ==
+                ProfileArea::DireMaulEast)
+            {
+                protection =
+                    ProtectionSchool::Nature;
+                label =
+                    "Dire Maul East";
+            }
+            else if (area ==
+                     ProfileArea::DireMaulWest)
+            {
+                protection =
+                    ProtectionSchool::Shadow;
+                label =
+                    "Dire Maul West";
+            }
+            else if (area ==
+                     ProfileArea::DireMaulNorth)
+            {
+                enhanced = true;
+                label =
+                    "Dire Maul North";
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool HandleNamedDungeonCommand(
+        ChatHandler* handler,
+        std::string const& command)
+    {
+        Player* master =
+            handler->GetSession()->
+                GetPlayer();
+
+        if (!master)
+            return false;
+
+        uint32 mapId = 0;
+        uint32 levelCap = 60;
+        ProfileArea area =
+            ProfileArea::Any;
+        ProtectionSchool protection =
+            ProtectionSchool::None;
+        bool enhanced = false;
+        std::string label;
+
+        if (!ResolveNamedProfile(
+                master,
+                command,
+                mapId,
+                levelCap,
+                area,
+                protection,
+                enhanced,
+                label))
+        {
+            SendUsage(handler);
+            return true;
+        }
+
+        if (!IsProfileLocationValid(
+                master,
+                mapId,
+                area))
+        {
+            handler->PSendSysMessage(
+                "[Bot Consumables] The {} profile can only be used while you are physically inside that dungeon/wing.",
+                label);
+            return true;
+        }
+
+        PlayerbotMgr* manager =
+            GetManager(
+                handler,
+                master);
+
+        if (!manager)
+            return false;
+
+        std::string trackerCommand =
+            (command == "strat")
+                ? "stratud"
+                : command;
+
+        RaidConsumableTracker& tracker =
+            ResetTracker(
+                master,
+                trackerCommand,
+                mapId,
+                area);
+
+        PreparationStats stats;
+
+        for (PlayerBotMap::const_iterator itr =
+                 manager->GetPlayerBotsBegin();
+             itr != manager->GetPlayerBotsEnd();
+             ++itr)
+        {
+            Player* bot = itr->second;
+
+            if (!BotIsInPreparationScope(
+                    master,
+                    bot) ||
+                !IsProfileLocationValid(
+                    bot,
+                    mapId,
+                    area))
+            {
+                continue;
+            }
+
+            uint32 effectiveLevel =
+                std::min<uint32>(
+                    bot->GetLevel(),
+                    levelCap);
+
+            PrepareDungeonBot(
+                bot,
+                effectiveLevel,
+                protection,
+                enhanced,
+                tracker,
+                stats);
+        }
+
+        if (stats.BotsPrepared == 0)
+        {
+            handler->SendSysMessage(
+                "[Bot Consumables] No supported controlled bots were found in this dungeon/wing.");
+            return true;
+        }
+
+        SendPreparationSummary(
+            handler,
+            label,
+            stats);
 
         return true;
     }
@@ -2199,12 +3548,6 @@ public:
     static bool HandleStatusCommand(
         ChatHandler* handler)
     {
-        if (!handler ||
-            !handler->GetSession())
-        {
-            return false;
-        }
-
         Player* master =
             handler->GetSession()->
                 GetPlayer();
@@ -2221,8 +3564,7 @@ public:
             RaidConsumableTrackers.end())
         {
             handler->SendSysMessage(
-                "[Bot Consumables] No raid consumable profile is currently being tracked.");
-
+                "[Bot Consumables] No consumable profile is currently being tracked.");
             return true;
         }
 
@@ -2264,7 +3606,7 @@ public:
         if (missing == 0)
         {
             handler->SendSysMessage(
-                "All currently available tracked bot auras are present.");
+                "All warning-enabled tracked bot auras are present.");
         }
         else
         {
@@ -2279,12 +3621,6 @@ public:
     static bool HandleClearCommand(
         ChatHandler* handler)
     {
-        if (!handler ||
-            !handler->GetSession())
-        {
-            return false;
-        }
-
         Player* master =
             handler->GetSession()->
                 GetPlayer();
@@ -2305,7 +3641,6 @@ public:
         {
             handler->SendSysMessage(
                 "[Bot Consumables] Nothing is currently being tracked.");
-
             return true;
         }
 
@@ -2317,9 +3652,53 @@ public:
             itr);
 
         handler->SendSysMessage(
-            "[Bot Consumables] Tracked raid consumable auras have been removed and tracking has been cleared.");
+            "[Bot Consumables] Tracked consumable auras have been removed and tracking has been cleared.");
 
         return true;
+    }
+
+    static bool HandleConsumablesCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!handler ||
+            !handler->GetSession())
+        {
+            return false;
+        }
+
+        std::string command =
+            NormalizeArgument(args);
+
+        if (command.empty())
+        {
+            SendUsage(handler);
+            return true;
+        }
+
+        if (command == "status")
+            return HandleStatusCommand(handler);
+
+        if (command == "clear")
+            return HandleClearCommand(handler);
+
+        if (command == "mc")
+            return HandleMoltenCoreCommand(handler);
+
+        uint32 requestedLevel = 0;
+
+        if (ParseRequestedLevel(
+                command,
+                requestedLevel))
+        {
+            return HandleGenericLevelCommand(
+                handler,
+                requestedLevel);
+        }
+
+        return HandleNamedDungeonCommand(
+            handler,
+            command);
     }
 };
 
@@ -2365,8 +3744,10 @@ public:
         RaidConsumableTracker& tracker =
             itr->second;
 
-        if (tracker.RequiredMapId != 0 &&
-            player->GetMapId() != tracker.RequiredMapId)
+        if (!IsProfileLocationValid(
+                player,
+                tracker.RequiredMapId,
+                tracker.RequiredArea))
         {
             ClearTrackedAuras(player, tracker);
             RaidConsumableTrackers.erase(itr);
