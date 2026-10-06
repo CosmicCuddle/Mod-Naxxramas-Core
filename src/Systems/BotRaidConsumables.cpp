@@ -27,6 +27,8 @@
 #include "Chat.h"
 #include "CommandScript.h"
 #include "DBCStores.h"
+#include "GameTime.h"
+#include "Group.h"
 #include "Item.h"
 #include "ItemTemplate.h"
 #include "Map.h"
@@ -56,6 +58,8 @@ namespace
     // =========================================================
 
     constexpr uint32 AURA_CHECK_INTERVAL = 10 * IN_MILLISECONDS;
+    constexpr uint32 CONSUMABLE_COMMAND_COOLDOWN_SECONDS =
+        10 * 60;
 
     // =========================================================
     // Important prerequisite items
@@ -326,6 +330,119 @@ namespace
 
     std::unordered_map<ObjectGuid::LowType, RaidConsumableTracker>
         RaidConsumableTrackers;
+
+    std::unordered_map<ObjectGuid::LowType, uint64>
+        ConsumableCooldownUntil;
+
+    std::unordered_map<ObjectGuid::LowType, bool>
+        ConsumableAliveState;
+
+    uint64 GetConsumableNow()
+    {
+        return static_cast<uint64>(
+            GameTime::GetGameTime().
+                count());
+    }
+
+    uint32 GetConsumableCooldownRemaining(
+        Player* player)
+    {
+        if (!player)
+            return 0;
+
+        ObjectGuid::LowType guid =
+            player->GetGUID().
+                GetCounter();
+
+        auto itr =
+            ConsumableCooldownUntil.find(
+                guid);
+
+        if (itr ==
+            ConsumableCooldownUntil.end())
+        {
+            return 0;
+        }
+
+        uint64 now =
+            GetConsumableNow();
+
+        if (itr->second <= now)
+        {
+            ConsumableCooldownUntil.erase(
+                itr);
+            return 0;
+        }
+
+        return static_cast<uint32>(
+            itr->second - now);
+    }
+
+    void StartConsumableCooldown(
+        Player* player)
+    {
+        if (!player)
+            return;
+
+        ConsumableCooldownUntil[
+            player->GetGUID().
+                GetCounter()] =
+            GetConsumableNow() +
+            CONSUMABLE_COMMAND_COOLDOWN_SECONDS;
+    }
+
+    void ResetConsumableCooldownForGroup(
+        Player* deadPlayer)
+    {
+        if (!deadPlayer)
+            return;
+
+        Group* group =
+            deadPlayer->GetGroup();
+
+        if (!group)
+        {
+            ConsumableCooldownUntil.erase(
+                deadPlayer->GetGUID().
+                    GetCounter());
+            return;
+        }
+
+        for (GroupReference* itr =
+                 group->GetFirstMember();
+             itr != nullptr;
+             itr = itr->next())
+        {
+            Player* member =
+                itr->GetSource();
+
+            if (!member)
+                continue;
+
+            ConsumableCooldownUntil.erase(
+                member->GetGUID().
+                    GetCounter());
+        }
+    }
+
+    bool CheckConsumableCooldown(
+        ChatHandler* handler,
+        Player* player)
+    {
+        uint32 remaining =
+            GetConsumableCooldownRemaining(
+                player);
+
+        if (!remaining)
+            return true;
+
+        handler->PSendSysMessage(
+            "[Bot Consumables] Preparation is on cooldown for {}m {}s. A party/raid death or wipe resets this cooldown.",
+            remaining / 60,
+            remaining % 60);
+
+        return false;
+    }
 
     // =========================================================
     // Item helpers
@@ -3288,6 +3405,9 @@ public:
             return true;
         }
 
+        StartConsumableCooldown(
+            master);
+
         SendPreparationSummary(
             handler,
             "Molten Core",
@@ -3424,6 +3544,9 @@ public:
             "[Bot Consumables] Requested level {}, dungeon cap {}.",
             requestedLevel,
             dungeonCap);
+
+        StartConsumableCooldown(
+            master);
 
         SendPreparationSummary(
             handler,
@@ -3709,6 +3832,9 @@ public:
             return true;
         }
 
+        StartConsumableCooldown(
+            master);
+
         SendPreparationSummary(
             handler,
             label,
@@ -3742,6 +3868,23 @@ public:
 
         RaidConsumableTracker const& tracker =
             itr->second;
+
+        uint32 cooldownRemaining =
+            GetConsumableCooldownRemaining(
+                master);
+
+        if (cooldownRemaining > 0)
+        {
+            handler->PSendSysMessage(
+                "[Bot Consumables] Preparation cooldown: {}m {}s remaining.",
+                cooldownRemaining / 60,
+                cooldownRemaining % 60);
+        }
+        else
+        {
+            handler->SendSysMessage(
+                "[Bot Consumables] Preparation cooldown: ready.");
+        }
 
         uint32 missing =
             CountMissingAuras(
@@ -3854,14 +3997,63 @@ public:
         if (command == "clear")
             return HandleClearCommand(handler);
 
+        uint32 requestedLevel = 0;
+
+        bool isLevelCommand =
+            ParseRequestedLevel(
+                command,
+                requestedLevel);
+
+        bool isNamedCommand =
+            command == "mara" ||
+            command == "sunken" ||
+            command == "brd" ||
+            command == "scholo" ||
+            command == "stratud" ||
+            command == "strat" ||
+            command == "dm" ||
+            command == "lbrs" ||
+            command == "ubrs";
+
+        bool isPreparationCommand =
+            command == "mc" ||
+            isLevelCommand ||
+            isNamedCommand;
+
+        if (!isPreparationCommand)
+        {
+            SendUsage(handler);
+            return true;
+        }
+
+        Player* master =
+            handler->GetSession()->
+                GetPlayer();
+
+        if (!master)
+            return false;
+
+        if (!master->IsAlive())
+        {
+            ResetConsumableCooldownForGroup(
+                master);
+
+            handler->SendSysMessage(
+                "[Bot Consumables] Your death has reset the preparation cooldown. Resurrect before preparing consumables.");
+            return true;
+        }
+
+        if (!CheckConsumableCooldown(
+                handler,
+                master))
+        {
+            return true;
+        }
+
         if (command == "mc")
             return HandleMoltenCoreCommand(handler);
 
-        uint32 requestedLevel = 0;
-
-        if (ParseRequestedLevel(
-                command,
-                requestedLevel))
+        if (isLevelCommand)
         {
             return HandleGenericLevelCommand(
                 handler,
@@ -3902,6 +4094,31 @@ public:
         ObjectGuid::LowType guid =
             player->GetGUID().
                 GetCounter();
+
+        bool alive =
+            player->IsAlive();
+
+        auto aliveItr =
+            ConsumableAliveState.find(
+                guid);
+
+        if (aliveItr ==
+            ConsumableAliveState.end())
+        {
+            ConsumableAliveState[
+                guid] = alive;
+        }
+        else
+        {
+            if (aliveItr->second &&
+                !alive)
+            {
+                ResetConsumableCooldownForGroup(
+                    player);
+            }
+
+            aliveItr->second = alive;
+        }
 
         auto itr =
             RaidConsumableTrackers.find(
@@ -3960,9 +4177,18 @@ public:
         if (!player)
             return;
 
-        RaidConsumableTrackers.erase(
+        ObjectGuid::LowType guid =
             player->GetGUID().
-                GetCounter());
+                GetCounter();
+
+        RaidConsumableTrackers.erase(
+            guid);
+
+        ConsumableAliveState.erase(
+            guid);
+
+        // Keep an unexpired cooldown across logout so relogging
+        // cannot bypass the 10-minute restriction.
     }
 };
 
