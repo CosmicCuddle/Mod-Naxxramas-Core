@@ -40,6 +40,7 @@
 #include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
+#include "SpellAuras.h"
 #include "WorldSession.h"
 
 #include <algorithm>
@@ -60,6 +61,12 @@ namespace
     constexpr uint32 AURA_CHECK_INTERVAL = 10 * IN_MILLISECONDS;
     constexpr uint32 CONSUMABLE_COMMAND_COOLDOWN_SECONDS =
         10 * 60;
+
+    constexpr int32 CONSUMABLE_REFRESH_THRESHOLD_MS =
+        10 * 60 * IN_MILLISECONDS;
+
+    constexpr int32 FOOD_REFRESH_THRESHOLD_MS =
+        5 * 60 * IN_MILLISECONDS;
 
     // =========================================================
     // Important prerequisite items
@@ -320,6 +327,7 @@ namespace
         uint32 BotsPrepared = 0;
         uint32 UnsupportedBots = 0;
         uint32 AurasApplied = 0;
+        uint32 AurasPreserved = 0;
         uint32 AuraFailures = 0;
         uint32 ItemsAdded = 0;
         uint32 ItemFailures = 0;
@@ -650,7 +658,9 @@ namespace
         bool isPetAura,
         RaidConsumableTracker& tracker,
         PreparationStats& stats,
-        bool warnOnMissing = true)
+        bool warnOnMissing = true,
+        int32 refreshThresholdMs =
+            CONSUMABLE_REFRESH_THRESHOLD_MS)
     {
         if (!bot || !target || !spellId)
         {
@@ -658,9 +668,38 @@ namespace
             return false;
         }
 
-        target->RemoveAurasDueToSpell(spellId);
+        // Preserve a healthy existing aura instead of resetting it.
+        // Normal consumables refresh at 10 minutes remaining;
+        // food effects use a shorter 5-minute threshold.
+        if (Aura* existingAura =
+                target->GetAura(spellId))
+        {
+            int32 remaining =
+                existingAura->GetDuration();
 
-        if (!bot->AddAura(spellId, target))
+            if (remaining < 0 ||
+                remaining >
+                    refreshThresholdMs)
+            {
+                AddTrackedAura(
+                    tracker,
+                    bot,
+                    spellId,
+                    auraName,
+                    isPetAura,
+                    warnOnMissing);
+
+                ++stats.AurasPreserved;
+                return true;
+            }
+        }
+
+        target->RemoveAurasDueToSpell(
+            spellId);
+
+        if (!bot->AddAura(
+                spellId,
+                target))
         {
             ++stats.AuraFailures;
             return false;
@@ -686,7 +725,9 @@ namespace
         bool isPetAura,
         RaidConsumableTracker& tracker,
         PreparationStats& stats,
-        bool warnOnMissing = true)
+        bool warnOnMissing = true,
+        int32 refreshThresholdMs =
+            CONSUMABLE_REFRESH_THRESHOLD_MS)
     {
         uint32 spellId =
             GetItemUseSpell(itemId);
@@ -705,7 +746,8 @@ namespace
             isPetAura,
             tracker,
             stats,
-            warnOnMissing);
+            warnOnMissing,
+            refreshThresholdMs);
     }
 
     void ApplyJuju(
@@ -1048,7 +1090,9 @@ void PrepareManaUser(
             "Nightfin Soup",
             false,
             tracker,
-            stats);
+            stats,
+            true,
+            FOOD_REFRESH_THRESHOLD_MS);
     }
 
     void ApplyGrilledSquid(
@@ -1063,7 +1107,9 @@ void PrepareManaUser(
             "Grilled Squid",
             false,
             tracker,
-            stats);
+            stats,
+            true,
+            FOOD_REFRESH_THRESHOLD_MS);
     }
 
     void ApplyBlessedSunfruit(
@@ -1078,7 +1124,9 @@ void PrepareManaUser(
             "Blessed Sunfruit",
             false,
             tracker,
-            stats);
+            stats,
+            true,
+            FOOD_REFRESH_THRESHOLD_MS);
     }
 
     // =========================================================
@@ -2017,7 +2065,9 @@ void PrepareManaUser(
             name,
             false,
             tracker,
-            stats);
+            stats,
+            true,
+            FOOD_REFRESH_THRESHOLD_MS);
     }
 
     void ApplyRoleFood(
@@ -3240,6 +3290,13 @@ public:
         handler->PSendSysMessage(
             "{} consumable aura effects applied or refreshed.",
             stats.AurasApplied);
+
+        if (stats.AurasPreserved > 0)
+        {
+            handler->PSendSysMessage(
+                "{} existing consumable aura effect(s) kept because they still had enough time remaining.",
+                stats.AurasPreserved);
+        }
 
         handler->PSendSysMessage(
             "{} consumable items supplied.",
