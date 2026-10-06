@@ -210,6 +210,17 @@ Available profiles:
 .bot consumables clear
 ```
 
+#### Aura refresh thresholds
+
+Re-running a consumables profile does not automatically reset every existing buff.
+
+- Normal consumable auras are preserved while they have **more than 10 minutes remaining**.
+- They are refreshed only when **10 minutes or less** remain.
+- Buff-food / Well Fed effects use a shorter threshold: they are preserved while they have **more than 5 minutes remaining** and refreshed at **5 minutes or less**.
+- Short tactical effects such as Juju Flurry and Juju Escape keep their special timed/tactical behaviour.
+- Preserved auras remain in the active tracker so status/cleanup continue to work normally.
+- The preparation summary reports how many existing aura effects were kept rather than unnecessarily refreshed.
+
 #### Command cooldown
 
 All preparation commands share a **10-minute cooldown** after a successful preparation.
