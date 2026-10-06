@@ -20,6 +20,17 @@
   - `.bot consumables status`
   - `.bot consumables clear`
 
+#### Shared preparation cooldown
+
+- Added one shared **10-minute cooldown** across all consumable preparation commands.
+- The cooldown starts only after a profile successfully prepares at least one supported bot.
+- `.bot consumables status` and `.bot consumables clear` remain available during the cooldown.
+- Invalid locations, unsupported commands, and attempts with no eligible bots do not consume the cooldown.
+- Relogging does not clear an active cooldown.
+- A party/raid death or wipe resets the cooldown so the group can rebuff after recovering.
+- Dead controlling players must resurrect before running another preparation command.
+- Status output reports the remaining cooldown while an active profile is tracked.
+
 #### Instance and anti-exploit scope
 
 - Molten Core can only be prepared from inside **Map 409**.
