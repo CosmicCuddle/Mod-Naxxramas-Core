@@ -210,6 +210,20 @@ Available profiles:
 .bot consumables clear
 ```
 
+#### Command cooldown
+
+All preparation commands share a **10-minute cooldown** after a successful preparation.
+
+This includes numbered dungeon profiles, named dungeon profiles, and raid profiles.
+
+- `.bot consumables status` is never cooldown-limited.
+- `.bot consumables clear` is never cooldown-limited.
+- Failed/invalid preparation attempts do not start the cooldown.
+- Logging out does not bypass an active cooldown.
+- A real party/raid death or wipe resets the cooldown so the group can rebuff after recovering.
+- Preparation cannot be run while the controlling player is dead; the player must resurrect first.
+- `.bot consumables status` reports the remaining preparation cooldown while a profile is active.
+
 #### Instance safety
 
 Consumable profiles are instance-scoped.
