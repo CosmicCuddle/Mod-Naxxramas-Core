@@ -20,6 +20,16 @@
   - `.bot consumables status`
   - `.bot consumables clear`
 
+#### Aura refresh protection
+
+- Added remaining-duration checks before consumable auras are reapplied.
+- Normal consumable auras with **more than 10 minutes remaining** are left untouched.
+- Normal consumable auras refresh at **10 minutes remaining or less**.
+- Buff-food / Well Fed effects use a **5-minute** refresh threshold instead.
+- Existing healthy auras are still added to the active tracker for status and cleanup.
+- Preparation summaries now report how many aura effects were preserved instead of refreshed.
+- Short tactical/timed effects retain their dedicated behaviour.
+
 #### Shared preparation cooldown
 
 - Added one shared **10-minute cooldown** across all consumable preparation commands.
