@@ -2455,10 +2455,20 @@ void PrepareManaUser(
             return false;
         }
 
-        // The shared BRS entrance and LBRS are below/forward of this.
-        // Dragonspire Hall and the UBRS route begin around Y -319 / Z 65.
-        return player->GetPositionY() <= -315.0f &&
-            player->GetPositionZ() >= 60.0f;
+        float x = player->GetPositionX();
+        float y = player->GetPositionY();
+        float z = player->GetPositionZ();
+
+        // LBRS occupies the predominantly negative-X side of map 229.
+        // The major UBRS rooms are on the positive-X side:
+        // Hall of Blackhand, Emberseer, Rookery, Stadium, Beast and
+        // Drakkisath. Keep the older deep/high test as a fallback for
+        // transitional Upper Spire spaces that briefly cross X < 0.
+        if (x >= 0.0f)
+            return true;
+
+        return y <= -315.0f &&
+            z >= 60.0f;
     }
 
     ProfileArea GetDireMaulArea(
