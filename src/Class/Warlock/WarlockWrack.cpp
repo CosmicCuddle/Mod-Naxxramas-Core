@@ -24,8 +24,13 @@ namespace
         if (!player || player->getClass() != CLASS_WARLOCK)
             return;
 
+        // Shadow Mastery is stored in the active talent map rather than as a
+        // normal spellbook spell, so HasSpell(18275) will remain false even
+        // when the character has legitimately reached 5/5.
         bool shouldKnowWrack =
-            player->HasSpell(SPELL_WARLOCK_SHADOW_MASTERY_RANK_5);
+            player->HasTalent(
+                SPELL_WARLOCK_SHADOW_MASTERY_RANK_5,
+                player->GetActiveSpec());
 
         bool knowsWrack =
             player->HasSpell(SPELL_WARLOCK_WRACK);
