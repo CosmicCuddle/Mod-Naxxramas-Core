@@ -2,7 +2,7 @@
 -- Shaman - Rockbiter Weapon restoration
 --
 -- Restores the Rockbiter rank chain through Rank 7,
--- adds Ranks 5-7 to both AzerothCore Shaman trainer paths,
+-- adds Ranks 5-7 to the AzerothCore Shaman class trainer,
 -- and binds the hidden server-side Rockbiter threat aura.
 --
 -- Spell.dbc IDs used by the module:
@@ -53,22 +53,3 @@ VALUES
     (14, 16314,  9000, 0, 0, 10399, 0, 0, 34, 0),
     (14, 16315, 18000, 0, 0, 16314, 0, 0, 44, 0),
     (14, 16316, 29000, 0, 0, 16315, 0, 0, 54, 0);
-
--- ---------------------------------------------------------
--- Shared AzerothCore Shaman trainer template (ID 200018)
---
--- AzerothCore still has NPCs that reference this shared template.
--- Existing Rockbiter Ranks 2-4 are present here, so restore 5-7 too.
--- ---------------------------------------------------------
-
-DELETE FROM `npc_trainer`
-WHERE `ID` = 200018
-  AND `SpellID` IN (16314, 16315, 16316);
-
-INSERT INTO `npc_trainer`
-    (`ID`, `SpellID`, `MoneyCost`, `ReqSkillLine`,
-     `ReqSkillRank`, `ReqLevel`, `ReqSpell`)
-VALUES
-    (200018, 16314,  9000, 0, 0, 34, 0),
-    (200018, 16315, 18000, 0, 0, 44, 0),
-    (200018, 16316, 29000, 0, 0, 54, 0);
