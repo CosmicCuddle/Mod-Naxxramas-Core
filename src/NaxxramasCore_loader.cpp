@@ -12,6 +12,9 @@ void AddWarriorImprovedRendScripts();
 // Warlock
 void AddWarlockWrackScripts();
 
+// Shaman
+void AddShamanRockbiterScripts();
+
 // Racials
 void AddOrcBloodFuryScripts();
 void AddTrollBerserkingScripts();
@@ -41,6 +44,9 @@ void Addmod_naxxramas_coreScripts()
 
     // Warlock
     AddWarlockWrackScripts();
+
+    // Shaman
+    AddShamanRockbiterScripts();
 
     // Racials
     AddOrcBloodFuryScripts();
