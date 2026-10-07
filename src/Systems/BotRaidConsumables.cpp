@@ -334,6 +334,8 @@ namespace
         uint32 CachesAdded = 0;
         uint32 ReagentsAdded = 0;
         uint32 PetBuffsSkipped = 0;
+        bool DebugEnabled = false;
+        std::vector<std::string> DebugMessages;
     };
 
     std::unordered_map<ObjectGuid::LowType, RaidConsumableTracker>
@@ -344,6 +346,65 @@ namespace
 
     std::unordered_map<ObjectGuid::LowType, bool>
         ConsumableAliveState;
+
+    void AddConsumableDebugMessage(
+        PreparationStats& stats,
+        std::string const& message)
+    {
+        if (!stats.DebugEnabled)
+            return;
+
+        stats.DebugMessages.push_back(
+            "[Bot Consumables][Debug] " +
+            message);
+    }
+
+    void RecordAuraFailure(
+        PreparationStats& stats,
+        Player* bot,
+        std::string const& auraName,
+        uint32 spellId,
+        std::string const& reason)
+    {
+        if (!stats.DebugEnabled)
+            return;
+
+        std::string botName =
+            bot ? bot->GetName() : "Unknown";
+
+        AddConsumableDebugMessage(
+            stats,
+            botName +
+                ": aura '" +
+                auraName +
+                "' (spell " +
+                std::to_string(spellId) +
+                ") failed - " +
+                reason +
+                ".");
+    }
+
+    void RecordItemFailure(
+        PreparationStats& stats,
+        Player* bot,
+        uint32 itemId,
+        std::string const& reason)
+    {
+        if (!stats.DebugEnabled)
+            return;
+
+        std::string botName =
+            bot ? bot->GetName() : "Unknown";
+
+        AddConsumableDebugMessage(
+            stats,
+            botName +
+                ": item " +
+                std::to_string(itemId) +
+                " failed - " +
+                reason +
+                ".");
+    }
 
     uint64 GetConsumableNow()
     {
@@ -498,6 +559,11 @@ namespace
         if (!itemTemplate)
         {
             ++stats.ItemFailures;
+            RecordItemFailure(
+                stats,
+                bot,
+                itemId,
+                "item template was not found");
             return false;
         }
 
@@ -521,6 +587,11 @@ namespace
         if (!bot->AddItem(itemId, amountToAdd))
         {
             ++stats.ItemFailures;
+            RecordItemFailure(
+                stats,
+                bot,
+                itemId,
+                "AddItem could not add the requested quantity");
             return false;
         }
 
@@ -598,6 +669,11 @@ namespace
                 1))
         {
             ++stats.ItemFailures;
+            RecordItemFailure(
+                stats,
+                bot,
+                ITEM_CACHE_OF_MAUARI,
+                "Cache of Mau'ari could not be added");
             return false;
         }
 
@@ -665,6 +741,12 @@ namespace
         if (!bot || !target || !spellId)
         {
             ++stats.AuraFailures;
+            RecordAuraFailure(
+                stats,
+                bot,
+                auraName,
+                spellId,
+                "invalid bot, target, or spell id");
             return false;
         }
 
@@ -702,6 +784,12 @@ namespace
                 target))
         {
             ++stats.AuraFailures;
+            RecordAuraFailure(
+                stats,
+                bot,
+                auraName,
+                spellId,
+                "AddAura returned no aura");
             return false;
         }
 
@@ -735,6 +823,14 @@ namespace
         if (!spellId)
         {
             ++stats.AuraFailures;
+            RecordAuraFailure(
+                stats,
+                bot,
+                auraName,
+                0,
+                "item " +
+                    std::to_string(itemId) +
+                    " has no on-use spell");
             return false;
         }
 
@@ -816,6 +912,12 @@ namespace
         if (!spellId)
         {
             ++stats.AuraFailures;
+            RecordAuraFailure(
+                stats,
+                bot,
+                "Juju Flurry",
+                0,
+                "Juju Flurry item has no on-use spell");
             return;
         }
 
@@ -824,6 +926,12 @@ namespace
         if (!bot->AddAura(spellId, bot))
         {
             ++stats.AuraFailures;
+            RecordAuraFailure(
+                stats,
+                bot,
+                "Juju Flurry",
+                spellId,
+                "AddAura returned no aura");
             return;
         }
 
@@ -3235,6 +3343,8 @@ public:
             ".bot consumables mara | sunken | brd | scholo | stratud | dm | lbrs | ubrs | mc");
         handler->SendSysMessage(
             ".bot consumables status | clear");
+        handler->SendSysMessage(
+            ".bot consumables debug <profile>  (one preparation only)");
     }
 
     static RaidConsumableTracker&
@@ -3338,6 +3448,27 @@ public:
                 stats.ItemFailures,
                 stats.AuraFailures);
         }
+
+        if (stats.DebugEnabled)
+        {
+            if (stats.DebugMessages.empty())
+            {
+                handler->SendSysMessage(
+                    "[Bot Consumables][Debug] No item or aura failures were recorded.");
+            }
+            else
+            {
+                handler->SendSysMessage(
+                    "[Bot Consumables][Debug] Detailed failure report:");
+
+                for (std::string const& message :
+                     stats.DebugMessages)
+                {
+                    handler->SendSysMessage(
+                        message);
+                }
+            }
+        }
     }
 
     static PlayerbotMgr* GetManager(
@@ -3358,7 +3489,8 @@ public:
     }
 
     static bool HandleMoltenCoreCommand(
-        ChatHandler* handler)
+        ChatHandler* handler,
+        bool debugMode)
     {
         Player* master =
             handler->GetSession()->
@@ -3391,6 +3523,7 @@ public:
                 ProfileArea::Any);
 
         PreparationStats stats;
+        stats.DebugEnabled = debugMode;
 
         for (PlayerBotMap::const_iterator itr =
                  manager->GetPlayerBotsBegin();
@@ -3475,7 +3608,8 @@ public:
 
     static bool HandleGenericLevelCommand(
         ChatHandler* handler,
-        uint32 requestedLevel)
+        uint32 requestedLevel,
+        bool debugMode)
     {
         Player* master =
             handler->GetSession()->
@@ -3512,6 +3646,7 @@ public:
                 ProfileArea::Any);
 
         PreparationStats stats;
+        stats.DebugEnabled = debugMode;
 
         for (PlayerBotMap::const_iterator itr =
                  manager->GetPlayerBotsBegin();
@@ -3740,7 +3875,8 @@ public:
 
     static bool HandleNamedDungeonCommand(
         ChatHandler* handler,
-        std::string const& command)
+        std::string const& command,
+        bool debugMode)
     {
         Player* master =
             handler->GetSession()->
@@ -3804,6 +3940,7 @@ public:
                 area);
 
         PreparationStats stats;
+        stats.DebugEnabled = debugMode;
 
         for (PlayerBotMap::const_iterator itr =
                  manager->GetPlayerBotsBegin();
@@ -4048,11 +4185,55 @@ public:
             return true;
         }
 
+        bool debugMode = false;
+
+        if (command == "debug")
+        {
+            handler->SendSysMessage(
+                "[Bot Consumables] Debug usage: .bot consumables debug <profile>");
+            handler->SendSysMessage(
+                "Example: .bot consumables debug ubrs");
+            return true;
+        }
+
+        if (command.rfind("debug ", 0) == 0)
+        {
+            debugMode = true;
+
+            command =
+                NormalizeArgument(
+                    command.substr(6).c_str());
+
+            if (command.empty())
+            {
+                SendUsage(handler);
+                return true;
+            }
+        }
+
         if (command == "status")
+        {
+            if (debugMode)
+            {
+                handler->SendSysMessage(
+                    "[Bot Consumables] Debug is only used with a preparation profile.");
+                return true;
+            }
+
             return HandleStatusCommand(handler);
+        }
 
         if (command == "clear")
+        {
+            if (debugMode)
+            {
+                handler->SendSysMessage(
+                    "[Bot Consumables] Debug is only used with a preparation profile.");
+                return true;
+            }
+
             return HandleClearCommand(handler);
+        }
 
         uint32 requestedLevel = 0;
 
@@ -4107,19 +4288,31 @@ public:
             return true;
         }
 
+        if (debugMode)
+        {
+            handler->SendSysMessage(
+                "[Bot Consumables][Debug] Detailed failure reporting is enabled for this preparation only.");
+        }
+
         if (command == "mc")
-            return HandleMoltenCoreCommand(handler);
+        {
+            return HandleMoltenCoreCommand(
+                handler,
+                debugMode);
+        }
 
         if (isLevelCommand)
         {
             return HandleGenericLevelCommand(
                 handler,
-                requestedLevel);
+                requestedLevel,
+                debugMode);
         }
 
         return HandleNamedDungeonCommand(
             handler,
-            command);
+            command,
+            debugMode);
     }
 };
 
