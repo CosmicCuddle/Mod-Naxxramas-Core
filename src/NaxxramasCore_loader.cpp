@@ -9,6 +9,9 @@
 void AddWarriorRendFlurryScripts();
 void AddWarriorImprovedRendScripts();
 
+// Warlock
+void AddWarlockWrackScripts();
+
 // Racials
 void AddOrcBloodFuryScripts();
 void AddTrollBerserkingScripts();
@@ -35,6 +38,9 @@ void Addmod_naxxramas_coreScripts()
     // Warrior
     AddWarriorRendFlurryScripts();
     AddWarriorImprovedRendScripts();
+
+    // Warlock
+    AddWarlockWrackScripts();
 
     // Racials
     AddOrcBloodFuryScripts();
