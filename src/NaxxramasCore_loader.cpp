@@ -7,6 +7,7 @@
 
 // Warrior
 void AddWarriorRendFlurryScripts();
+void AddWarriorRendFlurryBotScripts();
 void AddWarriorImprovedRendScripts();
 
 // Warlock
@@ -41,6 +42,7 @@ void Addmod_naxxramas_coreScripts()
 {
     // Warrior
     AddWarriorRendFlurryScripts();
+    AddWarriorRendFlurryBotScripts();
     AddWarriorImprovedRendScripts();
 
     // Warlock
