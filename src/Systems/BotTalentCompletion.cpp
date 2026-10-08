@@ -14,6 +14,7 @@
 
 #include "Config.h"
 #include "DBCStores.h"
+#include "Group.h"
 #include "Log.h"
 #include "Player.h"
 #include "PlayerbotAIConfig.h"
@@ -24,6 +25,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <deque>
+#include <mutex>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -39,6 +43,19 @@ namespace NaxxramasBotTalentCompletion
         uint8 Spec = 0;
         bool LearnedSomething = false;
         uint32 PreviousSpecNo = 0;
+        bool Processing = false;
+        bool HasManualPlan = false;
+        bool IsCustomLink = false;
+        std::unordered_map<uint32, uint8> ManualRanks;
+        bool AllowedTabs[3] = {false, false, false};
+    };
+
+    struct CommandIntent
+    {
+        uint32 LifetimeMs = 15000;
+        bool IsCustomLink = false;
+        std::unordered_map<uint32, uint8> Ranks;
+        bool AllowedTabs[3] = {false, false, false};
     };
 
     struct TalentChoice
@@ -53,7 +70,9 @@ namespace NaxxramasBotTalentCompletion
         uint32 MatchingPoints = 0;
     };
 
+    std::mutex PendingMutex;
     std::unordered_map<ObjectGuid::LowType, PendingRespec> Pending;
+    std::unordered_map<ObjectGuid::LowType, std::deque<CommandIntent>> Intents;
 
     bool Enabled()
     {
@@ -148,6 +167,136 @@ namespace NaxxramasBotTalentCompletion
             }
         }
         return nullptr;
+    }
+
+    // The chat hook runs before PlayerbotAI handles the queued command.
+    // This allows the requested spec (or imported link) to determine which
+    // ranks may be learned, even when Playerbots later walks to level 80.
+    //
+    // Do not fall forward to a higher-level template here: that is exactly
+    // what previously introduced unintended later-expansion talent choices.
+    bool CaptureCommandIntent(Player* bot, std::string const& msg)
+    {
+        if (!IsSupportedBot(bot) || !Enabled())
+            return false;
+
+        // Playerbots supports multiple chat commands in one message. Keep
+        // the same order, as each command will perform its own respec.
+        std::string const& separator = sPlayerbotAIConfig.commandSeparator;
+        if (!separator.empty() && msg.find(separator) != std::string::npos)
+        {
+            bool any = false;
+            size_t pos = 0;
+            while (pos < msg.size())
+            {
+                size_t const end = msg.find(separator, pos);
+                std::string const part = msg.substr(pos,
+                    end == std::string::npos ? std::string::npos : end - pos);
+                if (!part.empty())
+                    any = CaptureCommandIntent(bot, part) || any;
+                if (end == std::string::npos)
+                    break;
+                pos = end + separator.size();
+            }
+            return any;
+        }
+
+        std::string command = msg;
+        std::string const& prefix = sPlayerbotAIConfig.commandPrefix;
+        if (!prefix.empty())
+        {
+            if (command.compare(0, prefix.size(), prefix) != 0)
+                return false;
+            command.erase(0, prefix.size());
+        }
+
+        size_t const first = command.find_first_not_of(' ');
+        if (first == std::string::npos)
+            return false;
+        size_t const last = command.find_last_not_of(' ');
+        command = command.substr(first, last - first + 1);
+
+        uint32 const cls = bot->getClass();
+        std::vector<std::vector<uint32>> const* planned = nullptr;
+        std::vector<std::vector<uint32>> custom;
+        bool customLink = false;
+
+        if (command.compare(0, 13, "talents spec ") == 0)
+        {
+            std::string const name = command.substr(13);
+            if (name.empty() || name == "list")
+                return false;
+
+            for (uint32 specNo = 0; specNo < MAX_SPECNO; ++specNo)
+            {
+                if (sPlayerbotAIConfig.premadeSpecName[cls][specNo] != name)
+                    continue;
+
+                // Use the latest configured plan no higher than this level.
+                // If only a future-level plan exists, leave the original
+                // Playerbots behaviour unchanged rather than guessing.
+                uint32 selectedLevel = 0;
+                for (uint32 level = 1;
+                    level <= bot->GetLevel() && level < MAX_LEVEL; ++level)
+                {
+                    if (!sPlayerbotAIConfig.parsedSpecLinkOrder[cls][specNo][level].empty())
+                        selectedLevel = level;
+                }
+
+                if (selectedLevel)
+                    planned = &sPlayerbotAIConfig.parsedSpecLinkOrder[cls][specNo][selectedLevel];
+
+                break;
+            }
+        }
+        else if (command.compare(0, 14, "talents apply ") == 0)
+        {
+            std::string const link = command.substr(14);
+            if (link.empty())
+                return false;
+
+            custom = PlayerbotAIConfig::ParseTempTalentsOrder(cls, link);
+            planned = &custom;
+            customLink = true;
+        }
+        else
+        {
+            return false;
+        }
+
+        if (!planned || planned->empty())
+            return false;
+
+        std::vector<TalentChoice> const choices = GetLegalTalents(bot);
+        CommandIntent intent;
+        intent.IsCustomLink = customLink;
+
+        for (std::vector<uint32> const& entry : *planned)
+        {
+            if (entry.size() < 4)
+                continue;
+
+            TalentChoice const* choice =
+                FindChoice(choices, entry[0], entry[1], entry[2]);
+            if (!choice)
+                continue;
+
+            uint8 const rank = static_cast<uint8>(
+                std::min<uint32>(entry[3], MaximumRank(choice->Talent)));
+            if (!rank)
+                continue;
+
+            uint8& slot = intent.Ranks[choice->Talent->TalentID];
+            slot = std::max(slot, rank);
+            intent.AllowedTabs[choice->Tab] = true;
+        }
+
+        if (intent.Ranks.empty())
+            return false;
+
+        std::lock_guard<std::mutex> lock(PendingMutex);
+        Intents[bot->GetGUID().GetCounter()].push_back(std::move(intent));
+        return true;
     }
 
     // A build is matched from its already-learned ranks, not from a guessed
@@ -375,7 +524,8 @@ namespace NaxxramasBotTalentCompletion
         return score + 1u;
     }
 
-    uint32 Finish(Player* bot, uint32 previousSpecNo)
+    uint32 Finish(Player* bot, uint32 previousSpecNo,
+        std::unordered_map<uint32, uint8> const& manualRanks)
     {
         if (!IsSupportedBot(bot) || !bot->GetFreeTalentPoints())
             return 0;
@@ -385,8 +535,11 @@ namespace NaxxramasBotTalentCompletion
             return 0;
 
         uint8 const primaryTab = bot->GetMostPointsTalentTree();
-        auto const desiredRanks = FindMatchingTemplate(
-            bot, choices, previousSpecNo);
+        // An explicit whispered/group talent request takes priority over
+        // heuristic similarity to other premade configurations.
+        auto const desiredRanks = !manualRanks.empty()
+            ? manualRanks
+            : FindMatchingTemplate(bot, choices, previousSpecNo);
         bool wrackProfile = false;
         uint8 const secondaryTab = ChooseSecondaryTab(
             bot, choices, desiredRanks, primaryTab, wrackProfile);
@@ -483,6 +636,9 @@ public:
     NaxxramasCoreBotTalentCompletion()
         : PlayerScript("NaxxramasCoreBotTalentCompletion",
             {
+                PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT,
+                PLAYERHOOK_CAN_PLAYER_USE_GROUP_CHAT,
+                PLAYERHOOK_CAN_LEARN_TALENT,
                 PLAYERHOOK_ON_TALENTS_RESET,
                 PLAYERHOOK_ON_PLAYER_LEARN_TALENTS,
                 PLAYERHOOK_ON_AFTER_SPEC_SLOT_CHANGED,
@@ -492,34 +648,109 @@ public:
     {
     }
 
-    void OnPlayerTalentsReset(Player* bot, bool noCost) override
-    {
-        if (!noCost || !NaxxramasBotTalentCompletion::Enabled() ||
-            !NaxxramasBotTalentCompletion::IsSupportedBot(bot))
-        {
-            return;
-        }
+    using PlayerScript::OnPlayerCanUseChat;
 
-        NaxxramasBotTalentCompletion::Pending[bot->GetGUID().GetCounter()] =
-            {NaxxramasBotTalentCompletion::QUIET_PERIOD_MS,
-             bot->GetActiveSpec(), false,
-             sRandomPlayerbotMgr.GetValue(bot, "specNo")};
+    bool OnPlayerCanUseChat(Player*, uint32 type, uint32,
+        std::string& msg, Player* receiver) override
+    {
+        if (type == CHAT_MSG_WHISPER && receiver)
+            NaxxramasBotTalentCompletion::CaptureCommandIntent(receiver, msg);
+        return true;
     }
 
-    void OnPlayerLearnTalents(
-        Player* bot, uint32, uint32, uint32) override
+    bool OnPlayerCanUseChat(Player*, uint32 type, uint32,
+        std::string& msg, Group* group) override
+    {
+        if (!group || (type != CHAT_MSG_PARTY &&
+            type != CHAT_MSG_PARTY_LEADER &&
+            type != CHAT_MSG_RAID &&
+            type != CHAT_MSG_RAID_LEADER))
+            return true;
+
+        for (GroupReference* member = group->GetFirstMember();
+            member; member = member->next())
+        {
+            if (Player* bot = member->GetSource())
+                NaxxramasBotTalentCompletion::CaptureCommandIntent(bot, msg);
+        }
+
+        return true;
+    }
+
+    bool OnPlayerCanLearnTalent(
+        Player* bot, TalentEntry const* talent, uint32 rank) override
+    {
+        if (!bot || !talent || !NaxxramasBotTalentCompletion::Enabled() ||
+            !NaxxramasBotTalentCompletion::IsSupportedBot(bot))
+            return true;
+
+        namespace N = NaxxramasBotTalentCompletion;
+        std::lock_guard<std::mutex> lock(N::PendingMutex);
+        auto it = N::Pending.find(bot->GetGUID().GetCounter());
+        if (it == N::Pending.end() || !it->second.HasManualPlan ||
+            bot->GetActiveSpec() != it->second.Spec)
+            return true;
+
+        // During template finishing, let named builds use legal choices
+        // within their already chosen tree(s). Imported links stay exact.
+        if (it->second.Processing && !it->second.IsCustomLink)
+        {
+            TalentTabEntry const* tab =
+                sTalentTabStore.LookupEntry(talent->TalentTab);
+            return tab && tab->tabpage < 3 &&
+                it->second.AllowedTabs[tab->tabpage];
+        }
+
+        auto desired = it->second.ManualRanks.find(talent->TalentID);
+        return desired != it->second.ManualRanks.end() &&
+            rank < desired->second;
+    }
+
+    void OnPlayerTalentsReset(Player* bot, bool noCost) override
+    {
+        if (!bot || !noCost ||
+            !NaxxramasBotTalentCompletion::Enabled() ||
+            !NaxxramasBotTalentCompletion::IsSupportedBot(bot))
+            return;
+
+        namespace N = NaxxramasBotTalentCompletion;
+        uint32 const existingSpecNo = sRandomPlayerbotMgr.GetValue(bot, "specNo");
+
+        std::lock_guard<std::mutex> lock(N::PendingMutex);
+        auto const key = bot->GetGUID().GetCounter();
+        N::PendingRespec state;
+        state.Spec = bot->GetActiveSpec();
+        state.PreviousSpecNo = existingSpecNo;
+
+        auto intent = N::Intents.find(key);
+        if (intent != N::Intents.end())
+        {
+            state.HasManualPlan = true;
+            N::CommandIntent& command = intent->second.front();
+            state.IsCustomLink = command.IsCustomLink;
+            state.ManualRanks = std::move(command.Ranks);
+            for (uint8 tab = 0; tab < 3; ++tab)
+                state.AllowedTabs[tab] = command.AllowedTabs[tab];
+            intent->second.pop_front();
+            if (intent->second.empty())
+                N::Intents.erase(intent);
+        }
+
+        N::Pending[key] = std::move(state);
+    }
+
+    void OnPlayerLearnTalents(Player* bot, uint32, uint32, uint32) override
     {
         if (!bot)
             return;
 
-        auto it = NaxxramasBotTalentCompletion::Pending.find(
-            bot->GetGUID().GetCounter());
-
-        if (it != NaxxramasBotTalentCompletion::Pending.end())
+        namespace N = NaxxramasBotTalentCompletion;
+        std::lock_guard<std::mutex> lock(N::PendingMutex);
+        auto it = N::Pending.find(bot->GetGUID().GetCounter());
+        if (it != N::Pending.end() && !it->second.Processing)
         {
             it->second.LearnedSomething = true;
-            it->second.MillisecondsRemaining =
-                NaxxramasBotTalentCompletion::QUIET_PERIOD_MS;
+            it->second.MillisecondsRemaining = N::QUIET_PERIOD_MS;
         }
     }
 
@@ -528,54 +759,111 @@ public:
         if (!bot)
             return;
 
-        auto it = NaxxramasBotTalentCompletion::Pending.find(
-            bot->GetGUID().GetCounter());
+        namespace N = NaxxramasBotTalentCompletion;
+        auto const key = bot->GetGUID().GetCounter();
+        bool const supported = N::Enabled() && N::IsSupportedBot(bot);
+        bool const inCombat = bot->IsInCombat();
+        uint32 previousSpecNo = 0;
+        std::unordered_map<uint32, uint8> manualRanks;
 
-        if (it == NaxxramasBotTalentCompletion::Pending.end())
-            return;
-
-        if (!NaxxramasBotTalentCompletion::Enabled() ||
-            !NaxxramasBotTalentCompletion::IsSupportedBot(bot) ||
-            bot->GetActiveSpec() != it->second.Spec)
         {
-            NaxxramasBotTalentCompletion::Pending.erase(it);
-            return;
+            std::lock_guard<std::mutex> lock(N::PendingMutex);
+            auto intent = N::Intents.find(key);
+            if (intent != N::Intents.end())
+            {
+                if (!supported)
+                {
+                    N::Intents.erase(intent);
+                }
+                else
+                {
+                    for (auto& command : intent->second)
+                    {
+                        command.LifetimeMs = diff >= command.LifetimeMs
+                            ? 0 : command.LifetimeMs - diff;
+                    }
+
+                    while (!intent->second.empty() &&
+                        intent->second.front().LifetimeMs == 0)
+                        intent->second.pop_front();
+
+                    if (intent->second.empty())
+                        N::Intents.erase(intent);
+                }
+            }
+
+            auto it = N::Pending.find(key);
+            if (it == N::Pending.end())
+                return;
+
+            if (!supported || bot->GetActiveSpec() != it->second.Spec)
+            {
+                N::Pending.erase(it);
+                return;
+            }
+
+            if (it->second.Processing)
+                return;
+
+            if (it->second.MillisecondsRemaining > diff)
+            {
+                it->second.MillisecondsRemaining -= diff;
+                return;
+            }
+
+            if (!it->second.LearnedSomething)
+            {
+                N::Pending.erase(it);
+                return;
+            }
+
+            if (inCombat)
+                return;
+
+            previousSpecNo = it->second.PreviousSpecNo;
+            manualRanks = it->second.ManualRanks;
+            it->second.Processing = true;
         }
 
-        if (it->second.MillisecondsRemaining > diff)
+        // Do not hold the mutex while calling LearnTalent: successful ranks
+        // invoke OnPlayerLearnTalents before returning.
+        N::Finish(bot, previousSpecNo, manualRanks);
+
         {
-            it->second.MillisecondsRemaining -= diff;
-            return;
+            std::lock_guard<std::mutex> lock(N::PendingMutex);
+            N::Pending.erase(key);
         }
-
-        // Wait for a real template assignment; do not fill an intentionally
-        // empty build or interfere with the bot while it is fighting.
-        if (!it->second.LearnedSomething)
-        {
-            NaxxramasBotTalentCompletion::Pending.erase(it);
-            return;
-        }
-
-        if (bot->IsInCombat())
-            return;
-
-        uint32 const previousSpecNo = it->second.PreviousSpecNo;
-        NaxxramasBotTalentCompletion::Pending.erase(it);
-        NaxxramasBotTalentCompletion::Finish(bot, previousSpecNo);
     }
 
     void OnPlayerAfterSpecSlotChanged(Player* bot, uint8) override
     {
-        if (bot)
-            NaxxramasBotTalentCompletion::Pending.erase(
-                bot->GetGUID().GetCounter());
+        if (!bot)
+            return;
+
+        // Cancel the old slot's pending completion. Retain chat intents:
+        // a queued "talents switch 2; talents spec ..." must still apply
+        // its subsequent spec command to the new slot.
+        namespace N = NaxxramasBotTalentCompletion;
+        std::lock_guard<std::mutex> lock(N::PendingMutex);
+        N::Pending.erase(bot->GetGUID().GetCounter());
     }
 
     void OnPlayerLogout(Player* bot) override
     {
-        if (bot)
-            NaxxramasBotTalentCompletion::Pending.erase(
-                bot->GetGUID().GetCounter());
+        Clear(bot);
+    }
+
+private:
+    static void Clear(Player* bot)
+    {
+        if (!bot)
+            return;
+
+        namespace N = NaxxramasBotTalentCompletion;
+        std::lock_guard<std::mutex> lock(N::PendingMutex);
+        auto const key = bot->GetGUID().GetCounter();
+        N::Pending.erase(key);
+        N::Intents.erase(key);
     }
 };
 

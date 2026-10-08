@@ -103,7 +103,8 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # Playerbot Talent Completion
 #####################################
 
-# Fill legal talent ranks left unspent after a Playerbot's no-cost respec.
+# Guard whispered/group bot talent specs against later-level template bleed,
+# and finish legal talent ranks left unspent after a no-cost respec.
 # Requires AiPlayerbot.LimitTalentsExpansion = 1.
 # The existing Playerbots talent limits and human player builds are unchanged.
 # Safe default is disabled; enable explicitly after reviewing and testing changes.

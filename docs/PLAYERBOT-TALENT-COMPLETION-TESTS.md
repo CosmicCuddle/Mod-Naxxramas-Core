@@ -12,6 +12,18 @@
 - This feature intentionally follows **level**, not Individual Progression tier. Expansion transitions at the same capped level are out of scope for this test.
 - Use in-game WHISPERS to each bot: `talents spec list`, then `talents spec <exact name>`; optionally `talents apply <valid link>`.
 
+## Manual chat-template guard (new audit regression)
+
+1. Using an **existing named level-60 premade** via whisper: confirm no talent ranks absent from the intended configured level-60 template were learned *during initial assignment*. In particular, later level-70/80 templates must not inject Destruction or other secondary-tree ranks.
+2. An exact custom 31/20/0 Warlock link via `talents apply`: confirm the entire final distribution is 31 Affliction / 20 Demonology / 0 Destruction, with Shadow Mastery 5/5 and Wrack, or report that rank/dependency validation prevented it. The module must not silently convert it into another tree distribution.
+3. Repeat the **same named spec** twice, and switch between two different named specs in quick succession; every command must consume the correct queued intent. Inspect rank totals and trees after each.
+4. Verify group-party commands operate on each affected bot using that bot's own class/spec template; do not use arbitrary chat messages that include spec prefixes only by coincidence.
+5. Test custom `AiPlayerbot.CommandPrefix` and multiple commands separated by `AiPlayerbot.CommandSeparator` when these settings are enabled.
+6. Use `talents spec list`, a nonexistent spec name and an invalid link; these must not leave a stale template lock. Wait at least 60 seconds and repeat a valid command to verify cleanup.
+7. During an active respec, do not allow a concurrent spec switch to add talents to the wrong slot. Check that a bot can be logged out safely during a pending delayed completion.
+8. Disable `NaxxramasCore.BotTalentCompletion.Enabled`; only the existing independent expansion-row safeguard should remain active.
+9. **Coverage limit:** automated bot refreshes, console commands, guild/channel commands without a captured chat intent still have their old fallback behavior. Do not claim these routes are fully plan-enforced until implemented and tested separately.
+
 ## Essential invariants (all tests)
 
 1. No talent with zero-based row > 6 is learned at level 60.
