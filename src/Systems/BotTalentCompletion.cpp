@@ -595,6 +595,9 @@ public:
     NaxxramasCoreBotTalentCompletion()
         : PlayerScript("NaxxramasCoreBotTalentCompletion",
             {
+                PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT,
+                PLAYERHOOK_CAN_PLAYER_USE_GROUP_CHAT,
+                PLAYERHOOK_CAN_LEARN_TALENT,
                 PLAYERHOOK_ON_TALENTS_RESET,
                 PLAYERHOOK_ON_PLAYER_LEARN_TALENTS,
                 PLAYERHOOK_ON_AFTER_SPEC_SLOT_CHANGED,
@@ -604,34 +607,105 @@ public:
     {
     }
 
-    void OnPlayerTalentsReset(Player* bot, bool noCost) override
-    {
-        if (!noCost || !NaxxramasBotTalentCompletion::Enabled() ||
-            !NaxxramasBotTalentCompletion::IsSupportedBot(bot))
-        {
-            return;
-        }
+    using PlayerScript::OnPlayerCanUseChat;
 
-        NaxxramasBotTalentCompletion::Pending[bot->GetGUID().GetCounter()] =
-            {NaxxramasBotTalentCompletion::QUIET_PERIOD_MS,
-             bot->GetActiveSpec(), false,
-             sRandomPlayerbotMgr.GetValue(bot, "specNo")};
+    bool OnPlayerCanUseChat(Player*, uint32 type, uint32,
+        std::string& msg, Player* receiver) override
+    {
+        if (type == CHAT_MSG_WHISPER && receiver)
+            NaxxramasBotTalentCompletion::CaptureCommandIntent(receiver, msg);
+        return true;
     }
 
-    void OnPlayerLearnTalents(
-        Player* bot, uint32, uint32, uint32) override
+    bool OnPlayerCanUseChat(Player*, uint32 type, uint32,
+        std::string& msg, Group* group) override
+    {
+        if (!group || (type != CHAT_MSG_PARTY &&
+            type != CHAT_MSG_PARTY_LEADER &&
+            type != CHAT_MSG_RAID &&
+            type != CHAT_MSG_RAID_LEADER))
+            return true;
+
+        for (GroupReference* member = group->GetFirstMember();
+            member; member = member->next())
+        {
+            if (Player* bot = member->GetSource())
+                NaxxramasBotTalentCompletion::CaptureCommandIntent(bot, msg);
+        }
+
+        return true;
+    }
+
+    bool OnPlayerCanLearnTalent(
+        Player* bot, TalentEntry const* talent, uint32 rank) override
+    {
+        if (!bot || !talent)
+            return true;
+
+        namespace N = NaxxramasBotTalentCompletion;
+        std::lock_guard<std::mutex> lock(N::PendingMutex);
+        auto it = N::Pending.find(bot->GetGUID().GetCounter());
+        if (it == N::Pending.end() || !it->second.HasManualPlan ||
+            bot->GetActiveSpec() != it->second.Spec)
+            return true;
+
+        // During template finishing, let named builds use legal choices
+        // within their already chosen tree(s). Imported links stay exact.
+        if (it->second.Processing && !it->second.IsCustomLink)
+        {
+            TalentTabEntry const* tab =
+                sTalentTabStore.LookupEntry(talent->TalentTab);
+            return tab && tab->tabpage < 3 &&
+                it->second.AllowedTabs[tab->tabpage];
+        }
+
+        auto desired = it->second.ManualRanks.find(talent->TalentID);
+        return desired != it->second.ManualRanks.end() &&
+            rank < desired->second;
+    }
+
+    void OnPlayerTalentsReset(Player* bot, bool noCost) override
+    {
+        if (!bot || !noCost ||
+            !NaxxramasBotTalentCompletion::Enabled() ||
+            !NaxxramasBotTalentCompletion::IsSupportedBot(bot))
+            return;
+
+        namespace N = NaxxramasBotTalentCompletion;
+        uint32 const existingSpecNo = sRandomPlayerbotMgr.GetValue(bot, "specNo");
+
+        std::lock_guard<std::mutex> lock(N::PendingMutex);
+        auto const key = bot->GetGUID().GetCounter();
+        N::PendingRespec state;
+        state.Spec = bot->GetActiveSpec();
+        state.PreviousSpecNo = existingSpecNo;
+
+        auto intent = N::Intents.find(key);
+        if (intent != N::Intents.end())
+        {
+            state.HasManualPlan = true;
+            state.IsCustomLink = intent->second.IsCustomLink;
+            state.ManualRanks = std::move(intent->second.Ranks);
+            for (uint8 tab = 0; tab < 3; ++tab)
+                state.AllowedTabs[tab] = intent->second.AllowedTabs[tab];
+            N::Intents.erase(intent);
+        }
+
+        N::Pending[key] = std::move(state);
+    }
+
+    void OnPlayerLearnTalents(Player* bot, uint32, uint32, uint32) override
     {
         if (!bot)
             return;
 
-        auto it = NaxxramasBotTalentCompletion::Pending.find(
-            bot->GetGUID().GetCounter());
-
-        if (it != NaxxramasBotTalentCompletion::Pending.end())
+        namespace N = NaxxramasBotTalentCompletion;
+        std::lock_guard<std::mutex> lock(N::PendingMutex);
+        auto it = N::Pending.find(bot->GetGUID().GetCounter());
+        if (it != N::Pending.end() && !it->second.Processing)
         {
             it->second.LearnedSomething = true;
-            it->second.MillisecondsRemaining =
-                NaxxramasBotTalentCompletion::QUIET_PERIOD_MS;
+            it->second.MillisecondsRemaining = N::QUIET_PERIOD_MS;
         }
     }
 
@@ -640,54 +714,86 @@ public:
         if (!bot)
             return;
 
-        auto it = NaxxramasBotTalentCompletion::Pending.find(
-            bot->GetGUID().GetCounter());
+        namespace N = NaxxramasBotTalentCompletion;
+        auto const key = bot->GetGUID().GetCounter();
+        bool const supported = N::Enabled() && N::IsSupportedBot(bot);
+        bool const inCombat = bot->IsInCombat();
+        uint32 previousSpecNo = 0;
 
-        if (it == NaxxramasBotTalentCompletion::Pending.end())
-            return;
-
-        if (!NaxxramasBotTalentCompletion::Enabled() ||
-            !NaxxramasBotTalentCompletion::IsSupportedBot(bot) ||
-            bot->GetActiveSpec() != it->second.Spec)
         {
-            NaxxramasBotTalentCompletion::Pending.erase(it);
-            return;
+            std::lock_guard<std::mutex> lock(N::PendingMutex);
+            auto intent = N::Intents.find(key);
+            if (intent != N::Intents.end())
+            {
+                if (!supported || diff >= intent->second.LifetimeMs)
+                    N::Intents.erase(intent);
+                else
+                    intent->second.LifetimeMs -= diff;
+            }
+
+            auto it = N::Pending.find(key);
+            if (it == N::Pending.end())
+                return;
+
+            if (!supported || bot->GetActiveSpec() != it->second.Spec)
+            {
+                N::Pending.erase(it);
+                return;
+            }
+
+            if (it->second.Processing)
+                return;
+
+            if (it->second.MillisecondsRemaining > diff)
+            {
+                it->second.MillisecondsRemaining -= diff;
+                return;
+            }
+
+            if (!it->second.LearnedSomething)
+            {
+                N::Pending.erase(it);
+                return;
+            }
+
+            if (inCombat)
+                return;
+
+            previousSpecNo = it->second.PreviousSpecNo;
+            it->second.Processing = true;
         }
 
-        if (it->second.MillisecondsRemaining > diff)
+        // Do not hold the mutex while calling LearnTalent: successful ranks
+        // invoke OnPlayerLearnTalents before returning.
+        N::Finish(bot, previousSpecNo);
+
         {
-            it->second.MillisecondsRemaining -= diff;
-            return;
+            std::lock_guard<std::mutex> lock(N::PendingMutex);
+            N::Pending.erase(key);
         }
-
-        // Wait for a real template assignment; do not fill an intentionally
-        // empty build or interfere with the bot while it is fighting.
-        if (!it->second.LearnedSomething)
-        {
-            NaxxramasBotTalentCompletion::Pending.erase(it);
-            return;
-        }
-
-        if (bot->IsInCombat())
-            return;
-
-        uint32 const previousSpecNo = it->second.PreviousSpecNo;
-        NaxxramasBotTalentCompletion::Pending.erase(it);
-        NaxxramasBotTalentCompletion::Finish(bot, previousSpecNo);
     }
 
     void OnPlayerAfterSpecSlotChanged(Player* bot, uint8) override
     {
-        if (bot)
-            NaxxramasBotTalentCompletion::Pending.erase(
-                bot->GetGUID().GetCounter());
+        Clear(bot);
     }
 
     void OnPlayerLogout(Player* bot) override
     {
-        if (bot)
-            NaxxramasBotTalentCompletion::Pending.erase(
-                bot->GetGUID().GetCounter());
+        Clear(bot);
+    }
+
+private:
+    static void Clear(Player* bot)
+    {
+        if (!bot)
+            return;
+
+        namespace N = NaxxramasBotTalentCompletion;
+        std::lock_guard<std::mutex> lock(N::PendingMutex);
+        auto const key = bot->GetGUID().GetCounter();
+        N::Pending.erase(key);
+        N::Intents.erase(key);
     }
 };
 
