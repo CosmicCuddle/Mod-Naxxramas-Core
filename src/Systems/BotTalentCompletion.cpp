@@ -18,6 +18,7 @@
 #include "Player.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotMgr.h"
+#include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
 
 #include <algorithm>
@@ -36,6 +37,7 @@ namespace NaxxramasBotTalentCompletion
         uint32 MillisecondsRemaining = QUIET_PERIOD_MS;
         uint8 Spec = 0;
         bool LearnedSomething = false;
+        uint32 PreviousSpecNo = 0;
     };
 
     struct TalentChoice
@@ -151,7 +153,8 @@ namespace NaxxramasBotTalentCompletion
     // specialisation name. This avoids trusting an old 'specNo' when the user
     // has applied a custom talent link.
     std::unordered_map<uint32, uint8> FindMatchingTemplate(
-        Player* bot, std::vector<TalentChoice> const& choices)
+        Player* bot, std::vector<TalentChoice> const& choices,
+        uint32 previousSpecNo)
     {
         uint32 const cls = bot->getClass();
         uint32 alreadySpent = 0;
@@ -162,6 +165,12 @@ namespace NaxxramasBotTalentCompletion
             return {};
 
         TemplateMatch best;
+
+        // Playerbots sets this to selected premade index + 1 after a named
+        // spec change. A custom imported link does not update this field.
+        uint32 const currentSpecNo = sRandomPlayerbotMgr.GetValue(bot, "specNo");
+        uint32 const explicitlyChangedSpecNo =
+            (currentSpecNo != previousSpecNo) ? currentSpecNo : 0;
 
         for (uint32 specNo = 0; specNo < MAX_SPECNO; ++specNo)
         {
@@ -208,6 +217,14 @@ namespace NaxxramasBotTalentCompletion
                 auto it = match.DesiredRanks.find(choice.Talent->TalentID);
                 if (it != match.DesiredRanks.end())
                     match.MatchingPoints += std::min(actual, it->second);
+            }
+
+            // Prefer the exact named spec when its stored index changed;
+            // require the same close-overlap safeguard as ordinary matching.
+            if (explicitlyChangedSpecNo == specNo + 1 &&
+                match.MatchingPoints * 100 >= alreadySpent * 85)
+            {
+                return match.DesiredRanks;
             }
 
             if (match.MatchingPoints > best.MatchingPoints)
@@ -272,7 +289,7 @@ namespace NaxxramasBotTalentCompletion
         return score + 1u;
     }
 
-    uint32 Finish(Player* bot)
+    uint32 Finish(Player* bot, uint32 previousSpecNo)
     {
         if (!IsSupportedBot(bot) || !bot->GetFreeTalentPoints())
             return 0;
@@ -282,7 +299,8 @@ namespace NaxxramasBotTalentCompletion
             return 0;
 
         uint8 const primaryTab = bot->GetMostPointsTalentTree();
-        auto const desiredRanks = FindMatchingTemplate(bot, choices);
+        auto const desiredRanks = FindMatchingTemplate(
+            bot, choices, previousSpecNo);
         uint32 totalSpent = 0;
 
         // Each pass buys at most one rank. Candidate order is stable, and
@@ -372,7 +390,8 @@ public:
 
         NaxxramasBotTalentCompletion::Pending[bot->GetGUID().GetCounter()] =
             {NaxxramasBotTalentCompletion::QUIET_PERIOD_MS,
-             bot->GetActiveSpec(), false};
+             bot->GetActiveSpec(), false,
+             sRandomPlayerbotMgr.GetValue(bot, "specNo")};
     }
 
     void OnPlayerLearnTalents(
@@ -428,8 +447,9 @@ public:
         if (bot->IsInCombat())
             return;
 
+        uint32 const previousSpecNo = it->second.PreviousSpecNo;
         NaxxramasBotTalentCompletion::Pending.erase(it);
-        NaxxramasBotTalentCompletion::Finish(bot);
+        NaxxramasBotTalentCompletion::Finish(bot, previousSpecNo);
     }
 
     void OnPlayerAfterSpecSlotChanged(Player* bot, uint8) override
