@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — Level-appropriate Playerbot builds and Wrack safety
+
+- Fixed the completion matcher choosing level-80 premade links ahead of level-60 links. It now uses the closest configured talent link to the bot's own level, preferring the lower level for equal distance.
+- Completion choices are limited to the bot's dominant tree and one already-used or planned secondary, rather than allowing arbitrary third-tree filler.
+- At level 60, Affliction Warlocks with Wrack and no existing or planned Destruction investment prefer Demonology filler after 31 Affliction points, aiming towards 31/20/0 where the original template permits; no existing talents are removed.
+- No upstream Playerbots, AzerothCore or DB/DBC edits. Existing config switch unchanged. Must compile and retest this correction after pulling.
+
+
 ## Unreleased — Optional Playerbot talent completion (test branch)
 
 - Added an opt-in Naxxramas Core PlayerScript that completes remaining **legal talent ranks** after a bot's no-cost respec settles.
