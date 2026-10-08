@@ -212,14 +212,14 @@ NaxxramasCore.ForcedPvP.Notify
 
 **Scope:** This initial compatibility fix deliberately mirrors Playerbots' current level-based setting. It does **not** yet substitute Individual Progression stages for levels; doing that correctly for both automatic and manual builds requires an additional integration. No SQL or DBC change is required. Rebuild and restart the server after updating the module.
 
-#### Optional Playerbot talent completion (testing feature)
+#### Optional Playerbot talent completion
 
 The existing talent-row guard prevents Playerbots from learning expansion-inappropriate talents, but a manually applied WotLK preset may finish with unused points. The optional `src/Systems/BotTalentCompletion.cpp` script addresses that specific issue **without resetting the bot again** or editing mod-playerbots.
 
-- Enabled by `NaxxramasCore.BotTalentCompletion.Enabled = 1`, **default 0** until compiled and verified.
+- Enabled by `NaxxramasCore.BotTalentCompletion.Enabled = 1` in the **active server config**; default 0 as a safe opt-out.
 - Requires `AiPlayerbot.LimitTalentsExpansion = 1`. Uses the original level-based expansion limits, not IP tier-based expansion detection.
 - Runs only after a recognised Playerbot's **no-cost talent reset** and subsequent successful talent assignment. Waits 1.2 seconds after the last learned talent, and waits for combat to finish. Ordinary player characters and normal paid talent resets are not affected.
-- Matches against the **closest configured template to the bot's own level** (level 60 uses the level-60 plan when available; it no longer silently prefers the level-80 plan). An 85% learned-rank overlap is required before following a matching premade plan.
+- Without explicit chat-plan context, matches against the **closest configured template to the bot's level**, using an 85% learned-rank overlap before following it. For explicit named/apply chat commands, the captured requested plan instead takes priority.
 - Fills the intended primary tree and at most one secondary tree: an existing secondary from the current build, or one prescribed by the selected level-appropriate plan. It will leave points unused rather than unexpectedly start an unrelated third tree.
 - Special Wrack safety: at level 60 an Affliction Warlock with Shadow Mastery 5/5, no existing Destruction ranks and no matched plan requiring Destruction prioritises **Demonology** filler once Affliction has at least 31 points, aiming towards 31/20/0. This preserves custom 31/20/0 builds. **It does not undo existing Affliction points**, so a premade that already spent 40 Affliction points can finish 40/11/0, not 31/20/0. To guarantee exact 31/20/0, select a suitable custom talent build.
 - The remaining choices are deterministic and validated rank-by-rank by AzerothCore; they are not guaranteed to be mathematically optimal.
@@ -228,8 +228,14 @@ The existing talent-row guard prevents Playerbots from learning expansion-inappr
 - If there are no legal remaining ranks, it **stops and leaves the points unused** rather than breaking prerequisites or creating an invalid build; a server warning gives the bot and remaining point count.
 - Custom user-imported talent links can be processed after their ordinary no-cost reset; the closest premade template is used only if at least 85% of the currently learned talent ranks overlap it. Otherwise finishing choices are deterministic, not automatically optimal for an arbitrary custom build.
 - No SQL or client DBC changes required. The module must be compiled and Worldserver restarted.
+- **Authoritative chat-plan guard:** For named `talents spec <name>` whispers/party/raid requests, the module captures the bot's selected premade talent plan **before Playerbots executes the queued command**, using the highest configured template level **at or below** the bot's actual level. As Playerbots processes later templates (including level 80), talents outside the captured level-appropriate plan are rejected. The normal expansion row guard still applies independently.
+- **Imported `talents apply <link>`:** Uses Playerbots' own Wowhead-link parser to capture the exact requested talent ranks. The initial assignment **and delayed completion** may only learn ranks in that plan. If the imported build is impossible at the current level/expansion, free points may intentionally remain; the module will not substitute unrelated talents.
+- **Named premade completion:** When the initial template cannot fill all points due to expansion restrictions, the delayed completion may buy other valid ranks **only in the intended template's tree(s)**. It cannot invent a third tree or guarantee a mathematically optimal spec. For Wrack hybrids, explicitly importing a valid 31/20/0 link is the reliable way to request that exact distribution. The stock level-60 Affliction PvE template uses 51 Affliction points.
+- **Concurrency protection:** Queues multiple captured chat intents in arrival order, tracks each bot's spec, uses a mutex to protect shared respec state, and clears it on spec-switch/logout; no state lock is held while AzerothCore purchases talents. Unconsumed intents expire.
+- **Limitations:** The exact-plan guard is implemented for whispers and party/raid bot commands. Automated bot talent refreshes and alternate console/guild/channel command routes still use the original safe row restriction and existing completion logic, not explicit chat-plan enforcement. This is not an all-purpose talent-build optimizer.
 
-**Validation status:** The earlier version was compiled and tested successfully on the user's server with a Frost Mage (51 points spent). This level-specific Wrack improvement is not yet recompiled or retested in-game. The exact filler choices for each class are not guaranteed to match a mathematically optimal raid build.
+
+**Validation status:** The earlier completion version was compiled and tested successfully with a level-60 Frost Mage (51 points spent). The new authoritative chat-plan guard has been source-reviewed but **has not yet been compiled or tested on the user's server**. Do not treat static checks as proof of runtime correctness.
 
 ### Playerbot instance consumables
 
