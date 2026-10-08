@@ -180,14 +180,50 @@ namespace NaxxramasBotTalentCompletion
         if (!IsSupportedBot(bot) || !Enabled())
             return false;
 
+        // Playerbots supports multiple chat commands in one message. Keep
+        // the same order, as each command will perform its own respec.
+        std::string const& separator = sPlayerbotAIConfig.commandSeparator;
+        if (!separator.empty() && msg.find(separator) != std::string::npos)
+        {
+            bool any = false;
+            size_t pos = 0;
+            while (pos < msg.size())
+            {
+                size_t const end = msg.find(separator, pos);
+                std::string const part = msg.substr(pos,
+                    end == std::string::npos ? std::string::npos : end - pos);
+                if (!part.empty())
+                    any = CaptureCommandIntent(bot, part) || any;
+                if (end == std::string::npos)
+                    break;
+                pos = end + separator.size();
+            }
+            return any;
+        }
+
+        std::string command = msg;
+        std::string const& prefix = sPlayerbotAIConfig.commandPrefix;
+        if (!prefix.empty())
+        {
+            if (command.compare(0, prefix.size(), prefix) != 0)
+                return false;
+            command.erase(0, prefix.size());
+        }
+
+        size_t const first = command.find_first_not_of(' ');
+        if (first == std::string::npos)
+            return false;
+        size_t const last = command.find_last_not_of(' ');
+        command = command.substr(first, last - first + 1);
+
         uint32 const cls = bot->getClass();
         std::vector<std::vector<uint32>> const* planned = nullptr;
         std::vector<std::vector<uint32>> custom;
         bool customLink = false;
 
-        if (msg.compare(0, 13, "talents spec ") == 0)
+        if (command.compare(0, 13, "talents spec ") == 0)
         {
-            std::string const name = msg.substr(13);
+            std::string const name = command.substr(13);
             if (name.empty() || name == "list")
                 return false;
 
@@ -213,9 +249,9 @@ namespace NaxxramasBotTalentCompletion
                 break;
             }
         }
-        else if (msg.compare(0, 14, "talents apply ") == 0)
+        else if (command.compare(0, 14, "talents apply ") == 0)
         {
-            std::string const link = msg.substr(14);
+            std::string const link = command.substr(14);
             if (link.empty())
                 return false;
 
@@ -644,7 +680,7 @@ public:
     bool OnPlayerCanLearnTalent(
         Player* bot, TalentEntry const* talent, uint32 rank) override
     {
-        if (!bot || !talent)
+        if (!bot || !talent || !NaxxramasBotTalentCompletion::Enabled())
             return true;
 
         namespace N = NaxxramasBotTalentCompletion;
