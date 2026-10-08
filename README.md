@@ -219,14 +219,17 @@ The existing talent-row guard prevents Playerbots from learning expansion-inappr
 - Enabled by `NaxxramasCore.BotTalentCompletion.Enabled = 1`, **default 0** until compiled and verified.
 - Requires `AiPlayerbot.LimitTalentsExpansion = 1`. Uses the original level-based expansion limits, not IP tier-based expansion detection.
 - Runs only after a recognised Playerbot's **no-cost talent reset** and subsequent successful talent assignment. Waits 1.2 seconds after the last learned talent, and waits for combat to finish. Ordinary player characters and normal paid talent resets are not affected.
-- Attempts to match the resulting talents to the closest premade Playerbots level-80 template. If a close match exists, it favours that template's still-unspent **legal** ranks. It then favours partially completed talents and the currently dominant talent tree in a deterministic order.
+- Matches against the **closest configured template to the bot's own level** (level 60 uses the level-60 plan when available; it no longer silently prefers the level-80 plan). An 85% learned-rank overlap is required before following a matching premade plan.
+- Fills the intended primary tree and at most one secondary tree: an existing secondary from the current build, or one prescribed by the selected level-appropriate plan. It will leave points unused rather than unexpectedly start an unrelated third tree.
+- Special Wrack safety: at level 60 an Affliction Warlock with Shadow Mastery 5/5, no existing Destruction ranks and no matched plan requiring Destruction prioritises **Demonology** filler once Affliction has at least 31 points, aiming towards 31/20/0. This preserves custom 31/20/0 builds. **It does not undo existing Affliction points**, so a premade that already spent 40 Affliction points can finish 40/11/0, not 31/20/0. To guarantee exact 31/20/0, select a suitable custom talent build.
+- The remaining choices are deterministic and validated rank-by-rank by AzerothCore; they are not guaranteed to be mathematically optimal.
 - Uses normal AzerothCore `Player::LearnTalent` rank/row/prerequisite checks; never grants unavailable talents, exceeds the allowed rows, or discards learned talent points.
 - Respects the active spec slot, drops pending work on dual-spec switches and logout, and does not touch inactive-spec talents.
 - If there are no legal remaining ranks, it **stops and leaves the points unused** rather than breaking prerequisites or creating an invalid build; a server warning gives the bot and remaining point count.
 - Custom user-imported talent links can be processed after their ordinary no-cost reset; the closest premade template is used only if at least 85% of the currently learned talent ranks overlap it. Otherwise finishing choices are deterministic, not automatically optimal for an arbitrary custom build.
 - No SQL or client DBC changes required. The module must be compiled and Worldserver restarted.
 
-**Validation status:** Source-level checks only; compilation and in-game acceptance tests against the installed Playerbots/Core versions are still required. The exact filler choices for each class are not guaranteed to match a mathematically optimal raid build.
+**Validation status:** The earlier version was compiled and tested successfully on the user's server with a Frost Mage (51 points spent). This level-specific Wrack improvement is not yet recompiled or retested in-game. The exact filler choices for each class are not guaranteed to match a mathematically optimal raid build.
 
 ### Playerbot instance consumables
 
