@@ -52,7 +52,7 @@ namespace NaxxramasBotTalentCompletion
 
     struct CommandIntent
     {
-        uint32 LifetimeMs = 60000;
+        uint32 LifetimeMs = 15000;
         bool IsCustomLink = false;
         std::unordered_map<uint32, uint8> Ranks;
         bool AllowedTabs[3] = {false, false, false};
@@ -680,7 +680,8 @@ public:
     bool OnPlayerCanLearnTalent(
         Player* bot, TalentEntry const* talent, uint32 rank) override
     {
-        if (!bot || !talent || !NaxxramasBotTalentCompletion::Enabled())
+        if (!bot || !talent || !NaxxramasBotTalentCompletion::Enabled() ||
+            !NaxxramasBotTalentCompletion::IsSupportedBot(bot))
             return true;
 
         namespace N = NaxxramasBotTalentCompletion;
