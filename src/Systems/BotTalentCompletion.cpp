@@ -14,6 +14,7 @@
 
 #include "Config.h"
 #include "DBCStores.h"
+#include "Log.h"
 #include "Player.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotMgr.h"
@@ -22,6 +23,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace NaxxramasBotTalentCompletion
@@ -152,8 +154,9 @@ namespace NaxxramasBotTalentCompletion
         Player* bot, std::vector<TalentChoice> const& choices)
     {
         uint32 const cls = bot->getClass();
-        uint32 const alreadySpent =
-            bot->CalculateTalentsPoints() - bot->GetFreeTalentPoints();
+        uint32 alreadySpent = 0;
+        for (TalentChoice const& choice : choices)
+            alreadySpent += CurrentRank(bot, choice.Talent);
 
         if (alreadySpent < 10)
             return {};
@@ -333,6 +336,12 @@ namespace NaxxramasBotTalentCompletion
 
         if (totalSpent)
             bot->SendTalentsInfoData(false);
+
+        if (bot->GetFreeTalentPoints())
+        {
+            LOG_WARN("module", "Naxxramas Core: Playerbot {} could not spend {} remaining talent point(s) after legal template completion",
+                bot->GetName(), bot->GetFreeTalentPoints());
+        }
 
         return totalSpent;
     }
