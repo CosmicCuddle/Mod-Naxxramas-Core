@@ -1,10 +1,10 @@
 # Playerbot talent completion — acceptance tests
 
-**Status: NOT YET COMPILED OR IN-GAME VERIFIED.** This is a test checklist, not a claim that the feature works.
+**Status:** The prior version was compiled and a level-60 Frost Mage reached 51/51 points in live testing. **The new level-appropriate template/Wrack correction has not yet been compiled or tested in-game.**
 
 ## Scope and prerequisites
 
-- Test on the branch `feature/playerbot-talent-completion` and keep `main` unchanged.
+- Test the level-specific Wrack correction after merging it into `main` and pulling/recompiling, or on a separate test installation. Back up the active configuration and module first.
 - Back up the module/configuration and use a test realm or disposable bots.
 - Keep `AiPlayerbot.LimitTalentsExpansion = 1`.
 - Copy `NaxxramasCore.BotTalentCompletion.Enabled = 1` into the **active installed** Naxxramas Core config for testing, then restart Worldserver after compiling.
@@ -35,7 +35,7 @@
 | Priest | Holy and Shadow | Heal and damage builds |
 | Shaman | Enhancement and Restoration | Dual Wield skill handling |
 | Mage | Frost and Arcane | Regression: formerly 49/51 (18 Arcane + 31 Frost); confirm 51/51 where legal |
-| Warlock | Affliction and Destruction | Wrack synchronizes with Shadow Mastery rank 5 |
+| Warlock | Affliction and Destruction | Wrack synchronizes with Shadow Mastery rank 5; verify level-60 Affliction no longer receives unintended Destruction filler |
 | Druid | Feral and Restoration | Bear/cat builds and shapeshifting spells |
 
 ### Manual template path
@@ -46,6 +46,15 @@
 4. Check rows and total points; record any free points.
 5. Repeat using an alternative named specialization.
 6. Verify each run is idempotent: waiting another 10 seconds doesn't change points.
+
+### Wrack level-60 regression (required)
+
+1. On a level-60 Warlock, whisper `talents spec affli pve` (the stock name; use `talents spec list` to verify your configured name).
+2. Verify the resulting build has Shadow Mastery 5/5, Wrack, 51/51 points when legal, and **zero newly added Destruction ranks**.
+3. Record the Affliction/Demonology/Destruction point distribution. With a stock all-Affliction template some Affliction ranks may already exceed 31: completion cannot undo them, and a 40/11/0 distribution is acceptable for this safeguard but not an exact 31/20/0 build.
+4. Apply a valid custom **31/20/0** Affliction/Demonology link and verify all 51 points remain in those two trees with Wrack present. Normal custom builds should not be forcibly rewritten into a different distribution.
+5. Apply an intentionally configured legal Affliction/Destruction custom link: verify its already assigned Destruction points are not removed or overwritten.
+6. Repeat the Frost Mage regression to catch changes to unrelated class/build choices.
 
 ### Imported link path
 
