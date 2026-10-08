@@ -9,6 +9,7 @@
  * We only redirect its calculated leap destination after checking collisions.
  */
 
+#include "Chat.h"
 #include "Creature.h"
 #include "DatabaseEnv.h"
 #include "GossipDef.h"
