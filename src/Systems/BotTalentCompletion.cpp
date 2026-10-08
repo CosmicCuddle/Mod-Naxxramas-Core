@@ -20,6 +20,7 @@
 #include "PlayerbotMgr.h"
 #include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
+#include "SharedDefines.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -177,15 +178,35 @@ namespace NaxxramasBotTalentCompletion
             if (sPlayerbotAIConfig.premadeSpecName[cls][specNo].empty())
                 continue;
 
-            // Prefer the complete plan; fall back to a level-specific plan
-            // only when the complete template is missing.
-            auto const* parsed =
-                &sPlayerbotAIConfig.parsedSpecLinkOrder[cls][specNo][80];
+            // Pick the closest configured plan to the bot's actual level.
+            // Previously we always preferred the level-80 plan, even at 60.
+            // That could import WotLK secondary-tree talent preferences.
+            // If equally distant, prefer the lower-level template.
+            std::vector<std::vector<uint32>> const* parsed = nullptr;
+            uint32 bestDistance = 81;
+            uint32 bestLevel = 81;
+            uint32 const botLevel = bot->GetLevel();
 
-            if (parsed->empty())
-                parsed = &sPlayerbotAIConfig.parsedSpecLinkOrder[cls][specNo][bot->GetLevel()];
+            for (uint32 level = 10; level <= 80 && level < MAX_LEVEL; ++level)
+            {
+                auto const& candidate =
+                    sPlayerbotAIConfig.parsedSpecLinkOrder[cls][specNo][level];
+                if (candidate.empty())
+                    continue;
 
-            if (parsed->empty())
+                uint32 const distance = level > botLevel
+                    ? level - botLevel : botLevel - level;
+
+                if (distance < bestDistance ||
+                    (distance == bestDistance && level < bestLevel))
+                {
+                    parsed = &candidate;
+                    bestDistance = distance;
+                    bestLevel = level;
+                }
+            }
+
+            if (!parsed)
                 continue;
 
             TemplateMatch match;
@@ -238,6 +259,71 @@ namespace NaxxramasBotTalentCompletion
             return {};
 
         return best.DesiredRanks;
+    }
+
+    // When the chosen template or learned talent distribution already has a
+    // secondary tree, keep that same tree rather than inventing a third.
+    // A Wrack-focused Affliction Warlock may use Demonology as its secondary
+    // even if the stock level-60 template lists only Affliction talents.
+    uint8 ChooseSecondaryTab(
+        Player* bot, std::vector<TalentChoice> const& choices,
+        std::unordered_map<uint32, uint8> const& desiredRanks,
+        uint8 primaryTab, bool& wrackProfile)
+    {
+        uint8 points[3] = {0, 0, 0};
+        bot->GetTalentTreePoints(points);
+
+        uint32 planned[3] = {0, 0, 0};
+        for (TalentChoice const& choice : choices)
+        {
+            auto it = desiredRanks.find(choice.Talent->TalentID);
+            if (it != desiredRanks.end())
+                planned[choice.Tab] += it->second;
+        }
+
+        // Never reinterpret an existing Affliction/Destruction custom hybrid
+        // as a 31/20/0 Wrack build. A chosen template which explicitly wants
+        // Destruction also takes precedence.
+        wrackProfile =
+            bot->getClass() == CLASS_WARLOCK &&
+            bot->GetLevel() <= 60 &&
+            primaryTab == 0 &&
+            bot->HasTalent(18275, bot->GetActiveSpec()) &&
+            points[2] == 0 &&
+            planned[2] == 0;
+
+        if (wrackProfile)
+            return 1; // Affliction + Demonology, never inject Destruction.
+
+        uint8 secondary = 3; // No second tree established.
+        for (uint8 tab = 0; tab < 3; ++tab)
+        {
+            if (tab == primaryTab)
+                continue;
+
+            if (points[tab] &&
+                (secondary == 3 || points[tab] > points[secondary]))
+            {
+                secondary = tab;
+            }
+        }
+
+        if (secondary != 3)
+            return secondary;
+
+        for (uint8 tab = 0; tab < 3; ++tab)
+        {
+            if (tab == primaryTab)
+                continue;
+
+            if (planned[tab] &&
+                (secondary == 3 || planned[tab] > planned[secondary]))
+            {
+                secondary = tab;
+            }
+        }
+
+        return secondary;
     }
 
     bool AttemptNextRank(Player* bot, TalentChoice const& choice)
@@ -301,6 +387,9 @@ namespace NaxxramasBotTalentCompletion
         uint8 const primaryTab = bot->GetMostPointsTalentTree();
         auto const desiredRanks = FindMatchingTemplate(
             bot, choices, previousSpecNo);
+        bool wrackProfile = false;
+        uint8 const secondaryTab = ChooseSecondaryTab(
+            bot, choices, desiredRanks, primaryTab, wrackProfile);
         uint32 totalSpent = 0;
 
         // Each pass buys at most one rank. Candidate order is stable, and
@@ -310,10 +399,39 @@ namespace NaxxramasBotTalentCompletion
         {
             bool bought = false;
 
-            // First follow the original build when it can be identified.
-            // If that has no legal upgrades, finish conservatively.
-            for (uint8 phase = 0; phase < 2 && !bought; ++phase)
+            uint8 points[3] = {0, 0, 0};
+            bot->GetTalentTreePoints(points);
+            bool const preferWrackDemo =
+                wrackProfile && points[0] >= 31 && points[1] < 20;
+
+            // Phase 0: for a Wrack build, reach towards the 31/20/0
+            // Affliction/Demonology distribution (without removing points
+            // already assigned by Playerbots).
+            // Phase 1: finish unspent legal ranks from the level-specific plan.
+            // Phase 2: deterministic legal filler within the existing trees.
+            for (uint8 phase = 0; phase < 3 && !bought; ++phase)
             {
+                auto score = [&](uint32 index) -> uint32
+                {
+                    TalentChoice const& choice = choices[index];
+
+                    if (choice.Tab != primaryTab &&
+                        choice.Tab != secondaryTab)
+                        return 0;
+
+                    if (phase == 0)
+                    {
+                        if (!preferWrackDemo || choice.Tab != 1)
+                            return 0;
+
+                        return ScoreChoice(bot, choice, primaryTab,
+                            desiredRanks, false);
+                    }
+
+                    return ScoreChoice(bot, choice, primaryTab,
+                        desiredRanks, phase == 1);
+                };
+
                 std::vector<uint32> order(choices.size());
                 for (uint32 i = 0; i < choices.size(); ++i)
                     order[i] = i;
@@ -321,10 +439,7 @@ namespace NaxxramasBotTalentCompletion
                 std::stable_sort(order.begin(), order.end(),
                     [&](uint32 a, uint32 b)
                     {
-                        return ScoreChoice(bot, choices[a], primaryTab,
-                            desiredRanks, phase == 0) >
-                            ScoreChoice(bot, choices[b], primaryTab,
-                            desiredRanks, phase == 0);
+                        return score(a) > score(b);
                     });
 
                 uint32 attempts = 0;
@@ -333,11 +448,8 @@ namespace NaxxramasBotTalentCompletion
                     if (++attempts > MAX_ATTEMPTS_PER_POINT)
                         break;
 
-                    if (!ScoreChoice(bot, choices[index], primaryTab,
-                        desiredRanks, phase == 0))
-                    {
+                    if (!score(index))
                         break;
-                    }
 
                     if (AttemptNextRank(bot, choices[index]))
                     {
