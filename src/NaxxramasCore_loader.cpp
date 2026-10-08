@@ -41,6 +41,7 @@ void AddForcedPvPScripts();
 void AddAltMailDelayScripts();
 void AddBotRaidConsumablesScripts();
 void AddBotTalentExpansionLimitsScripts();
+void AddBotTalentCompletionScripts();
 
 void Addmod_naxxramas_coreScripts()
 {
@@ -80,4 +81,5 @@ void Addmod_naxxramas_coreScripts()
     AddAltMailDelayScripts();
     AddBotRaidConsumablesScripts();
     AddBotTalentExpansionLimitsScripts();
+    AddBotTalentCompletionScripts();
 }
