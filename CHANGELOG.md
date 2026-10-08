@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — Authoritative manual Playerbot talent templates (audit fix)
+
+- Added pre-queued-command template capture for Playerbot `talents spec <name>` and `talents apply <link>` via whisper and party/raid chat (including configured command prefixes and multiple commands).
+- The level-appropriate named template, or the exact imported talent link, now limits the initial Playerbots assignment through AzerothCore's pre-learn hook. The original Playerbots routine can walk level-80 templates, but will no longer be allowed to add unintended off-plan ranks for these chat routes.
+- Named completion may fill remaining legal points only within the chosen template tree(s); imported custom links stay rank-exact. Impossible plans leave points unused rather than fabricating a different spec.
+- Synchronized global per-bot pending state via a mutex. Added ordered intent queue, expiry, and spec/logout cleanup. The mutex is not held while running `LearnTalent`.
+- Automated/console/guild bot talent pathways without captured chat-plan context retain the previous conservative completion and expansion-row restrictions. No core, Playerbots, database or DBC modifications.
+- **Awaiting compilation and in-game regression tests for this new revision.**
+
+
 ## Unreleased — Level-appropriate Playerbot builds and Wrack safety
 
 - Fixed the completion matcher choosing level-80 premade links ahead of level-60 links. It now uses the closest configured talent link to the bot's own level, preferring the lower level for equal distance.
