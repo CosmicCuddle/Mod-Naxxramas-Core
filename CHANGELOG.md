@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — Playerbots manual talent limits
+
+- Added a module-owned talent learning guard to enforce `AiPlayerbot.LimitTalentsExpansion = 1` on manually selected premade specs and imported talent links.
+- Mirrored Playerbots' existing level thresholds: Vanilla rows 1–6 and middle row 7 through level 60; TBC rows 1–8 and middle row 9 through level 70; all rows from level 71.
+- Restricted only the **rows** of the talent tree, not the number of talent points in a tree. Regular player characters remain unaffected.
+- No modifications to Playerbots, core, world/characters SQL or DBC files; the safeguard requires recompilation and server restart.
+- Note: blocked talents in WotLK premade builds may leave unused points; intelligent redistribution and Individual Progression tier mapping are not part of this initial compatibility fix.
+
+
 ## Naxxramas Core Patch 1.0.6.8.4
 
 ### Playerbots — Instance consumables
