@@ -98,3 +98,14 @@ NaxxramasCore.ForcedPvP.IncludeBots = 1
 # Notify players when they enter a forced PvP zone.
 # Default: 1
 NaxxramasCore.ForcedPvP.Notify = 1
+
+#####################################
+# Playerbot Talent Completion
+#####################################
+
+# Fill legal talent ranks left unspent after a Playerbot's no-cost respec.
+# Requires AiPlayerbot.LimitTalentsExpansion = 1.
+# The existing Playerbots talent limits and human player builds are unchanged.
+# Keep disabled until the feature branch is compiled and tested.
+# Default: 0 (disabled)
+NaxxramasCore.BotTalentCompletion.Enabled = 0
