@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <deque>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -51,7 +52,7 @@ namespace NaxxramasBotTalentCompletion
 
     struct CommandIntent
     {
-        uint32 LifetimeMs = 15000;
+        uint32 LifetimeMs = 60000;
         bool IsCustomLink = false;
         std::unordered_map<uint32, uint8> Ranks;
         bool AllowedTabs[3] = {false, false, false};
@@ -71,7 +72,7 @@ namespace NaxxramasBotTalentCompletion
 
     std::mutex PendingMutex;
     std::unordered_map<ObjectGuid::LowType, PendingRespec> Pending;
-    std::unordered_map<ObjectGuid::LowType, CommandIntent> Intents;
+    std::unordered_map<ObjectGuid::LowType, std::deque<CommandIntent>> Intents;
 
     bool Enabled()
     {
@@ -258,7 +259,7 @@ namespace NaxxramasBotTalentCompletion
             return false;
 
         std::lock_guard<std::mutex> lock(PendingMutex);
-        Intents[bot->GetGUID().GetCounter()] = std::move(intent);
+        Intents[bot->GetGUID().GetCounter()].push_back(std::move(intent));
         return true;
     }
 
@@ -684,11 +685,14 @@ public:
         if (intent != N::Intents.end())
         {
             state.HasManualPlan = true;
-            state.IsCustomLink = intent->second.IsCustomLink;
-            state.ManualRanks = std::move(intent->second.Ranks);
+            N::CommandIntent& command = intent->second.front();
+            state.IsCustomLink = command.IsCustomLink;
+            state.ManualRanks = std::move(command.Ranks);
             for (uint8 tab = 0; tab < 3; ++tab)
-                state.AllowedTabs[tab] = intent->second.AllowedTabs[tab];
-            N::Intents.erase(intent);
+                state.AllowedTabs[tab] = command.AllowedTabs[tab];
+            intent->second.pop_front();
+            if (intent->second.empty())
+                N::Intents.erase(intent);
         }
 
         N::Pending[key] = std::move(state);
@@ -725,10 +729,25 @@ public:
             auto intent = N::Intents.find(key);
             if (intent != N::Intents.end())
             {
-                if (!supported || diff >= intent->second.LifetimeMs)
+                if (!supported)
+                {
                     N::Intents.erase(intent);
+                }
                 else
-                    intent->second.LifetimeMs -= diff;
+                {
+                    for (auto& command : intent->second)
+                    {
+                        command.LifetimeMs = diff >= command.LifetimeMs
+                            ? 0 : command.LifetimeMs - diff;
+                    }
+
+                    while (!intent->second.empty() &&
+                        intent->second.front().LifetimeMs == 0)
+                        intent->second.pop_front();
+
+                    if (intent->second.empty())
+                        N::Intents.erase(intent);
+                }
             }
 
             auto it = N::Pending.find(key);
