@@ -212,6 +212,22 @@ NaxxramasCore.ForcedPvP.Notify
 
 **Scope:** This initial compatibility fix deliberately mirrors Playerbots' current level-based setting. It does **not** yet substitute Individual Progression stages for levels; doing that correctly for both automatic and manual builds requires an additional integration. No SQL or DBC change is required. Rebuild and restart the server after updating the module.
 
+#### Optional Playerbot talent completion (testing feature)
+
+The existing talent-row guard prevents Playerbots from learning expansion-inappropriate talents, but a manually applied WotLK preset may finish with unused points. The optional `src/Systems/BotTalentCompletion.cpp` script addresses that specific issue **without resetting the bot again** or editing mod-playerbots.
+
+- Enabled by `NaxxramasCore.BotTalentCompletion.Enabled = 1`, **default 0** until compiled and verified.
+- Requires `AiPlayerbot.LimitTalentsExpansion = 1`. Uses the original level-based expansion limits, not IP tier-based expansion detection.
+- Runs only after a recognised Playerbot's **no-cost talent reset** and subsequent successful talent assignment. Waits 1.2 seconds after the last learned talent, and waits for combat to finish. Ordinary player characters and normal paid talent resets are not affected.
+- Attempts to match the resulting talents to the closest premade Playerbots level-80 template. If a close match exists, it favours that template's still-unspent **legal** ranks. It then favours partially completed talents and the currently dominant talent tree in a deterministic order.
+- Uses normal AzerothCore `Player::LearnTalent` rank/row/prerequisite checks; never grants unavailable talents, exceeds the allowed rows, or discards learned talent points.
+- Respects the active spec slot, drops pending work on dual-spec switches and logout, and does not touch inactive-spec talents.
+- If there are no legal remaining ranks, it **stops and leaves the points unused** rather than breaking prerequisites or creating an invalid build; a server warning gives the bot and remaining point count.
+- Custom user-imported talent links can be processed after their ordinary no-cost reset; the closest premade template is used only if at least 85% of the currently learned talent ranks overlap it. Otherwise finishing choices are deterministic, not automatically optimal for an arbitrary custom build.
+- No SQL or client DBC changes required. The module must be compiled and Worldserver restarted.
+
+**Validation status:** Source-level checks only; compilation and in-game acceptance tests against the installed Playerbots/Core versions are still required. The exact filler choices for each class are not guaranteed to match a mathematically optimal raid build.
+
 ### Playerbot instance consumables
 
 The module contains an instance-scoped Playerbot consumables system for Classic-era raids and dungeons.
