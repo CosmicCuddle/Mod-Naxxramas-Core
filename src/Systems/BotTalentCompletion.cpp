@@ -488,7 +488,8 @@ namespace NaxxramasBotTalentCompletion
         return score + 1u;
     }
 
-    uint32 Finish(Player* bot, uint32 previousSpecNo)
+    uint32 Finish(Player* bot, uint32 previousSpecNo,
+        std::unordered_map<uint32, uint8> const& manualRanks)
     {
         if (!IsSupportedBot(bot) || !bot->GetFreeTalentPoints())
             return 0;
@@ -498,8 +499,11 @@ namespace NaxxramasBotTalentCompletion
             return 0;
 
         uint8 const primaryTab = bot->GetMostPointsTalentTree();
-        auto const desiredRanks = FindMatchingTemplate(
-            bot, choices, previousSpecNo);
+        // An explicit whispered/group talent request takes priority over
+        // heuristic similarity to other premade configurations.
+        auto const desiredRanks = !manualRanks.empty()
+            ? manualRanks
+            : FindMatchingTemplate(bot, choices, previousSpecNo);
         bool wrackProfile = false;
         uint8 const secondaryTab = ChooseSecondaryTab(
             bot, choices, desiredRanks, primaryTab, wrackProfile);
@@ -723,6 +727,7 @@ public:
         bool const supported = N::Enabled() && N::IsSupportedBot(bot);
         bool const inCombat = bot->IsInCombat();
         uint32 previousSpecNo = 0;
+        std::unordered_map<uint32, uint8> manualRanks;
 
         {
             std::lock_guard<std::mutex> lock(N::PendingMutex);
@@ -779,12 +784,13 @@ public:
                 return;
 
             previousSpecNo = it->second.PreviousSpecNo;
+            manualRanks = it->second.ManualRanks;
             it->second.Processing = true;
         }
 
         // Do not hold the mutex while calling LearnTalent: successful ranks
         // invoke OnPlayerLearnTalents before returning.
-        N::Finish(bot, previousSpecNo);
+        N::Finish(bot, previousSpecNo, manualRanks);
 
         {
             std::lock_guard<std::mutex> lock(N::PendingMutex);
