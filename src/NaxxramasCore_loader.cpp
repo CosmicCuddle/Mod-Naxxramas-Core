@@ -11,6 +11,7 @@ void AddWarriorImprovedRendScripts();
 
 // Warlock
 void AddWarlockWrackScripts();
+void AddWarlockWrackBotScripts();
 
 // Shaman
 void AddShamanRockbiterScripts();
@@ -44,6 +45,7 @@ void Addmod_naxxramas_coreScripts()
 
     // Warlock
     AddWarlockWrackScripts();
+    AddWarlockWrackBotScripts();
 
     // Shaman
     AddShamanRockbiterScripts();
