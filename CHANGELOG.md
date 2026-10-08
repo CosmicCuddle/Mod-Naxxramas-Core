@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — Optional Playerbot talent completion (test branch)
+
+- Added an opt-in Naxxramas Core PlayerScript that completes remaining **legal talent ranks** after a bot's no-cost respec settles.
+- Introduced `NaxxramasCore.BotTalentCompletion.Enabled = 0` (disabled by default pending build/game testing).
+- Uses available premade talent templates as a preference where they match the chosen build; falls back to deterministic, conservative rank choices validated by the core.
+- Preserves active spec and all existing talent points, avoids combat-time updates and clears pending operations on spec switches and logout.
+- No Playerbots source changes; maintains the existing `AiPlayerbot.LimitTalentsExpansion` level-based restrictions and keeps real players untouched.
+- Potentially leaves points unspent if no remaining legal rank passes AzerothCore validation; no forced edits or repeated respecs.
+- **Not yet verified by compilation or live server testing; do not merge into main until tests pass.**
+
+
 ## Unreleased — Playerbots manual talent limits
 
 - Added a module-owned talent learning guard to enforce `AiPlayerbot.LimitTalentsExpansion = 1` on manually selected premade specs and imported talent links.
