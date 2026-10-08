@@ -14,6 +14,7 @@
 
 #include "Config.h"
 #include "DBCStores.h"
+#include "Group.h"
 #include "Log.h"
 #include "Player.h"
 #include "PlayerbotAIConfig.h"
@@ -24,6 +25,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <mutex>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -39,6 +42,19 @@ namespace NaxxramasBotTalentCompletion
         uint8 Spec = 0;
         bool LearnedSomething = false;
         uint32 PreviousSpecNo = 0;
+        bool Processing = false;
+        bool HasManualPlan = false;
+        bool IsCustomLink = false;
+        std::unordered_map<uint32, uint8> ManualRanks;
+        bool AllowedTabs[3] = {false, false, false};
+    };
+
+    struct CommandIntent
+    {
+        uint32 LifetimeMs = 15000;
+        bool IsCustomLink = false;
+        std::unordered_map<uint32, uint8> Ranks;
+        bool AllowedTabs[3] = {false, false, false};
     };
 
     struct TalentChoice
@@ -53,7 +69,9 @@ namespace NaxxramasBotTalentCompletion
         uint32 MatchingPoints = 0;
     };
 
+    std::mutex PendingMutex;
     std::unordered_map<ObjectGuid::LowType, PendingRespec> Pending;
+    std::unordered_map<ObjectGuid::LowType, CommandIntent> Intents;
 
     bool Enabled()
     {
@@ -148,6 +166,100 @@ namespace NaxxramasBotTalentCompletion
             }
         }
         return nullptr;
+    }
+
+    // The chat hook runs before PlayerbotAI handles the queued command.
+    // This allows the requested spec (or imported link) to determine which
+    // ranks may be learned, even when Playerbots later walks to level 80.
+    //
+    // Do not fall forward to a higher-level template here: that is exactly
+    // what previously introduced unintended later-expansion talent choices.
+    bool CaptureCommandIntent(Player* bot, std::string const& msg)
+    {
+        if (!IsSupportedBot(bot) || !Enabled())
+            return false;
+
+        uint32 const cls = bot->getClass();
+        std::vector<std::vector<uint32>> const* planned = nullptr;
+        std::vector<std::vector<uint32>> custom;
+        bool customLink = false;
+
+        if (msg.compare(0, 13, "talents spec ") == 0)
+        {
+            std::string const name = msg.substr(13);
+            if (name.empty() || name == "list")
+                return false;
+
+            for (uint32 specNo = 0; specNo < MAX_SPECNO; ++specNo)
+            {
+                if (sPlayerbotAIConfig.premadeSpecName[cls][specNo] != name)
+                    continue;
+
+                // Use the latest configured plan no higher than this level.
+                // If only a future-level plan exists, leave the original
+                // Playerbots behaviour unchanged rather than guessing.
+                uint32 selectedLevel = 0;
+                for (uint32 level = 1;
+                    level <= bot->GetLevel() && level < MAX_LEVEL; ++level)
+                {
+                    if (!sPlayerbotAIConfig.parsedSpecLinkOrder[cls][specNo][level].empty())
+                        selectedLevel = level;
+                }
+
+                if (selectedLevel)
+                    planned = &sPlayerbotAIConfig.parsedSpecLinkOrder[cls][specNo][selectedLevel];
+
+                break;
+            }
+        }
+        else if (msg.compare(0, 14, "talents apply ") == 0)
+        {
+            std::string const link = msg.substr(14);
+            if (link.empty())
+                return false;
+
+            custom = PlayerbotAIConfig::ParseTempTalentsOrder(cls, link);
+            planned = &custom;
+            customLink = true;
+        }
+        else
+        {
+            return false;
+        }
+
+        if (!planned || planned->empty())
+            return false;
+
+        std::vector<TalentChoice> const choices = GetLegalTalents(bot);
+        CommandIntent intent;
+        intent.IsCustomLink = customLink;
+
+        for (std::vector<uint32> const& entry : *planned)
+        {
+            if (entry.size() < 4)
+                continue;
+
+            TalentChoice const* choice =
+                FindChoice(choices, entry[0], entry[1], entry[2]);
+            if (!choice)
+                continue;
+
+            uint8 const rank = static_cast<uint8>(
+                std::min<uint32>(entry[3], MaximumRank(choice->Talent)));
+            if (!rank)
+                continue;
+
+            uint8& slot = intent.Ranks[choice->Talent->TalentID];
+            slot = std::max(slot, rank);
+            intent.AllowedTabs[choice->Tab] = true;
+        }
+
+        if (intent.Ranks.empty())
+            return false;
+
+        std::lock_guard<std::mutex> lock(PendingMutex);
+        Intents[bot->GetGUID().GetCounter()] = std::move(intent);
+        return true;
     }
 
     // A build is matched from its already-learned ranks, not from a guessed
