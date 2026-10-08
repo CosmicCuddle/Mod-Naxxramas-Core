@@ -197,6 +197,21 @@ NaxxramasCore.ForcedPvP.Notify
 - Normal player-to-player mail rules remain unchanged.
 - GM/customer-support mail, returned mail, COD payments, invalid mail, and self-mail are excluded.
 
+### Playerbot manual talent expansion limits
+
+`src/Systems/BotTalentExpansionLimits.cpp` makes manual Playerbot talent assignment obey the same **level-based talent row limits** as `AiPlayerbot.LimitTalentsExpansion = 1`, without changing Playerbots source files.
+
+- **Level 1–60 (Vanilla):** first six rows, plus only the middle talent on row seven.
+- **Level 61–70 (TBC):** first eight rows, plus only the middle talent on row nine.
+- **Level 71–80 (WotLK):** unrestricted talent rows.
+- Applies when a Playerbot learns talents through the built-in `talents spec <name>` and `talents apply <link>` commands, as well as other calls to `Player::LearnTalent`.
+- Does not impose a per-tree **point total**: a level-60 Mage can still put 37 or more points into Frost if all selected talents are within the allowed rows.
+- Only affects recognised Playerbots; normal players are unchanged.
+- Uses Playerbots' **existing** `AiPlayerbot.LimitTalentsExpansion` configuration. If that setting is disabled, this module hook allows all talent rows.
+- Keeps the original Playerbots selection order. Since a manual WotLK template may contain talents that are now rejected, **some points can remain unspent**; this safeguard does not invent a replacement build or redistribute points.
+
+**Scope:** This initial compatibility fix deliberately mirrors Playerbots' current level-based setting. It does **not** yet substitute Individual Progression stages for levels; doing that correctly for both automatic and manual builds requires an additional integration. No SQL or DBC change is required. Rebuild and restart the server after updating the module.
+
 ### Playerbot instance consumables
 
 The module contains an instance-scoped Playerbot consumables system for Classic-era raids and dungeons.
