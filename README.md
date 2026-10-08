@@ -39,6 +39,20 @@ Some features require matching **DBC edits** on both the server and client. Thos
 - Reworked from a 3-point talent to **1 point**.
 - Reduces Heroic Strike cost by **5 Rage**.
 
+### Mage
+
+#### Arcane Momentum (optional directional Blink)
+
+- Mage trainers offer a free, reversible **Arcane Momentum** technique.
+- The default Blink (spell `1953`) still teleports in the direction the Mage is facing.
+- With Arcane Momentum enabled, Blink follows forward/backward/strafing movement instead; combined inputs support diagonals.
+- Standing still uses normal facing-based Blink.
+- The preference is stored per character in the characters database and survives logout/restart.
+- Original Blink cooldown, root/stun effects and DBC values are unchanged.
+- The new destination is checked using AzerothCore's map collision helper; test walls, ramps, stairs, water and elevation changes before enabling on a public server.
+- Requires both SQL files `data/sql/db-characters/2026_10_08_00_arcane_momentum.sql` and `data/sql/db-world/2026_10_08_00_arcane_momentum.sql` as well as a rebuild/restart.
+- No new DBC entry or client patch is required for this feature.
+
 ### Racials
 
 #### Orc — Blood Fury
