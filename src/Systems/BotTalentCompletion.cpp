@@ -837,7 +837,15 @@ public:
 
     void OnPlayerAfterSpecSlotChanged(Player* bot, uint8) override
     {
-        Clear(bot);
+        if (!bot)
+            return;
+
+        // Cancel the old slot's pending completion. Retain chat intents:
+        // a queued "talents switch 2; talents spec ..." must still apply
+        // its subsequent spec command to the new slot.
+        namespace N = NaxxramasBotTalentCompletion;
+        std::lock_guard<std::mutex> lock(N::PendingMutex);
+        N::Pending.erase(bot->GetGUID().GetCounter());
     }
 
     void OnPlayerLogout(Player* bot) override
