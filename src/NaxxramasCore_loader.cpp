@@ -10,6 +10,9 @@ void AddWarriorRendFlurryScripts();
 void AddWarriorRendFlurryBotScripts();
 void AddWarriorImprovedRendScripts();
 
+// Mage
+void AddMageArcaneMomentumScripts();
+
 // Warlock
 void AddWarlockWrackScripts();
 void AddWarlockWrackBotScripts();
@@ -44,6 +47,9 @@ void Addmod_naxxramas_coreScripts()
     AddWarriorRendFlurryScripts();
     AddWarriorRendFlurryBotScripts();
     AddWarriorImprovedRendScripts();
+
+    // Mage
+    AddMageArcaneMomentumScripts();
 
     // Warlock
     AddWarlockWrackScripts();
