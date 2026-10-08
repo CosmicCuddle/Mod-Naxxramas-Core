@@ -146,7 +146,7 @@ namespace
     void PerformHonorReset(uint64 scheduledReset)
     {
         // Reset Honor stored for every character, including offline players.
-        CharacterDatabase.Execute(
+        CharacterDatabase.DirectExecute(
             CharacterDatabase.GetPreparedStatement(
                 CHAR_UPD_ALL_HONOR_POINTS));
 
