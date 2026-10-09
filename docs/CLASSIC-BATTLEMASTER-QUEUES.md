@@ -137,3 +137,12 @@ and restart.
   legacy quest schema requires new compatibility work.
 - Code was reviewed against current AzerothCore interface declarations and
   Blizzard’s 3.3.5a FrameXML, **not compiled or tested in game yet**.
+
+## Additional optional PvP visuals
+
+The same addon also hides **Arena points and Arena team panels** only during
+Vanilla progression (below stage 8), then restores them on entry into TBC.
+It hides **Wintergrasp** information below stage 13, even in the
+Battlemaster NPC's separate Battleground window. The Honor panel is kept.
+These UI changes never enforce server gameplay rules and are reversible
+via `/ncbg off`. They have **not** been tested in-game yet.
