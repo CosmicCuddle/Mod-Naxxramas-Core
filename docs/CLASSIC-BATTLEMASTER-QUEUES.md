@@ -8,7 +8,7 @@ modern Individual Progression **stage 13** (WotLK entry). A global 3.3.5a client
 continues to display the PvP tabs, Honor, kills and Battleground information.
 
 - Server enforcement: `src/Systems/BattlemasterQueueProgression.cpp`.
-- Optional UI helper (separate repository): [NClassicBattlegrounds](https://github.com/CosmicCuddle/NaxxramasClassicBattlegrounds).
+- Optional UI helper (separate repository): [NClassicBattlegrounds](https://github.com/CosmicCuddle/N-ClassicBattlegrounds).
 - Historical addon backup: `addons/NaxxramasClassicBattlegrounds/` (not actively maintained).
 - Source changes require AzerothCore rebuild. The addon alone is cosmetic.
 - No DBC, SQL, or upstream IP/Playerbots/AzerothCore edits.
@@ -42,9 +42,9 @@ player-settings progression need integration before enabling this setting.
 
 ## Optional addon installation (WotLK 3.3.5a)
 
-**Current addon name: `NClassicBattlegrounds`.** The old `NaxxramasClassicBattlegrounds` folder in this repository is an archived backup and must not be installed alongside the renamed addon. The standalone repository URL may still use the original name until its owner renames it in GitHub settings.
+**Current addon name: `NClassicBattlegrounds`.** The old `NaxxramasClassicBattlegrounds` folder in this repository is an archived backup and must not be installed alongside the renamed addon. The standalone repository now uses the shortened name `N-ClassicBattlegrounds` on GitHub.
 
-Download the **current addon** from [NClassicBattlegrounds](https://github.com/CosmicCuddle/NaxxramasClassicBattlegrounds) using **Code → Download ZIP**.
+Download the **current addon** from [NClassicBattlegrounds](https://github.com/CosmicCuddle/N-ClassicBattlegrounds) using **Code → Download ZIP**.
 
 1. Back up and remove any installed `NaxxramasClassicBattlegrounds` addon folder, so old and new copies cannot both load.
 2. Extract the GitHub ZIP and create a fresh `World of Warcraft/Interface/AddOns/NClassicBattlegrounds/` folder.
