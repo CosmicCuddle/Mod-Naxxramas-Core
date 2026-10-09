@@ -150,31 +150,3 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptGMs = 1
 # Preserve Playerbots queues based on IndividualProgression.BotAccountsRegex.
 # Default: 1
 NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
-
-#####################################
-# Individual Progression - Era Mount Cast Times
-#####################################
-
-# Optional progression-dependent mount summoning time.
-# Without the separately documented small AzerothCore cast-time hook,
-# this code is a no-op. Do NOT globally edit Spell.dbc cast time.
-#
-# Default: 0 (disabled until core hook installed and tested)
-NaxxramasCore.EraMountCast.Enabled = 0
-
-# Vanilla + TBC normal mount summoning time in milliseconds.
-# Default: 3000 (3 seconds)
-NaxxramasCore.EraMountCast.ClassicCastTimeMs = 3000
-
-# WotLK normal mount summoning time in milliseconds.
-# Default: 1500 (1.5 seconds)
-NaxxramasCore.EraMountCast.ModernCastTimeMs = 1500
-
-# Modern Individual Progression milestone; 13 = WotLK entry.
-# Only 13 through 18 are accepted; otherwise defaults to 13.
-# Default: 13
-NaxxramasCore.EraMountCast.UnlockStage = 13
-
-# Keep Playerbots' mount casts on normal AzerothCore timing.
-# Default: 1
-NaxxramasCore.EraMountCast.ExemptPlayerbots = 1
