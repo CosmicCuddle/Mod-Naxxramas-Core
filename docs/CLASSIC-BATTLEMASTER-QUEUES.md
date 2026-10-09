@@ -46,12 +46,13 @@ player-settings progression need integration before enabling this setting.
 
 Download the **current addon** from [NClassicBattlegrounds](https://github.com/CosmicCuddle/N-ClassicBattlegrounds) using **Code → Download ZIP**.
 
-1. Back up and remove any installed `NaxxramasClassicBattlegrounds` addon folder, so old and new copies cannot both load.
-2. Extract the GitHub ZIP and create a fresh `World of Warcraft/Interface/AddOns/NClassicBattlegrounds/` folder.
-3. Copy the two standalone addon files directly into it:
-
+1. Back up and remove any installed `NaxxramasClassicBattlegrounds`, `N-ClassicBattlegrounds`, or `NClassicBattlegrounds` addon folders so old and new copies cannot both load.
+2. Extract the GitHub ZIP. Open the outer `N-ClassicBattlegrounds-main` folder.
+3. Copy **only the inner** `NClassicBattlegrounds` folder to `World of Warcraft/Interface/AddOns/`. This folder contains:
    - `NClassicBattlegrounds.toc`
    - `NClassicBattlegrounds.lua`
+
+**Important:** Installing the outer `N-ClassicBattlegrounds-main` folder, or an addon folder named `N-ClassicBattlegrounds`, prevents WoW from locating its `.toc` file. The installed folder must be `NClassicBattlegrounds` (without the hyphen).
 
 The previous `addons/NaxxramasClassicBattlegrounds/` directory in this repository is an **archived backup** only. Do not use it for updates.
 
