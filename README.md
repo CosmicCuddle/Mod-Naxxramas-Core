@@ -610,3 +610,9 @@ See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) before deploying talent
 - Current Playerbot consumables code expects Playerbots support.
 - Touch of the Grave contains Individual Progression compensation.
 - DBC-dependent features require matching server/client DBC data.
+
+**Expanded addon visuals (unreleased):** The same addon now hides Arena points
+and team panels only before the modern-IP TBC-entry milestone (stage 8), and
+hides Wintergrasp information until WotLK entry (stage 13). Honor remains
+visible, and Battlemaster NPC queue controls are not changed. Use
+`/ncbg off` to restore the default interface. Client validation pending.
