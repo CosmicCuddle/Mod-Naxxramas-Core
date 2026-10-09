@@ -1,5 +1,11 @@
 # Naxxramas Classic Battlegrounds (WoW 3.3.5a)
 
+> **Archived copy:** This directory is retained only as a migration backup.
+> The actively maintained addon and install instructions have moved to
+> **[NaxxramasClassicBattlegrounds](https://github.com/CosmicCuddle/NaxxramasClassicBattlegrounds)**.
+> Do not update the Lua or TOC here; make all new addon commits in the standalone repository.
+
+
 Optional client-only UI companion for the Naxxramas Core Classic Battlemaster
 queue feature. **The server module is required to enforce queue restrictions.**
 
