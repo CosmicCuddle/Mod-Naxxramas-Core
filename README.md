@@ -55,11 +55,14 @@ Some features require matching **DBC edits** on both the server and client. Thos
 
 ### Classic Battlemaster Battleground queues (optional, WotLK unlock)
 
+**Standalone addon name:** `NClassicBattlegrounds` (`N Classic Battlegrounds` in game). Its GitHub repository is still under the original URL until renamed by the owner; `addons/NaxxramasClassicBattlegrounds/` is a historical backup only.
+
+
 - Modern Individual Progression **stage 13** unlocks remote Battleground queueing.
 - Vanilla and TBC characters must use an actual, nearby Battlemaster NPC (including remote queue macros).
 - Preserves the PvP window, Honor and kills; no Arena queue or Honor system changes.
 - The C++ `OnPlayerCanJoinInBattlegroundQueue` hook validates the Battlemaster's NPC flag, distance, faction interaction and matching BG type, and checks mixed-progression group members.
-- Optional **3.3.5a standalone addon**, now maintained at [NaxxramasClassicBattlegrounds](https://github.com/CosmicCuddle/NaxxramasClassicBattlegrounds), hides the **Battlegrounds tab next to PvP** in the normal interface. It requests modern-IP hidden completed quests `66013..66018` to restore the tab in WotLK; the Battlemaster's NPC queue window stays usable. No bottom-screen overlay text or Join Button modifications.
+- Optional **3.3.5a standalone addon**, now maintained at [NClassicBattlegrounds](https://github.com/CosmicCuddle/NaxxramasClassicBattlegrounds), hides the **Battlegrounds tab next to PvP** in the normal interface. It requests modern-IP hidden completed quests `66013..66018` to restore the tab in WotLK; the Battlemaster's NPC queue window stays usable. No bottom-screen overlay text or Join Button modifications.
 - Configured through `NaxxramasCore.BattlegroundQueue.ClassicMode.Enabled = 0` (**disabled by default for testing**) and `...UnlockStage = 13`, with GM/Playerbot exemptions.
 - **Compatibility:** modern hidden-quest Individual Progression builds only; other older IP data schemas need extra integration. No DBC/SQL/client MPQ modifications.
 - Complete setup, tests and rollback: [Classic Battlemaster Queue Guide](docs/CLASSIC-BATTLEMASTER-QUEUES.md).
@@ -611,7 +614,7 @@ See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) before deploying talent
 - Touch of the Grave contains Individual Progression compensation.
 - DBC-dependent features require matching server/client DBC data.
 
-**Expanded addon visuals (unreleased; standalone repository):** The same addon now hides Arena points
+**Expanded addon visuals (unreleased; standalone addon NClassicBattlegrounds):** The same addon now hides Arena points
 and team panels only before the modern-IP TBC-entry milestone (stage 8), and
 hides Wintergrasp information until WotLK entry (stage 13). Honor remains
 visible, and Battlemaster NPC queue controls are not changed. Use
