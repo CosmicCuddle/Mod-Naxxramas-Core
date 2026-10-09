@@ -53,6 +53,18 @@ Some features require matching **DBC edits** on both the server and client. Thos
 - Requires both SQL files `data/sql/db-characters/2026_10_08_00_arcane_momentum.sql` and `data/sql/db-world/2026_10_08_00_arcane_momentum.sql` as well as a rebuild/restart.
 - No new DBC entry or client patch is required for this feature.
 
+### Meeting stones — Classic progression
+
+- Config: `NaxxramasCore.MeetingStones.ClassicMode.Enabled = 1` (**enabled by default**; set `0` for unmodified WotLK behaviour).
+- When Individual Progression says the **interacting character is still in Vanilla**, a meeting stone (gameobject type 23) remains visible but cannot begin its native summoning interaction.
+- Once that same character reaches **TBC** or **WotLK** progression, the native AzerothCore meeting-stone rules, level checks and summoning mechanism run unchanged. A character's **level or current zone alone is not an expansion check**.
+- The new hook runs before GameObject::Use's meeting-stone branch. No global GO flags, GameObject template edits or client patches are required.
+- Uses Individual Progression's public API when its header is available. Supports both modern hidden-quest progression and older player-settings-based IP APIs. If the header is unavailable, it falls back to the modern IP rewarded milestone quest **66008** (PRE_TBC). **Old IP branches that do not export their header require extra integration; test before enabling.**
+- Does not disable Warlock Ritual of Summoning or other non-meeting-stone objects. No database migration is needed.
+- Build status: committed source; a new build and live testing are required before declaring it deployed.
+
+**Testing:** Back up the active config/module; start with a Vanilla-tier character and click an existing meeting stone. It must remain in place but not start a summon. Repeat with a TBC-tier and WotLK-tier character at the same stone; normal AzerothCore meeting-stone behaviour must work (group, target and level requirements still apply). Toggle the config to `0`, reload or restart, and confirm the Vanilla character can again use it. Test characters whose *levels* differ from their IP tiers to ensure the stage check—not their level—controls it.
+
 ### Racials
 
 #### Orc — Blood Fury
