@@ -1,17 +1,22 @@
 -- Naxxramas Classic Battlegrounds - WotLK 3.3.5a (Lua 5.1)
 -- Optional cosmetic companion to Naxxramas Core's SERVER-SIDE queue guard.
--- It does not secure queues or replace the PvP window.\n-- Hides the remote Battlegrounds TAB (PVPParentFrameTab2), not join controls.
+-- It does not secure queues or replace the PvP window.
+-- Hides the remote Battlegrounds TAB (PVPParentFrameTab2), not join controls.
+-- Also hides Vanilla Arena panels and pre-WotLK Wintergrasp timer.
 -- Modern Individual Progression grants hidden quest 66013 at WotLK entry.
 -- 66014-66018 represent later WotLK progression milestones.
 
 local ADDON = "NaxxramasClassicBattlegrounds"
+local TBC_ENTRY_QUEST = 66008
 local WOTLK_ENTRY_QUEST = 66013
 local LAST_PROGRESS_QUEST = 66018
 local QUERY_INTERVAL = 75  -- 3.3.5 throttles QueryQuestsCompleted (~60s)
 local elapsed = 0
 local lastQuery = -QUERY_INTERVAL
 local progressKnown = false
+local hasTbc = false
 local hasWotlk = false
+local arenaHidden = false
 local hooked = false
 
 local function Log(message)
@@ -31,6 +36,62 @@ local function OpenedFromBattlemaster()
     return PVPFrame_IsJustBG and PVPFrame_IsJustBG()
 end
 
+-- Preserve the Honor UI; only era-inappropriate PvP frames are hidden.
+-- Keep a record of whether WE hid the Arena section, so turning the addon
+-- off (or reaching TBC) restores the Blizzard-controlled frames cleanly.
+local function UpdateEraPanels()
+    if not PVPFrame then return end
+
+    local hideArena = Enabled() and (not progressKnown or not hasTbc)
+    local arenaParts = {
+        PVPFrameArena,
+        PVPTeam1, PVPTeam1Standard,
+        PVPTeam2, PVPTeam2Standard,
+        PVPTeam3, PVPTeam3Standard,
+        PVPFrameToggleButton,
+        PVPFrameBlackFilter,
+        PVPFrameOffSeason
+    }
+
+    if hideArena then
+        for _, frame in ipairs(arenaParts) do
+            if frame then frame:Hide() end
+        end
+        if PVPTeamDetails then PVPTeamDetails:Hide() end
+        arenaHidden = true
+    elseif arenaHidden then
+        arenaHidden = false
+        if PVPFrameArena then PVPFrameArena:Show() end
+
+        local offSeason = GetCurrentArenaSeason and GetCurrentArenaSeason() == 0
+        if offSeason then
+            if PVPFrameBlackFilter then PVPFrameBlackFilter:Show() end
+            if PVPFrameOffSeason then PVPFrameOffSeason:Show() end
+        else
+            for index = 1, 3 do
+                local standard = _G["PVPTeam"..index.."Standard"]
+                local team = _G["PVPTeam"..index]
+                if standard then standard:Show() end
+                if team then team:Show() end
+            end
+        end
+
+        -- Blizzard decides which Arena toggle is actually appropriate.
+        if PVPTeam_Update then PVPTeam_Update() end
+    end
+
+    -- The original Wintergrasp timer belongs to the Battleground frame;
+    -- hide it even when that frame was opened by an NPC in Vanilla/TBC.
+    if WintergraspTimer then
+        if Enabled() and (not progressKnown or not hasWotlk) then
+            WintergraspTimer:Hide()
+        elseif PVPBattlegroundFrame and PVPBattlegroundFrame:IsShown()
+               and (not IsInInstance or not IsInInstance()) then
+            WintergraspTimer:Show()
+        end
+    end
+end
+
 -- The requested Classic appearance is to hide the Battlegrounds TAB next
 -- to PvP, not the Join Battle buttons or the entire Battleground window.
 -- The Battlemaster's own NPC window uses justBG mode and remains untouched.
@@ -39,6 +100,8 @@ local function UpdateControls()
        or not PVPParentFrameTab2 then
         return
     end
+
+    UpdateEraPanels()
 
     if OpenedFromBattlemaster() then
         return -- Blizzard intentionally hides both tabs in the NPC window.
@@ -91,11 +154,15 @@ local function InstallHooks()
     -- These safe hooks run after its normal UI updates.
     hooksecurefunc("PVPFrame_SetJustBG", UpdateControls)
     hooksecurefunc("PVPBattleground_UpdateBattlegrounds", UpdateControls)
+    if PVPFrame_Update then
+        hooksecurefunc("PVPFrame_Update", UpdateEraPanels)
+    end
     if PVPBattlegroundFrame_UpdateVisible then
         hooksecurefunc("PVPBattlegroundFrame_UpdateVisible", UpdateControls)
     end
     PVPParentFrame:HookScript("OnShow", UpdateControls)
     PVPBattlegroundFrame:HookScript("OnShow", UpdateControls)
+    PVPFrame:HookScript("OnShow", UpdateEraPanels)
     UpdateControls()
 end
 
@@ -121,7 +188,15 @@ local function ReceiveProgression()
 
     local wasKnown, wasWotlk = progressKnown, hasWotlk
     progressKnown = true
+    hasTbc = false
     hasWotlk = false
+
+    for questId = TBC_ENTRY_QUEST, LAST_PROGRESS_QUEST do
+        if quests[questId] then
+            hasTbc = true
+            break
+        end
+    end
 
     for questId = WOTLK_ENTRY_QUEST, LAST_PROGRESS_QUEST do
         if quests[questId] then
@@ -132,7 +207,7 @@ local function ReceiveProgression()
 
     UpdateControls()
     if hasWotlk and (not wasKnown or not wasWotlk) then
-        Log("Wrath progression detected: remote Battleground buttons unlocked.")
+        Log("Wrath progression detected: the Battlegrounds tab and Wintergrasp timer are available.")
     end
 end
 
@@ -182,17 +257,17 @@ SlashCmdList["NAXXCLASSICBG"] = function(message)
         NaxxramasClassicBGQueueSettings.enabled = true
         UpdateControls()
         QueryProgression()
-        Log("Client-only button hiding enabled.")
+        Log("Expansion-specific PvP display enabled.")
     elseif message == "off" then
         NaxxramasClassicBGQueueSettings.enabled = false
         UpdateControls()
-        Log("Client-only button hiding disabled. Server restrictions remain active.")
+        Log("Expansion-specific PvP display disabled. Server restrictions remain active.")
     elseif message == "refresh" then
         QueryProgression()
         Log("Progression query requested (the 3.3.5 client throttles requests).")
     elseif message == "status" then
         local stage = not progressKnown and "awaiting server quest data"
-            or (hasWotlk and "WotLK or later" or "Vanilla / TBC")
+            or (hasWotlk and "WotLK or later" or (hasTbc and "TBC" or "Vanilla"))
         Log("Display: " .. (Enabled() and "enabled" or "disabled") ..
             "; progression: " .. stage ..
             "; server is authoritative.")
