@@ -68,18 +68,6 @@ Some features require matching **DBC edits** on both the server and client. Thos
 - Complete setup, tests and rollback: [Classic Battlemaster Queue Guide](docs/CLASSIC-BATTLEMASTER-QUEUES.md).
 - **Source added; AzerothCore compilation, Playerbot regression tests and client in-game tests still pending.**
 
-### Era-based mount summoning (research only; NOT ACTIVE)
-
-**Current decision:** Do **not** apply the separately prepared AzerothCore core-source patch. It is archived and is **not** approved for deployment. We are investigating a truly module-only approach; the current stage-specific code remains disabled and has **no mount-cast effect** without that unapproved patch. See [module-only research](docs/ERA-MOUNT-CAST-MODULE-ONLY-RESEARCH.md). The historical proposal below is **not** an installation instruction.
-
-- **Vanilla and TBC:** normal casted mounts take **3 seconds**.
-- **WotLK from modern Individual Progression stage 13:** normal casted mounts take **1.5 seconds**.
-- Separate optional C++ script uses each character's modern Individual Progression hidden quests. Honors the IP disable switch and progression cap. Playerbots are exempt by default.
-- Instant mounts, shapeshifts, unrelated spells and NPC cast times are not intentionally affected.
-- Requires a **small, separately supplied four-file AzerothCore pre-packet cast-time hook**, which must be tested against the exact installed core revision. The module compiles without the hook but **this feature is a no-op** in that case.
-- **Disabled by default** with `NaxxramasCore.EraMountCast.Enabled = 0`. No database or DBC changes.
-- **Source staged, not yet compiled/installed/tested.** Follow the [mount cast implementation, compatibility and rollback guide](docs/ERA-MOUNT-CAST.md) before rebuilding.
-
 ### Meeting stones — Classic progression
 
 - Config: `NaxxramasCore.MeetingStones.ClassicMode.Enabled = 1` (**enabled by default**; set `0` for unmodified WotLK behaviour).
