@@ -30,6 +30,7 @@ void AddTouchOfTheGraveScripts();
 void AddBrewfestDarkIronAttackScripts();
 void AddBrewfestSoberGossipScripts();
 void AddHallowsEndShadeOfTheHorsemanScripts();
+void AddElementalInvasionCalendarScripts();
 
 // Items
 void AddNaxxramasItemSpellScripts();
@@ -72,6 +73,7 @@ void Addmod_naxxramas_coreScripts()
     AddBrewfestDarkIronAttackScripts();
     AddBrewfestSoberGossipScripts();
     AddHallowsEndShadeOfTheHorsemanScripts();
+    AddElementalInvasionCalendarScripts();
 
     // Items
     AddNaxxramasItemSpellScripts();

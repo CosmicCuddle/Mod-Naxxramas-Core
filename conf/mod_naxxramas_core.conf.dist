@@ -76,6 +76,32 @@ NaxxramasCore.HonorReset.AnchorDate = "2026-10-07"
 NaxxramasCore.HonorReset.Notify = 1
 
 #####################################
+# Monthly Elemental Invasions
+#####################################
+
+# Calendar-based control of the ORIGINAL AzerothCore Elemental Invasions
+# game event (eventEntry 13). Requires game_event.world_event = 5
+# (GAMEEVENT_INTERNAL) in the world database; see module SQL and docs.
+# Other events are not affected.
+#
+# 1 = automatic monthly invasions
+# 0 = do not control event 13 (default, safe until SQL is applied)
+# Default: 0
+NaxxramasCore.ElementalInvasion.Enabled = 0
+
+# Invasion begins on the 1st of each calendar month at this
+# SERVER-LOCAL clock time. No fixed 30-day recurrence is used.
+# Default: 0 (midnight)
+NaxxramasCore.ElementalInvasion.Hour = 0
+NaxxramasCore.ElementalInvasion.Minute = 0
+
+# Number of calendar days active, starting on the 1st.
+# 5 means 1st 00:00 through 6th 00:00 (end exclusive).
+# Range 1-27; out-of-range settings are clamped.
+# Default: 5
+NaxxramasCore.ElementalInvasion.DurationDays = 5
+
+#####################################
 # Forced PvP Zones
 #####################################
 

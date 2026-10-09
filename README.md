@@ -128,6 +128,15 @@ See [`docs/DBC-CHANGES.md`](docs/DBC-CHANGES.md) before distributing a client pa
 
 ### Events
 
+#### Elemental Invasions — monthly calendar
+
+- The stock **Elemental Invasions** event (`game_event` ID `13`) can now run from the **1st to the 6th of each month**, starting and ending at the configured server-local clock time.
+- The custom controller runs only when `NaxxramasCore.ElementalInvasion.Enabled = 1`. Default is **off**.
+- Requires world DB migration `data/sql/db-world/2026_10_09_00_monthly_elemental_invasions.sql`, which changes only the original event row's `world_event` to `5` (internal event). This prevents the old fixed-minute recurrence from interfering.
+- Calendar scheduling survives worldserver restarts; all original invasion spawns and other game events remain unmodified.
+- **Back up event 13 before applying SQL.** Setup, validation, and full rollback: [Monthly Elemental Invasions Guide](docs/ELEMENTAL-INVASIONS.md).
+- **Build and live tests pending.** Keep disabled until verified.
+
 #### Brewfest — Dark Iron Attack
 
 - Replaces AzerothCore's Dark Iron attack generator with the Naxxramas Core version.
