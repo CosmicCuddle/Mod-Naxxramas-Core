@@ -1,11 +1,11 @@
 # Changelog
 
-- **Repository migration (2026-10-09):** The optional client addon now lives in its own [NClassicBattlegrounds](https://github.com/CosmicCuddle/NaxxramasClassicBattlegrounds) repository. This Naxxramas Core repository retains server-side queue enforcement and a historical copy of the addon; make future Lua/TOC updates in the standalone repository first. No server code was changed during the migration.
+- **Repository migration (2026-10-09):** The optional client addon now lives in its own [NClassicBattlegrounds](https://github.com/CosmicCuddle/N-ClassicBattlegrounds) repository. This Naxxramas Core repository retains server-side queue enforcement and a historical copy of the addon; make future Lua/TOC updates in the standalone repository first. No server code was changed during the migration.
 
 ## Unreleased — PvP addon renamed to NClassicBattlegrounds
 
 - Addon is now independently maintained as **NClassicBattlegrounds**, with `NClassicBattlegrounds.lua` and `NClassicBattlegrounds.toc`; in-game display **N Classic Battlegrounds**. Existing `/ncbg` commands remain.
-- The previous `addons/NaxxramasClassicBattlegrounds/` folder in this server module is deliberately retained as an archived backup. GitHub standalone URL will remain the longer spelling until the owner renames it.
+- The previous `addons/NaxxramasClassicBattlegrounds/` folder in this server module is deliberately retained as an archived backup. GitHub standalone repository now uses the shorter `N-ClassicBattlegrounds` name.
 - No server-side Battlemaster queue code or compilation requirements changed because of this addon rename.
 
 ## Unreleased — PvP addon Arena and Wintergrasp interface restrictions
@@ -24,7 +24,7 @@
 - Added `src/Systems/BattlemasterQueueProgression.cpp` using AzerothCore's server-side pre-queue hook. Vanilla/TBC players must use a nearby Battlemaster NPC; remote queueing unlocks at modern Individual Progression WotLK entry **stage 13**.
 - Validates the Battlemaster GUID, NPC flag, interaction distance and Battleground type; checks mixed-progression groups; includes optional GM and Playerbot exemptions matching IP's bot account regex.
 - Added `NaxxramasCore.BattlegroundQueue.ClassicMode.Enabled = 0` (default **off** pending testing), `...UnlockStage = 13`, and individual exemption options.
-- Optional 3.3.5a addon [NClassicBattlegrounds](https://github.com/CosmicCuddle/NaxxramasClassicBattlegrounds) uses completed hidden progression quests to hide the **Battlegrounds tab next to PvP** before WotLK while preserving PvP information and in-person Battlemaster queue controls. Removed the obstructive bottom message and stopped altering Join buttons.
+- Optional 3.3.5a addon [NClassicBattlegrounds](https://github.com/CosmicCuddle/N-ClassicBattlegrounds) uses completed hidden progression quests to hide the **Battlegrounds tab next to PvP** before WotLK while preserving PvP information and in-person Battlemaster queue controls. Removed the obstructive bottom message and stopped altering Join buttons.
 - Original AzerothCore queueing is restored by disabling the feature; addon `/ncbg off` disables the cosmetic changes only. No DBC/SQL/core/IP/Playerbots source modification.
 - Testing and setup details: `docs/CLASSIC-BATTLEMASTER-QUEUES.md`.
 - **Committed but not yet compiled or tested in game.**
