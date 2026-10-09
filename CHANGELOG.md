@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased — progression-dependent mount summon casting (source prepared)
+## Unreleased — progression-dependent mount summon casting (research only)
+
+- **Update 9 October:** Administrator declined the separate AzerothCore core patch due to future upgrade burden. The optional patch is retained for historical reference only and **must not be applied**. The existing feature remains disabled/inert. A safe module-only approach is being researched; see [findings and safety requirements](docs/ERA-MOUNT-CAST-MODULE-ONLY-RESEARCH.md).
+
+### Historical optional-hook proposal (NOT APPROVED)
 
 - Added `src/Systems/EraMountCast.cpp` and loader registration for per-character **3-second normal mounts in Vanilla/TBC**, changing to **1.5 seconds at WotLK stage 13**.
 - Uses modern IP rewarded stage quests and its progression limit; does nothing when IP is disabled. Existing Playerbots are exempt by default using IP's bot-account regex.
