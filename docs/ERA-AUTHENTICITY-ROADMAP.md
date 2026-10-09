@@ -39,7 +39,12 @@ disable, roll back or uninstall any of their existing functionality.
 Do not propose or implement changes to the above during this phase unless
 the user explicitly revisits them.
 
-## Mount-cast implementation — source ready, integration and tests pending
+## Mount-cast implementation — alternative research, feature not active
+
+**Decision 9 October 2026:** Do **not** modify AzerothCore core files for this feature, even with the previously prepared optional hook. That patch is an unapproved archived experiment. Research a module-only solution using existing spell-modifier mechanisms; see [module-only assessment](ERA-MOUNT-CAST-MODULE-ONLY-RESEARCH.md). No safe module-only implementation has yet been validated. The currently staged script stays **disabled and inert** without the archived patch.
+
+### Historical optional-hook implementation (NOT APPROVED)
+
 
 **Implementation staged on 9 October 2026:** `src/Systems/EraMountCast.cpp`,
 loader registration and five configuration entries are committed.
