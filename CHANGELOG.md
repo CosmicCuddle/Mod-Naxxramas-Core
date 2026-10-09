@@ -1,20 +1,5 @@
 # Changelog
 
-## Unreleased — progression-dependent mount summon casting (research only)
-
-- **Update 9 October:** Administrator declined the separate AzerothCore core patch due to future upgrade burden. The optional patch is retained for historical reference only and **must not be applied**. The existing feature remains disabled/inert. A safe module-only approach is being researched; see [findings and safety requirements](docs/ERA-MOUNT-CAST-MODULE-ONLY-RESEARCH.md).
-
-### Historical optional-hook proposal (NOT APPROVED)
-
-- Added `src/Systems/EraMountCast.cpp` and loader registration for per-character **3-second normal mounts in Vanilla/TBC**, changing to **1.5 seconds at WotLK stage 13**.
-- Uses modern IP rewarded stage quests and its progression limit; does nothing when IP is disabled. Existing Playerbots are exempt by default using IP's bot-account regex.
-- No client/Spell.dbc/global mount data edits. Instant mounts, Druid travel forms, NPCs and unrelated spells are excluded.
-- Added disabled-by-default `NaxxramasCore.EraMountCast.*` config. `Enabled=0` restores original timing without data migrations.
-- A small optional AzerothCore pre-packet cast-time hook patch is **required for functionality** and is included in `patches/`; without it the module script compiles as a no-op.
-- Documented exact-version compatibility checks, mount regression test matrix and rollback in [Era Mount Cast](docs/ERA-MOUNT-CAST.md).
-- **Not yet patched into live AzerothCore, compiled or tested.**
-
-
 - **Repository migration (2026-10-09):** The optional client addon now lives in its own [NClassicBattlegrounds](https://github.com/CosmicCuddle/N-ClassicBattlegrounds) repository. This Naxxramas Core repository retains server-side queue enforcement and a historical copy of the addon; make future Lua/TOC updates in the standalone repository first. No server code was changed during the migration.
 
 ## Unreleased — PvP addon renamed to NClassicBattlegrounds
