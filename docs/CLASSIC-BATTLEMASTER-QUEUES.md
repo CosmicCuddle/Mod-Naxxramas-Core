@@ -57,14 +57,9 @@ so the folder contains both:
 The TOC uses `## Interface: 30300`.
 
 The addon requests the completed quests using the built-in 3.3.5a
-`QueryQuestsCompleted` and `GetQuestsCompleted` API. It hides
-`PVPBattlegroundFrameJoinButton` and
-`PVPBattlegroundFrameGroupJoinButton` in the **remote** Battleground panel
-until the completed quests contain `66013..66018`.
+`QueryQuestsCompleted` and `GetQuestsCompleted` API. It hides `PVPParentFrameTab2` (the **Battlegrounds tab next to PvP**) in the standard PvP window until completed quests contain `66013..66018`. It does not hide or alter the actual Join Battle or Join as Group controls, nor draw overlay text on top of the interface.
 
-When the panel opens through a Battlemaster, the two buttons remain shown,
-even before WotLK. The PvP tab, Honor, Arena and queue information are never
-removed by this addon.
+When the panel opens through a Battlemaster, the NPC's queue controls remain unchanged, even before WotLK. The PvP tab, Honor, Arena information and queue status are never removed by this addon.
 
 The completed-quest query is throttled in 3.3.5a. The addon retries after
 roughly 75 seconds. Progression changes may therefore take up to one retry
@@ -107,14 +102,14 @@ creating a queue slot.
    Confirm no compilation errors.
 3. Set Enabled=1 and restart; do **not** change core files.
 4. With a **Vanilla** character (below stage 8), open PvP normally:
-   Honor and tabs still display; addon hides both remote join buttons.
+   Honor and the PvP tab still display; the **Battlegrounds tab is hidden**.
 5. Try remote queue *without* the addon or via a macro: server denies.
    Confirm no queue slot/status was created.
 6. Visit the matching **Battlemaster**: queue succeeds in person.
    Test a mismatched Battlemaster and spoofed/faraway NPC GUID: both deny.
 7. Repeat TBC (stages 8..12): same results as Vanilla.
 8. Repeat **stage 13** WotLK and one later WotLK milestone:
-   remote joins work and addon buttons are visible.
+   remote joins work and the **Battlegrounds tab returns**.
 9. Queue a group with a stage-13 leader and stage-12 member:
    remote join is rejected, but in-person Battlemaster queue works.
 10. Test both factions, solo and group queueing, a Playerbot account matching
