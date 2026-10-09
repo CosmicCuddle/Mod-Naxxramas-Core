@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — PvP addon Arena and Wintergrasp interface restrictions
+
+- Hide the Arena points header and 2v2/3v3/5v5 panels during Vanilla; restore
+  them at modern Individual Progression TBC entry (stage 8).
+- Hide Wintergrasp timer and icon during Vanilla/TBC; restore from WotLK entry
+  (stage 13). Apply even to the Battlemaster dialog where appropriate.
+- Preserve the PvP Honor panel and Battlemaster queue controls; no client text
+  overlays, DBC edits, SQL updates, or server recompilation required.
+- Visual changes are optional and reversible with `/ncbg off`.
+- **Unreleased addon update; in-game tests pending.**
+
 ## Unreleased — Classic Battlemaster-only Battleground queues
 
 - Added `src/Systems/BattlemasterQueueProgression.cpp` using AzerothCore's server-side pre-queue hook. Vanilla/TBC players must use a nearby Battlemaster NPC; remote queueing unlocks at modern Individual Progression WotLK entry **stage 13**.
