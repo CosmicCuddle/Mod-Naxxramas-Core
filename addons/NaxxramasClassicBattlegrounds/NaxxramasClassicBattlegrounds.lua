@@ -1,6 +1,6 @@
 -- Naxxramas Classic Battlegrounds - WotLK 3.3.5a (Lua 5.1)
 -- Optional cosmetic companion to Naxxramas Core's SERVER-SIDE queue guard.
--- It does not secure queues or replace the PvP window.
+-- It does not secure queues or replace the PvP window.\n-- Hides the remote Battlegrounds TAB (PVPParentFrameTab2), not join controls.
 -- Modern Individual Progression grants hidden quest 66013 at WotLK entry.
 -- 66014-66018 represent later WotLK progression milestones.
 
@@ -13,7 +13,6 @@ local lastQuery = -QUERY_INTERVAL
 local progressKnown = false
 local hasWotlk = false
 local hooked = false
-local hint
 
 local function Log(message)
     if DEFAULT_CHAT_FRAME then
@@ -32,61 +31,70 @@ local function OpenedFromBattlemaster()
     return PVPFrame_IsJustBG and PVPFrame_IsJustBG()
 end
 
+-- The requested Classic appearance is to hide the Battlegrounds TAB next
+-- to PvP, not the Join Battle buttons or the entire Battleground window.
+-- The Battlemaster's own NPC window uses justBG mode and remains untouched.
 local function UpdateControls()
-    if not PVPBattlegroundFrame
-       or not PVPBattlegroundFrameJoinButton
-       or not PVPBattlegroundFrameGroupJoinButton then
+    if not PVPParentFrame or not PVPParentFrameTab1
+       or not PVPParentFrameTab2 then
         return
     end
 
-    local hideRemote = Enabled() and (not progressKnown or not hasWotlk)
-        and not OpenedFromBattlemaster()
-
-    if hideRemote then
-        PVPBattlegroundFrameJoinButton:Hide()
-        PVPBattlegroundFrameGroupJoinButton:Hide()
-    else
-        PVPBattlegroundFrameJoinButton:Show()
-        PVPBattlegroundFrameGroupJoinButton:Show()
+    if OpenedFromBattlemaster() then
+        return -- Blizzard intentionally hides both tabs in the NPC window.
     end
 
-    if hint then
-        if hideRemote then
-            if progressKnown then
-                hint:SetText("Visit a Battlemaster to join a Battleground.\nRemote queues unlock in Wrath of the Lich King.")
-            else
-                hint:SetText("Checking Individual Progression...\nVisit a Battlemaster to queue.")
+    local hideRemoteTab = Enabled() and (not progressKnown or not hasWotlk)
+
+    if hideRemoteTab then
+        -- A previous visit to the Battleground tab can leave that panel
+        -- selected. Switch back to PvP before removing its tab.
+        if PVPParentFrame:IsShown() and PVPBattlegroundFrame
+           and PVPBattlegroundFrame:IsShown() then
+            PVPParentFrameTab1:Click()
+        end
+
+        PVPParentFrameTab2:Hide()
+    else
+        -- When Wrath progression unlocks (or the addon is turned off),
+        -- restore the tab only if Blizzard reports an available BG.
+        local available = false
+        if GetNumBattlegroundTypes and GetBattlegroundInfo then
+            for i = 1, GetNumBattlegroundTypes() do
+                local _, canEnter = GetBattlegroundInfo(i)
+                if canEnter then
+                    available = true
+                    break
+                end
             end
-            hint:Show()
+        end
+
+        if available then
+            PVPParentFrameTab2:Show()
         else
-            hint:Hide()
+            PVPParentFrameTab2:Hide()
         end
     end
 end
 
 local function InstallHooks()
-    if hooked or not PVPBattlegroundFrame
-       or not PVPBattlegroundFrameJoinButton
-       or not PVPBattlegroundFrameGroupJoinButton
+    if hooked or not PVPParentFrame or not PVPParentFrameTab1
+       or not PVPParentFrameTab2 or not PVPBattlegroundFrame
        or not PVPFrame_SetJustBG
        or not PVPBattleground_UpdateBattlegrounds then
         return
     end
 
     hooked = true
-    hint = PVPBattlegroundFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hint:SetWidth(360)
-    hint:SetJustifyH("CENTER")
-    hint:SetPoint("BOTTOM", PVPBattlegroundFrame, "BOTTOM", 0, 37)
-    hint:Hide()
 
-    -- These hooks run AFTER Blizzard updates its own buttons.
-    -- No global UI functions or Battleground join APIs are overwritten.
+    -- Blizzard can reshow Tab2 as the BG list/progression changes.
+    -- These safe hooks run after its normal UI updates.
     hooksecurefunc("PVPFrame_SetJustBG", UpdateControls)
     hooksecurefunc("PVPBattleground_UpdateBattlegrounds", UpdateControls)
     if PVPBattlegroundFrame_UpdateVisible then
         hooksecurefunc("PVPBattlegroundFrame_UpdateVisible", UpdateControls)
     end
+    PVPParentFrame:HookScript("OnShow", UpdateControls)
     PVPBattlegroundFrame:HookScript("OnShow", UpdateControls)
     UpdateControls()
 end
