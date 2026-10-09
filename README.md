@@ -68,7 +68,9 @@ Some features require matching **DBC edits** on both the server and client. Thos
 - Complete setup, tests and rollback: [Classic Battlemaster Queue Guide](docs/CLASSIC-BATTLEMASTER-QUEUES.md).
 - **Source added; AzerothCore compilation, Playerbot regression tests and client in-game tests still pending.**
 
-### Era-based mount summoning (optional; pending core integration)
+### Era-based mount summoning (research only; NOT ACTIVE)
+
+**Current decision:** Do **not** apply the separately prepared AzerothCore core-source patch. It is archived and is **not** approved for deployment. We are investigating a truly module-only approach; the current stage-specific code remains disabled and has **no mount-cast effect** without that unapproved patch. See [module-only research](docs/ERA-MOUNT-CAST-MODULE-ONLY-RESEARCH.md). The historical proposal below is **not** an installation instruction.
 
 - **Vanilla and TBC:** normal casted mounts take **3 seconds**.
 - **WotLK from modern Individual Progression stage 13:** normal casted mounts take **1.5 seconds**.
