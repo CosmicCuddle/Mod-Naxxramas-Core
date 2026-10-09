@@ -1,5 +1,7 @@
 # Progression-aware mount summoning — implementation and safety guide
 
+> **IMPORTANT — CORE PATCH NOT APPROVED (9 October 2026):** The server administrator rejected editing AzerothCore source because of long-term update maintenance. **Do not apply** the patch described later in this historical integration guide. The module-only alternative is under investigation, and no safe replacement is confirmed. See [module-only research and constraints](ERA-MOUNT-CAST-MODULE-ONLY-RESEARCH.md). The feature remains **disabled and inactive**. The instructions below are retained as historical technical reference only; they are **not** currently approved deployment steps.
+
 **Status:** Source staged, **not compiled, deployed or tested**. The feature is **disabled by default**. This document describes a carefully scoped **optional AzerothCore core patch**, because the existing spell scripting hooks execute too late to set a per-character cast time before `SPELL_START`.
 
 ## Intended gameplay
