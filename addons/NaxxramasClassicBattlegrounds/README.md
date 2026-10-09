@@ -2,7 +2,7 @@
 
 > **Archived copy:** This directory is retained only as a migration backup.
 > The actively maintained addon is now **NClassicBattlegrounds**. The addon and installation instructions have moved to
-> **[NClassicBattlegrounds](https://github.com/CosmicCuddle/NaxxramasClassicBattlegrounds)**.
+> **[NClassicBattlegrounds](https://github.com/CosmicCuddle/N-ClassicBattlegrounds)**.
 > Do not update the Lua or TOC here; the renamed addon files are `NClassicBattlegrounds.lua` and `NClassicBattlegrounds.toc` in the standalone repository. This older directory is intentionally retained as a backup.
 
 
@@ -10,6 +10,8 @@ Optional client-only UI companion for the Naxxramas Core Classic Battlemaster
 queue feature. **The server module is required to enforce queue restrictions.**
 
 ## Install
+
+> **Use the standalone repository above for current installations.** The steps below describe the archived original build, not the actively maintained version.
 
 1. Back up any existing copy of the addon.
 2. Copy this **whole** `NaxxramasClassicBattlegrounds` folder to
