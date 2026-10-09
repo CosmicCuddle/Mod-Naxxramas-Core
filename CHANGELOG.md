@@ -5,7 +5,7 @@
 - Added `src/Systems/BattlemasterQueueProgression.cpp` using AzerothCore's server-side pre-queue hook. Vanilla/TBC players must use a nearby Battlemaster NPC; remote queueing unlocks at modern Individual Progression WotLK entry **stage 13**.
 - Validates the Battlemaster GUID, NPC flag, interaction distance and Battleground type; checks mixed-progression groups; includes optional GM and Playerbot exemptions matching IP's bot account regex.
 - Added `NaxxramasCore.BattlegroundQueue.ClassicMode.Enabled = 0` (default **off** pending testing), `...UnlockStage = 13`, and individual exemption options.
-- Optional 3.3.5a addon `addons/NaxxramasClassicBattlegrounds/` uses completed hidden progression quests to hide the two remote Battleground join buttons while preserving PvP information and in-person Battlemaster queue controls.
+- Optional 3.3.5a addon `addons/NaxxramasClassicBattlegrounds/` uses completed hidden progression quests to hide the **Battlegrounds tab next to PvP** before WotLK while preserving PvP information and in-person Battlemaster queue controls. Removed the obstructive bottom message and stopped altering Join buttons.
 - Original AzerothCore queueing is restored by disabling the feature; addon `/ncbg off` disables the cosmetic changes only. No DBC/SQL/core/IP/Playerbots source modification.
 - Testing and setup details: `docs/CLASSIC-BATTLEMASTER-QUEUES.md`.
 - **Committed but not yet compiled or tested in game.**
