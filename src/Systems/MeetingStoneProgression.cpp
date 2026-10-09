@@ -112,7 +112,7 @@ public:
         // meeting-stone summon starts; the stone remains visible.
         if (player->GetSession())
             ChatHandler(player->GetSession()).SendSysMessage(
-                "Meeting stones cannot summon players during Vanilla progression.");
+                "Summoning stones are currently unavailable. They unlock when you reach The Burning Crusade in Individual Progression.");
 
         return true;
     }
