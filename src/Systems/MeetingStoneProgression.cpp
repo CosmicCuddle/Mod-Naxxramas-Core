@@ -74,8 +74,15 @@ namespace
         // On a legacy IP build without exported headers, this fallback
         // cannot read its old player-settings storage. See the README
         // compatibility and testing notes before enabling that setup.
-        return player->GetQuestStatus(CURRENT_IP_TBC_ENTRY_QUEST)
-            != QUEST_STATUS_REWARDED;
+        // Check all TBC and WotLK milestones, just as modern IP's
+        // progression reader finds the highest rewarded stage.
+        for (uint32 quest = CURRENT_IP_TBC_ENTRY_QUEST; quest <= 66018; ++quest)
+        {
+            if (player->GetQuestStatus(quest) == QUEST_STATUS_REWARDED)
+                return false;
+        }
+
+        return true;
 #endif
     }
 }
