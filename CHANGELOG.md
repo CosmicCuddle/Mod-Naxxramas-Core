@@ -4,6 +4,7 @@
 
 - Added `src/Systems/MeetingStoneProgression.cpp` to block the native meeting-stone summon interaction for players whose own Individual Progression has not entered TBC.
 - Meeting stones remain visible and decorative in Vanilla; TBC and WotLK characters retain native AzerothCore summoning, group, target and level checks.
+- Clicking a stone in Vanilla explains that summoning stones unlock at The Burning Crusade; the client-side hover tooltip is unchanged.
 - Added `NaxxramasCore.MeetingStones.ClassicMode.Enabled = 1` (enabled by default). Set `0` to immediately restore standard WotLK behaviour.
 - Uses the Individual Progression public API when available, with a modern hidden-quest fallback if the IP header is not exported. Older IP builds without a public header need compatibility testing.
 - Module-only C++ and configuration: no new DBC rows, world SQL, client patch, or AzerothCore core modifications.
