@@ -46,3 +46,25 @@ server feature is disabled.
 
 Full deployment/test/rollback guide:
 [Classic Battlemaster Queues](../../docs/CLASSIC-BATTLEMASTER-QUEUES.md).
+
+## Expansion-specific PvP interface (addon update)
+
+In **Vanilla** (Individual Progression below stage 8), the addon hides the
+**Arena** points header, 2v2/3v3/5v5 panels, team toggle/overlay and details.
+Honor, kills and the main PvP window stay visible. **TBC entry (stage 8)**
+restores the Arena section.
+
+The **Wintergrasp** timer/icon is hidden in Vanilla and TBC, including
+Battlemaster dialogs, and restored on **WotLK entry (stage 13)**.
+
+The existing **Battlegrounds tab** remains hidden in the normal PvP frame
+until WotLK stage 13; a Battlemaster's NPC queue interface is unchanged.
+No text overlays are added, and the Blizzard Join Battle buttons are not
+modified.
+
+The same `/ncbg off` command restores the unmodified client appearance
+for all three optional visual restrictions. No server compilation is needed
+for the addon update; replace its `.lua` file and use `/reload`.
+
+**Unverified in-game:** the new Arena and Wintergrasp UI changes require
+client testing (including transition at stages 8 and 13).
