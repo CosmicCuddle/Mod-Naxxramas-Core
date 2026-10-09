@@ -53,6 +53,18 @@ Some features require matching **DBC edits** on both the server and client. Thos
 - Requires both SQL files `data/sql/db-characters/2026_10_08_00_arcane_momentum.sql` and `data/sql/db-world/2026_10_08_00_arcane_momentum.sql` as well as a rebuild/restart.
 - No new DBC entry or client patch is required for this feature.
 
+### Classic Battlemaster Battleground queues (optional, WotLK unlock)
+
+- Modern Individual Progression **stage 13** unlocks remote Battleground queueing.
+- Vanilla and TBC characters must use an actual, nearby Battlemaster NPC (including remote queue macros).
+- Preserves the PvP window, Honor and kills; no Arena queue or Honor system changes.
+- The C++ `OnPlayerCanJoinInBattlegroundQueue` hook validates the Battlemaster's NPC flag, distance, faction interaction and matching BG type, and checks mixed-progression group members.
+- Optional **3.3.5a addon** at `addons/NaxxramasClassicBattlegrounds/` hides *Join Battle* and *Join as Group* only in the remote panel. It requests modern-IP hidden completed quests `66013..66018` to restore the buttons in WotLK; Battlemaster NPC dialogs retain their buttons.
+- Configured through `NaxxramasCore.BattlegroundQueue.ClassicMode.Enabled = 0` (**disabled by default for testing**) and `...UnlockStage = 13`, with GM/Playerbot exemptions.
+- **Compatibility:** modern hidden-quest Individual Progression builds only; other older IP data schemas need extra integration. No DBC/SQL/client MPQ modifications.
+- Complete setup, tests and rollback: [Classic Battlemaster Queue Guide](docs/CLASSIC-BATTLEMASTER-QUEUES.md).
+- **Source added; AzerothCore compilation, Playerbot regression tests and client in-game tests still pending.**
+
 ### Meeting stones — Classic progression
 
 - Config: `NaxxramasCore.MeetingStones.ClassicMode.Enabled = 1` (**enabled by default**; set `0` for unmodified WotLK behaviour).
