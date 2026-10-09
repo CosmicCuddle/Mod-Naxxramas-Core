@@ -110,3 +110,20 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # Safe default is disabled; enable explicitly after reviewing and testing changes.
 # Default: 0 (disabled)
 NaxxramasCore.BotTalentCompletion.Enabled = 0
+
+
+#####################################
+# Individual Progression - Meeting Stones
+#####################################
+
+# Make meeting stones decorative (non-summoning) for players who have
+# not yet entered The Burning Crusade in Individual Progression.
+# Players at TBC or WotLK progression use normal AzerothCore meeting stones.
+# Affects the player interacting with the stone, not all stones globally.
+# No DBC, SQL, or AzerothCore core modifications are required.
+#
+# 1 = Restrict Vanilla players (default)
+# 0 = Unrestricted standard WotLK meeting stones for everybody
+# Default: 1
+NaxxramasCore.MeetingStones.ClassicMode.Enabled = 1
+
