@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Naxxramas Classic Battlegrounds
+## Notes: Hide remote Battleground join buttons before WotLK progression; Battlemasters remain usable.
+## Author: CosmicCuddle
+## Version: 0.1.0
+## SavedVariablesPerCharacter: NaxxramasClassicBGQueueSettings
+
+NaxxramasClassicBattlegrounds.lua
