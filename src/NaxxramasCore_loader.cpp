@@ -43,6 +43,7 @@ void AddBotRaidConsumablesScripts();
 void AddBotTalentExpansionLimitsScripts();
 void AddBotTalentCompletionScripts();
 void AddMeetingStoneProgressionScripts();
+void AddBattlemasterQueueProgressionScripts();
 
 void Addmod_naxxramas_coreScripts()
 {
@@ -84,4 +85,5 @@ void Addmod_naxxramas_coreScripts()
     AddBotTalentExpansionLimitsScripts();
     AddBotTalentCompletionScripts();
     AddMeetingStoneProgressionScripts();
+    AddBattlemasterQueueProgressionScripts();
 }
