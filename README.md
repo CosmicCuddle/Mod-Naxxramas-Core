@@ -57,6 +57,7 @@ Some features require matching **DBC edits** on both the server and client. Thos
 
 - Config: `NaxxramasCore.MeetingStones.ClassicMode.Enabled = 1` (**enabled by default**; set `0` for unmodified WotLK behaviour).
 - When Individual Progression says the **interacting character is still in Vanilla**, a meeting stone (gameobject type 23) remains visible but cannot begin its native summoning interaction.
+- Clicking an unavailable stone tells the player: **"Summoning stones are currently unavailable. They unlock when you reach The Burning Crusade in Individual Progression."** The native hover cursor/tooltip remains client-controlled.
 - Once that same character reaches **TBC** or **WotLK** progression, the native AzerothCore meeting-stone rules, level checks and summoning mechanism run unchanged. A character's **level or current zone alone is not an expansion check**.
 - The new hook runs before GameObject::Use's meeting-stone branch. No global GO flags, GameObject template edits or client patches are required.
 - Uses Individual Progression's public API when its header is available. Supports both modern hidden-quest progression and older player-settings-based IP APIs. If the header is unavailable, it falls back to the modern IP rewarded milestone quest **66008** (PRE_TBC). **Old IP branches that do not export their header require extra integration; test before enabling.**
