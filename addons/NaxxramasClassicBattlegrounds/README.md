@@ -15,11 +15,7 @@ queue feature. **The server module is required to enforce queue restrictions.**
    and `...UnlockStage = 13`.
 6. Log in and open Player vs. Player. Your PvP information remains visible.
 
-Vanilla and TBC: the standard remote Battleground join buttons disappear.
-Visiting a Battlemaster restores them in that NPC dialog. At WotLK entry
-(modern Individual Progression stage 13, hidden quest `66013`), the remote
-join buttons reappear automatically after the client receives completed quest
-data.
+Vanilla and TBC: the **Battlegrounds tab next to PvP** is hidden. The PvP panel remains intact, with Honor, kills and Arena information unchanged. Visiting a Battlemaster still opens the NPC's normal Battleground queue window. At WotLK entry (modern Individual Progression stage 13, hidden quest `66013`), the Battlegrounds tab reappears automatically once completed-quest data has refreshed.
 
 The WoW 3.3.5a completed quest API throttles queries; allow about 75 seconds
 for the next refresh after an in-game progression change.
@@ -42,8 +38,7 @@ server feature is disabled.
 - WoW 3.3.5a, TOC Interface `30300`.
 - Modern Individual Progression, stage 13 / rewarded hidden quests
   `66013` through `66018`.
-- Leaves original PvP Honor window, Arena information, Battleground tab,
-  queue status, and NPC Battlemaster dialog intact.
+- Preserves the original PvP Honor window, Arena information, queue status, and NPC Battlemaster dialog. Hides only the normal **Battlegrounds tab** while Vanilla/TBC progression is active.
 - Does not replace `JoinBattlefield`, so disabling/modifying the addon
   cannot bypass the server.
 - Does not remove any Blizzard FrameXML, edit DBCs, or ship an MPQ.
