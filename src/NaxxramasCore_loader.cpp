@@ -42,6 +42,7 @@ void AddAltMailDelayScripts();
 void AddBotRaidConsumablesScripts();
 void AddBotTalentExpansionLimitsScripts();
 void AddBotTalentCompletionScripts();
+void AddMeetingStoneProgressionScripts();
 
 void Addmod_naxxramas_coreScripts()
 {
@@ -82,4 +83,5 @@ void Addmod_naxxramas_coreScripts()
     AddBotRaidConsumablesScripts();
     AddBotTalentExpansionLimitsScripts();
     AddBotTalentCompletionScripts();
+    AddMeetingStoneProgressionScripts();
 }
