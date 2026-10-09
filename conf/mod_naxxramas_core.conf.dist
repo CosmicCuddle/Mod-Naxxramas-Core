@@ -127,3 +127,26 @@ NaxxramasCore.BotTalentCompletion.Enabled = 0
 # Default: 1
 NaxxramasCore.MeetingStones.ClassicMode.Enabled = 1
 
+#####################################
+# Individual Progression - Classic Battlemaster Queues
+#####################################
+
+# 1: Before the configured unlock tier, require players to queue at
+#    a nearby Battlemaster. Remote joins (including macros) are blocked.
+# 0: Use original WotLK remote queue functionality for all characters.
+# Feature is DISABLED by default until build/in-game testing is complete.
+# Default: 0
+NaxxramasCore.BattlegroundQueue.ClassicMode.Enabled = 0
+
+# Individual Progression milestone that unlocks remote queueing.
+# Modern IP: 13 = WotLK entry (after TBC Tier 5); 14 = Ulduar tier.
+# Accepted: 1-18. Out-of-range values fall back to 13.
+# Default: 13
+NaxxramasCore.BattlegroundQueue.ClassicMode.UnlockStage = 13
+
+# GMs can remotely queue regardless of stage. Default: 1
+NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptGMs = 1
+
+# Preserve Playerbots queues based on IndividualProgression.BotAccountsRegex.
+# Default: 1
+NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
