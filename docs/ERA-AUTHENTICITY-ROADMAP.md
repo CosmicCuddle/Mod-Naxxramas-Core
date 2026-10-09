@@ -4,13 +4,6 @@
 
 ### Approved
 
-- **Mount summoning cast time (approved, WotLK entry):** Vanilla and TBC
-  progression (stages **0–12**) retain a **3-second** cast. Starting at the
-  very beginning of WotLK progression (**stage 13**), mount summoning takes
-  **1.5 seconds**. This is an intentional server preference, even though
-  the historical retail reduction happened later in WotLK (patch 3.2.0).
-  The change must be per character, configurable and completely reversible.
-  Do not implement via a global DBC change or an unrelated spell haste buff.
 - **Vanilla Arena interface:** hide Arena points and Arena team frames before
   modern IP's TBC entry **stage 8**. Already committed to the
   `NaxxramasClassicBattlegrounds` UI addon, awaits client test.
@@ -39,34 +32,11 @@ disable, roll back or uninstall any of their existing functionality.
 Do not propose or implement changes to the above during this phase unless
 the user explicitly revisits them.
 
-## Mount-cast implementation — alternative research, feature not active
+## Mount summoning — CANCELLED (9 October 2026)
 
-**Decision 9 October 2026:** Do **not** modify AzerothCore core files for this feature, even with the previously prepared optional hook. That patch is an unapproved archived experiment. Research a module-only solution using existing spell-modifier mechanisms; see [module-only assessment](ERA-MOUNT-CAST-MODULE-ONLY-RESEARCH.md). No safe module-only implementation has yet been validated. The currently staged script stays **disabled and inert** without the archived patch.
+The proposed Vanilla/TBC 3-second and WotLK 1.5-second mount cast changes have been **cancelled at the administrator's request**. No mount-cast gameplay change is to be deployed. The prototype module script, configuration, optional AzerothCore patch and dedicated installation/research documents were deleted from the active repository. Git history retains the earlier experimental work if it is ever needed.
 
-### Historical optional-hook implementation (NOT APPROVED)
-
-
-**Implementation staged on 9 October 2026:** `src/Systems/EraMountCast.cpp`,
-loader registration and five configuration entries are committed.
-Vanilla/TBC = **3000 ms**, WotLK from IP stage **13** = **1500 ms**.
-The feature is **disabled by default** and, on an unpatched AzerothCore build,
-is a **no-op**. The modern-IP hidden quest thresholds and configurable bot
-exemption were reviewed.
-
-The existing AzerothCore spell callbacks are too late for an authoritative
-pre-packet cast-time change. To avoid global Spell.dbc edits or affecting other
-spells, a narrowly scoped, **optional** four-file upstream hook patch is
-included at `patches/azerothcore-optional-after-calc-spell-cast-time.patch`.
-Do not apply it blindly: first compare the actual server's pinned AzerothCore
-revision and run `git apply --check` on a backed-up source tree.
-
-**No server recompilation, actual AzerothCore patch application or in-game
-regression test has occurred.** Do not claim this feature is active until the
-patch is reviewed, applied, rebuilt, enabled and tested. The module is safe
-to compile without the optional hook, but it will not change mount timers.
-
-Complete compatibility review, commands, tests and rollback:
-[Era Mount Cast guide](ERA-MOUNT-CAST.md).
+**Do not reintroduce or resume mount-casting work unless the administrator explicitly asks.** Normal AzerothCore mount timing is retained.
 
 ## BRD-to-Molten Core raid entry — PAUSED / PARKED
 
