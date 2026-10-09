@@ -4,12 +4,13 @@
 
 ### Approved
 
-- **Mount summoning cast time:** implement individual progression-dependent
-  historical cast times, with safe configuration and full rollback. Vanilla and
-  TBC mount summoning should take 3 seconds, and late WotLK should take
-  1.5 seconds. The historic unlock is WoW patch 3.2.0, corresponding
-  approximately to modern IP Trial of the Crusader stage **15**. Allow
-  `UnlockStage = 13` to switch at WotLK entry if desired.
+- **Mount summoning cast time (approved, WotLK entry):** Vanilla and TBC
+  progression (stages **0–12**) retain a **3-second** cast. Starting at the
+  very beginning of WotLK progression (**stage 13**), mount summoning takes
+  **1.5 seconds**. This is an intentional server preference, even though
+  the historical retail reduction happened later in WotLK (patch 3.2.0).
+  The change must be per character, configurable and completely reversible.
+  Do not implement via a global DBC change or an unrelated spell haste buff.
 - **Vanilla Arena interface:** hide Arena points and Arena team frames before
   modern IP's TBC entry **stage 8**. Already committed to the
   `NaxxramasClassicBattlegrounds` UI addon, awaits client test.
@@ -18,16 +19,25 @@
 - **Battleground remote tab and server-only Battlemaster queues:** existing
   implementation; client tab hide confirmed in-game, server not yet compiled.
 
-### Explicitly rejected / do not develop
+### Not selected — leave existing systems untouched
 
-- Hearthstone cooldown changes.
-- Same-account mail changes.
-- Achievement window hiding, achievement notifications, game calendar,
-  Equipment Manager UI, dungeon maps, quest objective map overlays,
-  automatic quest tracking, Quest Log Show Map, original quest text
-  scrolling, talent preview interface changes.
+The user does **not** want us to make any changes to these systems as part of
+the current era-authenticity development. This is **not** a request to remove,
+disable, roll back or uninstall any of their existing functionality.
 
-Do not resurrect these suggestions without a new explicit request.
+- Hearthstone cooldowns.
+- Same-account mail.
+- Achievements window and achievement notifications.
+- In-game Calendar.
+- Equipment Manager.
+- Dungeon maps.
+- Quest objective map overlays, automatic quest tracking and Quest Log
+  "Show Map" functionality.
+- Original quest text scrolling.
+- Talent preview conveniences.
+
+Do not propose or implement changes to the above during this phase unless
+the user explicitly revisits them.
 
 ## Mount-cast technical design / blocker
 
@@ -58,7 +68,7 @@ Then implement in `mod-naxxramas-core` with:
 NaxxramasCore.EraMountCast.Enabled = 0
 NaxxramasCore.EraMountCast.ClassicCastTimeMs = 3000
 NaxxramasCore.EraMountCast.ModernCastTimeMs = 1500
-NaxxramasCore.EraMountCast.UnlockStage = 15
+NaxxramasCore.EraMountCast.UnlockStage = 13
 NaxxramasCore.EraMountCast.ExemptPlayerbots = 1
 ```
 
@@ -66,7 +76,7 @@ These are **PROPOSED** config keys, not implemented. Test ground/flying
 mounts, shapeshift/instant mounts, cast interruptions, talent/spell-haste,
 and Playerbots. Keep old build/config for rollback.
 
-## BRD-to-Molten Core raid entry — design investigation
+## BRD-to-Molten Core raid entry — PAUSED / PARKED
 
 The user wants to assemble **40 raid members** and enter the original Molten
 Core portal **through Blackrock Depths**, while preventing a larger BRD group
@@ -107,10 +117,11 @@ Implementation approaches to discuss:
   to all 40 traversing BRD; compatibility with server's custom first-entrance
   rule and attunement must be verified.
 
-**No BRD/MC gameplay change has been coded, deployed or approved yet.**
-Next question: is the 40-person *shared journey physically inside BRD* an
-absolute requirement, or is every raid member *entering MC through a
-BRD-related first-entry passage* sufficient?
+**Status: on hold at the user's request.** No BRD/MC gameplay change has
+been coded or approved, and there should be **no further investigation,
+implementation or follow-up questions** about BRD raid-group size until the
+user asks to resume it. Keep the current original Molten Core first-entry
+via BRD requirements unchanged.
 
 ## Project rules
 
