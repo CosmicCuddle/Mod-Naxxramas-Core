@@ -67,6 +67,16 @@ namespace
         return !sIndividualProgression->hasPassedProgression(
             player, static_cast<ProgressionState>(tbcEntry));
 #else
+        // Match IP's own enable/limit settings even when its public
+        // header is not exported to this module.
+        if (!sConfigMgr->GetOption<bool>("IndividualProgression.Enable", true))
+            return false;
+
+        const uint32 progressionLimit = sConfigMgr->GetOption<uint32>(
+            "IndividualProgression.ProgressionLimit", 0);
+        if (progressionLimit != 0 && progressionLimit < CURRENT_IP_TBC_ENTRY)
+            return true;
+
         // Fallback for installations where IP's public header is not
         // exported to other modules. Current IP stores progress in
         // rewarded hidden quests; 66008 marks entry into TBC.
