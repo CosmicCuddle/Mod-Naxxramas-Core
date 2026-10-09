@@ -8,7 +8,8 @@ modern Individual Progression **stage 13** (WotLK entry). A global 3.3.5a client
 continues to display the PvP tabs, Honor, kills and Battleground information.
 
 - Server enforcement: `src/Systems/BattlemasterQueueProgression.cpp`.
-- Optional UI helper: `addons/NaxxramasClassicBattlegrounds/`.
+- Optional UI helper (separate repository): [NaxxramasClassicBattlegrounds](https://github.com/CosmicCuddle/NaxxramasClassicBattlegrounds).
+- Historical addon backup: `addons/NaxxramasClassicBattlegrounds/` (not actively maintained).
 - Source changes require AzerothCore rebuild. The addon alone is cosmetic.
 - No DBC, SQL, or upstream IP/Playerbots/AzerothCore edits.
 - Does not change arena queueing or core PvP/honor calculations.
@@ -41,15 +42,13 @@ player-settings progression need integration before enabling this setting.
 
 ## Optional addon installation (WotLK 3.3.5a)
 
-Copy the complete directory
+Download the **current addon** from [NaxxramasClassicBattlegrounds](https://github.com/CosmicCuddle/NaxxramasClassicBattlegrounds) using **Code → Download ZIP**. Extract it and rename the extracted `NaxxramasClassicBattlegrounds-main` folder to `NaxxramasClassicBattlegrounds`.
 
-`addons/NaxxramasClassicBattlegrounds/`
-
-to
+Copy that renamed folder into:
 
 `World of Warcraft/Interface/AddOns/NaxxramasClassicBattlegrounds/`
 
-so the folder contains both:
+The older `addons/NaxxramasClassicBattlegrounds/` directory in this repository is a backup and will **not** receive future addon updates. The installed addon folder must contain both:
 
 - `NaxxramasClassicBattlegrounds.toc`
 - `NaxxramasClassicBattlegrounds.lua`
@@ -59,7 +58,7 @@ The TOC uses `## Interface: 30300`.
 The addon requests the completed quests using the built-in 3.3.5a
 `QueryQuestsCompleted` and `GetQuestsCompleted` API. It hides `PVPParentFrameTab2` (the **Battlegrounds tab next to PvP**) in the standard PvP window until completed quests contain `66013..66018`. It does not hide or alter the actual Join Battle or Join as Group controls, nor draw overlay text on top of the interface.
 
-When the panel opens through a Battlemaster, the NPC's queue controls remain unchanged, even before WotLK. The PvP tab, Honor, Arena information and queue status are never removed by this addon.
+When the panel opens through a Battlemaster, its queue controls remain unchanged. The Honor tab and statistics remain. The standalone addon also hides the Arena points/teams in Vanilla (restored at TBC stage 8), and Wintergrasp timer until WotLK stage 13.
 
 The completed-quest query is throttled in 3.3.5a. The addon retries after
 roughly 75 seconds. Progression changes may therefore take up to one retry
@@ -72,10 +71,7 @@ Commands:
 - `/ncbg off`: disable only this character’s visual button hiding.
 - `/ncbg on`: enable button hiding again.
 
-The addon cannot read the server’s config. **Only install/enable it when the
-server-side feature is enabled**. Turning the addon off does *not* bypass the
-server. If IP is disabled, the server falls back to stock Battleground queues;
-disable the addon as well.
+The addon cannot read the server's config. It can be used **independently for visual-only testing** before enabling the server feature. Turning the addon off does *not* bypass an enabled server-side restriction. When Individual Progression is disabled, disable the addon too if you want the original unmodified WotLK interface.
 
 The addon does not hook or replace `JoinBattlefield`. A player using macros or
 a modified client must still pass the C++ server-side check.
