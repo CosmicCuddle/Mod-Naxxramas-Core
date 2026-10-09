@@ -1,9 +1,9 @@
 # Naxxramas Classic Battlegrounds (WoW 3.3.5a)
 
 > **Archived copy:** This directory is retained only as a migration backup.
-> The actively maintained addon and install instructions have moved to
-> **[NaxxramasClassicBattlegrounds](https://github.com/CosmicCuddle/NaxxramasClassicBattlegrounds)**.
-> Do not update the Lua or TOC here; make all new addon commits in the standalone repository.
+> The actively maintained addon is now **NClassicBattlegrounds**. The addon and installation instructions have moved to
+> **[NClassicBattlegrounds](https://github.com/CosmicCuddle/NaxxramasClassicBattlegrounds)**.
+> Do not update the Lua or TOC here; the renamed addon files are `NClassicBattlegrounds.lua` and `NClassicBattlegrounds.toc` in the standalone repository. This older directory is intentionally retained as a backup.
 
 
 Optional client-only UI companion for the Naxxramas Core Classic Battlemaster
