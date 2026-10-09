@@ -39,42 +39,29 @@ disable, roll back or uninstall any of their existing functionality.
 Do not propose or implement changes to the above during this phase unless
 the user explicitly revisits them.
 
-## Mount-cast technical design / blocker
+## Mount-cast implementation — source ready, integration and tests pending
 
-The user requested implementation but does **not** want the server recompiled
-until the current brainstorming session is complete.
+**Implementation staged on 9 October 2026:** `src/Systems/EraMountCast.cpp`,
+loader registration and five configuration entries are committed.
+Vanilla/TBC = **3000 ms**, WotLK from IP stage **13** = **1500 ms**.
+The feature is **disabled by default** and, on an unpatched AzerothCore build,
+is a **no-op**. The modern-IP hidden quest thresholds and configurable bot
+exemption were reviewed.
 
-Modern AzerothCore's `Spell::prepare` calculates `m_casttime` through
-`SpellInfo::CalcCastTime` and sends spell start/cast packets **before** its
-ordinary `AllSpellScript::OnSpellPrepare` hook. The existing
-`PlayerScript::OnPlayerSpellCast` is also too late. At time of inspection there
-is no exposed public `OnCalcCastTime` module hook.
+The existing AzerothCore spell callbacks are too late for an authoritative
+pre-packet cast-time change. To avoid global Spell.dbc edits or affecting other
+spells, a narrowly scoped, **optional** four-file upstream hook patch is
+included at `patches/azerothcore-optional-after-calc-spell-cast-time.patch`.
+Do not apply it blindly: first compare the actual server's pinned AzerothCore
+revision and run `git apply --check` on a backed-up source tree.
 
-**Do not** attempt to change cast time in OnPlayerSpellCast/OnSpellPrepare:
-that will not produce a correct authoritative per-caster summon time.
-**Do not** change every mount's Spell.dbc cast time globally: mixed Vanilla,
-TBC and WotLK players must experience different times simultaneously.
-**Do not** apply general spell-haste auras to simulate mount casting: they
-would affect unrelated spells and Playerbots.
+**No server recompilation, actual AzerothCore patch application or in-game
+regression test has occurred.** Do not claim this feature is active until the
+patch is reviewed, applied, rebuilt, enabled and tested. The module is safe
+to compile without the optional hook, but it will not change mount timers.
 
-Safe next step: investigate whether user's exact pinned AzerothCore branch has
-a suitable early cast-time hook. If absent, evaluate a **tiny optional upstream
-hook** at the actual cast-time calculation (with user approval, a clean
-patch, and a reversible core diff). Or a strictly proven mount-specific spell
-modifier that works per player. Preserve original `Spell.dbc` backups.
-Then implement in `mod-naxxramas-core` with:
-
-```ini
-NaxxramasCore.EraMountCast.Enabled = 0
-NaxxramasCore.EraMountCast.ClassicCastTimeMs = 3000
-NaxxramasCore.EraMountCast.ModernCastTimeMs = 1500
-NaxxramasCore.EraMountCast.UnlockStage = 13
-NaxxramasCore.EraMountCast.ExemptPlayerbots = 1
-```
-
-These are **PROPOSED** config keys, not implemented. Test ground/flying
-mounts, shapeshift/instant mounts, cast interruptions, talent/spell-haste,
-and Playerbots. Keep old build/config for rollback.
+Complete compatibility review, commands, tests and rollback:
+[Era Mount Cast guide](ERA-MOUNT-CAST.md).
 
 ## BRD-to-Molten Core raid entry — PAUSED / PARKED
 
