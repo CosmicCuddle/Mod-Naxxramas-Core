@@ -58,11 +58,12 @@ namespace NaxxramasBotTalentImport
 
         uint32 const tab = talent->TalentTab;
         uint32 const id = talent->TalentID;
-        // Enhancement's Vanilla capstone is Dual Wield (1690) in the
-        // centre column; Stormstrike (901) must not be exempt.
-        return (bot->GetLevel() <= 60 && tab == 302 && id == 1022) ||
-            (bot->GetLevel() > 60 && bot->GetLevel() <= 70 &&
-                tab == 382 && id == 1747);
+        // Vanilla Enhancement and Affliction both use the natural
+        // centre-column capstones: Dual Wield (1690) and Contagion (1669).
+        // Stormstrike (901) and Dark Pact (1022) are not Vanilla exceptions.
+        // The sole off-centre capstone is TBC Holy Divine Illumination.
+        return bot->GetLevel() > 60 && bot->GetLevel() <= 70 &&
+            tab == 382 && id == 1747;
     }
 
     struct ImportScope
@@ -175,10 +176,11 @@ namespace NaxxramasBotTalentImport
 
     // Exact off-centre capstone exceptions from the published calculator.
     // TalentTab.dbc and Talent.dbc IDs, NOT spell IDs:
-    // Vanilla: Dark Pact 1022 (tab 302).
-    // TBC: Divine Illumination 1747 (tab 382).
-    // Vanilla Enhancement has Dual Wield 1690 at centre column 1;
-    // Stormstrike 901 in the side column is only valid from TBC onward.
+    // Current calculator: Vanilla always selects centre-column capstones.
+    // Shaman Enhancement has Dual Wield 1690 (NOT Stormstrike 901).
+    // Warlock Affliction has Contagion 1669 (NOT Dark Pact 1022).
+    // The only off-centre exception is TBC Divine Illumination 1747
+    // on TalentTab 382. These are Talent.dbc IDs, NOT spell IDs.
     bool AvailableInEra(TalentSelection const& selection, Era const& era)
     {
         TalentEntry const* talent = selection.Talent;
@@ -191,15 +193,8 @@ namespace NaxxramasBotTalentImport
 
         uint32 const tab = talent->TalentTab;
         uint32 const id = talent->TalentID;
-        if (std::string(era.Name) == "vanilla")
-        {
-            if (tab == 302)
-                return id == 1022;
-        }
-        else if (std::string(era.Name) == "tbc" && tab == 382)
-        {
+        if (std::string(era.Name) == "tbc" && tab == 382)
             return id == 1747;
-        }
 
         return talent->Col == 1;
     }
