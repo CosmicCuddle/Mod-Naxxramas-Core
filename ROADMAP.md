@@ -115,7 +115,7 @@ Desired server commands:
 .naxxbot talents apply <online-botname> <NT1-code>
 ```
 
-**Preferred final interface:** a convenient control in the user's **MultiBot fork**, after server-side acceptance. MultiBot must not be changed as a substitute for unfinished server safeguards. GM commands remain supported and require an online recognized bot. Separate **normal-player preview/apply permission gates** and per-bot ownership checks are now staged in Naxxramas Core but are **not yet compiled or tested**. MultiBot addon integration remains a future task.
+**Preferred final interface:** a convenient control in the user's **MultiBot fork**, after server-side acceptance. MultiBot must not be changed as a substitute for unfinished server safeguards. GM commands remain supported and require an online recognized bot. A single **normal-player preview/apply permission gate** and per-bot ownership checks are now staged in Naxxramas Core but are **not yet compiled or tested**. MultiBot addon integration remains a future task.
 
 ### 5.2 Format and data contract
 
@@ -141,12 +141,11 @@ The sole **TBC off-centre capstone exception** is Paladin Holy **Divine Illumina
 - `src/Systems/BotTalentCompletion.cpp`: coordination so a deliberately incomplete explicit NT1 import is not automatically finished by its earlier delayed completion logic.
 - `data/sql/db-characters/2026_10_10_00_bot_talent_import.sql`: **optional additive characters table** (`mod_naxxramas_bot_talent_import`) for code per character GUID/spec; not proof of automatic restoration.
 - `docs/PLAYERBOT-NT1-TALENT-IMPORT.md`: feature design, test matrix, operational constraints, rollback and known limitations.
-- `conf/mod_naxxramas_core.conf.dist`: **four separate gates**, all OFF by default; two control normal-player permissions:
+- `conf/mod_naxxramas_core.conf.dist`: **three settings**, all OFF by default: one master enable, one normal-player permission and one separate experimental application safety switch:
 
 ```ini
 NaxxramasCore.BotTalentImport.Enabled = 0
 NaxxramasCore.BotTalentImport.AllowPlayers = 0
-NaxxramasCore.BotTalentImport.AllowPlayerApply = 0
 NaxxramasCore.BotTalentImport.ApplyEnabled = 0
 ```
 
@@ -164,7 +163,7 @@ The experimental apply routine can reset talents only if both switches are expli
 | Random Playerbots | Full randomisation may replace talents | Experimental apply currently **rejects random bots** until maintenance lifecycle tests pass |
 | Era checks are currently level-based in relevant Playerbot safeguards | An IP stage may differ from a bot's level | Define expected IP-tier policy and test across mismatched level/stage scenarios without guessing |
 | Custom active abilities | Learned talents may not have AI rotations | Separate spell-use and AI integration audit after import is stable |
-| Normal-player and MultiBot permissions | Source now checks separate opt-in permissions plus same-account or current AI-master control; not yet runtime-tested | Compile, test authorisation-denial matrix and preserve server-side checks before addon integration |
+| Normal-player and MultiBot permissions | Source now checks one opt-in normal-player permission for both commands, plus same-account or current AI-master control; not yet runtime-tested | Compile, test authorisation-denial matrix and preserve server-side checks before addon integration |
 
 ### 5.5 Milestones and exit criteria
 
@@ -179,7 +178,7 @@ The experimental apply routine can reset talents only if both switches are expli
 
 **M1 — Read-only NT1 contract — SOURCE READY; TESTS PENDING**
 
-- [ ] Enable `BotTalentImport.Enabled=1` **only on a test realm**, with `ApplyEnabled=0` and `AllowPlayerApply=0`; test optional `AllowPlayers=1` separately.
+- [ ] Enable `BotTalentImport.Enabled=1` **only on a test realm**, with `ApplyEnabled=0`; test optional `AllowPlayers=1` separately.
 - [ ] Verify the supplied Warrior 49/51 build against the server's current DBC.
 - [ ] Test correct Vanilla Dual Wield and Contagion, and rejection of Vanilla Stormstrike/Dark Pact; verify TBC versions remain available.
 - [ ] Test missing/wrong class, invalid format/version, duplicate IDs, incorrect ranks, incomplete prerequisites, excess point budget, and malformed input.
@@ -306,10 +305,10 @@ For NT1 specifically, installing `mod_naxxramas_bot_talent_import` is a separate
 #### Development checkpoint — 10 October 2026: optional normal-player NT1 access
 
 - **Requested behaviour:** permit normal player accounts to run Naxxramas Core NT1 preview, and eventually apply, for eligible controlled Playerbots without extending GM privileges or modifying mod-playerbots.
-- **Source committed, not yet pulled/compiled/game-tested:** command registration now uses `SEC_PLAYER` so normal accounts can enter the module's server-side permission checks. Runtime access requires `NaxxramasCore.BotTalentImport.AllowPlayers=1` (default 0); normal-player `apply` additionally requires `NaxxramasCore.BotTalentImport.AllowPlayerApply=1` (default 0). Both remain subject to `BotTalentImport.Enabled=1` and the independent destructive-apply gate `BotTalentImport.ApplyEnabled=1`. GM access retains its existing permission.
+- **Source committed, not yet pulled/compiled/game-tested:** command registration now uses `SEC_PLAYER` so normal accounts can enter the module's server-side permission checks. Runtime permission for both `preview` and `apply` requires `NaxxramasCore.BotTalentImport.AllowPlayers=1` (default 0). Commands remain subject to the master `BotTalentImport.Enabled=1` setting; actual talent changes additionally require the independent experimental `BotTalentImport.ApplyEnabled=1` safety switch. GM access retains its existing permission.
 - **Ownership/master check:** non-GMs may target only a recognised online Playerbot on their own account or one whose AI's current `GetMaster()` is their player character. No global bypass for same-party, raid, known names, or unrelated accounts. Random bots still fail the separate destructive-apply preflight; preview can work for the current direct master.
-- **First safe configuration:** `Enabled=1`, `AllowPlayers=1`, `AllowPlayerApply=0`, `ApplyEnabled=0` to test player preview only. Do not enable either application gate on a live server until M2 rollback and character-backup acceptance has been completed in isolation.
-- **Required regression tests:** original GM preview and disabled apply, normal player denied with defaults, own-account preview, AI-master preview, other-account denial, attempts to target offline/non-bots, ordinary player apply blocked when permission off, random bot apply blocked, wrong-class errors and no surprise generic usage messages. Verify active config rather than `.conf.dist`.
+- **First safe configuration:** `Enabled=1`, `AllowPlayers=1`, `ApplyEnabled=0` to test player preview and disabled-apply commands. Do not enable the application safety switch on a live server until M2 rollback and character-backup acceptance has been completed in isolation.
+- **Required regression tests:** original GM preview and disabled apply, normal player denied with `AllowPlayers=0`, own-account preview, AI-master preview, other-account denial, attempts to target offline/non-bots, ordinary player apply denied when `AllowPlayers=0`, disabled-apply read-only response with `AllowPlayers=1` and `ApplyEnabled=0`, wrong-class errors and no surprise generic usage messages. Random bot apply remains blocked in a future isolated M2 test. Verify active config rather than `.conf.dist`.
 - **Next milestone:** while compiling future changes, verify headers/API compatibility without modifying Playerbots. Update deployment/test evidence only after actually running tests. Character talent applications, SQL and DBC are untouched by this permission patch.
 
 #### Field verification — 10 October 2026: wrong-class rejection and usage-message fix
