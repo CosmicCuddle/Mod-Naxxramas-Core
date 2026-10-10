@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.6.8.5 — NT1 Playerbot talent integration (development, Phase 1)
+
+- Added a Naxxramas Core-only command handler for `.naxxbot talents preview <botname> <NT1-code>`.
+- Decodes calculator talent IDs from base 36; checks server-loaded custom DBC class/talent/ranks, era rows, capstones, prerequisites and point budgets without modifying characters.
+- Reserved `.naxxbot talents apply <botname> <NT1-code>` for future integration. **Currently read-only**; there is no talent reset or application. Disabled by default, GM-only, online Playerbots only.
+- Documented pending Playerbots talent-maintenance and exact build preservation issues, including the old module row guard's off-centre capstone mismatch. No Playerbots/AzerothCore/MultiBot edits.
+- **Source staged; compilation, server test and the real apply implementation still pending.** Belongs to **Change Notes 1.0.6.8.5**, not the DBC Patch Notes.
+
 - **Repository migration (2026-10-09):** The optional client addon now lives in its own [NClassicBattlegrounds](https://github.com/CosmicCuddle/N-ClassicBattlegrounds) repository. This Naxxramas Core repository retains server-side queue enforcement and a historical copy of the addon; make future Lua/TOC updates in the standalone repository first. No server code was changed during the migration.
 
 ## Unreleased — PvP addon renamed to NClassicBattlegrounds
