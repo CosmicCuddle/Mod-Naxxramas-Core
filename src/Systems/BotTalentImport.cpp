@@ -58,8 +58,9 @@ namespace NaxxramasBotTalentImport
 
         uint32 const tab = talent->TalentTab;
         uint32 const id = talent->TalentID;
-        return (bot->GetLevel() <= 60 &&
-                ((tab == 263 && id == 901) || (tab == 302 && id == 1022))) ||
+        // Enhancement's Vanilla capstone is Dual Wield (1690) in the
+        // centre column; Stormstrike (901) must not be exempt.
+        return (bot->GetLevel() <= 60 && tab == 302 && id == 1022) ||
             (bot->GetLevel() > 60 && bot->GetLevel() <= 70 &&
                 tab == 382 && id == 1747);
     }
@@ -174,8 +175,10 @@ namespace NaxxramasBotTalentImport
 
     // Exact off-centre capstone exceptions from the published calculator.
     // TalentTab.dbc and Talent.dbc IDs, NOT spell IDs:
-    // Vanilla: Stormstrike 901 (tab 263); Dark Pact 1022 (tab 302).
+    // Vanilla: Dark Pact 1022 (tab 302).
     // TBC: Divine Illumination 1747 (tab 382).
+    // Vanilla Enhancement has Dual Wield 1690 at centre column 1;
+    // Stormstrike 901 in the side column is only valid from TBC onward.
     bool AvailableInEra(TalentSelection const& selection, Era const& era)
     {
         TalentEntry const* talent = selection.Talent;
@@ -190,8 +193,6 @@ namespace NaxxramasBotTalentImport
         uint32 const id = talent->TalentID;
         if (std::string(era.Name) == "vanilla")
         {
-            if (tab == 263)
-                return id == 901;
             if (tab == 302)
                 return id == 1022;
         }
