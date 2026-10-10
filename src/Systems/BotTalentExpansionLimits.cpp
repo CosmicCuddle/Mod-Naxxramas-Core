@@ -72,7 +72,7 @@ public:
         if (!PlayerbotsMgr::instance().GetPlayerbotAI(player))
             return true;
 
-        // Allow only the three off-centre calculator capstones, and only
+        // Allow only the two off-centre calculator capstones, and only
         // during the explicit scoped NT1 apply. Normal Playerbots builds
         // retain their existing expansion row policy.
         if (NaxxramasBotTalentImport::IsImportOffCentreCapstone(player, talent))
