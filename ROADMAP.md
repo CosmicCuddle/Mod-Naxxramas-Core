@@ -106,7 +106,7 @@ The table records **repository state**, not assumed production installation. Det
 
 ### 5.1 User-facing objective
 
-A player builds a class spec in the Resource Hub's custom Vanilla/TBC/WotLK talent calculator, copies its `NT1` code and applies **exactly that build** to an eligible Playerbot. Valid unspent points remain unspent; invalid codes never remove the bot's old talents; the final selection persists across logouts and server restarts and is not silently replaced by normal bot maintenance.
+A player builds a class spec in the Resource Hub's custom Vanilla/TBC/WotLK talent calculator, copies its `NT1` code and applies **exactly that build** to an eligible Playerbot. **Only builds spending the bot's entire server-computed talent-point budget are eligible for NT1 apply**; under-allocated codes can be previewed but must be rejected before resetting anything. Talent resets and rollback are experimental; random-bot builds are session-scoped and may be replaced by normal Playerbots maintenance.
 
 Desired server commands:
 
@@ -123,7 +123,7 @@ Desired server commands:
 - Class and era come from the code; the `level=` URL query is **separate**. Available talent points are calculated from the bot's actual level/server rules.
 - `vanilla` uses a level-60 cap; `tbc` level 70; `wotlk` level 80; Death Knights are WotLK-only.
 - Talent eligibility follows actual loaded `Talent.dbc`, `TalentTab.dbc` and `Spell.dbc`, including custom talents and dependencies. The website is based on a previous live-server snapshot, so a future DBC revision requires compatibility verification.
-- The supplied sample **level-60 Warrior** code contains 16 selections totaling **49 points**, leaving **2 intentionally unspent** out of the normal 51.
+- The supplied sample **level-60 Warrior** code contains 16 selections totaling **49 points**, leaving **2 unspent** out of the normal 51. This is now an explicit **preview-only negative test:** apply must refuse it without modifying the bot.
 
 **Corrected Vanilla capstones (confirmed in the current calculator and importer):**
 
@@ -138,7 +138,7 @@ The sole **TBC off-centre capstone exception** is Paladin Holy **Divine Illumina
 
 - `src/Systems/BotTalentImport.cpp`: parser, base-36 conversion, DBC/rank/class/era/point validation, simulation of purchase order, read-only `preview`, and experimental `apply` whenever AccessMode 1 or 2 is enabled.
 - `src/Systems/BotTalentExpansionLimits.cpp`: importer-scoped exception for the **single** off-centre TBC talent; other Playerbots commands retain original row limits.
-- `src/Systems/BotTalentCompletion.cpp`: coordination so a deliberately incomplete explicit NT1 import is not automatically finished by its earlier delayed completion logic.
+- `src/Systems/BotTalentCompletion.cpp`: importer-scoped coordination to avoid unwanted completion effects during a full NT1 import and to preserve restoration of older bot snapshots, which might legitimately be incomplete.
 - `data/sql/db-characters/2026_10_10_00_bot_talent_import.sql`: **optional additive characters table** (`mod_naxxramas_bot_talent_import`) for code per character GUID/spec; not proof of automatic restoration.
 - `docs/PLAYERBOT-NT1-TALENT-IMPORT.md`: feature design, test matrix, operational constraints, rollback and known limitations.
 - `conf/mod_naxxramas_core.conf.dist`: **one setting** for the whole NT1 system:
@@ -189,7 +189,7 @@ Modes 1 and 2 allow talent resets when authorised callers use `apply`. Mode 0 is
 
 - [ ] Review pre-reset validation and current-build snapshot/restore for all classes and both spec slots.
 - [ ] Check and review the additive SQL table on the **backed-up live characters DB**; verify restore procedures before any destructive test.
-- [ ] Test full apply on disposable **non-random** bots, including legal unspent points.
+- [ ] Test full apply on disposable **non-random** bots, requiring **0 unspent points**; separately test that an under-allocated code is rejected before reset.
 - [ ] Compare all final talent ranks, old talent removal, learned spells, passive auras, trained skills and pet-related changes where relevant.
 - [ ] Force runtime learning failures; verify rollback both in memory and after relog. Define handling for unrecoverable restoration failures.
 - [ ] Because this project has no isolated test realm, limit any expressly approved experimental application to a disposable non-random bot with a known recoverable backup; never equate that trial with production readiness.
@@ -479,6 +479,16 @@ FROM character_spell WHERE guid=73209 ORDER BY spell;
 - **Status raised from command-level-only to command-level + user-reported visual distribution PASS**, but no independently supplied talent-window screenshot or spell/rotation audit; cross-class behavior, non-GM authorization, persistence/rerandomisation and interrupted-reset rollback are **still untested**.
 - The administrator also requested a brief Discord how-to covering the calculator URL, copying an NT1 code, bot grouping/control for randoms, `.naxxbot talents apply BotName NT1:...`, AccessMode/GM permissions and random-bot session scope. No additional source, config or SQL edits required.
 
+#### New NT1 safety rule — full talent point allocation required (10 October 2026)
+
+- **Administrator request after Zevon success:** do not let people install partially complete NT1 talent trees on either Random Playerbots or account-controlled Alt Bots. For example, a level-60 bot with a normal budget of 51 must receive a **51/51** build; 49/51 must be rejected. Use the **actual server-calculated** `CalculateTalentsPoints()` for the target bot's current level/config (typically 51 at 60, 61 at 70, 71 at 80); do not hardcode the budgets or trust a share URL.
+- **Implemented and committed in `src/Systems/BotTalentImport.cpp`, pending next user pull/recompile/restart:** in `ApplyValidated`, after permission/party checks and **before** any `resetTalents`, immediately reject `requested.Spent < requested.Available`. Error gives the available, spent and unspent values with `No talents changed.` Existing `ParseCode` still rejects overspending.
+- **Preview remains read-only and informative:** a partial but otherwise valid code still decodes, shows the point count and a prominent `NT1 APPLY BLOCKED` message explaining that every available point must be spent. This allows users to fix their talent calculator selection before attempting apply, without touching the bot.
+- **Critical rollback protection:** do **not** enforce full-point spending inside `ParseCode` or `LearnValidated`, since those routines also validate/reconstruct the previous in-memory bot talent snapshot, which can legitimately contain unspent points. Only NEW requested `apply` builds require full allocation. Failed-apply recovery and Playerbots original commands are otherwise unchanged.
+- **Scope:** applies to **both** Alt Bots and grouped Random Playerbots through NT1. Does not change the website's free-form builder, ordinary player talents, mod-playerbots whispers, automatic bot specs/templates, DBCs or SQL. No new configuration setting or migration.
+- **Regression tests after recompile:** (1) `preview` of normal 49/51 Warrior code shows `NT1 APPLY BLOCKED` + 2 unspent; (2) `apply` of that code returns `NT1 apply aborted` and no talent reset; (3) the previously proven Zevon Mage 51/51 code can still be applied to an appropriately controlled random Mage; (4) 51/51 Alt Bot path and existing partially allocated bot snapshot rollback remain valid; (5) level-70/80 budgets, DBC class/era checks and non-GM permissions retain original safeguards.
+- **Status:** feature **source/docs committed only**, not compiled/restarted/game-tested in this revision. The earlier Zevon success was on the preceding revision; do not record the new full-point rejection as field-tested until runtime evidence is received. Continue to maintain a recoverable characters DB backup before live talent changes.
+
 ### Current checkpoint
 
-**Main development focus:** NT1 importer 1.0.6.8.5. **FIRST SUCCESSFUL LIVE RANDOM PLAYERBOT NT1 APPLY:** the user reported `NT1 build applied to Zevon: 51 spent / 0 unspent`, followed by the expected session-scope warning. Zevon was the replacement test bot after Husapze (random level-60 Mage; read-only preview 51/51, 14/0/37; original GUID 73209) logged out. Original Ido rejection and Husapze preview were prior test results; Zevon's command-level talent apply succeeded after a user-reported pull, recompile and restart. **Not yet independently observed:** Zevon's talent window/AI spells, elapsed-party rerandomisation behavior, non-GM permission matrix, interrupted failure and fully recoverable rollback. Alt Bot apply is also not acceptance-tested. Experimental implementation is not yet released/production-ready; random-bot NT1 profile remains session-scoped and can be overwritten by Playerbots.
+**Main development focus:** NT1 importer 1.0.6.8.5. **New safety source awaiting pull/recompile:** all NT1 `apply` requests now require full talent allocation (`Spent == Available`, using target bot's `CalculateTalentsPoints()`), and incomplete previews show an explicit warning. **Previous live success retained:** Zevon, grouped random level-60 Mage, `51 spent / 0 unspent`, with user-confirmed **14/0/37** talent distribution. The full-points-only change has **not yet been compiled or field-tested**. Random-bot import remains session-scoped; real-player AccessMode 2 permissions, Alt Bot apply, unusual specs, failure/rollback and rerandomisation still need separate testing. The reported full characters DB backup has not been proven restorable; the feature remains experimental/unreleased.
