@@ -92,7 +92,7 @@ The table records **repository state**, not assumed production installation. Det
 | Classic Meeting Stones | Vanilla interaction restricted, normal summon functionality from IP TBC onward | Source present; **latest build and live tests pending**. Distributed config enables it, but active installed value is unknown |
 | Battlemaster-only BG queues | Stage-13 WotLK remote queue unlock; battlemaster access below it | **Experimental/off by default;** C++ build and live validation pending. Separate addon visual state is independent |
 | Monthly Elemental Invasions | Calendar-based event 13: first of month for five calendar days | **Experimental/off by default;** special world-event SQL and server tests needed |
-| NT1 Playerbot talent importer | Read-only preview, separately gated experimental apply, exact rank checks and recovery attempt | **Active 1.0.6.8.5 development; not yet compiled or tested.** Full bot maintenance protection is unfinished |
+| NT1 Playerbot talent importer | Read-only preview, grouped Random Playerbot experimental apply, exact rank checks and recovery attempt; full-points-only apply guard newly committed | **Zevon 51/51 Mage grouped Random Playerbot apply PASSED in-game; new incomplete-point block NOT yet rebuilt/tested.** Full maintenance and rollback protection unfinished |
 
 ### Configuration and data cautions
 
@@ -161,7 +161,7 @@ Modes 1 and 2 allow talent resets when authorised callers use `apply`. Mode 0 is
 | AzerothCore `OnPlayerTalentsReset` hook cannot veto reset | Absolute zero-transient-reset guarantee is not proven | Detect/reconcile when safe; disclose any unavoidable timing limitation |
 | Experimental apply recovery is best-effort | A failed learn, exception, or crash can leave incomplete state | Full characters DB backup, isolated disposable bot, forced-failure/relog tests, explicit fail-closed behaviour |
 | SQL stores desired code only | Stored code is not active enforcement or restoration | Implement verified module-only reapply/consistency checks and stale-row cleanup |
-| Random Playerbots | Full randomisation may replace talents, including in an active party | **New source-only, untested:** guarded apply for a random bot grouped with the invoking human master or group leader (when no master); no persistent NT1 profile, no automatic maintenance protection |
+| Random Playerbots | Full randomisation may replace talents, including in an active party | **Grouped apply passed once in-game** on Zevon (51/51, 14/0/37); no persistent NT1 profile, no automatic maintenance protection. Full-point rejection committed and pending new build |
 | Era checks are currently level-based in relevant Playerbot safeguards | An IP stage may differ from a bot's level | Define expected IP-tier policy and test across mismatched level/stage scenarios without guessing |
 | Custom active abilities | Learned talents may not have AI rotations | Separate spell-use and AI integration audit after import is stable |
 | Normal-player and MultiBot permissions | Source now requires AccessMode 1 (GMs) or 2 (authorised players) for both commands, plus a same-account/current AI-master check for non-GMs; not yet runtime-tested | Compile, test authorisation-denial matrix and preserve server-side checks before addon integration |
