@@ -4,8 +4,8 @@
  * Source of truth for the NT1 wire format:
  *   Naxxramas-Resource-Hub/talents/calculator.js
  *
- * Phase 2: preview remains read-only. Apply is behind a separate OFF-by-default
- * switch and must not be enabled without compilation and a character DB backup.
+ * Phase 2: preview remains read-only. Actual application is available only
+ * in AccessMode 2/3 (both require backups and controlled rollback testing).
  * Exact persistence across automatic Playerbots randomization remains pending.
  *
  * No Playerbots, Individual Progression or AzerothCore source changes.
@@ -80,18 +80,27 @@ namespace NaxxramasBotTalentImport
         ImportScope& operator=(ImportScope const&) = delete;
     };
 
+    // One access setting replaces separate regular-player and apply toggles.
+    // 0 = GM preview only; 1 = everyone preview;
+    // 2 = GM preview + experimental apply; 3 = everyone preview + apply.
+    // Out-of-range values fail closed to mode 0 (never apply).
+    uint32 AccessMode()
+    {
+        uint32 const mode = sConfigMgr->GetOption<uint32>(
+            "NaxxramasCore.BotTalentImport.AccessMode", 0);
+        return mode <= 3 ? mode : 0;
+    }
+
     bool ApplyEnabled()
     {
-        return sConfigMgr->GetOption<bool>(
-            "NaxxramasCore.BotTalentImport.ApplyEnabled", false);
+        return (AccessMode() & 2u) != 0;
     }
 
     // Command table permits SEC_PLAYER; runtime configuration enforces
     // permissions. GM command behaviour stays intact.
     bool AllowNonGMPlayers()
     {
-        return sConfigMgr->GetOption<bool>(
-            "NaxxramasCore.BotTalentImport.AllowNonGMPlayers", false);
+        return (AccessMode() & 1u) != 0;
     }
 
     bool IsGM(ChatHandler* handler)
@@ -813,9 +822,9 @@ public:
         {
             NaxxramasBotTalentImport::PrintPreview(handler, bot, build);
             handler->SendSysMessage(
-                "APPLY DISABLED: validation only. Requires "
-                "NaxxramasCore.BotTalentImport.ApplyEnabled=1, a characters "
-                "database backup and explicit test approval.");
+                "APPLY DISABLED: validation only. Experimental talent changes "
+                "require NaxxramasCore.BotTalentImport.AccessMode=2 (GM) "
+                "or 3 (all), a characters database backup and explicit test approval.");
             return true;
         }
 
