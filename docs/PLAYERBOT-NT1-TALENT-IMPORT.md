@@ -41,6 +41,17 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
 - Test modes 0/1/2, bot ownership, forbidden targets, unexpected command-help output, and successful read-only preview. Test real application only when the remaining M2 criteria are satisfied.
 
+### Complete talent allocation rule (new source, awaiting next recompile)
+
+**Every NT1 build applied to any bot must use all talent points available to that bot.** `ApplyValidated` rejects any request with `Spent < Available` **before** a talent reset. `Available` comes from the bot's real `CalculateTalentsPoints()`, not a hardcoded 51/61/71 or the website's level parameter. Examples using normal budgets: level 60 = 51/51, level 70 = 61/61, level 80 = 71/71.
+
+- `preview` still decodes and validates under-allocated builds **read-only**, reporting the missing points and `NT1 APPLY BLOCKED`. This helps the player finish the calculator build without changing the bot.
+- `apply` stops with `NT1 apply aborted: Full talent allocation required: ... No talents changed.` on any partial build, whether targeted at an Alt Bot or a grouped Random Playerbot.
+- A bot's **previous** spec might have unspent points. Snapshot validation and best-effort rollback **remain allowed to reconstruct that old partial spec**, so this new rule does not accidentally disable recovery.
+- Over-allocated, invalid or illegal talent builds remain rejected by existing `ParseCode` checks.
+- This change governs the **NT1 importer only**. It does not modify built-in Playerbots whispers, automatic templates, ordinary player talents, or the Resource Hub calculator's freedom to create draft/partial specs.
+- **Implementation status:** committed source only; compilation and positive/negative in-game tests pending. The previously observed Zevon full-51-point application is unaffected.
+
 ### Grouped random Playerbots (first live apply passed; remaining cases untested)
 
 The NT1 importer now has two application cases under the existing `AccessMode` setting; **no additional config option** is needed.
@@ -74,7 +85,7 @@ NT1:vanilla:warrior:3g-1.3m-5.3u-5.3w-5.3x-3.40-3.43-2.44-1.45-2.48-1.49-1.4d-5.
 
 The prefix is `NT1`, followed by era `vanilla|tbc|wotlk`, class and dot-separated `<base36 Talent.dbc ID>-<rank>` entries. These are **Talent.dbc IDs, not rank spell IDs**.
 
-The example decodes to 16 talents, 49 spent points, and 2 unspent points for a normal level-60, 51-point Warrior. This point count is verified algebraically; the source still needs an in-game match with the actual live DBC.
+The example decodes to 16 talents, 49 spent points, and 2 unspent points for a normal level-60, 51-point Warrior. This point count is verified algebraically; the source still needs an in-game match with the actual live DBC. **Under the new full-allocation policy, this code may be previewed but MUST be refused by `apply` on a normal level-60, 51-point Warrior.**
 
 The website also supplies `?level=` separately in share links; that level is not included in the NT1 code. This importer checks the real bot level and real AzerothCore talent point budget, not a claimed URL level.
 
@@ -86,15 +97,15 @@ The website also supplies `?level=` separately in share links; that level is not
 4. Enforce the selected era's level cap: Vanilla <= 60, TBC <= 70, WotLK <= 80, and a minimum level of 10. Death Knights require WotLK.
 5. Enforce website row/position rules: Vanilla first six full rows plus final capstone, TBC first eight full rows plus capstone, WotLK all rows. Handle the sole off-centre exception: TBC Divine Illumination (tab 382/talent 1747). In Vanilla, Shaman Enhancement uses centre-column **Dual Wield** (Talent.dbc ID 1690, tab 263), not **Stormstrike** (901). Warlock Affliction uses centre-column **Contagion** (Talent.dbc ID 1669, tab 302), not **Dark Pact** (1022). Both Stormstrike and Dark Pact are side talents unavailable in Vanilla but available from TBC.
 6. Reject unknown or unsatisfied DBC talent prerequisites (zero-based DependsOnRank).
-7. Check total spent points against the bot's **real** `CalculateTalentsPoints()` (not a hardcoded 51).
+7. Check total spent points against the bot's **real** `CalculateTalentsPoints()` (not a hardcoded 51). Overspending is invalid for preview and apply; underspending remains readable in preview but **is forbidden for apply**.
 8. Find a legal learning sequence using prerequisite dependencies and five earlier-tree-row points per unlocked row. This is a pure preflight: the validator never learns anything.
-9. Preview prints server tab distributions and deliberately unspent talent point count.
+9. Preview prints server tab distributions and unspent point count. If any points remain, it displays **`NT1 APPLY BLOCKED`**. Preview does not reset talents.
 
 ## Key limitation discovered in existing Naxxramas Core
 
 `src/Systems/BotTalentExpansionLimits.cpp` mirrors Playerbots' level-based row restriction and generally allows only **column 1** on final rows. That conflicts with the single off-centre TBC capstone listed above. It must be reconciled **inside Naxxramas Core only** before activating the actual apply feature, without globally relaxing the old guard for unrelated Playerbots builds.
 
-`src/Systems/BotTalentCompletion.cpp` can spend leftover talent points after Playerbots rescpecs when `NaxxramasCore.BotTalentCompletion.Enabled=1`. An exact 49/51 NT1 build must **not** be filled to 51/51. The importer needs a module-owned explicit-intent/lock shared with the completion script before applying.
+`src/Systems/BotTalentCompletion.cpp` can spend leftover talent points after Playerbots rescpecs when `NaxxramasCore.BotTalentCompletion.Enabled=1`. **New policy:** a 49/51 NT1 build cannot be applied at all; the player must complete it first. Import scope coordination remains necessary to keep validation/rollback and regular Playerbots completion separate.
 
 ## Phase 2 — Experimental code staged, NOT approved for activation
 
@@ -103,10 +114,11 @@ The opt-in application source is now committed and remains **off by default**. I
 - Refuses to reset an invalid existing talent configuration if that configuration cannot be recreated through AzerothCore's public talent API.
 - Checks whether the Naxxramas-owned persistence table exists **before** a reset.
 - Uses `Player::resetTalents(true)` and `Player::LearnTalent(talentId, rank - 1)` with an importer-only scope marker.
-- Checks exact final class talent ranks and the intentionally unspent points, and attempts to restore the original snapshot if a runtime talent learn unexpectedly fails.
+- Before any reset, **rejects NT1 apply when even one talent point is unspent** (uses `CalculateTalentsPoints()` for the target's real level and server rules), with an explicit count and a `No talents changed` message. The same rule applies to Alt Bots and grouped Random Playerbots. **Do not enforce this during previous-build snapshot parsing**, which must support restoration of an old bot spec with unspent points.
+- Checks exact final class talent ranks and zero remaining talent points, and attempts to restore the original snapshot if a runtime talent learn unexpectedly fails.
 - Persists a successfully applied NT1 code for **Alt Bots only**. Random-bot imports are session-scoped and do **not** store a persistent NT1 profile. Both use `Player::SaveToDB(false, false)` to save normal character talents, which Playerbots may later overwrite.
 - Coordinates with `BotTalentExpansionLimits.cpp` so only the exact website capstone exceptions are permitted during importer-owned application, not normal Playerbots workflows.
-- Coordinates with `BotTalentCompletion.cpp` so that explicit NT1 imports do not trigger delayed automatic filling of unspent points.
+- Coordinates with `BotTalentCompletion.cpp` to prevent unintended talent-completion logic during imported changes and snapshot restoration; incomplete NT1 target builds are now rejected before mutation.
 
 **Critical:** The snapshot restore is NOT a database transaction. If the fallback restoration fails or Worldserver crashes between reset and verification, some state might be lost. A SQL row containing the desired profile also does **not** yet guarantee protection from a future Playerbots full randomisation, which can trigger a reset before the importer's maintenance protection code exists. The later phase below is needed before calling this production-ready.
 
@@ -132,8 +144,8 @@ The opt-in application source is now committed and remains **off by default**. I
 
 Do not assume experimental application works merely because preview has passed. Since a separate test realm is not available, any experimental application must use a disposable online account bot **or an eligible grouped random bot** on the backed-up live realm with explicit risk acknowledgement and a recovery procedure:
 
-- Valid 49-point level-60 Warrior NT1 code; 2 points remain when application is eventually enabled.
-- All available classes and deliberately unspent points, and the one off-centre TBC capstone, Vanilla Dual Wield (1690) and Contagion (1669), and rejection of Vanilla Stormstrike (901) and Dark Pact (1022).
+- Incomplete 49/51 level-60 Warrior NT1 code: **preview identifies 2 unspent points and warns that apply is blocked; apply rejects before reset**. Original bot talents and spell records must not change.
+- Valid **fully allocated** builds for all available classes and the one off-centre TBC capstone, Vanilla Dual Wield (1690) and Contagion (1669), and rejection of Vanilla Stormstrike (901) and Dark Pact (1022).
 - Custom talent 3000 (Rend Flurry), other modified trees/rank spells, empty and missing-rank data.
 - Wrong class, malformed/version mismatch, duplicate talent IDs, impossible ranks, missing dependencies, too many points, level/era mismatch: **no resets**.
 - Existing build -> replacement; pre-existing dependent spells properly removed.
@@ -147,8 +159,8 @@ Do not assume experimental application works merely because preview has passed. 
 1. Back up live characters DB and active configs; deploy source using `git pull --ff-only`, recompile and restart with `AccessMode=0`.
 2. Keep mode 0 until recovery is prepared, and check Worldserver logs for module startup errors.
 3. Once backup/rollback prerequisites are met, use `AccessMode=1` for a tightly controlled GM-only trial with a disposable account bot **or a disposable random bot in your party for which you are the active master/group leader**; restart Worldserver if changing the mode.
-4. Use `.naxxbot talents preview` first and confirm the build is valid. Preview remains read-only.
-5. Run `.naxxbot talents apply` **only after explicit acceptance of the experimental reset risk**, then inspect active talent ranks, unspent points, learned spells, relog and bot maintenance.
+4. Use `.naxxbot talents preview` first and confirm the build is legal **and has 0 unspent points**. Preview remains read-only; incomplete builds show an `NT1 APPLY BLOCKED` warning.
+5. Run `.naxxbot talents apply` **only after explicit acceptance of the experimental reset risk**. An under-allocated code is rejected without changing talents. On accepted full allocations, inspect actual ranks, 0 unspent points, learned spells, relog and bot maintenance.
 6. Keep `AccessMode=2` deferred until non-GM ownership checks and persistence are verified in-game. Restore `AccessMode=0` to disable further NT1 commands if anything fails.
 
 ## Future MultiBot fork work
