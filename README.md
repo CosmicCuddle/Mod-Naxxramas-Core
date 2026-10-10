@@ -234,15 +234,17 @@ NaxxramasCore.ForcedPvP.Notify
 - Normal player-to-player mail rules remain unchanged.
 - GM/customer-support mail, returned mail, COD payments, invalid mail, and self-mail are excluded.
 
-### Naxxramas Talent Calculator to Playerbots (1.0.6.8.5 — preview phase)
+### Naxxramas Talent Calculator to Playerbots (1.0.6.8.5 — experimental)
 
-- `src/Systems/BotTalentImport.cpp` provides a **module-only** `NT1` decoder and read-only validation of talent choices against the server's loaded `Talent.dbc`, `TalentTab.dbc` and `Spell.dbc`.
-- GM commands: `.naxxbot talents preview <online-botname> <NT1-code>` and reserved `.naxxbot talents apply <online-botname> <NT1-code>`.
-- **Important:** The `apply` command is **not active yet**; in this phase it only previews and states that application is disabled. It never resets talents. This is intentional until bot state snapshot/restore, persistence and Playerbots auto-maintenance coordination can be safely implemented and tested.
-- Uses the calculator's real base-36 talent IDs and ranks, its 60/70/80 era limits, off-centre capstones, prerequisites, point budget and a simulated valid learn order. Class and target bot are validated server-side.
-- Disabled by default: `NaxxramasCore.BotTalentImport.Enabled = 0`. GM-only commands; target must be an **online, recognised Playerbot**. All changes remain in Naxxramas Core; nothing has been added to Playerbots, AzerothCore or MultiBot.
-- The current `BotTalentExpansionLimits.cpp` still restricts off-centre capstones for some classes; this is documented as a **blocker for the later apply phase**, not silently changed.
-- See the detailed [NT1 Playerbot integration and test plan](docs/PLAYERBOT-NT1-TALENT-IMPORT.md).
+- `src/Systems/BotTalentImport.cpp` decodes **NT1** codes using actual server Talent.dbc IDs (base 36) and validates class, era, custom ranks, prerequisites, row unlocks and point budget against loaded DBC data.
+- GM command: `.naxxbot talents preview <online-botname> <NT1-code>`; read-only and cannot reset talents.
+- Experimental `.naxxbot talents apply <online-botname> <NT1-code>` calls the normal AzerothCore talent API **only when separately enabled**; performs a full preflight, snapshots and validates the current build, verifies all new ranks and remaining points, and attempts restoration if a learn fails.
+- The current Naxxramas Core talent-expansion guard allows the calculator's three off-centre final-row talents **only during the import operation**; the optional bot-talent completion script does not silently spend deliberately unspent NT1 points during the import.
+- **BOTH disabled by default:** `NaxxramasCore.BotTalentImport.Enabled=0` and `NaxxramasCore.BotTalentImport.ApplyEnabled=0`. The second flag must remain **0** until a backed-up test realm successfully compiles and passes the destructive-apply/rollback test matrix.
+- Experimental apply requires manually installed additive characters SQL `data/sql/db-characters/2026_10_10_00_bot_talent_import.sql`. **Never** apply it without backing up your database.
+- Automatic Playerbots talent-replacement protection and exact survival through full randomization are **not implemented yet**; experimental apply currently rejects random bots. Treat it as **not production-ready**.
+- The original Playerbots module, AzerothCore, Individual Progression, the website and MultiBot are **unchanged**. Further work will remain entirely in Mod-Naxxramas-Core.
+- Full [implementation notes, tests, and rollback guide](docs/PLAYERBOT-NT1-TALENT-IMPORT.md).
 
 ### Playerbot manual talent expansion limits
 
