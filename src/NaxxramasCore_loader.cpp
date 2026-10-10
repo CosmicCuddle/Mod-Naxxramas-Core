@@ -36,6 +36,7 @@ void AddElementalInvasionCalendarScripts();
 void AddNaxxramasItemSpellScripts();
 
 // Systems
+void AddBotTalentImportScripts();
 void AddHonorOverflowScripts();
 void AddHonorResetScripts();
 void AddForcedPvPScripts();
@@ -79,6 +80,7 @@ void Addmod_naxxramas_coreScripts()
     AddNaxxramasItemSpellScripts();
 
     // Systems
+    AddBotTalentImportScripts();
     AddHonorOverflowScripts();
     AddHonorResetScripts();
     AddForcedPvPScripts();
