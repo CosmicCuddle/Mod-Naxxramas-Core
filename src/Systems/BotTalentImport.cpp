@@ -758,9 +758,9 @@ public:
                 handler, args, bot, build))
             return false;
 
-        NaxxramasBotTalentImport::PrintPreview(handler, bot, build);
         if (!NaxxramasBotTalentImport::ApplyEnabled())
         {
+            NaxxramasBotTalentImport::PrintPreview(handler, bot, build);
             handler->SendSysMessage(
                 "APPLY DISABLED: validation only. Requires "
                 "NaxxramasCore.BotTalentImport.ApplyEnabled=1, a characters "
