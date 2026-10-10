@@ -41,6 +41,26 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
 - Test modes 0/1/2, bot ownership, forbidden targets, unexpected command-help output, and read-only preview. One fully allocated Random Playerbot application passed on Zevon; incomplete-point refusal and broader M2 cases remain to be tested after the next compile.
 
+### Individual Progression era rule (new server-side source, awaiting next recompile)
+
+**An NT1 talent code must use exactly the same expansion as the player issuing the command.** This is enforced in `src/Systems/BotTalentImport.cpp` for **both `preview` and `apply`**, for both GMs and authorised ordinary players, and for both account-controlled Alt Bots and grouped Random Playerbots. The requested talent code's `vanilla`, `tbc` or `wotlk` era is **never trusted to grant an expansion unlock**.
+
+When Individual Progression is enabled, the server reads the **issuing human character's** progression; the random bot's (often exempt) IP state and the bot's or issuer's level are **not substitutes** for that progression. The current hidden-quest Individual Progression release unlocks **TBC at milestone 8** and **WotLK at milestone 13**:
+
+| Human character's Individual Progression | NT1 code era allowed | Rejected |
+| --- | --- | --- |
+| Vanilla (before stage 8) | `vanilla` | `tbc`, `wotlk` |
+| TBC (stages 8–12) | `tbc` | `vanilla`, `wotlk` |
+| WotLK (stage 13 onward) | `wotlk` | `vanilla`, `tbc` |
+
+The server also honours `IndividualProgression.ProgressionLimit` when determining the permitted stage. Modern IP's exported header enables the module to call the authoritative `GetPlayerProgressionFromQuests` API; when that header is not exported the existing 66001–66018 rewarded-hidden-quest format is read from the issuing character, as already used by the Naxxramas Core Battlemaster rules. A legacy IP header without the modern reader is **rejected safely**, rather than guessing its incompatible milestone numbering.
+
+If `IndividualProgression.Enable=0`, there is no character IP stage to check, so the importer retains its **existing bot-level era restriction and DBC talent-row limits**. The player-era rule cannot bypass those restrictions; a bot still needs the correct level/expansion, class/ranks/prerequisites and **all available talent points allocated**. No new configuration keys are introduced.
+
+**Wrong-era requests fail with `NT1 rejected: NT1 era blocked by Individual Progression: ... No talents changed.`** Preview remains read-only, and apply is denied before any talent reset. The live result of this rule has **not yet been tested**; it requires the administrator to pull, recompile and restart. **Only Naxxramas Core was changed**: no edits to IP, Playerbots, AzerothCore, addon or website.
+
+**Post-build tests:** Vanilla GM with TBC and WotLK code must get rejected; TBC GM with WotLK code rejected; exact-era Vanilla full-51-point Mage still previews/applies on eligible grouped random Mage (Zevon's prior success is from an earlier revision). Test exact-stage boundary 7→8, 12→13, progression-limit clamp, mode-2 non-GM permission, and deny wrong-era code before any character reset.
+
 ### Complete talent allocation rule (new source, awaiting next recompile)
 
 **Every NT1 build applied to any bot must use all talent points available to that bot.** `ApplyValidated` rejects any request with `Spent < Available` **before** a talent reset. `Available` comes from the bot's real `CalculateTalentsPoints()`, not a hardcoded 51/61/71 or the website's level parameter. Examples using normal budgets: level 60 = 51/51, level 70 = 61/61, level 80 = 71/71.
@@ -100,6 +120,7 @@ The website also supplies `?level=` separately in share links; that level is not
 7. Check total spent points against the bot's **real** `CalculateTalentsPoints()` (not a hardcoded 51). Overspending is invalid for preview and apply; underspending remains readable in preview but **is forbidden for apply**.
 8. Find a legal learning sequence using prerequisite dependencies and five earlier-tree-row points per unlocked row. This is a pure preflight: the validator never learns anything.
 9. Preview prints server tab distributions and unspent point count. If any points remain, it displays **`NT1 APPLY BLOCKED`**. Preview does not reset talents.
+10. If Individual Progression is enabled, require the NT1 code's expansion to **exactly match the issuing human character's current IP era** (stage 8 TBC, 13 WotLK) for both preview and apply. This is checked before any bot talents are touched.
 
 ## Key limitation discovered in existing Naxxramas Core
 
