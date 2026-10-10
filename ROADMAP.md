@@ -115,7 +115,7 @@ Desired server commands:
 .naxxbot talents apply <online-botname> <NT1-code>
 ```
 
-**Preferred final interface:** a convenient control in the user's **MultiBot fork**, after server-side acceptance. MultiBot must not be changed as a substitute for unfinished server safeguards. GM commands remain supported and require an online recognized bot. A single **normal-player preview/apply permission gate** and per-bot ownership checks are now staged in Naxxramas Core but are **not yet compiled or tested**. MultiBot addon integration remains a future task.
+**Preferred final interface:** a convenient control in the user's **MultiBot fork**, after server-side acceptance. MultiBot must not be changed as a substitute for unfinished server safeguards. GM commands remain supported and require an online recognized bot. A single **NT1 AccessMode** setting and per-bot ownership checks are staged in Naxxramas Core but are **not yet compiled or tested**. MultiBot addon integration remains a future task.
 
 ### 5.2 Format and data contract
 
@@ -136,20 +136,21 @@ The sole **TBC off-centre capstone exception** is Paladin Holy **Divine Illumina
 
 ### 5.3 Source already staged
 
-- `src/Systems/BotTalentImport.cpp`: parser, base-36 conversion, DBC/rank/class/era/point validation, simulation of purchase order, read-only `preview`, separately gated experimental `apply`.
+- `src/Systems/BotTalentImport.cpp`: parser, base-36 conversion, DBC/rank/class/era/point validation, simulation of purchase order, read-only `preview`, and experimental `apply` whenever AccessMode 1 or 2 is enabled.
 - `src/Systems/BotTalentExpansionLimits.cpp`: importer-scoped exception for the **single** off-centre TBC talent; other Playerbots commands retain original row limits.
 - `src/Systems/BotTalentCompletion.cpp`: coordination so a deliberately incomplete explicit NT1 import is not automatically finished by its earlier delayed completion logic.
 - `data/sql/db-characters/2026_10_10_00_bot_talent_import.sql`: **optional additive characters table** (`mod_naxxramas_bot_talent_import`) for code per character GUID/spec; not proof of automatic restoration.
 - `docs/PLAYERBOT-NT1-TALENT-IMPORT.md`: feature design, test matrix, operational constraints, rollback and known limitations.
-- `conf/mod_naxxramas_core.conf.dist`: **three settings**, all OFF by default: one master enable, one normal-player permission and one separate experimental application safety switch:
+- `conf/mod_naxxramas_core.conf.dist`: **one setting** for the whole NT1 system:
 
 ```ini
-NaxxramasCore.BotTalentImport.Enabled = 0
-NaxxramasCore.BotTalentImport.AllowNonGMPlayers = 0
-NaxxramasCore.BotTalentImport.ApplyEnabled = 0
+# 0 = Disabled
+# 1 = GM accounts only (preview and experimental apply)
+# 2 = All players (preview and experimental apply)
+NaxxramasCore.BotTalentImport.AccessMode = 0
 ```
 
-The experimental apply routine can reset talents only if both switches are explicitly enabled, valid inputs pass the preflight and its prerequisites are met. It attempts restoration of a validated previous-build snapshot if application fails. **This is not an atomic database transaction.** Never describe the rollback as guaranteed until failure-path tests have been conducted.
+Modes 1 and 2 allow talent resets when authorised callers use `apply`. Mode 0 is the only disabled mode; there is deliberately no preview-only configuration. Non-GMs in mode 2 must control the target bot. The importer attempts to restore the previous build after failure, but **this is not an atomic database transaction**. Keep mode 0 until full database backup and recovery steps are verified.
 
 ### 5.4 Current limitations / risks
 
@@ -163,7 +164,7 @@ The experimental apply routine can reset talents only if both switches are expli
 | Random Playerbots | Full randomisation may replace talents | Experimental apply currently **rejects random bots** until maintenance lifecycle tests pass |
 | Era checks are currently level-based in relevant Playerbot safeguards | An IP stage may differ from a bot's level | Define expected IP-tier policy and test across mismatched level/stage scenarios without guessing |
 | Custom active abilities | Learned talents may not have AI rotations | Separate spell-use and AI integration audit after import is stable |
-| Normal-player and MultiBot permissions | Source now checks one opt-in normal-player permission for both commands, plus same-account or current AI-master control; not yet runtime-tested | Compile, test authorisation-denial matrix and preserve server-side checks before addon integration |
+| Normal-player and MultiBot permissions | Source now requires AccessMode 1 (GMs) or 2 (authorised players) for both commands, plus a same-account/current AI-master check for non-GMs; not yet runtime-tested | Compile, test authorisation-denial matrix and preserve server-side checks before addon integration |
 
 ### 5.5 Milestones and exit criteria
 
@@ -176,13 +177,13 @@ The experimental apply routine can reset talents only if both switches are expli
 - [ ] Preserve ordinary Playerbots `talents spec`, `talents apply` and existing manual row rules.
 - [ ] Record actual outcomes and build evidence; no claims of success until then.
 
-**M1 — Read-only NT1 contract — SOURCE READY; TESTS PENDING**
+**M1 — NT1 validation — TWO FIELD CHECKS PASSED; FURTHER TESTS PENDING**
 
-- [ ] Enable `BotTalentImport.Enabled=1` **only on a test realm**, with `ApplyEnabled=0`; test optional `AllowNonGMPlayers=1` separately.
+- [ ] Live realm only: keep `AccessMode=0` until a verified characters DB backup and disposable-bot recovery procedure are ready. Then test `AccessMode=1` GM preview before any explicitly approved apply attempt.
 - [ ] Verify the supplied Warrior 49/51 build against the server's current DBC.
 - [ ] Test correct Vanilla Dual Wield and Contagion, and rejection of Vanilla Stormstrike/Dark Pact; verify TBC versions remain available.
 - [ ] Test missing/wrong class, invalid format/version, duplicate IDs, incorrect ranks, incomplete prerequisites, excess point budget, and malformed input.
-- [ ] Confirm **zero character talent changes** from `preview` or disabled `apply`.
+- [ ] Confirm zero character changes from `preview` and denied/invalid requests. `apply` can alter talents in either active mode.
 
 **M2 — Safely replace an existing bot build — EXPERIMENTAL SOURCE; NOT APPROVED FOR LIVE**
 
@@ -294,7 +295,7 @@ For NT1 specifically, installing `mod_naxxramas_bot_talent_import` is a separate
 
 ---
 
-#### Field verification — 10 October 2026: first NT1 in-game preview
+#### Field verification — 10 October 2026: first NT1 in-game preview (earlier revision)
 
 - **Reported deployment evidence:** administrator pulled and recompiled the module, restarted Worldserver, and supplied an in-game screenshot showing the new `.naxxbot talents preview` command running. The compiler output, exact installed commit SHA and Worldserver startup log have **not** been independently reviewed, so M0 is only **partially evidenced**, not fully signed off.
 - **M1 positive test PASS (one sample):** online Playerbot **Catarea (level 60 Mage)**, code `NT1:vanilla:mage:11-5.12-2.1p-3.1q-3.1r-2.1s-2.1u-3.1v-3.1w-3.1x-1.1z-1.20-1.21-3.22-2.23-5.24-3.2d-1.kl-2.19t-3.1f9-3`. Worldserver responded `NT1 valid`, `51 planned / 51 available`, `0 deliberately unspent`, `Talent trees (server tab order): 14 / 0 / 37; 20 talent entries`, and `Read-only validation: no talents have been reset or applied`.
@@ -302,7 +303,7 @@ For NT1 specifically, installing `mod_naxxramas_bot_talent_import` is a separate
 - **Next safe tests:** verify active `NaxxramasCore.BotTalentImport.ApplyEnabled=0`; test preview rejection for wrong class, malformed code, invalid rank and wrong era. Test a valid 49/51 Warrior build and Vanilla Shaman/Warlock capstones. After confirming the live switch is OFF, verify that `.naxxbot talents apply` reports `APPLY DISABLED` without changing talents. Keep experimental apply off until M2 acceptance and backup requirements are met.
 - **No changes in this verification step:** server source files, DBC, SQL, or client patches; this is a documentation-only status record based on the supplied game screenshot.
 
-#### Development checkpoint — 10 October 2026: optional normal-player NT1 access
+#### Historical checkpoint — 10 October 2026: permission drafts (superseded by AccessMode)
 
 - **Requested behaviour:** permit normal player accounts to run Naxxramas Core NT1 preview, and eventually apply, for eligible controlled Playerbots without extending GM privileges or modifying mod-playerbots.
 - **Source committed, not yet pulled/compiled/game-tested:** command registration now uses `SEC_PLAYER` so normal accounts can enter the module's server-side permission checks. Runtime permission for both `preview` and `apply` requires `NaxxramasCore.BotTalentImport.AllowNonGMPlayers=1` (default 0). Commands remain subject to the master `BotTalentImport.Enabled=1` setting; actual talent changes additionally require the independent experimental `BotTalentImport.ApplyEnabled=1` safety switch. GM access retains its existing permission.
@@ -311,7 +312,7 @@ For NT1 specifically, installing `mod_naxxramas_bot_talent_import` is a separate
 - **Required regression tests:** original GM preview and disabled apply, normal player denied with `AllowNonGMPlayers=0`, own-account preview, AI-master preview, other-account denial, attempts to target offline/non-bots, ordinary player apply denied when `AllowNonGMPlayers=0`, disabled-apply read-only response with `AllowNonGMPlayers=1` and `ApplyEnabled=0`, wrong-class errors and no surprise generic usage messages. Random bot apply remains blocked in a future isolated M2 test. Verify active config rather than `.conf.dist`.
 - **Next milestone:** while compiling future changes, verify headers/API compatibility without modifying Playerbots. Update deployment/test evidence only after actually running tests. Character talent applications, SQL and DBC are untouched by this permission patch.
 
-#### Field verification — 10 October 2026: wrong-class rejection and usage-message fix
+#### Field verification — 10 October 2026: wrong-class rejection and usage-message fix (earlier revision)
 
 - **M1 negative test PASS (one sample):** The administrator submitted `.naxxbot talents preview Catarea NT1:vanilla:warrior:11-5` to the online level-60 Mage. The server responded `NT1 rejected: Talent code class does not match the bot's class.` It correctly refused the Warrior code. No character change was requested.
 - **Observed usability issue:** AzerothCore followed the intended rejection with `### USAGE: naxxbot talents preview ...` and `There is no detailed usage information...`. This was caused by Naxxramas Core's handlers returning `false` after already presenting the informative rejection message; it was **not** a failed validation guard.
@@ -330,6 +331,15 @@ For NT1 specifically, installing `mod_naxxramas_bot_talent_import` is a separate
 - The previously specified isolated-test acceptance step **has not been satisfied** and cannot be silently marked as passed. If restore capability or any prerequisite is absent, remain in read-only mode and defer destructive application.
 - No SQL, DBC, server configuration or live talent changes were made by recording this handover constraint.
 
+#### Latest configuration decision — 10 October 2026: one NT1 AccessMode
+
+- **Final requested design:** exactly one setting `NaxxramasCore.BotTalentImport.AccessMode` with `0` disabled, `1` GM accounts, `2` all players. No preview-only mode. Both enabled modes permit the read-only `preview` command and experimental character-mutating `apply` command.
+- **Replaces three obsolete settings:** `NaxxramasCore.BotTalentImport.Enabled`, `NaxxramasCore.BotTalentImport.AllowNonGMPlayers`, and `NaxxramasCore.BotTalentImport.ApplyEnabled`. The latest C++ no longer reads them; remove stale lines from the active `.conf` during deployment. The distributed `.conf.dist` now has only `AccessMode=0`.
+- **Safety:** mode 0 rejects both commands; out-of-range values fail closed. Mode 1 requires GM security for both commands. Mode 2 additionally allows non-GMs who control the online Playerbot through same account or direct AI master. Random bots remain rejected by experimental apply; SQL table and validated old-build snapshot are still required.
+- **Live-only deployment limitation:** no separate test realm. **Do not enable modes 1 or 2 on the live realm before confirming a recoverable characters backup and a disposable-bot recovery plan**, since both allow destructive talent resets. Preview-only testing is no longer possible through configuration with apply inaccessible.
+- **Unverified:** source not yet pulled/compiled/game-tested; full rollback and automatic Playerbots maintenance protection remain incomplete. The existing successful Mage preview and class-mismatch tests refer to an earlier compiled revision.
+- **Next actions:** back up characters DB and active config; stage additive SQL only after backup and table-check; deploy/recompile with mode 0; confirm denial/no startup failures, then decide on narrowly scoped mode-1 GM testing with disposable bot. Keep mode 2 for later ownership/auth testing. Update the roadmap after every test result.
+
 ### Current checkpoint
 
-**Main development focus:** NT1 importer under `1.0.6.8.5`. Field evidence now confirms a successful level-60 Mage NT1 read-only preview and a correctly rejected wrong-class request on the installed build. The administrator reported a successful compile/restart, but the exact installed commit, compiler log and complete server startup log remain unverified. A module-only fix for duplicate generic command-usage output is committed to GitHub **but not yet deployed/tested**. Continue safe M1 preview and negative tests with experimental application OFF, then compile and retest the cleanup in a later batch. Normal Playerbots commands and wider M0/M1 regression gates are still pending.
+**Main development focus:** NT1 importer for 1.0.6.8.5. Earlier live read-only Mage preview and wrong-class rejection passed. The new simplified one-setting AccessMode (0 off, 1 GM full access, 2 all authorised players) is committed but NOT compiled or tested. Modes 1 and 2 enable experimental `apply`, which can reset character talents. Live realm only; keep mode 0 until full database backup, SQL/table review and disposable-bot recovery are verified. No claim of production-ready application or persistent protection.
