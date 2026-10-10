@@ -434,6 +434,26 @@ For NT1 specifically, installing `mod_naxxramas_bot_talent_import` is a separate
 - **Next step:** inspect `SELECT guid, name, class, level FROM characters WHERE name='Husapze';` in live `acore_characters`, then export/record the current talent and relevant spell rows by GUID and active spec before any destructive attempt. Keep Husapze alive, out of combat, grouped with the human issuing the command and actively mastered by that player (or allow the group-leader fallback only if the AI master is null).
 - **Safety:** latest random-bot grouped apply is source-committed and user-reported rebuilt but has not yet demonstrated actual application, restoration or persistent session behavior. Do not mark random-bot M2 acceptance as passed.
 
+#### Pre-apply identity and baseline queries — 10 October 2026: Husapze GUID 73209
+
+- **HeidiSQL result provided by administrator:** on live `acore_characters`, `SELECT guid, name, class, level FROM characters WHERE name='Husapze';` returned `73209 | Husapze | 8 | 60`. Class 8 is **Mage**. Earlier user confirmed Husapze is a **random Playerbot**; full 51/51, 14/0/37 NT1 preview passed.
+- **Before attempting application:** record `characters.activeTalentGroup` and `characters.talentGroupsCount`, both spec masks and existing talent rank spell IDs from `character_talent`, and learned spells from `character_spell`; preserve a separate export of Husapze's current rows (full characters backup was made but **restorability has not been verified**). Do not write directly to any character table.
+- **Read-only SQL:**
+
+```sql
+SELECT guid, name, class, level, talentGroupsCount, activeTalentGroup
+FROM characters WHERE guid=73209;
+
+SELECT guid, spell, specMask
+FROM character_talent WHERE guid=73209 ORDER BY specMask, spell;
+
+SELECT guid, spell, specMask
+FROM character_spell WHERE guid=73209 ORDER BY spell;
+```
+
+- **AzerothCore base-schema verification:** `data/sql/base/db_characters/characters.sql` defines `talentGroupsCount` and `activeTalentGroup`; `character_talent.sql` defines `guid, spell, specMask`; `character_spell.sql` defines `guid, spell, specMask`. Actual live custom schema may differ, so stop and inspect if a read-only query fails.
+- **Experimental-scope caution:** the `apply` operation uses `resetTalents(true)` and `SaveToDB`, and random bot talent sets can be replaced by automatic Playerbots maintenance. A party/master check and read-only success are not proof of safe rollback. No actual apply yet verified.
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer 1.0.6.8.5. Ido (random level-60 Mage) successfully passed preview (51/51, 14/0/37), but the previous importer correctly blocked destructive random-bot apply. **New grouped random-bot apply source is now committed to GitHub but has not been pulled, compiled or tested on the live realm.** Alt Bots retain their prior experimental path. Both AccessMode 1 (GM) and 2 (authorised players) expose real talent mutation; normal-player/party-master permissions, snapshot recovery, random-bot transient behaviour and persistence remain unverified. A full characters backup was reported and schema inspection passed, but successful restoration is not yet proven. Limit any live-only trial to a disposable bot and an explicit recovery plan, and never claim long-term or party-time talent persistence until tested.
