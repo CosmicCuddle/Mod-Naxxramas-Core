@@ -1,7 +1,7 @@
 # Naxxramas Talent Calculator -> Playerbots (NT1)
 ## Change Notes 1.0.6.8.5 — Phase 1 preview and experimental Phase 2 apply
 
-**Development status:** A level-60 Mage NT1 read-only preview and wrong-class rejection passed in-game testing on an earlier revision as of 10 October 2026. Experimental application is not acceptance-tested. The new single-setting AccessMode design is source-only, pending compilation and permission/rollback tests. Keep AccessMode=0 on the live realm until backups and a disposable-bot recovery procedure are verified.
+**Development status:** A level-60 Mage build passed read-only preview for Catarea and random Playerbot Ido, and the old random-bot `apply` guard correctly rejected Ido in-game. A new **grouped random-bot application** path is now committed in Naxxramas Core only, but has **not been compiled, deployed or tested**. Experimental application remains unapproved for general live use; keep a recoverable `acore_characters` backup and test only a disposable, player-controlled bot.
 
 **Absolute rule:** No modification to `mod-playerbots`, AzerothCore or Individual Progression source files. MultiBot addon integration is postponed until the server command actually works and has passed tests.
 
@@ -21,7 +21,7 @@
 .naxxbot talents apply <online-botname> <NT1-code>
 ```
 
-An active mode always exposes both commands: preview validates without changes; apply calls the experimental mutation code after its usual database, non-random-bot and restorable-snapshot checks. **AccessMode 0 is the only no-application configuration.** This is intentional to keep the configuration concise; it also means live read-only testing should be completed before switching modes.
+An active mode always exposes both commands: preview validates without changes; apply calls the experimental mutation code after its database, **random-bot party/master eligibility**, and restorable-snapshot checks. **AccessMode 0 is the only no-application configuration.** This is intentional to keep the configuration concise; it also means live read-only testing should be completed before switching modes.
 
 ### Single access setting (source updated; compile and in-game tests pending)
 
@@ -36,10 +36,23 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - **Mode 0 (default):** both commands are disabled for GMs and ordinary players. It is the safe rollback setting, but does not undo previously changed character talents.
 - **Mode 1:** GMs may preview and apply NT1 codes to eligible online Playerbots. Non-GMs cannot use either command.
 - **Mode 2:** GMs and non-GMs may preview and apply. Non-GMs must control the bot through the same account or be its current Playerbots AI master; group membership or knowing the bot name does not grant permission.
-- Both active modes permit actual talent modification. Use them **only after a verified characters database backup and an agreed disposable-bot test and recovery procedure**. The importer still rejects random bots from destructive application.
+- Both active modes permit actual talent modification. Use them **only after a verified characters database backup and an agreed disposable-bot test and recovery procedure**. Grouped random bots are additionally restricted to the invoking real player who currently controls them; this new path remains uncompiled and untested.
 - Out-of-range configuration values are treated as mode 0.
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
 - Test modes 0/1/2, bot ownership, forbidden targets, unexpected command-help output, and successful read-only preview. Test real application only when the remaining M2 criteria are satisfied.
+
+### Grouped random Playerbots (new, untested apply path)
+
+The NT1 importer now has two application cases under the existing `AccessMode` setting; **no additional config option** is needed.
+
+- **Account-controlled Alt Bots:** continue through the existing validity checks, and on success the importer writes the NT1 code into `mod_naxxramas_bot_talent_import` and saves the character's talents.
+- **Random Playerbots:** may apply only while the issuing **real player** and the bot are **both members of the same active party or raid**. The bot must currently identify that player as its Playerbots AI master. If no master is assigned, only the **actual group leader** may issue the application command. A bot mastered by someone else remains off-limits, even to a GM who merely joins the group.
+- The random-bot case runs the **same** NT1 class/era/DBC/rank preflight, existing-build snapshot check, exact talent learning verification and best-effort rollback as the Alt Bot case; it still refuses applications when the bot is dead or in combat.
+- Successful random-bot application **does not insert/update the desired NT1 code in the persistent profile table**, so it will not intentionally lock a build into future randomised sessions. The normal character talents are still saved to the characters DB; **leaving the party does not immediately restore the old build**.
+- Standard Playerbots background or full randomisation can **still replace the imported talents**, potentially **even while the bot remains in the party**. This release does not suppress randomisation or automatically reapply an overridden build, and no session-long persistence guarantee is claimed.
+- `preview` remains available for any eligible online Playerbot and **never changes talents**. A test application to Ido must wait for the new source to compile and Worldserver to restart.
+- Test session master binding, a GM applying to its own party's random bot, non-GM ownership restrictions, random bot without the issuer in the group, foreign master, dead/combat/invalid requests, exact learned ranks, spell side effects, mid-party randomisation, group exit, relog/restart and fallback restoration before calling the feature stable.
+- The normal `AccessMode=0/1/2` options remain unchanged. The existing full characters database backup and a recoverable copy of the specific test bot's original talents are prerequisites for a live-only trial.
 
 ### Why use a separate command?
 
@@ -80,12 +93,12 @@ The website also supplies `?level=` separately in share links; that level is not
 ## Phase 2 — Experimental code staged, NOT approved for activation
 
 The opt-in application source is now committed and remains **off by default**. It:
-- Rejects mismatched level-based eras and random bots until their full-maintenance behaviour is proven safe.
+- Rejects mismatched level-based eras; random bots must have a genuine human group controller as above, rather than an unconditional block.
 - Refuses to reset an invalid existing talent configuration if that configuration cannot be recreated through AzerothCore's public talent API.
 - Checks whether the Naxxramas-owned persistence table exists **before** a reset.
 - Uses `Player::resetTalents(true)` and `Player::LearnTalent(talentId, rank - 1)` with an importer-only scope marker.
 - Checks exact final class talent ranks and the intentionally unspent points, and attempts to restore the original snapshot if a runtime talent learn unexpectedly fails.
-- Persists a successfully applied NT1 code separately for future protection. Normal character talents are saved using `Player::SaveToDB(false, false)`.
+- Persists a successfully applied NT1 code for **Alt Bots only**. Random-bot imports are session-scoped and do **not** store a persistent NT1 profile. Both use `Player::SaveToDB(false, false)` to save normal character talents, which Playerbots may later overwrite.
 - Coordinates with `BotTalentExpansionLimits.cpp` so only the exact website capstone exceptions are permitted during importer-owned application, not normal Playerbots workflows.
 - Coordinates with `BotTalentCompletion.cpp` so that explicit NT1 imports do not trigger delayed automatic filling of unspent points.
 
@@ -96,9 +109,9 @@ The opt-in application source is now committed and remains **off by default**. I
 1. Take a full and **verified restorable** backup of the characters DB and active config before database changes or any talent application.
 2. Check whether the optional table exists. Review and manually apply `data/sql/db-characters/2026_10_10_00_bot_talent_import.sql` only with a confirmed backup. A separate test realm is preferred but not available for this project.
 3. Pull, compile and restart the latest Naxxramas Core module with `AccessMode=0`.
-4. Record current bot GUID, existing active spec, saved talents and related spell state for a **new, disposable, non-random account bot**.
+4. Record the bot's GUID, active spec, saved talents and related spell state for a **disposable account bot or a grouped disposable random bot**; for random bots confirm the issuing player's party/master control.
 5. Only once destructive-apply risks are accepted and a recovery procedure is available, enable `AccessMode=1` (GM-only test) for that bot.
-6. Verify the preview, apply result, after-relog character state and rollback recovery. Defer public `AccessMode=2` until owner/permission and full persistence tests pass.
+6. Verify preview, application (only with explicit residual-risk acceptance), precise final ranks, failure recovery and what happens after group exit and Playerbots rerandomisation. Defer public `AccessMode=2` until owner/permission and session behaviour tests pass.
 
 ### Phase 3 — Persistent protection and other work still not implemented
 
@@ -111,7 +124,7 @@ The opt-in application source is now committed and remains **off by default**. I
 
 ### Acceptance tests and no-deployment conditions
 
-Do not enable application merely because preview has passed. Since a separate test realm is not available, any experimental application must use a disposable, non-random online bot on the backed-up live realm with explicit risk acknowledgement and a recovery procedure:
+Do not assume experimental application works merely because preview has passed. Since a separate test realm is not available, any experimental application must use a disposable online account bot **or an eligible grouped random bot** on the backed-up live realm with explicit risk acknowledgement and a recovery procedure:
 
 - Valid 49-point level-60 Warrior NT1 code; 2 points remain when application is eventually enabled.
 - All available classes and deliberately unspent points, and the one off-centre TBC capstone, Vanilla Dual Wield (1690) and Contagion (1669), and rejection of Vanilla Stormstrike (901) and Dark Pact (1022).
@@ -127,7 +140,7 @@ Do not enable application merely because preview has passed. Since a separate te
 
 1. Back up live characters DB and active configs; deploy source using `git pull --ff-only`, recompile and restart with `AccessMode=0`.
 2. Keep mode 0 until recovery is prepared, and check Worldserver logs for module startup errors.
-3. Once backup/rollback prerequisites are met, choose `AccessMode=1` for a tightly controlled GM-only trial with a disposable, non-random account bot; restart Worldserver.
+3. Once backup/rollback prerequisites are met, use `AccessMode=1` for a tightly controlled GM-only trial with a disposable account bot **or a disposable random bot in your party for which you are the active master/group leader**; restart Worldserver if changing the mode.
 4. Use `.naxxbot talents preview` first and confirm the build is valid. Preview remains read-only.
 5. Run `.naxxbot talents apply` **only after explicit acceptance of the experimental reset risk**, then inspect active talent ranks, unspent points, learned spells, relog and bot maintenance.
 6. Keep `AccessMode=2` deferred until non-GM ownership checks and persistence are verified in-game. Restore `AccessMode=0` to disable further NT1 commands if anything fails.
