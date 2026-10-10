@@ -734,13 +734,16 @@ public:
         return {{"naxxbot", naxxbot}};
     }
 
+    // AzerothCore treats false as a request to show generic command help.
+    // Our handlers already explain validation and application failures, so
+    // return true after reporting them to avoid confusing extra USAGE lines.
     static bool HandlePreview(ChatHandler* handler, char const* args)
     {
         Player* bot = nullptr;
         NaxxramasBotTalentImport::ValidatedBuild build;
         if (!NaxxramasBotTalentImport::ValidateRequest(
                 handler, args, bot, build))
-            return false;
+            return true;
 
         NaxxramasBotTalentImport::PrintPreview(handler, bot, build);
         return true;
@@ -752,7 +755,7 @@ public:
         NaxxramasBotTalentImport::ValidatedBuild build;
         if (!NaxxramasBotTalentImport::ValidateRequest(
                 handler, args, bot, build))
-            return false;
+            return true;
 
         if (!NaxxramasBotTalentImport::ApplyEnabled())
         {
@@ -768,13 +771,13 @@ public:
         if (!NaxxramasBotTalentImport::ReadArguments(args, name, code))
         {
             handler->SendSysMessage("Invalid talent import arguments.");
-            return false;
+            return true;
         }
 
         if (!NaxxramasBotTalentImport::ApplyValidated(bot, code, build, error))
         {
             handler->PSendSysMessage("NT1 apply aborted: {}", error);
-            return false;
+            return true;
         }
 
         handler->PSendSysMessage(
