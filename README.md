@@ -8,6 +8,12 @@ Some features require matching **DBC edits** on both the server and client. Thos
 
 > **Back up your module directory, databases, configuration, and known-working DBC files before updating the module.** Git history makes module-code changes reversible, but database and DBC changes should still be backed up separately.
 
+## Project roadmap
+
+**[View the Naxxramas Core Project Roadmap](ROADMAP.md)** — the central reference for the active **1.0.6.8.5** development work, feature status, implementation milestones, pending tests, release boundaries, rollback considerations and paused projects.
+
+The current documented release baseline remains **1.0.6.8.4**. Development source for **1.0.6.8.5** must not be assumed deployed or tested simply because it has been committed.
+
 ## Current patch line
 
 **Naxxramas Core 1.0.6.8.4**
