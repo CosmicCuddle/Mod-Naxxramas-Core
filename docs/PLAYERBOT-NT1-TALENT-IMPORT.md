@@ -1,5 +1,5 @@
 # Naxxramas Talent Calculator -> Playerbots (NT1)
-## Change Notes 1.0.6.8.5 — Phase 1: read-only validation
+## Change Notes 1.0.6.8.5 — Phase 1 preview and experimental Phase 2 apply
 
 **Development status:** Phase 1 preview plus experimental Phase 2 apply source committed; **NOT YET COMPILED, RUN OR VERIFIED ON THE LIVE SERVER**. Both are disabled by default, with separate configuration switches. The actual apply routine has not passed acceptance testing. Do not enable apply on your live realm yet.
 
@@ -93,7 +93,7 @@ The opt-in application source is now committed and remains **off by default**. I
 
 ### Acceptance tests and no-deployment conditions
 
-Do not enable application merely because Phase 1 compiles. Test on disposable online bots in a test realm:
+Do not enable application merely because Phase 1 compiles. Test on disposable online bots in a backed-up test realm:
 
 - Valid 49-point level-60 Warrior NT1 code; 2 points remain when application is eventually enabled.
 - All available classes and deliberately unspent points, and the three off-centre capstones.
@@ -103,7 +103,7 @@ Do not enable application merely because Phase 1 compiles. Test on disposable on
 - Dual specs; relog; server restart; Playerbots AutoPickTalents; Playerbots incremental and full randomization; Playerbots upstream update.
 - Manual original `talents apply`/ `talents spec` remain unchanged.
 
-**Rollback (Phase 1 only):** set `NaxxramasCore.BotTalentImport.Enabled = 0` in active server config and restart Worldserver. For complete source rollback, revert only the importer commits using Git after first backing up local work. Do not use `git reset --hard`. No talent DB rows exist for this phase.
+**Rollback:** Set `NaxxramasCore.BotTalentImport.ApplyEnabled = 0` (and optionally `NaxxramasCore.BotTalentImport.Enabled = 0`) in the active config, then restart Worldserver. Any already applied character talents remain normal AzerothCore character data: disabling the importer does not revert those talents. Restore individual talents from an independently backed-up character DB if needed. The additive `mod_naxxramas_bot_talent_import` table can be removed after backing it up and only when custom profile records are no longer wanted; doing so does not automatically undo previously applied talents. For complete source rollback, revert only importer-related commits after backing up local work. Never use `git reset --hard`.
 
 ## Operating steps (after initial compilation succeeds)
 
@@ -114,7 +114,7 @@ Do not enable application merely because Phase 1 compiles. Test on disposable on
 5. Verify server reports a valid 49-point plan with 2 unspent. The bot's talents must be unchanged.
 6. Try the `apply` command: **it should say APPLY NOT ENABLED** and must still leave talents unchanged.
 7. Re-test malformed codes: none should change characters.
-8. Set `Enabled=0` after testing, until Phase 2 is approved and built.
+8. Keep `ApplyEnabled=0` until the application/rollback tests are successful; then make a separate production release decision.
 
 ## Future MultiBot fork work
 
