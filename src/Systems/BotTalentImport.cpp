@@ -88,10 +88,10 @@ namespace NaxxramasBotTalentImport
 
     // Command table permits SEC_PLAYER; runtime configuration enforces
     // permissions. GM command behaviour stays intact.
-    bool AllowPlayers()
+    bool AllowNonGMPlayers()
     {
         return sConfigMgr->GetOption<bool>(
-            "NaxxramasCore.BotTalentImport.AllowPlayers", false);
+            "NaxxramasCore.BotTalentImport.AllowNonGMPlayers", false);
     }
 
     bool IsGM(ChatHandler* handler)
@@ -705,7 +705,7 @@ namespace NaxxramasBotTalentImport
         }
 
         bool const gm = IsGM(handler);
-        if (!gm && !AllowPlayers())
+        if (!gm && !AllowNonGMPlayers())
         {
             handler->SendSysMessage(
                 "NT1 access denied: player talent commands are disabled in "
