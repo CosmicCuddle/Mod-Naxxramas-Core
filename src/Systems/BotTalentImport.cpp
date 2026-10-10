@@ -6,7 +6,9 @@
  *
  * Preview remains read-only. AccessMode 1/2 permits experimental application
  * and requires a character DB backup and tested recovery before live use.
- * Exact persistence across automatic Playerbots randomization remains pending.
+ * Grouped random Playerbots are supported only for the current controlled
+ * session; their builds can be replaced by normal Playerbots maintenance.
+ * Full persistence across automatic randomization remains pending.
  *
  * No Playerbots, Individual Progression or AzerothCore source changes.
  */
@@ -16,6 +18,7 @@
 #include "Config.h"
 #include "DBCStores.h"
 #include "DatabaseEnv.h"
+#include "Group.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -592,7 +595,50 @@ namespace NaxxramasBotTalentImport
         return true;
     }
 
-    bool ApplyValidated(Player* bot, std::string const& code,
+    // Keep random-bot application limited to a live human-controller session.
+    // A group by itself is insufficient if another player is its master.
+    // If no master is assigned, only the actual group leader may apply.
+    // This does not prevent upstream Playerbots from changing talents later.
+    bool CanApplyToGroupedRandomBot(Player* issuer, Player* bot,
+        std::string& error)
+    {
+        if (!issuer || !issuer->GetSession() ||
+            PlayerbotsMgr::instance().GetPlayerbotAI(issuer))
+        {
+            error = "Random bot NT1 application requires an online human player.";
+            return false;
+        }
+
+        Group* group = issuer->GetGroup();
+        if (!group || group != bot->GetGroup() ||
+            !group->IsMember(issuer->GetGUID()) ||
+            !group->IsMember(bot->GetGUID()))
+        {
+            error = "Random bot NT1 application requires you and the bot "
+                    "to be in the same active party or raid.";
+            return false;
+        }
+
+        PlayerbotAI* ai = PlayerbotsMgr::instance().GetPlayerbotAI(bot);
+        if (!ai)
+        {
+            error = "Target is not an active Playerbot.";
+            return false;
+        }
+
+        Player* master = ai->GetMaster();
+        if ((master && master != issuer) ||
+            (!master && !group->IsLeader(issuer->GetGUID())))
+        {
+            error = "Random bot NT1 application requires its current "
+                    "human master, or the group leader if it has no master.";
+            return false;
+        }
+
+        return true;
+    }
+
+    bool ApplyValidated(Player* issuer, Player* bot, std::string const& code,
         ValidatedBuild const& requested, std::string& error)
     {
         if (bot->IsInCombat() || !bot->IsAlive())
@@ -601,12 +647,9 @@ namespace NaxxramasBotTalentImport
             return false;
         }
 
-        if (sRandomPlayerbotMgr.IsRandomBot(bot))
-        {
-            error = "Applying to random bots is disabled until automatic "
-                    "full-randomization behaviour has been verified.";
+        bool const randomBot = sRandomPlayerbotMgr.IsRandomBot(bot);
+        if (randomBot && !CanApplyToGroupedRandomBot(issuer, bot, error))
             return false;
-        }
 
         // Our existing expansion guard is level-based. Reject a later-era
         // plan before any reset could fail to buy its final-row ranks.
@@ -660,13 +703,22 @@ namespace NaxxramasBotTalentImport
         if (LearnValidated(bot, requested, error))
         {
             bot->SendTalentsInfoData(false);
-            // ParseCode restricts the stored string to ASCII safe tokens
-            // (letters, digits, colon, period and dash), never SQL quotes.
-            CharacterDatabase.DirectExecute(
-                "INSERT INTO mod_naxxramas_bot_talent_import "
-                "(guid, spec, code) VALUES ({}, {}, '{}') "
-                "ON DUPLICATE KEY UPDATE code = VALUES(code)",
-                bot->GetGUID().GetCounter(), static_cast<uint32>(spec), code);
+            // Alt bots keep their requested NT1 profile in the persistent
+            // intent table. Random bots are session-scoped: do NOT store a
+            // persistent NT1 lock for a later player or randomization cycle.
+            if (!randomBot)
+            {
+                // ParseCode allows only ASCII-safe NT1 code tokens.
+                CharacterDatabase.DirectExecute(
+                    "INSERT INTO mod_naxxramas_bot_talent_import "
+                    "(guid, spec, code) VALUES ({}, {}, '{}') "
+                    "ON DUPLICATE KEY UPDATE code = VALUES(code)",
+                    bot->GetGUID().GetCounter(), static_cast<uint32>(spec), code);
+            }
+
+            // AzerothCore saves normal character talents. For random bots
+            // this does NOT guarantee persistence: Playerbots may reroll
+            // talents at any later maintenance pass, including while grouped.
             bot->SaveToDB(false, false);
             return true;
         }
@@ -821,7 +873,10 @@ public:
             return true;
         }
 
-        if (!NaxxramasBotTalentImport::ApplyValidated(bot, code, build, error))
+        Player* issuer = handler->GetSession() ?
+            handler->GetSession()->GetPlayer() : nullptr;
+        if (!NaxxramasBotTalentImport::ApplyValidated(
+                issuer, bot, code, build, error))
         {
             handler->PSendSysMessage("NT1 apply aborted: {}", error);
             return true;
@@ -830,6 +885,11 @@ public:
         handler->PSendSysMessage(
             "NT1 build applied to {}: {} spent / {} unspent.",
             bot->GetName(), build.Spent, build.Available - build.Spent);
+        if (sRandomPlayerbotMgr.IsRandomBot(bot))
+            handler->SendSysMessage(
+                "Random Playerbot: session-scoped build only. Playerbots "
+                "may replace talents during randomization; no permanent "
+                "NT1 profile was saved.");
         return true;
     }
 };
