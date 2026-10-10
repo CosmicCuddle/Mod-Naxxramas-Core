@@ -94,12 +94,6 @@ namespace NaxxramasBotTalentImport
             "NaxxramasCore.BotTalentImport.AllowPlayers", false);
     }
 
-    bool AllowPlayerApply()
-    {
-        return sConfigMgr->GetOption<bool>(
-            "NaxxramasCore.BotTalentImport.AllowPlayerApply", false);
-    }
-
     bool IsGM(ChatHandler* handler)
     {
         WorldSession* session = handler ? handler->GetSession() : nullptr;
@@ -701,7 +695,7 @@ namespace NaxxramasBotTalentImport
     }
 
     bool ValidateRequest(ChatHandler* handler, char const* args,
-        Player*& bot, ValidatedBuild& build, bool forApply)
+        Player*& bot, ValidatedBuild& build)
     {
         if (!Enabled())
         {
@@ -711,7 +705,7 @@ namespace NaxxramasBotTalentImport
         }
 
         bool const gm = IsGM(handler);
-        if (!gm && (!AllowPlayers() || (forApply && !AllowPlayerApply())))
+        if (!gm && !AllowPlayers())
         {
             handler->SendSysMessage(
                 "NT1 access denied: player talent commands are disabled in "
@@ -800,7 +794,7 @@ public:
         Player* bot = nullptr;
         NaxxramasBotTalentImport::ValidatedBuild build;
         if (!NaxxramasBotTalentImport::ValidateRequest(
-                handler, args, bot, build, false))
+                handler, args, bot, build))
             return true;
 
         NaxxramasBotTalentImport::PrintPreview(handler, bot, build);
@@ -812,7 +806,7 @@ public:
         Player* bot = nullptr;
         NaxxramasBotTalentImport::ValidatedBuild build;
         if (!NaxxramasBotTalentImport::ValidateRequest(
-                handler, args, bot, build, true))
+                handler, args, bot, build))
             return true;
 
         if (!NaxxramasBotTalentImport::ApplyEnabled())
