@@ -35,10 +35,21 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+// Reuse modern Individual Progression's authoritative rewarded-quest reader
+// when its header is exposed. On builds that do not export the header,
+// the modern hidden-quest format is read directly from the issuing player.
+#if __has_include("IndividualProgression.h")
+#include "IndividualProgression.h"
+#define NAXXRAMAS_NT1_HAS_IP_HEADER 1
+#else
+#define NAXXRAMAS_NT1_HAS_IP_HEADER 0
+#endif
 
 using namespace Acore::ChatCommands;
 
@@ -130,6 +141,94 @@ namespace NaxxramasBotTalentImport
         uint32 MaximumLevel;
         uint32 MaximumRow;
     };
+
+    // Current Individual Progression milestones; match the existing
+    // MeetingStoneProgression/BattlemasterQueueProgression integration.
+    // Stage 8 opens TBC; stage 13 opens WotLK.
+    constexpr uint32 IP_TBC_ENTRY = 8;
+    constexpr uint32 IP_WOTLK_ENTRY = 13;
+    constexpr uint32 IP_MAX_STAGE = 18;
+    constexpr uint32 IP_HIDDEN_QUEST_START = 66000;
+
+#if NAXXRAMAS_NT1_HAS_IP_HEADER
+    // Legacy IP variants have a different stage schema and no modern
+    // rewarded-quest reader. Fail closed there rather than guessing a tier.
+    template <typename T, typename = void>
+    struct ModernIPStageReader
+    {
+        static bool Read(Player*, uint32&) { return false; }
+    };
+
+    template <typename T>
+    struct ModernIPStageReader<T, std::void_t<
+        decltype(std::declval<T const&>().GetPlayerProgressionFromQuests(
+            std::declval<Player*>()))>>
+    {
+        static bool Read(Player* player, uint32& stage)
+        {
+            stage = T::instance()->GetPlayerProgressionFromQuests(player);
+            return true;
+        }
+    };
+#endif
+
+    // The requesting HUMAN character's IP expansion is authoritative.
+    // Never infer it from a random bot's often-exempt progression state,
+    // the requested code, or an artificially raised GM/bot level.
+    // IP-disabled realms retain their existing level-based importer checks.
+    bool CheckPlayerProgressionEra(Player* issuer, Era const& requested,
+        std::string& error)
+    {
+        if (!issuer || !issuer->IsInWorld())
+        {
+            error = "Cannot verify the requesting player's progression.";
+            return false;
+        }
+
+        if (!sConfigMgr->GetOption<bool>("IndividualProgression.Enable", true))
+            return true;
+
+        uint32 stage = 0;
+#if NAXXRAMAS_NT1_HAS_IP_HEADER
+        if (!sIndividualProgression->enabled)
+            return true;
+
+        if (!ModernIPStageReader<IndividualProgression>::Read(issuer, stage))
+        {
+            error = "Cannot verify Individual Progression on this legacy "
+                    "module version. NT1 application is blocked.";
+            return false;
+        }
+#else
+        // Modern IP stores each completed stage as a rewarded hidden quest.
+        // Only use this fallback when its public C++ header is unavailable.
+        // The highest rewarded stage takes precedence over missing earlier
+        // markers, matching GetPlayerProgressionFromQuests().
+        for (uint32 i = 1; i <= IP_MAX_STAGE; ++i)
+            if (issuer->GetQuestStatus(IP_HIDDEN_QUEST_START + i) ==
+                QUEST_STATUS_REWARDED)
+                stage = i;
+#endif
+
+        uint32 const limit = sConfigMgr->GetOption<uint32>(
+            "IndividualProgression.ProgressionLimit", 0);
+        if (limit != 0 && stage > limit)
+            stage = limit;
+
+        char const* playerEra = stage >= IP_WOTLK_ENTRY ? "wotlk" :
+            stage >= IP_TBC_ENTRY ? "tbc" : "vanilla";
+        if (std::string(requested.Name) != playerEra)
+        {
+            error = "NT1 era blocked by Individual Progression: your "
+                "character is in " + std::string(playerEra) +
+                " but this talent code is for " + requested.Name +
+                ". Choose a build for your current expansion. "
+                "No talents changed.";
+            return false;
+        }
+
+        return true;
+    }
 
     struct TalentSelection
     {
@@ -651,6 +750,11 @@ namespace NaxxramasBotTalentImport
         if (randomBot && !CanApplyToGroupedRandomBot(issuer, bot, error))
             return false;
 
+        // Recheck inside the destructive path as well as ValidateRequest.
+        // A GM and an authorised ordinary player must obey the same era.
+        if (!CheckPlayerProgressionEra(issuer, requested.Progression, error))
+            return false;
+
         // NT1 imports must use the bot's ENTIRE talent-point budget.
         // Keep this out of ParseCode: preview must still explain an incomplete
         // build, and snapshot/rollback must remain able to restore a bot
@@ -814,6 +918,15 @@ namespace NaxxramasBotTalentImport
 
         std::string error;
         if (!ParseCode(code, bot, build, error))
+        {
+            handler->PSendSysMessage("NT1 rejected: {}", error);
+            return false;
+        }
+
+        // Preview must not advertise an expansion-mismatched NT1 build as
+        // usable, and apply must fail before resetting the target's talents.
+        if (!CheckPlayerProgressionEra(
+                handler->GetSession()->GetPlayer(), build.Progression, error))
         {
             handler->PSendSysMessage("NT1 rejected: {}", error);
             return false;
