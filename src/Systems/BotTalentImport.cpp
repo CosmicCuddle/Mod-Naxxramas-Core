@@ -651,6 +651,23 @@ namespace NaxxramasBotTalentImport
         if (randomBot && !CanApplyToGroupedRandomBot(issuer, bot, error))
             return false;
 
+        // NT1 imports must use the bot's ENTIRE talent-point budget.
+        // Keep this out of ParseCode: preview must still explain an incomplete
+        // build, and snapshot/rollback must remain able to restore a bot
+        // whose ORIGINAL spec legitimately has unspent talent points.
+        // ParseCode already rejects overspending.
+        if (requested.Spent < requested.Available)
+        {
+            error = "Full talent allocation required: level-" +
+                std::to_string(bot->GetLevel()) + " bot has " +
+                std::to_string(requested.Available) +
+                " available points, but this build spends " +
+                std::to_string(requested.Spent) + " (" +
+                std::to_string(requested.Available - requested.Spent) +
+                " unspent). No talents changed.";
+            return false;
+        }
+
         // Our existing expansion guard is level-based. Reject a later-era
         // plan before any reset could fail to buy its final-row ranks.
         if ((bot->GetLevel() <= 60 &&
@@ -816,6 +833,11 @@ namespace NaxxramasBotTalentImport
         handler->PSendSysMessage(
             "Talent trees (server tab order): {} / {} / {}; {} talent entries.",
             build.Trees[0], build.Trees[1], build.Trees[2], build.Ordered.size());
+        if (build.Spent < build.Available)
+            handler->PSendSysMessage(
+                "NT1 APPLY BLOCKED: {} of {} points spent ({} unspent). "
+                "Spend all points before applying this build.",
+                build.Spent, build.Available, build.Available - build.Spent);
         handler->SendSysMessage(
             "Read-only validation: no talents have been reset or applied.");
     }
