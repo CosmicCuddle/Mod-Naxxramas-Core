@@ -4,8 +4,8 @@
  * Source of truth for the NT1 wire format:
  *   Naxxramas-Resource-Hub/talents/calculator.js
  *
- * Phase 2: preview remains read-only. Actual application is available only
- * in AccessMode 2/3 (both require backups and controlled rollback testing).
+ * Preview remains read-only. AccessMode 1/2 permits experimental application
+ * and requires a character DB backup and tested recovery before live use.
  * Exact persistence across automatic Playerbots randomization remains pending.
  *
  * No Playerbots, Individual Progression or AzerothCore source changes.
@@ -80,27 +80,22 @@ namespace NaxxramasBotTalentImport
         ImportScope& operator=(ImportScope const&) = delete;
     };
 
-    // One access setting replaces separate regular-player and apply toggles.
-    // 0 = GM preview only; 1 = everyone preview;
-    // 2 = GM preview + experimental apply; 3 = everyone preview + apply.
-    // Out-of-range values fail closed to mode 0 (never apply).
+    // One setting controls access to the entire NT1 system.
+    // 0 = disabled; 1 = GM preview/apply; 2 = authorised player preview/apply.
+    // Both active modes permit experimental talent changes, so default OFF.
+    // Values outside the documented range fail closed.
     uint32 AccessMode()
     {
         uint32 const mode = sConfigMgr->GetOption<uint32>(
             "NaxxramasCore.BotTalentImport.AccessMode", 0);
-        return mode <= 3 ? mode : 0;
+        return mode <= 2 ? mode : 0;
     }
 
-    bool ApplyEnabled()
-    {
-        return (AccessMode() & 2u) != 0;
-    }
-
-    // Command table permits SEC_PLAYER; runtime configuration enforces
-    // permissions. GM command behaviour stays intact.
+    // SEC_PLAYER registration allows us to enforce the selected access mode
+    // plus bot-control permissions for ordinary players inside the handler.
     bool AllowNonGMPlayers()
     {
-        return (AccessMode() & 1u) != 0;
+        return AccessMode() == 2;
     }
 
     bool IsGM(ChatHandler* handler)
@@ -153,8 +148,7 @@ namespace NaxxramasBotTalentImport
 
     bool Enabled()
     {
-        return sConfigMgr->GetOption<bool>(
-            "NaxxramasCore.BotTalentImport.Enabled", false);
+        return AccessMode() != 0;
     }
 
     // Keep the declared class independent of Playerbots' positional links.
@@ -818,16 +812,8 @@ public:
                 handler, args, bot, build))
             return true;
 
-        if (!NaxxramasBotTalentImport::ApplyEnabled())
-        {
-            NaxxramasBotTalentImport::PrintPreview(handler, bot, build);
-            handler->SendSysMessage(
-                "APPLY DISABLED: validation only. Experimental talent changes "
-                "require NaxxramasCore.BotTalentImport.AccessMode=2 (GM) "
-                "or 3 (all), a characters database backup and explicit test approval.");
-            return true;
-        }
-
+        // ValidateRequest already blocks mode 0 and unauthorised callers.
+        // All enabled access modes permit experimental talent application.
         std::string name, code, error;
         if (!NaxxramasBotTalentImport::ReadArguments(args, name, code))
         {
