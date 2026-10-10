@@ -15,6 +15,12 @@
 #include "PlayerbotMgr.h"
 #include "ScriptMgr.h"
 
+// Public helper implemented entirely by the Naxxramas Core importer.
+namespace NaxxramasBotTalentImport
+{
+    bool IsImportOffCentreCapstone(Player const* bot, TalentEntry const* talent);
+}
+
 namespace
 {
     bool IsTalentWithinExpansionLimit(uint8 level, TalentEntry const* talent)
@@ -64,6 +70,12 @@ public:
 
         // This safeguard must not restrict real players or other systems.
         if (!PlayerbotsMgr::instance().GetPlayerbotAI(player))
+            return true;
+
+        // Allow only the three off-centre calculator capstones, and only
+        // during the explicit scoped NT1 apply. Normal Playerbots builds
+        // retain their existing expansion row policy.
+        if (NaxxramasBotTalentImport::IsImportOffCentreCapstone(player, talent))
             return true;
 
         return IsTalentWithinExpansionLimit(
