@@ -143,6 +143,10 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # with it and be its current human master (or group leader if no master).
 # Random-bot imports do not keep permanent NT1 profiles. Playerbots may
 # still reroll those talents during or after the party.
+# Every NT1 apply REQUIRES the build to spend ALL talent points available
+# to the bot's current level (as calculated by the server). Incomplete
+# builds are rejected before a talent reset; preview shows a warning.
+# This does not affect normal Playerbots talent templates or whispers.
 # Invalid values fail closed to 0 (disabled).
 #
 # Commands:
