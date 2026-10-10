@@ -4,10 +4,9 @@
  * Source of truth for the NT1 wire format:
  *   Naxxramas-Resource-Hub/talents/calculator.js
  *
- * WARNING: Neither command in this phase alters character talents.
- * The "apply" command is intentionally a validation-only safety gate until
- * snapshot/rollback, persistence and Playerbots maintenance coordination
- * have been implemented and tested.
+ * Phase 2: preview remains read-only. Apply is behind a separate OFF-by-default
+ * switch and must not be enabled without compilation and a character DB backup.
+ * Exact persistence across automatic Playerbots randomization remains pending.
  *
  * No Playerbots, Individual Progression or AzerothCore source changes.
  */
@@ -16,9 +15,11 @@
 #include "CommandScript.h"
 #include "Config.h"
 #include "DBCStores.h"
+#include "DatabaseEnv.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerbotMgr.h"
+#include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "SpellMgr.h"
@@ -40,6 +41,46 @@ namespace NaxxramasBotTalentImport
 {
     constexpr size_t MAX_CODE_LENGTH = 2048;
     constexpr size_t MAX_ENTRIES = 120;
+
+    // This guard scopes exceptions to the explicit Naxxramas Core import
+    // while allowing original Playerbots talent commands to work unchanged.
+    thread_local Player const* ActiveImport = nullptr;
+
+    bool IsImportOperation(Player const* bot)
+    {
+        return bot && ActiveImport == bot;
+    }
+
+    bool IsImportOffCentreCapstone(Player const* bot, TalentEntry const* talent)
+    {
+        if (!IsImportOperation(bot) || !talent)
+            return false;
+
+        uint32 const tab = talent->TalentTab;
+        uint32 const id = talent->TalentID;
+        return (bot->GetLevel() <= 60 &&
+                ((tab == 263 && id == 901) || (tab == 302 && id == 1022))) ||
+            (bot->GetLevel() > 60 && bot->GetLevel() <= 70 &&
+                tab == 382 && id == 1747);
+    }
+
+    struct ImportScope
+    {
+        Player const* Previous = nullptr;
+        explicit ImportScope(Player const* bot) : Previous(ActiveImport)
+        {
+            ActiveImport = bot;
+        }
+        ~ImportScope() { ActiveImport = Previous; }
+        ImportScope(ImportScope const&) = delete;
+        ImportScope& operator=(ImportScope const&) = delete;
+    };
+
+    bool ApplyEnabled()
+    {
+        return sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.BotTalentImport.ApplyEnabled", false);
+    }
 
     struct Era
     {
@@ -407,6 +448,202 @@ namespace NaxxramasBotTalentImport
         return true;
     }
 
+
+    std::string EncodeBase36(uint32 id)
+    {
+        std::string result;
+        do
+        {
+            uint32 const digit = id % 36u;
+            result.push_back(digit < 10 ? static_cast<char>('0' + digit) :
+                static_cast<char>('a' + digit - 10));
+            id /= 36u;
+        } while (id);
+
+        std::reverse(result.begin(), result.end());
+        return result;
+    }
+
+    // Capture the current active spec before any reset. We make a canonical
+    // NT1 snapshot and require ParseCode to prove it can be restored.
+    std::string EncodeExisting(Player* bot, Era const& era)
+    {
+        std::vector<std::pair<uint32, uint32>> ranks;
+        for (uint32 i = 0; i < sTalentStore.GetNumRows(); ++i)
+        {
+            TalentEntry const* talent = sTalentStore.LookupEntry(i);
+            if (!talent)
+                continue;
+            TalentTabEntry const* tab = sTalentTabStore.LookupEntry(talent->TalentTab);
+            if (!tab || !(tab->ClassMask & bot->getClassMask()))
+                continue;
+
+            uint32 rank = 0;
+            for (uint32 j = 0; j < MAX_TALENT_RANK; ++j)
+                if (talent->RankID[j] &&
+                    bot->HasTalent(talent->RankID[j], bot->GetActiveSpec()))
+                    rank = j + 1;
+            if (rank)
+                ranks.emplace_back(talent->TalentID, rank);
+        }
+
+        std::sort(ranks.begin(), ranks.end());
+        std::string code = "NT1:" + std::string(era.Name) +
+            ":" + std::string(ClassName(bot->getClass())) + ":";
+        bool first = true;
+        for (auto const& [id, rank] : ranks)
+        {
+            if (!first)
+                code += ".";
+            first = false;
+            code += EncodeBase36(id) + "-" + std::to_string(rank);
+        }
+        return code;
+    }
+
+    // Must run inside ImportScope. Never use PlayerbotFactory's default
+    // importer, which may automatically fill unspent talent points.
+    bool LearnValidated(Player* bot, ValidatedBuild const& plan,
+        std::string& error)
+    {
+        for (TalentSelection const& selection : plan.Ordered)
+        {
+            bot->LearnTalent(selection.Id, selection.Rank - 1);
+            uint32 const spellId = selection.Talent->RankID[selection.Rank - 1];
+            if (!bot->HasTalent(spellId, bot->GetActiveSpec()))
+            {
+                error = "AzerothCore rejected talent ID " +
+                    std::to_string(selection.Id) + " at rank " +
+                    std::to_string(selection.Rank) + ".";
+                return false;
+            }
+        }
+
+        if (bot->GetFreeTalentPoints() != plan.Available - plan.Spent)
+        {
+            error = "Unexpected remaining talent points after application.";
+            return false;
+        }
+
+        // Verify every class talent: no stale ranks from the prior build.
+        for (uint32 i = 0; i < sTalentStore.GetNumRows(); ++i)
+        {
+            TalentEntry const* talent = sTalentStore.LookupEntry(i);
+            if (!talent)
+                continue;
+            TalentTabEntry const* tab = sTalentTabStore.LookupEntry(talent->TalentTab);
+            if (!tab || !(tab->ClassMask & bot->getClassMask()))
+                continue;
+
+            uint32 expected = 0;
+            for (TalentSelection const& selection : plan.Ordered)
+                if (selection.Id == talent->TalentID)
+                {
+                    expected = selection.Rank;
+                    break;
+                }
+
+            uint32 actual = 0;
+            for (uint32 j = 0; j < MAX_TALENT_RANK; ++j)
+                if (talent->RankID[j] &&
+                    bot->HasTalent(talent->RankID[j], bot->GetActiveSpec()))
+                    actual = j + 1;
+
+            if (actual != expected)
+            {
+                error = "Final talent comparison failed for talent ID " +
+                    std::to_string(talent->TalentID) + ".";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool ApplyValidated(Player* bot, std::string const& code,
+        ValidatedBuild const& requested, std::string& error)
+    {
+        if (bot->IsInCombat() || !bot->IsAlive())
+        {
+            error = "The bot must be alive and out of combat.";
+            return false;
+        }
+
+        if (sRandomPlayerbotMgr.IsRandomBot(bot))
+        {
+            error = "Applying to random bots is disabled until automatic "
+                    "full-randomization behaviour has been verified.";
+            return false;
+        }
+
+        // Our existing expansion guard is level-based. Reject a later-era
+        // plan before any reset could fail to buy its final-row ranks.
+        if ((bot->GetLevel() <= 60 &&
+                std::string(requested.Progression.Name) != "vanilla") ||
+            (bot->GetLevel() > 60 && bot->GetLevel() <= 70 &&
+                std::string(requested.Progression.Name) != "tbc"))
+        {
+            error = "Build era does not match the current level-based "
+                    "Playerbots talent row restrictions.";
+            return false;
+        }
+
+        // A legacy-invalid talent snapshot may not be restorable through
+        // the normal talent API. Refuse to reset when that is the case.
+        std::string const previous = EncodeExisting(bot, requested.Progression);
+        ValidatedBuild snapshot;
+        std::string snapshotError;
+        if (!ParseCode(previous, bot, snapshot, snapshotError) ||
+            bot->GetFreeTalentPoints() != snapshot.Available - snapshot.Spent)
+        {
+            error = "Existing talents cannot be safely restored: " +
+                snapshotError + ". No changes made.";
+            return false;
+        }
+
+        uint8 const spec = bot->GetActiveSpec();
+        ImportScope const scope(bot);
+        bot->resetTalents(true);
+
+        if (bot->GetActiveSpec() != spec)
+        {
+            error = "Unexpected specialization change during reset. "
+                    "Manual recovery may be required.";
+            return false;
+        }
+
+        if (LearnValidated(bot, requested, error))
+        {
+            bot->SendTalentsInfoData(false);
+            // ParseCode restricts the stored string to ASCII safe tokens
+            // (letters, digits, colon, period and dash), never SQL quotes.
+            CharacterDatabase.DirectExecute(
+                "INSERT INTO mod_naxxramas_bot_talent_import "
+                "(guid, spec, code) VALUES ({}, {}, '{}') "
+                "ON DUPLICATE KEY UPDATE code = VALUES(code)",
+                bot->GetGUID().GetCounter(), static_cast<uint32>(spec), code);
+            bot->SaveToDB(false, false);
+            return true;
+        }
+
+        // This is a recovery attempt, not a transactional guarantee.
+        std::string const failed = error;
+        bot->resetTalents(true);
+        std::string rollbackError;
+        if (!LearnValidated(bot, snapshot, rollbackError))
+        {
+            error = failed + " ROLLBACK FAILED: " + rollbackError +
+                ". Do not log out or restart; investigate immediately.";
+            bot->SendTalentsInfoData(false);
+            return false;
+        }
+
+        bot->SendTalentsInfoData(false);
+        bot->SaveToDB(false, false);
+        error = failed + " Original talents restored successfully.";
+        return false;
+    }
+
     bool ReadArguments(char const* args, std::string& name,
         std::string& code)
     {
@@ -509,9 +746,26 @@ public:
             return false;
 
         NaxxramasBotTalentImport::PrintPreview(handler, bot, build);
-        handler->SendSysMessage(
-            "APPLY NOT ENABLED: Phase 1 only validates. No talents were changed. "
-            "Snapshot, rollback and persistent build protection must be tested first.");
+        if (!NaxxramasBotTalentImport::ApplyEnabled())
+        {
+            handler->SendSysMessage(
+                "APPLY DISABLED: validation only. Requires "
+                "NaxxramasCore.BotTalentImport.ApplyEnabled=1, a characters "
+                "database backup and explicit test approval.");
+            return true;
+        }
+
+        std::string name, code, error;
+        if (!NaxxramasBotTalentImport::ReadArguments(args, name, code) ||
+            !NaxxramasBotTalentImport::ApplyValidated(bot, code, build, error))
+        {
+            handler->PSendSysMessage("NT1 apply aborted: {}", error);
+            return false;
+        }
+
+        handler->PSendSysMessage(
+            "NT1 build applied to {}: {} spent / {} unspent.",
+            bot->GetName(), build.Spent, build.Available - build.Spent);
         return true;
     }
 };
