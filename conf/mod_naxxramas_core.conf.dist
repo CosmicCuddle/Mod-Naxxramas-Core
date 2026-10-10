@@ -142,6 +142,15 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # Default: 0 (disabled until first build and preview tests)
 NaxxramasCore.BotTalentImport.Enabled = 0
 
+# Phase 2 EXPERIMENTAL: actually reset and apply an NT1 build after checking
+# current talents can be snapshotted and restored. Stores successful builds
+# in a separate characters database table. Manual SQL migration required.
+# Do not enable on a live realm: automatic Playerbots full maintenance
+# protection, full rollback tests and build verification are NOT complete.
+# Use only after backed-up test realm review.
+# Default: 0
+NaxxramasCore.BotTalentImport.ApplyEnabled = 0
+
 #####################################
 # Playerbot Talent Completion
 #####################################
