@@ -18,11 +18,13 @@
 #include "DatabaseEnv.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
+#include "PlayerbotAI.h"
 #include "PlayerbotMgr.h"
 #include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "SpellMgr.h"
+#include "WorldSession.h"
 
 #include <algorithm>
 #include <array>
@@ -82,6 +84,43 @@ namespace NaxxramasBotTalentImport
     {
         return sConfigMgr->GetOption<bool>(
             "NaxxramasCore.BotTalentImport.ApplyEnabled", false);
+    }
+
+    // Command table permits SEC_PLAYER; runtime configuration enforces
+    // permissions. GM command behaviour stays intact.
+    bool AllowPlayers()
+    {
+        return sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.BotTalentImport.AllowPlayers", false);
+    }
+
+    bool AllowPlayerApply()
+    {
+        return sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.BotTalentImport.AllowPlayerApply", false);
+    }
+
+    bool IsGM(ChatHandler* handler)
+    {
+        WorldSession* session = handler ? handler->GetSession() : nullptr;
+        return session && session->GetSecurity() >= SEC_GAMEMASTER;
+    }
+
+    // For normal players, the bot must belong to their account or have
+    // explicitly selected them as its Playerbots master. Group membership
+    // alone is never authority to change someone else's talent build.
+    bool CanControlBot(Player* player, Player* bot, PlayerbotAI* ai)
+    {
+        if (!player || !bot || !ai || player == bot ||
+            !player->GetSession() || !bot->GetSession())
+            return false;
+
+        if (player->GetSession()->GetAccountId() ==
+            bot->GetSession()->GetAccountId())
+            return true;
+
+        Player* master = ai->GetMaster();
+        return master && master->GetGUID() == player->GetGUID();
     }
 
     struct Era
@@ -662,12 +701,21 @@ namespace NaxxramasBotTalentImport
     }
 
     bool ValidateRequest(ChatHandler* handler, char const* args,
-        Player*& bot, ValidatedBuild& build)
+        Player*& bot, ValidatedBuild& build, bool forApply)
     {
         if (!Enabled())
         {
             handler->SendSysMessage(
                 "Naxxramas bot talent importer is disabled in the active configuration.");
+            return false;
+        }
+
+        bool const gm = IsGM(handler);
+        if (!gm && (!AllowPlayers() || (forApply && !AllowPlayerApply())))
+        {
+            handler->SendSysMessage(
+                "NT1 access denied: player talent commands are disabled in "
+                "the Naxxramas Core configuration.");
             return false;
         }
 
@@ -681,10 +729,20 @@ namespace NaxxramasBotTalentImport
         }
 
         bot = ObjectAccessor::FindPlayerByName(name);
-        if (!bot || !PlayerbotsMgr::instance().GetPlayerbotAI(bot))
+        PlayerbotAI* ai = bot ? PlayerbotsMgr::instance().GetPlayerbotAI(bot) : nullptr;
+        if (!bot || !ai)
         {
             handler->SendSysMessage(
                 "That bot is not online or is not managed by Playerbots.");
+            return false;
+        }
+
+        if (!gm && (!handler->GetSession() ||
+            !CanControlBot(handler->GetSession()->GetPlayer(), bot, ai)))
+        {
+            handler->SendSysMessage(
+                "NT1 access denied: you may only manage your own account "
+                "bots or a Playerbot that recognises you as its master.");
             return false;
         }
 
@@ -725,8 +783,8 @@ public:
     ChatCommandTable GetCommands() const override
     {
         static ChatCommandTable talents = {
-            {"preview", HandlePreview, SEC_GAMEMASTER, Console::No},
-            {"apply", HandleApply, SEC_GAMEMASTER, Console::No},
+            {"preview", HandlePreview, SEC_PLAYER, Console::No},
+            {"apply", HandleApply, SEC_PLAYER, Console::No},
         };
         static ChatCommandTable naxxbot = {
             {"talents", talents}
@@ -742,7 +800,7 @@ public:
         Player* bot = nullptr;
         NaxxramasBotTalentImport::ValidatedBuild build;
         if (!NaxxramasBotTalentImport::ValidateRequest(
-                handler, args, bot, build))
+                handler, args, bot, build, false))
             return true;
 
         NaxxramasBotTalentImport::PrintPreview(handler, bot, build);
@@ -754,7 +812,7 @@ public:
         Player* bot = nullptr;
         NaxxramasBotTalentImport::ValidatedBuild build;
         if (!NaxxramasBotTalentImport::ValidateRequest(
-                handler, args, bot, build))
+                handler, args, bot, build, true))
             return true;
 
         if (!NaxxramasBotTalentImport::ApplyEnabled())
