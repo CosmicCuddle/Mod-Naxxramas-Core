@@ -133,11 +133,10 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # .naxxbot talents preview <online-botname> <NT1-code>
 # .naxxbot talents apply <online-botname> <NT1-code>
 #
-# BOTH commands are VALIDATION ONLY in Phase 1.
-# "apply" does NOT reset, allocate or save talents yet.
-# No SQL/DBC updates are used by the read-only validator.
-# Do not expect in-game application until the separately
-# reviewed persistence/rollback phase is complete.
+# "preview" is always read-only. "apply" is read-only while
+# NaxxramasCore.BotTalentImport.ApplyEnabled=0 (the default).
+# Enabling real application is experimental and requires the
+# separately reviewed database/rollback testing first.
 #
 # Default: 0 (disabled until first build and preview tests)
 NaxxramasCore.BotTalentImport.Enabled = 0
@@ -150,7 +149,7 @@ NaxxramasCore.BotTalentImport.Enabled = 0
 # NaxxramasCore.BotTalentImport.ApplyEnabled=1 (experimental; keep OFF).
 # Requires NaxxramasCore.BotTalentImport.Enabled=1.
 # Default: 0
-NaxxramasCore.BotTalentImport.AllowPlayers = 0
+NaxxramasCore.BotTalentImport.AllowNonGMPlayers = 0
 
 # Phase 2 EXPERIMENTAL: actually reset and apply an NT1 build after checking
 # current talents can be snapshotted and restored. Stores successful builds
