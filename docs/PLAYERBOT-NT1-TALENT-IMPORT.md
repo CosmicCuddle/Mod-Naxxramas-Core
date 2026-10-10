@@ -11,7 +11,7 @@
 - Loader: `src/NaxxramasCore_loader.cpp`
 - Config default: `NaxxramasCore.BotTalentImport.Enabled = 0`
 - **NO SQL/DBC installation or character update** during Phase 1. Phase 2 includes an **optional additive characters SQL migration** at `data/sql/db-characters/2026_10_10_00_bot_talent_import.sql`, which must not be installed without a database backup and explicit test planning.
-- GM commands remain available to GMs. **Regular-player NT1 preview and apply access** is opt-in using the single `AllowPlayers=0` default. The command table permits SEC_PLAYER, but the handler enforces both config permission and a same-account/direct Playerbots-master ownership check. Other players' bots cannot be targeted by name alone. Preview and apply require an online recognized Playerbot. Normal Playerbots whisper commands remain unchanged.
+- GM commands remain available to GMs. **Regular-player NT1 preview and apply access** is opt-in using the single `AllowNonGMPlayers=0` default. The command table permits SEC_PLAYER, but the handler enforces both config permission and a same-account/direct Playerbots-master ownership check. Other players' bots cannot be targeted by name alone. Preview and apply require an online recognized Playerbot. Normal Playerbots whisper commands remain unchanged.
 - **With `ApplyEnabled=0` (default), the `apply` command remains strictly READ-ONLY.** Experimental application code now exists behind `NaxxramasCore.BotTalentImport.ApplyEnabled = 1`, which is **not approved for live deployment** before compilation and comprehensive rollback tests. With the switch off it never calls `resetTalents`, `LearnTalent`, or `SaveToDB`.
 
 ### Available commands (Phase 1)
@@ -21,7 +21,7 @@
 .naxxbot talents apply <online-botname> <NT1-code>
 ```
 
-By default the second command never changes talents. In Phase 2 experimental testing, it could modify talents **only if both** the top-level enabled flag and the separate `ApplyEnabled` flag are turned on, the bot passes complete validation, the persistence table exists, and a restorable current talent snapshot can be captured. For **non-GM accounts**, `AllowPlayers=1` and the ownership/master check are required for either command. Actual application still requires the separate global `ApplyEnabled=1` safeguard. **Keep `ApplyEnabled=0` for now.**
+By default the second command never changes talents. In Phase 2 experimental testing, it could modify talents **only if both** the top-level enabled flag and the separate `ApplyEnabled` flag are turned on, the bot passes complete validation, the persistence table exists, and a restorable current talent snapshot can be captured. For **non-GM accounts**, `AllowNonGMPlayers=1` and the ownership/master check are required for either command. Actual application still requires the separate global `ApplyEnabled=1` safeguard. **Keep `ApplyEnabled=0` for now.**
 
 ### Regular-player permissions (new source; build and test pending)
 
@@ -31,19 +31,19 @@ NaxxramasCore.BotTalentImport.Enabled = 1
 
 # Optional: permit non-GMs to use preview and apply for authorised bots.
 # 0 = GM only; 1 = regular players and GMs.
-NaxxramasCore.BotTalentImport.AllowPlayers = 0
+NaxxramasCore.BotTalentImport.AllowNonGMPlayers = 0
 
 # Actual talent mutation is a separate global experiment. Keep OFF.
 NaxxramasCore.BotTalentImport.ApplyEnabled = 0
 ```
 
 - **Default behaviour:** ordinary accounts are denied both new commands with a clear reason; existing GM permissions remain as before.
-- To let ordinary players preview their bots, set `AllowPlayers=1` and leave `ApplyEnabled=0`. The `apply` command remains validation-only with that safety switch off.
+- To let ordinary players preview their bots, set `AllowNonGMPlayers=1` and leave `ApplyEnabled=0`. The `apply` command remains validation-only with that safety switch off.
 - A normal player may target their **same-account online bot** or an online Playerbot whose current AI `GetMaster()` is that player. Group membership alone, name knowledge, and another player's mastership confer no access.
-- Even when `AllowPlayers=1`, normal M2 safeguards still apply: actual application is separately gated by `ApplyEnabled=1`, rejects random bots, refuses invalid requests and must pass snapshot/schema preflight.
+- Even when `AllowNonGMPlayers=1`, normal M2 safeguards still apply: actual application is separately gated by `ApplyEnabled=1`, rejects random bots, refuses invalid requests and must pass snapshot/schema preflight.
 - The safe `SEC_PLAYER` registration is deliberate: the handler must be reachable so it can enforce the configuration and ownership checks at runtime. Never remove the per-request checks while keeping `SEC_PLAYER`.
 - Check GM access, player access disabled, own-account player preview, directly mastered player preview, other-account/master denial, random-bot rejection from apply, and configuration combinations; confirm no change to original Playerbots whispers or to other accounts.
-- **Do not enable `ApplyEnabled=1` on a live realm before full destructive-testing acceptance.** `AllowPlayers=1` by itself never changes talents. The current snapshot restoration is best-effort, not transactional.
+- **Do not enable `ApplyEnabled=1` on a live realm before full destructive-testing acceptance.** `AllowNonGMPlayers=1` by itself never changes talents. The current snapshot restoration is best-effort, not transactional.
 - The command-message cleanup now avoids AzerothCore's extra generic `### USAGE` output on handled NT1 errors. It is also source-only pending compilation.
 
 ### Why use a separate command?
