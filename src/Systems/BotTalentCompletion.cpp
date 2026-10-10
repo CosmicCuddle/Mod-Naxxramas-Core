@@ -32,6 +32,12 @@
 #include <utility>
 #include <vector>
 
+// Scope is owned by BotTalentImport.cpp; no Playerbots hooks are altered.
+namespace NaxxramasBotTalentImport
+{
+    bool IsImportOperation(Player const* bot);
+}
+
 namespace NaxxramasBotTalentCompletion
 {
     constexpr uint32 QUIET_PERIOD_MS = 1200;
@@ -680,6 +686,11 @@ public:
     bool OnPlayerCanLearnTalent(
         Player* bot, TalentEntry const* talent, uint32 rank) override
     {
+        // The importer performs its own full validation and exact post-check.
+        // Do not let an older pending Playerbots chat intent veto a rank.
+        if (NaxxramasBotTalentImport::IsImportOperation(bot))
+            return true;
+
         if (!bot || !talent || !NaxxramasBotTalentCompletion::Enabled() ||
             !NaxxramasBotTalentCompletion::IsSupportedBot(bot))
             return true;
@@ -708,6 +719,18 @@ public:
 
     void OnPlayerTalentsReset(Player* bot, bool noCost) override
     {
+        if (NaxxramasBotTalentImport::IsImportOperation(bot))
+        {
+            // Intentional NT1 imports may leave free points. Clear pending
+            // completions so they are never silently auto-filled afterwards.
+            namespace N = NaxxramasBotTalentCompletion;
+            std::lock_guard<std::mutex> lock(N::PendingMutex);
+            auto const key = bot->GetGUID().GetCounter();
+            N::Pending.erase(key);
+            N::Intents.erase(key);
+            return;
+        }
+
         if (!bot || !noCost ||
             !NaxxramasBotTalentCompletion::Enabled() ||
             !NaxxramasBotTalentCompletion::IsSupportedBot(bot))
