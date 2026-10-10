@@ -293,6 +293,14 @@ For NT1 specifically, installing `mod_naxxramas_bot_talent_import` is a separate
 
 ---
 
+#### Field verification — 10 October 2026: first NT1 in-game preview
+
+- **Reported deployment evidence:** administrator pulled and recompiled the module, restarted Worldserver, and supplied an in-game screenshot showing the new `.naxxbot talents preview` command running. The compiler output, exact installed commit SHA and Worldserver startup log have **not** been independently reviewed, so M0 is only **partially evidenced**, not fully signed off.
+- **M1 positive test PASS (one sample):** online Playerbot **Catarea (level 60 Mage)**, code `NT1:vanilla:mage:11-5.12-2.1p-3.1q-3.1r-2.1s-2.1u-3.1v-3.1w-3.1x-1.1z-1.20-1.21-3.22-2.23-5.24-3.2d-1.kl-2.19t-3.1f9-3`. Worldserver responded `NT1 valid`, `51 planned / 51 available`, `0 deliberately unspent`, `Talent trees (server tab order): 14 / 0 / 37; 20 talent entries`, and `Read-only validation: no talents have been reset or applied`.
+- **Scope of evidence:** establishes command invocation and successful read-only DBC-based validation for **this Mage code only**. No talent-application attempt or persistent-talent check was performed; status of unrelated Playerbots commands, other classes, malformed-code rejection, intentionally unused points, real talent side effects and runtime failure recovery remains **unverified**.
+- **Next safe tests:** verify active `NaxxramasCore.BotTalentImport.ApplyEnabled=0`; test preview rejection for wrong class, malformed code, invalid rank and wrong era. Test a valid 49/51 Warrior build and Vanilla Shaman/Warlock capstones. After confirming the live switch is OFF, verify that `.naxxbot talents apply` reports `APPLY DISABLED` without changing talents. Keep experimental apply off until M2 acceptance and backup requirements are met.
+- **No changes in this verification step:** server source files, DBC, SQL, or client patches; this is a documentation-only status record based on the supplied game screenshot.
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer under `1.0.6.8.5`. The most valuable next verified milestone is a clean **module compilation plus non-destructive NT1 preview test**, not prematurely enabling talent application. The code and documented Warlock/Shaman capstone corrections are in GitHub. **No evidence has been supplied that the current source revision has compiled, restarted or passed production tests.** Playerbots, AzerothCore core files and the MultiBot fork remain unchanged by this feature.
