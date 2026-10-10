@@ -129,36 +129,27 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # Naxxramas Talent Calculator -> Playerbots (NT1)
 #####################################
 
-# Phase 1 (read-only) in-game commands; GM by default:
+# NT1 commands:
 # .naxxbot talents preview <online-botname> <NT1-code>
 # .naxxbot talents apply <online-botname> <NT1-code>
 #
-# "preview" is always read-only. "apply" is read-only while
-# NaxxramasCore.BotTalentImport.ApplyEnabled=0 (the default).
-# Enabling real application is experimental and requires the
-# separately reviewed database/rollback testing first.
-#
-# Default: 0 (disabled until first build and preview tests)
+# Global master switch, required for any NT1 command.
+# Default: 0
 NaxxramasCore.BotTalentImport.Enabled = 0
 
-# Allow regular (non-GM) players to use NT1 preview and apply commands.
-# 0 = GM only
-# 1 = Regular players and GMs
-# Non-GMs may target only their same-account bots or directly mastered bots.
-# Actual talent application remains separately disabled unless
-# NaxxramasCore.BotTalentImport.ApplyEnabled=1 (experimental; keep OFF).
-# Requires NaxxramasCore.BotTalentImport.Enabled=1.
+# Controls BOTH who may use the system and whether builds may be applied.
+# 0 = GM accounts only; preview mode (no talent changes)
+# 1 = All players; preview mode (no talent changes)
+# 2 = GM accounts only; preview + experimental apply
+# 3 = All players; preview + experimental apply
+#
+# Modes 2 and 3 are EXPERIMENTAL. Do NOT use on a live realm until
+# the characters database is backed up and application/rollback testing
+# has been reviewed. Existing talent snapshots are NOT transactional.
+# Non-GM users may target only a same-account or directly mastered bot.
+# Invalid values are treated as mode 0 (GM preview only).
 # Default: 0
-NaxxramasCore.BotTalentImport.AllowNonGMPlayers = 0
-
-# Phase 2 EXPERIMENTAL: actually reset and apply an NT1 build after checking
-# current talents can be snapshotted and restored. Stores successful builds
-# in a separate characters database table. Manual SQL migration required.
-# Do not enable on a live realm: automatic Playerbots full maintenance
-# protection, full rollback tests and build verification are NOT complete.
-# Use only after backed-up test realm review.
-# Default: 0
-NaxxramasCore.BotTalentImport.ApplyEnabled = 0
+NaxxramasCore.BotTalentImport.AccessMode = 0
 
 #####################################
 # Playerbot Talent Completion
