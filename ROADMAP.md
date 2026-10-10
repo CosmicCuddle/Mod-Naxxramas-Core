@@ -427,6 +427,13 @@ For NT1 specifically, installing `mod_naxxramas_bot_talent_import` is a separate
 - **Next safe step:** confirm whether Husapze is a random Playerbot and intended apply target, capture a read-only snapshot of Husapze's current GUID, active spec, talents and relevant known spells in HeidiSQL, and confirm recoverability of the user's full `acore_characters` backup. For a random bot, verify the human GM and bot are in the same group with appropriate AI master/group-leader authority. Only then attempt experimental `apply` with an explicit understanding that existing talents may change and Playerbots may rerandomise them.
 - **No source, SQL or config changes were performed by this verification note.**
 
+#### Field verification — 10 October 2026: Husapze identified as random Playerbot
+
+- The administrator confirmed that **Husapze**, whose level-60 Mage NT1 read-only preview passed at 51/51 points and distribution 14/0/37 after the new grouped-random-bot source was reportedly rebuilt, is a **random Playerbot**.
+- **Candidate selection:** Husapze replaces Ido as the current planned random-bot application candidate. No talent mutation has been reported; full backup existence is reported, restore path is still unverified.
+- **Next step:** inspect `SELECT guid, name, class, level FROM characters WHERE name='Husapze';` in live `acore_characters`, then export/record the current talent and relevant spell rows by GUID and active spec before any destructive attempt. Keep Husapze alive, out of combat, grouped with the human issuing the command and actively mastered by that player (or allow the group-leader fallback only if the AI master is null).
+- **Safety:** latest random-bot grouped apply is source-committed and user-reported rebuilt but has not yet demonstrated actual application, restoration or persistent session behavior. Do not mark random-bot M2 acceptance as passed.
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer 1.0.6.8.5. Ido (random level-60 Mage) successfully passed preview (51/51, 14/0/37), but the previous importer correctly blocked destructive random-bot apply. **New grouped random-bot apply source is now committed to GitHub but has not been pulled, compiled or tested on the live realm.** Alt Bots retain their prior experimental path. Both AccessMode 1 (GM) and 2 (authorised players) expose real talent mutation; normal-player/party-master permissions, snapshot recovery, random-bot transient behaviour and persistence remain unverified. A full characters backup was reported and schema inspection passed, but successful restoration is not yet proven. Limit any live-only trial to a disposable bot and an explicit recovery plan, and never claim long-term or party-time talent persistence until tested.
