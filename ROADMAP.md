@@ -368,6 +368,14 @@ For NT1 specifically, installing `mod_naxxramas_bot_talent_import` is a separate
 - **Next controlled stage:** determine a new disposable, non-random Playerbot on a normal bot account (bot name, class, level, GUID, current active spec), record its original talents/related spells and plan for recovery if `resetTalents(true)` is interrupted. Do not use valuable Mage Catarea for initial mutation tests.
 - **Never mark M2 apply/persistence/rollback passed from a schema check.** `AccessMode=1/2` enables experimental `apply`; keep live risk explicit. No SQL/DBC/config modifications or talent changes occurred here.
 
+#### NT1 initial application candidate — Ido (administrator selection)
+
+- The administrator selected **Ido**, reported as a **level-60 Mage**, as the proposed first NT1 apply-test bot on the existing live realm. This is **candidate selection only**; no application is authorised by it.
+- **Pending confirmation:** verify Ido is an online **non-random, account-controlled** Playerbot and not a valued character. The experimental importer rejects random bots when attempting to apply.
+- **Immediate non-destructive action:** GM runs `.naxxbot talents preview Ido NT1:vanilla:mage:11-5.12-2.1p-3.1q-3.1r-2.1s-2.1u-3.1v-3.1w-3.1x-1.1z-1.20-1.21-3.22-2.23-5.24-3.2d-1.kl-2.19t-3.1f9-3`; expected 51 planned/51 available and 14/0/37. Do not claim this preview passed until an in-game result is supplied.
+- **Before any destructive command:** record Ido's DB GUID, active spec, existing talents/spells and whether dual spec exists; validate that the administrator's reported full characters backup can actually be restored. The custom-profile table exists and `DESCRIBE` column data matched, but these facts alone do not validate character recovery.
+- **Test discipline:** keep experimental `.naxxbot talents apply` unused until these prerequisites, the risk of a non-transactional reset, and an explicit test go-ahead are established. Record the first result here.
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer for 1.0.6.8.5. The administrator reports a successful newer recompile/restart and supplied a screenshot confirming **read-only Mage preview PASS (51/51, 14/0/37) again**. The new single-setting AccessMode source is deployed according to the administrator, but the exact installed commit and logs were not independently verified. Earlier wrong-class rejection passed on a previous revision. Both AccessMode 1 (GMs) and 2 (authorised players) expose **experimental talent-mutating `apply`**, and their full permission behavior remains untested. **Before any live-apply test**, confirm a restorable full characters DB backup, table state, disposable non-random test bot and recovery procedure. Full rollback, persistence and Playerbots maintenance protection remain unverified.
