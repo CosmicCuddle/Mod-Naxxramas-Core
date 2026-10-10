@@ -2,6 +2,9 @@
 
 ## 1.0.6.8.5 — NT1 Playerbot talent integration (development, Phases 1–2)
 
+- **Read-only NT1 field checks (10 October 2026):** a level-60 Mage Playerbot successfully previewed a full 51/51 Vanilla build (14/0/37), while a Warrior NT1 code was rejected for the same Mage. These are narrow verified outcomes, not a sign-off for every class or for talent application.
+- **Command output cleanup (source pending next build):** when an NT1 request is rejected or an apply attempt is aborted with a descriptive chat message, the Naxxramas Core handler now returns a handled command result rather than triggering AzerothCore's additional generic `### USAGE` and missing-help warning. No talent permissions, data, reset, validation or application behaviour changed. This cleanup still requires pulling, compiling and in-game retesting.
+
 - Introduced server-side NT1 base-36 talent decoder and read-only `.naxxbot talents preview <botname> <code>` in Naxxramas Core.
 - Staged separately disabled `.naxxbot talents apply` routine to validate a build and current-state snapshot **before** any destructive reset, learn desired ranks, audit exact results and remaining points, and attempt recovery on unexpected failure.
 - Added importer-scoped handling of the single off-centre TBC capstone (Divine Illumination), without altering normal Playerbots template rules. Prevents the module's optional talent completion feature filling intentional unspent NT1 points during an import.
@@ -9,7 +12,7 @@
 - Corrected Vanilla Warlock Affliction: **Contagion** (Talent 1669) is the centre-column capstone, not **Dark Pact** (1022). Removed the former Vanilla Dark Pact importer exception; Dark Pact remains selectable from TBC. Existing incorrect Vanilla codes are rejected rather than silently remapped.
 - Added optional characters SQL `mod_naxxramas_bot_talent_import` table to store successfully applied NT1 codes. **SQL is not installed automatically.** Full persistence through Playerbots randomization is still a development requirement.
 - Read-only preview is disabled by default; **applying talents has its own second disabled switch** `NaxxramasCore.BotTalentImport.ApplyEnabled=0`. Not authorized for live deployment before compilation, rollback and maintenance testing; random bots are rejected during this experimental phase.
-- **No changes to mod-playerbots, AzerothCore, Individual Progression or MultiBot.** Experimental, not compiled or live-tested; documentation in `docs/PLAYERBOT-NT1-TALENT-IMPORT.md`.
+- **No changes to mod-playerbots, AzerothCore, Individual Progression or MultiBot.** The administrator reports a successful module recompile and restart, and supplied narrow read-only NT1 in-game evidence; experimental talent application remains **not tested or approved**. Documentation: `docs/PLAYERBOT-NT1-TALENT-IMPORT.md`.
 - Classified as **Change Notes 1.0.6.8.5**, not Patch Notes (no DBC edits).
 
 
