@@ -4,7 +4,8 @@
 
 - Introduced server-side NT1 base-36 talent decoder and read-only `.naxxbot talents preview <botname> <code>` in Naxxramas Core.
 - Staged separately disabled `.naxxbot talents apply` routine to validate a build and current-state snapshot **before** any destructive reset, learn desired ranks, audit exact results and remaining points, and attempt recovery on unexpected failure.
-- Added importer-scoped handling of three special off-centre Vanilla/TBC end capstones, without altering normal Playerbots template rules. Prevents the module's optional talent completion feature filling intentional unspent NT1 points during an import.
+- Added importer-scoped handling of two special off-centre Vanilla/TBC end capstones, without altering normal Playerbots template rules. Prevents the module's optional talent completion feature filling intentional unspent NT1 points during an import.
+- Synced the importer with the corrected calculator: Vanilla Enhancement's final talent is **Dual Wield** (Talent 1690), not Stormstrike (901). Stormstrike is only admitted from TBC onward; no change to NT1 code encoding. Previous Vanilla Stormstrike codes are rejected rather than silently remapped.
 - Added optional characters SQL `mod_naxxramas_bot_talent_import` table to store successfully applied NT1 codes. **SQL is not installed automatically.** Full persistence through Playerbots randomization is still a development requirement.
 - Read-only preview is disabled by default; **applying talents has its own second disabled switch** `NaxxramasCore.BotTalentImport.ApplyEnabled=0`. Not authorized for live deployment before compilation, rollback and maintenance testing; random bots are rejected during this experimental phase.
 - **No changes to mod-playerbots, AzerothCore, Individual Progression or MultiBot.** Experimental, not compiled or live-tested; documentation in `docs/PLAYERBOT-NT1-TALENT-IMPORT.md`.
