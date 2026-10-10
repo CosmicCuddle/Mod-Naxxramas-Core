@@ -129,7 +129,7 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # Naxxramas Talent Calculator -> Playerbots (NT1)
 #####################################
 
-# Phase 1 (read-only) GM commands:
+# Phase 1 (read-only) in-game commands; GM by default:
 # .naxxbot talents preview <online-botname> <NT1-code>
 # .naxxbot talents apply <online-botname> <NT1-code>
 #
@@ -141,6 +141,20 @@ NaxxramasCore.ForcedPvP.Notify = 1
 #
 # Default: 0 (disabled until first build and preview tests)
 NaxxramasCore.BotTalentImport.Enabled = 0
+
+# Allow regular (non-GM) players to preview NT1 talent codes.
+# Only bots owned by their account or explicitly mastered by their character
+# can be targeted. Being in the same party is NOT enough.
+# Requires BotTalentImport.Enabled=1. GM access remains unchanged.
+# Default: 0
+NaxxramasCore.BotTalentImport.AllowPlayers = 0
+
+# Separate permission for normal players to request "talents apply".
+# This does NOT turn talent application on. Actual application also requires
+# BotTalentImport.ApplyEnabled=1 and its independent safety preflight.
+# KEEP OFF while experimental apply/recovery testing is unfinished.
+# Default: 0
+NaxxramasCore.BotTalentImport.AllowPlayerApply = 0
 
 # Phase 2 EXPERIMENTAL: actually reset and apply an NT1 build after checking
 # current talents can be snapshotted and restored. Stores successful builds
