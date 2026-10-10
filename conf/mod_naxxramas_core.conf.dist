@@ -126,6 +126,23 @@ NaxxramasCore.ForcedPvP.IncludeBots = 1
 NaxxramasCore.ForcedPvP.Notify = 1
 
 #####################################
+# Naxxramas Talent Calculator -> Playerbots (NT1)
+#####################################
+
+# Phase 1 (read-only) GM commands:
+# .naxxbot talents preview <online-botname> <NT1-code>
+# .naxxbot talents apply <online-botname> <NT1-code>
+#
+# BOTH commands are VALIDATION ONLY in Phase 1.
+# "apply" does NOT reset, allocate or save talents yet.
+# No SQL/DBC updates are used by the read-only validator.
+# Do not expect in-game application until the separately
+# reviewed persistence/rollback phase is complete.
+#
+# Default: 0 (disabled until first build and preview tests)
+NaxxramasCore.BotTalentImport.Enabled = 0
+
+#####################################
 # Playerbot Talent Completion
 #####################################
 
