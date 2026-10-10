@@ -473,6 +473,12 @@ FROM character_spell WHERE guid=73209 ORDER BY spell;
 - **Remaining acceptance work:** failure/snapshot restore, non-GM AccessMode 2, attempts against a non-master/ungrouped random bot, normal Alt Bot apply, cross-class/capstone tests, unspent points, bot spell and AI usage, natural rerandomisation after group leave and while grouped. The feature is still **experimental**, not a fully accepted release.
 - **No new code, SQL, DBC or config changes are needed based solely on this successful command response.** Keep work isolated to the module and documentation.
 
+#### Follow-up visual confirmation — 10 October 2026: Zevon 14/0/37 talents verified
+
+- Administrator subsequently **confirmed that Zevon's actual talent build shows the intended 14/0/37 distribution** following `.naxxbot talents apply Zevon ...`, supplementing the previous success message `51 spent / 0 unspent`.
+- **Status raised from command-level-only to command-level + user-reported visual distribution PASS**, but no independently supplied talent-window screenshot or spell/rotation audit; cross-class behavior, non-GM authorization, persistence/rerandomisation and interrupted-reset rollback are **still untested**.
+- The administrator also requested a brief Discord how-to covering the calculator URL, copying an NT1 code, bot grouping/control for randoms, `.naxxbot talents apply BotName NT1:...`, AccessMode/GM permissions and random-bot session scope. No additional source, config or SQL edits required.
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer 1.0.6.8.5. **FIRST SUCCESSFUL LIVE RANDOM PLAYERBOT NT1 APPLY:** the user reported `NT1 build applied to Zevon: 51 spent / 0 unspent`, followed by the expected session-scope warning. Zevon was the replacement test bot after Husapze (random level-60 Mage; read-only preview 51/51, 14/0/37; original GUID 73209) logged out. Original Ido rejection and Husapze preview were prior test results; Zevon's command-level talent apply succeeded after a user-reported pull, recompile and restart. **Not yet independently observed:** Zevon's talent window/AI spells, elapsed-party rerandomisation behavior, non-GM permission matrix, interrupted failure and fully recoverable rollback. Alt Bot apply is also not acceptance-tested. Experimental implementation is not yet released/production-ready; random-bot NT1 profile remains session-scoped and can be overwritten by Playerbots.
