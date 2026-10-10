@@ -1,7 +1,7 @@
 # Naxxramas Talent Calculator -> Playerbots (NT1)
 ## Change Notes 1.0.6.8.5 — Phase 1: read-only validation
 
-**Development status:** source committed; **NOT YET COMPILED, RUN OR VERIFIED ON THE LIVE SERVER**.
+**Development status:** Phase 1 preview plus experimental Phase 2 apply source committed; **NOT YET COMPILED, RUN OR VERIFIED ON THE LIVE SERVER**. Both are disabled by default, with separate configuration switches. The actual apply routine has not passed acceptance testing. Do not enable apply on your live realm yet.
 
 **Absolute rule:** No modification to `mod-playerbots`, AzerothCore or Individual Progression source files. MultiBot addon integration is postponed until the server command actually works and has passed tests.
 
@@ -10,9 +10,9 @@
 - Source: `src/Systems/BotTalentImport.cpp` (new CommandScript)
 - Loader: `src/NaxxramasCore_loader.cpp`
 - Config default: `NaxxramasCore.BotTalentImport.Enabled = 0`
-- **NO SQL/DBC installation or character update** during Phase 1.
+- **NO SQL/DBC installation or character update** during Phase 1. Phase 2 includes an **optional additive characters SQL migration** at `data/sql/db-characters/2026_10_10_00_bot_talent_import.sql`, which must not be installed without a database backup and explicit test planning.
 - GM-only; target must be an online Playerbot. Normal Playerbots commands remain unchanged.
-- **The `apply` command is RESERVED and CURRENTLY READ-ONLY**. It calls the same decoder and preview, then reports that apply is not implemented; it does **not** call `resetTalents`, `LearnTalent`, or `SaveToDB`.
+- **With `ApplyEnabled=0` (default), the `apply` command remains strictly READ-ONLY.** Experimental application code now exists behind `NaxxramasCore.BotTalentImport.ApplyEnabled = 1`, which is **not approved for live deployment** before compilation and comprehensive rollback tests. With the switch off it never calls `resetTalents`, `LearnTalent`, or `SaveToDB`.
 
 ### Available commands (Phase 1)
 
@@ -21,7 +21,7 @@
 .naxxbot talents apply <online-botname> <NT1-code>
 ```
 
-The second command never changes talents until a later, separately tested implementation. This is a safety property, not an installation mistake.
+By default the second command never changes talents. In Phase 2 experimental testing, it could modify talents **only if both** the top-level enabled flag and the separate `ApplyEnabled` flag are turned on, the bot passes complete validation, the persistence table exists, and a restorable current talent snapshot can be captured. **Keep `ApplyEnabled=0` for now.**
 
 ### Why use a separate command?
 
@@ -59,14 +59,33 @@ The website also supplies `?level=` separately in share links; that level is not
 
 `src/Systems/BotTalentCompletion.cpp` can spend leftover talent points after Playerbots rescpecs when `NaxxramasCore.BotTalentCompletion.Enabled=1`. An exact 49/51 NT1 build must **not** be filled to 51/51. The importer needs a module-owned explicit-intent/lock shared with the completion script before applying.
 
-## Phase 2 — Not implemented or approved for activation
+## Phase 2 — Experimental code staged, NOT approved for activation
 
-- Add full preflight simulation against current talent trees and module policies, and a diff preview versus current active spec.
-- Snapshot the bot's exact active spec and dependent spells before reset. Backup characters database before any live test.
-- Implement a normal AzerothCore `resetTalents(true)` and `LearnTalent(talentId, rank-1)` application **only after full validation**.
-- Verify every resulting selected rank and absence of old active-spec talent ranks; if a runtime failure occurs, attempt restoration from snapshot and report incomplete recovery prominently. There is **no built-in atomic reset+apply transaction**.
-- Persist approved custom build in a **new, clearly named Naxxramas Core characters DB table** (additive SQL migration, rollback instructions, no Playerbots schema modifications) keyed by bot GUID + spec slot.
-- Coordinate bot talent completion so explicitly unspent points are preserved.
+The opt-in application source is now committed and remains **off by default**. It:
+- Rejects mismatched level-based eras and random bots until their full-maintenance behaviour is proven safe.
+- Refuses to reset an invalid existing talent configuration if that configuration cannot be recreated through AzerothCore's public talent API.
+- Checks whether the Naxxramas-owned persistence table exists **before** a reset.
+- Uses `Player::resetTalents(true)` and `Player::LearnTalent(talentId, rank - 1)` with an importer-only scope marker.
+- Checks exact final class talent ranks and the intentionally unspent points, and attempts to restore the original snapshot if a runtime talent learn unexpectedly fails.
+- Persists a successfully applied NT1 code separately for future protection. Normal character talents are saved using `Player::SaveToDB(false, false)`.
+- Coordinates with `BotTalentExpansionLimits.cpp` so only the exact website capstone exceptions are permitted during importer-owned application, not normal Playerbots workflows.
+- Coordinates with `BotTalentCompletion.cpp` so that explicit NT1 imports do not trigger delayed automatic filling of unspent points.
+
+**Critical:** The snapshot restore is NOT a database transaction. If the fallback restoration fails or Worldserver crashes between reset and verification, some state might be lost. A SQL row containing the desired profile also does **not** yet guarantee protection from a future Playerbots full randomisation, which can trigger a reset before the importer's maintenance protection code exists. The later phase below is needed before calling this production-ready.
+
+### Installation (not approved yet)
+
+1. Take a full backup of your characters DB and active configs.
+2. Only on a separate backed-up test realm, apply the optional SQL file `data/sql/db-characters/2026_10_10_00_bot_talent_import.sql`.
+3. Pull and compile the latest Naxxramas Core module.
+4. Keep both switches OFF while first checking a successful compilation.
+5. Set `NaxxramasCore.BotTalentImport.Enabled=1` for read-only preview tests; leave `NaxxramasCore.BotTalentImport.ApplyEnabled=0`.
+6. Only after the rollback recovery path has been reviewed and tested should a disposable-bot test use `ApplyEnabled=1`.
+
+### Phase 3 — Persistent protection and other work still not implemented
+
+- Prove snapshot and restored talent spell/auras are correct after a full respec, including spells learned indirectly and dual-spec class state. Preflight currently checks talent ranks, not every derived aura/spell side effect.
+- Verify SQL persistence with the full Playerbot lifecycle across relogs and restarts, and handle deletion/stale rows.
 - Existing `OnPlayerTalentsReset` does **not** veto a Playerbots reset, so automated maintenance can temporarily change talents. Investigate module-hook learning guard + delayed post-maintenance reconciliation; prove online/relog/restart and random-bot behaviour before making guarantees.
 - Introduce safe error messages and explicit confirmation only after acceptance tests.
 - Preserve normal Playerbots whispers and existing spec actions; no upsteam Playerbots patch.
