@@ -47,7 +47,7 @@ The website also supplies `?level=` separately in share links; that level is not
 2. Decode base-36 IDs with overflow protection; reject duplicate IDs, empty fragments, malformed ranks and oversized codes.
 3. Resolve actual loaded server `Talent.dbc` ID, class's `TalentTab.dbc` mask, rank `Spell.dbc` IDs, and each spell's `SpellInfo`.
 4. Enforce the selected era's level cap: Vanilla <= 60, TBC <= 70, WotLK <= 80, and a minimum level of 10. Death Knights require WotLK.
-5. Enforce website row/position rules: Vanilla first six full rows plus final capstone, TBC first eight full rows plus capstone, WotLK all rows. Handle the two off-centre exceptions: Vanilla Dark Pact (tab 302/talent 1022) and TBC Divine Illumination (tab 382/talent 1747). Vanilla Enhancement instead uses its normal centre-column capstone **Dual Wield** (Talent.dbc ID 1690, tab 263); **Stormstrike** (ID 901) is a side-row talent unavailable in Vanilla but available from TBC.
+5. Enforce website row/position rules: Vanilla first six full rows plus final capstone, TBC first eight full rows plus capstone, WotLK all rows. Handle the sole off-centre exception: TBC Divine Illumination (tab 382/talent 1747). In Vanilla, Shaman Enhancement uses centre-column **Dual Wield** (Talent.dbc ID 1690, tab 263), not **Stormstrike** (901). Warlock Affliction uses centre-column **Contagion** (Talent.dbc ID 1669, tab 302), not **Dark Pact** (1022). Both Stormstrike and Dark Pact are side talents unavailable in Vanilla but available from TBC.
 6. Reject unknown or unsatisfied DBC talent prerequisites (zero-based DependsOnRank).
 7. Check total spent points against the bot's **real** `CalculateTalentsPoints()` (not a hardcoded 51).
 8. Find a legal learning sequence using prerequisite dependencies and five earlier-tree-row points per unlocked row. This is a pure preflight: the validator never learns anything.
@@ -55,7 +55,7 @@ The website also supplies `?level=` separately in share links; that level is not
 
 ## Key limitation discovered in existing Naxxramas Core
 
-`src/Systems/BotTalentExpansionLimits.cpp` mirrors Playerbots' level-based row restriction and generally allows only **column 1** on final rows. That conflicts with the two off-centre calculator capstones listed above. It must be reconciled **inside Naxxramas Core only** before activating the actual apply feature, without globally relaxing the old guard for unrelated Playerbots builds.
+`src/Systems/BotTalentExpansionLimits.cpp` mirrors Playerbots' level-based row restriction and generally allows only **column 1** on final rows. That conflicts with the single off-centre TBC capstone listed above. It must be reconciled **inside Naxxramas Core only** before activating the actual apply feature, without globally relaxing the old guard for unrelated Playerbots builds.
 
 `src/Systems/BotTalentCompletion.cpp` can spend leftover talent points after Playerbots rescpecs when `NaxxramasCore.BotTalentCompletion.Enabled=1`. An exact 49/51 NT1 build must **not** be filled to 51/51. The importer needs a module-owned explicit-intent/lock shared with the completion script before applying.
 
@@ -96,7 +96,7 @@ The opt-in application source is now committed and remains **off by default**. I
 Do not enable application merely because Phase 1 compiles. Test on disposable online bots in a backed-up test realm:
 
 - Valid 49-point level-60 Warrior NT1 code; 2 points remain when application is eventually enabled.
-- All available classes and deliberately unspent points, and the two off-centre capstones, Vanilla Dual Wield (1690), and rejection of Vanilla Stormstrike (901).
+- All available classes and deliberately unspent points, and the one off-centre TBC capstone, Vanilla Dual Wield (1690) and Contagion (1669), and rejection of Vanilla Stormstrike (901) and Dark Pact (1022).
 - Custom talent 3000 (Rend Flurry), other modified trees/rank spells, empty and missing-rank data.
 - Wrong class, malformed/version mismatch, duplicate talent IDs, impossible ranks, missing dependencies, too many points, level/era mismatch: **no resets**.
 - Existing build -> replacement; pre-existing dependent spells properly removed.
