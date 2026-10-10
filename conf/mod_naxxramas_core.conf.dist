@@ -129,25 +129,22 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # Naxxramas Talent Calculator -> Playerbots (NT1)
 #####################################
 
-# NT1 commands:
+# Controls who can use the NT1 Playerbot Talent Import system.
+#
+# 0 = Disabled
+# 1 = GM accounts only (preview and experimental apply)
+# 2 = All players (preview and experimental apply)
+#
+# Both enabled modes allow talent application. Applying builds is still
+# EXPERIMENTAL: back up the characters DB and verify a recovery procedure
+# before enabling on a live realm. An interrupted reset is not transactional.
+# Non-GMs may target only their same-account bots or directly mastered bots.
+# Invalid values fail closed to 0 (disabled).
+#
+# Commands:
 # .naxxbot talents preview <online-botname> <NT1-code>
 # .naxxbot talents apply <online-botname> <NT1-code>
 #
-# Global master switch, required for any NT1 command.
-# Default: 0
-NaxxramasCore.BotTalentImport.Enabled = 0
-
-# Controls BOTH who may use the system and whether builds may be applied.
-# 0 = GM accounts only; preview mode (no talent changes)
-# 1 = All players; preview mode (no talent changes)
-# 2 = GM accounts only; preview + experimental apply
-# 3 = All players; preview + experimental apply
-#
-# Modes 2 and 3 are EXPERIMENTAL. Do NOT use on a live realm until
-# the characters database is backed up and application/rollback testing
-# has been reviewed. Existing talent snapshots are NOT transactional.
-# Non-GM users may target only a same-account or directly mastered bot.
-# Invalid values are treated as mode 0 (GM preview only).
 # Default: 0
 NaxxramasCore.BotTalentImport.AccessMode = 0
 
