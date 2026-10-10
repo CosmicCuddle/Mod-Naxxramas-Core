@@ -1,7 +1,7 @@
 # Naxxramas Talent Calculator -> Playerbots (NT1)
 ## Change Notes 1.0.6.8.5 — Phase 1 preview and experimental Phase 2 apply
 
-**Development status:** A level-60 Mage build passed read-only preview for Catarea and random Playerbot Ido, and the old random-bot `apply` guard correctly rejected Ido in-game. A new **grouped random-bot application** path is now committed in Naxxramas Core only, but has **not been compiled, deployed or tested**. Experimental application remains unapproved for general live use; keep a recoverable `acore_characters` backup and test only a disposable, player-controlled bot.
+**Development status (10 October 2026):** Read-only Mage previews passed in-game, and the former random-bot rejection was verified on Ido. The administrator then **pulled, compiled and restarted** the guarded grouped-random-bot implementation and supplied a screenshot showing its **first successful experimental application** to random Playerbot **Zevon**: `NT1 build applied to Zevon: 51 spent / 0 unspent.` The system also displayed the intended warning that the random bot has **no permanent NT1 profile**. This confirms a narrow live happy path, **not** a production-ready feature: independent talent-window inspection, learned spells, randomisation behavior, non-GM authorization and rollback remain unverified. Retain restorable `acore_characters` backups.
 
 **Absolute rule:** No modification to `mod-playerbots`, AzerothCore or Individual Progression source files. MultiBot addon integration is postponed until the server command actually works and has passed tests.
 
@@ -41,7 +41,7 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
 - Test modes 0/1/2, bot ownership, forbidden targets, unexpected command-help output, and successful read-only preview. Test real application only when the remaining M2 criteria are satisfied.
 
-### Grouped random Playerbots (new, untested apply path)
+### Grouped random Playerbots (first live apply passed; remaining cases untested)
 
 The NT1 importer now has two application cases under the existing `AccessMode` setting; **no additional config option** is needed.
 
@@ -50,13 +50,19 @@ The NT1 importer now has two application cases under the existing `AccessMode` s
 - The random-bot case runs the **same** NT1 class/era/DBC/rank preflight, existing-build snapshot check, exact talent learning verification and best-effort rollback as the Alt Bot case; it still refuses applications when the bot is dead or in combat.
 - Successful random-bot application **does not insert/update the desired NT1 code in the persistent profile table**, so it will not intentionally lock a build into future randomised sessions. The normal character talents are still saved to the characters DB; **leaving the party does not immediately restore the old build**.
 - Standard Playerbots background or full randomisation can **still replace the imported talents**, potentially **even while the bot remains in the party**. This release does not suppress randomisation or automatically reapply an overridden build, and no session-long persistence guarantee is claimed.
-- `preview` remains available for any eligible online Playerbot and **never changes talents**. A test application to Ido must wait for the new source to compile and Worldserver to restart.
+- `preview` remains available for any eligible online Playerbot and **never changes talents**. After a reported successful pull/compile/restart, the administrator applied a full Mage NT1 build to **Zevon**, a grouped random Playerbot. Game chat reported **51 spent, 0 unspent** and the nonpersistent-profile warning. This is a successful experimental command-level field test; it does not verify persistent talents or every class.
 - Test session master binding, a GM applying to its own party's random bot, non-GM ownership restrictions, random bot without the issuer in the group, foreign master, dead/combat/invalid requests, exact learned ranks, spell side effects, mid-party randomisation, group exit, relog/restart and fallback restoration before calling the feature stable.
 - The normal `AccessMode=0/1/2` options remain unchanged. The existing full characters database backup and a recoverable copy of the specific test bot's original talents are prerequisites for a live-only trial.
 
 ### Why use a separate command?
 
 Playerbots' original whispered `talents apply <positional link>` format does not accept the calculator's `NT1` format. The new command is managed wholly by Naxxramas Core's built-in CommandScript API. The eventual MultiBot fork can call it, with permission checks remaining server-side.
+
+### First live positive application — Zevon (10 October 2026)
+
+The administrator supplied a screenshot confirming `NT1 build applied to Zevon: 51 spent / 0 unspent.`, followed by the explicit message `Random Playerbot: session-scoped build only. Playerbots may replace talents during randomization; no permanent NT1 profile was saved.` Zevon replaced Husapze as a test target after Husapze logged out.
+
+This confirms the **successful command-level grouped random Playerbot apply path** and its calculated full 51-point spend. It is **not** proof that the Mage talent window was separately inspected, that the bot used all intended talent abilities, that group-time rerandomisation is prevented, or that recovery from an interrupted application works. Those remain future acceptance tests. No broad permission change or permanent random-bot profile lock is implied.
 
 ## NT1 wire format
 
