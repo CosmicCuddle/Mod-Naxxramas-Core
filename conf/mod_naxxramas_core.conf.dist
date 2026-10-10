@@ -146,6 +146,12 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # Every NT1 apply REQUIRES the build to spend ALL talent points available
 # to the bot's current level (as calculated by the server). Incomplete
 # builds are rejected before a talent reset; preview shows a warning.
+# The talent code's era must also EXACTLY match the issuing character's
+# Individual Progression expansion: Vanilla (< stage 8), TBC (8-12),
+# WotLK (13+). This applies to GMs, Alt Bots and Random Playerbots.
+# Both preview and apply reject wrong-era codes; no talents are reset.
+# When IndividualProgression.Enable=0, the existing bot-level era
+# restrictions still apply without a player-progression restriction.
 # This does not affect normal Playerbots talent templates or whispers.
 # Invalid values fail closed to 0 (disabled).
 #
