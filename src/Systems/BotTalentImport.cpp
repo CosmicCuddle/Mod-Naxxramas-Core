@@ -588,6 +588,19 @@ namespace NaxxramasBotTalentImport
             return false;
         }
 
+        // Fail closed if the module-owned persistence table is missing.
+        // Database deployment is an explicit, backed-up administrator step.
+        if (!CharacterDatabase.Query(
+                "SELECT 1 FROM information_schema.TABLES "
+                "WHERE TABLE_SCHEMA = DATABASE() "
+                "AND TABLE_NAME = 'mod_naxxramas_bot_talent_import' LIMIT 1"))
+        {
+            error = "Missing characters DB table "
+                    "mod_naxxramas_bot_talent_import. "
+                    "Apply the reviewed SQL migration before testing.";
+            return false;
+        }
+
         // A legacy-invalid talent snapshot may not be restorable through
         // the normal talent API. Refuse to reset when that is the case.
         std::string const previous = EncodeExisting(bot, requested.Progression);
@@ -756,8 +769,13 @@ public:
         }
 
         std::string name, code, error;
-        if (!NaxxramasBotTalentImport::ReadArguments(args, name, code) ||
-            !NaxxramasBotTalentImport::ApplyValidated(bot, code, build, error))
+        if (!NaxxramasBotTalentImport::ReadArguments(args, name, code))
+        {
+            handler->SendSysMessage("Invalid talent import arguments.");
+            return false;
+        }
+
+        if (!NaxxramasBotTalentImport::ApplyValidated(bot, code, build, error))
         {
             handler->PSendSysMessage("NT1 apply aborted: {}", error);
             return false;
