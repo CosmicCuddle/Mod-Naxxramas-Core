@@ -23,7 +23,7 @@
 
 An active mode always exposes both commands: preview validates without changes; apply calls the experimental mutation code after its database, **random-bot party/master eligibility**, and restorable-snapshot checks. **AccessMode 0 is the only no-application configuration.** This is intentional to keep the configuration concise; it also means live read-only testing should be completed before switching modes.
 
-### Single access setting (source updated; compile and in-game tests pending)
+### Single access setting (GM apply tested; broader permissions still pending)
 
 ```ini
 # 0 = Disabled
@@ -36,10 +36,10 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - **Mode 0 (default):** both commands are disabled for GMs and ordinary players. It is the safe rollback setting, but does not undo previously changed character talents.
 - **Mode 1:** GMs may preview and apply NT1 codes to eligible online Playerbots. Non-GMs cannot use either command.
 - **Mode 2:** GMs and non-GMs may preview and apply. Non-GMs must control the bot through the same account or be its current Playerbots AI master; group membership or knowing the bot name does not grant permission.
-- Both active modes permit actual talent modification. Use them **only after a verified characters database backup and an agreed disposable-bot test and recovery procedure**. Grouped random bots are additionally restricted to the invoking real player who currently controls them; this new path remains uncompiled and untested.
+- Both active modes permit actual talent modification. Use them **only after a verified characters database backup and an agreed disposable-bot test and recovery procedure**. Grouped random bots are additionally restricted to the invoking real player who currently controls them. This path passed its first live happy-path test on Zevon, but permissions, maintenance and rollback remain unverified.
 - Out-of-range configuration values are treated as mode 0.
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
-- Test modes 0/1/2, bot ownership, forbidden targets, unexpected command-help output, and successful read-only preview. Test real application only when the remaining M2 criteria are satisfied.
+- Test modes 0/1/2, bot ownership, forbidden targets, unexpected command-help output, and read-only preview. One fully allocated Random Playerbot application passed on Zevon; incomplete-point refusal and broader M2 cases remain to be tested after the next compile.
 
 ### Complete talent allocation rule (new source, awaiting next recompile)
 
@@ -107,7 +107,7 @@ The website also supplies `?level=` separately in share links; that level is not
 
 `src/Systems/BotTalentCompletion.cpp` can spend leftover talent points after Playerbots rescpecs when `NaxxramasCore.BotTalentCompletion.Enabled=1`. **New policy:** a 49/51 NT1 build cannot be applied at all; the player must complete it first. Import scope coordination remains necessary to keep validation/rollback and regular Playerbots completion separate.
 
-## Phase 2 — Experimental code staged, NOT approved for activation
+## Phase 2 — Experimental code with one successful Random Playerbot apply, NOT production-approved
 
 The opt-in application source is now committed and remains **off by default**. It:
 - Rejects mismatched level-based eras; random bots must have a genuine human group controller as above, rather than an unconditional block.
