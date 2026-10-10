@@ -1,7 +1,7 @@
 # Naxxramas Talent Calculator -> Playerbots (NT1)
 ## Change Notes 1.0.6.8.5 — Phase 1 preview and experimental Phase 2 apply
 
-**Development status:** Phase 1 preview plus experimental Phase 2 apply source committed; **NOT YET COMPILED, RUN OR VERIFIED ON THE LIVE SERVER**. Both are disabled by default, with separate configuration switches. The actual apply routine has not passed acceptance testing. Do not enable apply on your live realm yet.
+**Development status:** A level-60 Mage NT1 read-only preview and wrong-class rejection have passed in-game testing as of 10 October 2026. Experimental Phase 2 apply has **not** passed acceptance testing. New player permissions and command-message cleanup are source-only and must be compiled/tested before being treated as deployed. Keep actual talent application disabled on live realms.
 
 **Absolute rule:** No modification to `mod-playerbots`, AzerothCore or Individual Progression source files. MultiBot addon integration is postponed until the server command actually works and has passed tests.
 
@@ -11,7 +11,7 @@
 - Loader: `src/NaxxramasCore_loader.cpp`
 - Config default: `NaxxramasCore.BotTalentImport.Enabled = 0`
 - **NO SQL/DBC installation or character update** during Phase 1. Phase 2 includes an **optional additive characters SQL migration** at `data/sql/db-characters/2026_10_10_00_bot_talent_import.sql`, which must not be installed without a database backup and explicit test planning.
-- GM-only; target must be an online Playerbot. Normal Playerbots commands remain unchanged.
+- GM commands remain available to GMs. **Regular-player NT1 preview and apply permission** are separately opt-in with `AllowPlayers=0` and `AllowPlayerApply=0` defaults. The command table permits SEC_PLAYER, but the handler enforces both config permission and a same-account/direct Playerbots-master ownership check. Other players' bots cannot be targeted by name alone. Preview and apply require an online recognized Playerbot. Normal Playerbots whisper commands remain unchanged.
 - **With `ApplyEnabled=0` (default), the `apply` command remains strictly READ-ONLY.** Experimental application code now exists behind `NaxxramasCore.BotTalentImport.ApplyEnabled = 1`, which is **not approved for live deployment** before compilation and comprehensive rollback tests. With the switch off it never calls `resetTalents`, `LearnTalent`, or `SaveToDB`.
 
 ### Available commands (Phase 1)
@@ -21,7 +21,32 @@
 .naxxbot talents apply <online-botname> <NT1-code>
 ```
 
-By default the second command never changes talents. In Phase 2 experimental testing, it could modify talents **only if both** the top-level enabled flag and the separate `ApplyEnabled` flag are turned on, the bot passes complete validation, the persistence table exists, and a restorable current talent snapshot can be captured. **Keep `ApplyEnabled=0` for now.**
+By default the second command never changes talents. In Phase 2 experimental testing, it could modify talents **only if both** the top-level enabled flag and the separate `ApplyEnabled` flag are turned on, the bot passes complete validation, the persistence table exists, and a restorable current talent snapshot can be captured. For **non-GM accounts**, both `AllowPlayers=1` and `AllowPlayerApply=1` must also be enabled and the requested bot must pass the ownership/master check. **Keep `ApplyEnabled=0` and `AllowPlayerApply=0` for now.**
+
+### Regular-player permissions (new source; build and test pending)
+
+```ini
+# Master switch for the NT1 commands; required for all actors.
+NaxxramasCore.BotTalentImport.Enabled = 1
+
+# Optional: non-GM players may preview codes only for authorised bots.
+NaxxramasCore.BotTalentImport.AllowPlayers = 0
+
+# Optional: non-GM players may request application. Keep 0 during M1.
+NaxxramasCore.BotTalentImport.AllowPlayerApply = 0
+
+# Actual talent mutation is a separate global experiment. Keep OFF.
+NaxxramasCore.BotTalentImport.ApplyEnabled = 0
+```
+
+- **Default behaviour:** ordinary accounts are denied both new commands with a clear reason; existing GM permissions remain as before.
+- To let ordinary players preview their bots, set `AllowPlayers=1` and leave both application switches at `0`.
+- A normal player may target their **same-account online bot** or an online Playerbot whose current AI `GetMaster()` is that player. Group membership alone, name knowledge, and another player's mastership confer no access.
+- Even if player application permission is later enabled, the normal M2 checks still apply: actual apply is global-gated, rejects random bots, refuses invalid requests and must pass snapshot/schema preflight.
+- The safe `SEC_PLAYER` registration is deliberate: the handler must be reachable so it can enforce the configuration and ownership checks at runtime. Never remove the per-request checks while keeping `SEC_PLAYER`.
+- Check GM access, player access disabled, own-account player preview, directly mastered player preview, other-account/master denial, random-bot rejection from apply, and configuration combinations; confirm no change to original Playerbots whispers or to other accounts.
+- **Do not enable `AllowPlayerApply=1` or `ApplyEnabled=1` on a live realm before full destructive-testing acceptance.** The current snapshot restoration is best-effort, not transactional.
+- The command-message cleanup now avoids AzerothCore's extra generic `### USAGE` output on handled NT1 errors. It is also source-only pending compilation.
 
 ### Why use a separate command?
 
@@ -118,4 +143,4 @@ Do not enable application merely because Phase 1 compiles. Test on disposable on
 
 ## Future MultiBot fork work
 
-After the real apply operation works and persists, add UI support **only to the user's MultiBot fork**. Confirm security/permission behaviour: GM-dot commands are **not** the same as bot whispers, and an addon cannot bypass server permissions. Display user-friendly validation errors and character name/build status in MultiBot. Do not edit MultiBot while backend commands are experimental.
+After the real apply operation works and persists, add UI support **only to the user's MultiBot fork**. The module now contains optional server-side non-GM permission and ownership checks, but their runtime operation is not yet validated and addon integration must not bypass them. Confirm security/permission behaviour: GM-dot commands are **not** the same as bot whispers, and an addon cannot bypass server permissions. Display user-friendly validation errors and character name/build status in MultiBot. Do not edit MultiBot while backend commands are experimental.
