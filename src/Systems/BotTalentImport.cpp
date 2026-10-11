@@ -1124,6 +1124,27 @@ namespace NaxxramasBotTalentImport
                 "NT1 ALT REPAIR INCOMPLETE: the requested build must "
                 "spend every available talent point.");
 
+        // A normal AzerothCore reset can dismiss pets and invoke
+        // AutoUnequipOffhandIfNeed. This intentionally exposes only a
+        // READ-ONLY risk indicator, not an inventory snapshot or a safety
+        // authorization. Even an empty offhand slot cannot prove that every
+        // possible reset side effect has been accounted for.
+        bool const hasOffhand =
+            bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND)
+                != nullptr;
+        handler->PSendSysMessage(
+            "NT1 ALT RECOVERY CHECK: active specialization {} of {}. "
+            "Offhand slot occupied: {}.",
+            static_cast<uint32>(bot->GetActiveSpec() + 1),
+            static_cast<uint32>(bot->GetSpecsCount()),
+            hasOffhand ? "YES" : "NO");
+        handler->SendSysMessage(
+            "NT1 ALT RECOVERY NOT VERIFIED: talent resets may dismiss "
+            "pets or move offhand gear; no equipment change is authorised.");
+        handler->SendSysMessage(
+            "NT1 ALT BACKUP REQUIRED: full characters database backup "
+            "and tested OFFLINE restoration; not verifiable by this command.");
+
         handler->SendSysMessage(
             "NT1 ALT REPAIR DISABLED: no repair Apply command exists. "
             "Normal reset may affect offhand gear; recovery is unverified.");
