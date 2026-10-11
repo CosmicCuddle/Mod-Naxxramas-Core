@@ -15,6 +15,21 @@ The command still checks the real issuing human, existing `AccessMode`, the huma
 
 **Critical upstream source evidence:** AzerothCore `Player.cpp::resetTalents` calls `RemovePet` and `AutoUnequipOffhandIfNeed`. The latter may move an item into bags, or create an **in-game mail with the item attached when no bag slot can hold it**. This is strictly incompatible with “Alt Bot gear and bags never touched.” An ordinary Apply may share that risk; this PR does not claim to fix it by merely warning. **Do not run destructive Apply/repair on affected Alt Bots until a separately tested no-item-change guard is installed.**
 
+## 1A. Conservative no-offhand/no-active-pet guard (new stacked draft)
+
+**New change in a separate draft branch — not deployed or compiled:** the existing ordinary `.naxxbot talents apply` calls the common read-only `CheckApplyReadiness` before reset. For **Alt Bots only**, after all current talent/rollback checks have passed, it now refuses to continue whenever:
+
+- **Any offhand slot is occupied**, regardless of whether that particular item would have stayed equipped during normal reset; error: `Alt Bot NT1 Apply blocked: an offhand item is equipped. Talent reset could move or MAIL it. No talents or equipment changed.`
+- **Any currently active pet exists**; error: `Alt Bot NT1 Apply blocked: the bot has an active pet. Talent reset could dismiss it. No talents or equipment changed.`
+
+This deliberate **fail-closed guard does not try to empty the offhand slot, dismiss pets, force a bag-space workaround or adjust gear**. It protects against the **known** AzerothCore reset side effects; it is not a mathematical or runtime guarantee that unrelated script hooks cannot mutate inventory, spells or pets. The original inability to restore later-era Priest talents (1768/1202) **still blocks normal Apply before these checks**, because repair is not implemented.
+
+**Practical trade-off:** an Alt Bot with a perfectly valid shield/offhand item can now be rejected even if it would not actually be moved by the core. Do not weaken this guard to improve convenience before a correctly designed item-GUID-safe alternative and end-to-end tests exist. If this restriction is unacceptable, review a narrower **source-proven** risk classifier separately; never silently restore gear using generated items.
+
+The diagnostic `repairpreview` reports **both** offhand occupancy and active pet presence and warns the user that the backup and full recovery remain unverified. Random Playerbots keep their existing Apply checks; this Alt-only guard does not alter their behaviour. The existing character-name allowlist is unchanged.
+
+**Implementation status:** draft C++ change only, not yet compiled or in-game tested. No SQL/config changes or new repair commands. Real full-character recovery, off-spec glyph/spell protections, maintenance interactions, and postcondition verification are still mandatory.
+
 ## 2. Offline structural audit utility (does not create or restore a backup)
 
 - `scripts/audit_nt1_altbot_recovery_backup.py` accepts an already-created `.sql` or `.sql.gz` full characters database export and optionally generates a **new, owner-only (0600), non-overwriting JSON checksum manifest**.
