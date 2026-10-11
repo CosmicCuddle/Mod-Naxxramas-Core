@@ -92,13 +92,14 @@ namespace NaxxramasBotTalentImport
 
     // One setting controls access to the entire NT1 system.
     // 0 = disabled; 1 = GM preview/apply; 2 = authorised player preview/apply.
-    // Both active modes permit experimental talent changes, so default OFF.
-    // Values outside the documented range fail closed.
+    // 3 = GM-only read-only diagnostics and projection (NO Apply).
+    // Modes 1/2 are experimental and permit destructive talent changes.
+    // Default remains OFF; undocumented values fail closed.
     uint32 AccessMode()
     {
         uint32 const mode = sConfigMgr->GetOption<uint32>(
             "NaxxramasCore.BotTalentImport.AccessMode", 0);
-        return mode <= 2 ? mode : 0;
+        return mode <= 3 ? mode : 0;
     }
 
     // SEC_PLAYER registration allows us to enforce the selected access mode
@@ -1375,6 +1376,19 @@ namespace NaxxramasBotTalentImport
                         "No talents or equipment changed.";
                 return false;
             }
+        }
+
+        // Purpose-built, GM-only read-only integration test mode. Keep
+        // this at the END of all existing preflight checks so that a Priest
+        // with out-of-era original talents still sees the actual earlier
+        // restoration blocker in repairpreview, not a generic mode error.
+        // Even a completely eligible plan is forbidden from Apply here.
+        if (AccessMode() == 3)
+        {
+            error = "NT1 READ-ONLY MODE: Apply is disabled by "
+                    "NaxxramasCore.BotTalentImport.AccessMode = 3. "
+                    "Preview/project/repairpreview do not change talents.";
+            return false;
         }
 
         if (existingSnapshot)
