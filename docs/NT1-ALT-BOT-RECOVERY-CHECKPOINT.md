@@ -30,6 +30,12 @@ The diagnostic `repairpreview` reports **both** offhand occupancy and active pet
 
 **Implementation status:** draft C++ change only, not yet compiled or in-game tested. No SQL/config changes or new repair commands. Real full-character recovery, off-spec glyph/spell protections, maintenance interactions, and postcondition verification are still mandatory.
 
+## Read-only dual-spec / equipped identity comparison in a later stacked draft
+
+The read-only repairpreview can capture BOTH specializations' in-memory talent rank-spell records and learned spell IDs (with spec masks), the currently ACTIVE spec's glyph slot values, and the original Item GUID counter for **all 19 equipped slots**. It sorts unordered maps and prints deterministic FNV-style, **non-cryptographic** hashes as diagnostic hints, plus record/slot counts.
+
+This is **not** a durable recovery snapshot, tamper-resistant ticket, repair authorization, rollback or guarantee of equipment preservation. The core public Player::GetGlyph(slot) accessor covers only the active spec; inactive glyphs require offline character_glyphs backup. Bank, inventory bags, mail, pets, action bars, auras, item attributes and maintenance changes are outside this live snapshot. Never merge or deploy any destructive repair based only on these hashes. See [NT1 Alt Bot Protected-State Observation](NT1-ALT-BOT-PROTECTED-STATE.md) for exact scope.
+
 ## 2. Offline structural audit utility (does not create or restore a backup)
 
 - `scripts/audit_nt1_altbot_recovery_backup.py` accepts an already-created `.sql` or `.sql.gz` full characters database export and optionally generates a **new, owner-only (0600), non-overwriting JSON checksum manifest**.
