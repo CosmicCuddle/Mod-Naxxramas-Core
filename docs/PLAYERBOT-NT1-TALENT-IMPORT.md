@@ -41,6 +41,16 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
 - Test modes 0/1/2, bot ownership, forbidden targets, unexpected command-help output, and read-only preview. One fully allocated Random Playerbot application passed on Zevon; incomplete-point refusal and broader M2 cases remain to be tested after the next compile.
 
+### Explicit NT1L1 levelling-order projection (read-only draft, pending compile)
+
+The new *separate draft branch* adds `.naxxbot talents project <online-botname> <NT1L1-code>`. **This only reports an allocation; it does not apply talents.** The original `NT1:<era>:<class>:<id>-<final-rank>...` format and all existing Preview/Apply commands are unchanged. The new `NT1L1` entry `<id>-<number-of-new-ranks>` is an explicit ordered spend instruction, and the same Talent.dbc ID may recur later. It must represent a **complete standard 51/61/71-point source plan**, whose every rank increment is independently verified against loaded talent rank spells, prerequisites and five-points-per-row unlocks.
+
+For the bot's real `CalculateTalentsPoints()` budget, the server takes the **first N legal points in that exact authored order**; it then revalidates the derived final build through the existing read-only `ParseCode` logic. The requested human's exact IP era, existing bot-level expansion restrictions and current owner/master/Alt Bot allowlist remain authoritative. Projection status is **current-state information only**, not an Apply authorization. No priority-based Apply command, equipment changes, new SQL or config have been added.
+
+**Critical:** existing plain NT1 codes do not include a levelling history and **cannot safely be auto-converted to NT1L1**. An administrator must author/review each priority schedule and confirm that its final rank totals exactly reproduce the desired saved NT1 before linking it to a MultiBot preset. The 3.3.5a full chat command limit remains a constraint; never truncate a template or try to bypass it with a generic chat executor. The new command emits paginated projected Talent.dbc rank entries.
+
+See **[NT1L1 detailed format, caveats and test matrix](NT1-LEVEL-PROJECTION-DESIGN.md)**. Stage is **static-source reviewed only**, with no server compilation, tests on an actual playerbot or MultiBot integration yet. Branch is stacked on the preflight draft and must remain unmerged until approved.
+
 ### Shared read-only Apply preflight (new draft PR — uncompiled)
 
 **Scope:** `src/Systems/BotTalentImport.cpp` now has a `CheckApplyReadiness` routine, shared by the existing `preview` and `apply` handlers. The helper is **read-only**: it reads character state, the current talent snapshot and SQL table metadata; it does not call talent resets, learning, save methods, profile writes, equipment or inventory operations. The only change in the mutation path is that it calls this same helper **again before any reset** and uses its validated old-build snapshot for existing best-effort rollback.
