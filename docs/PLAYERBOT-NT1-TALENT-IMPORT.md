@@ -41,6 +41,18 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
 - Test modes 0/1/2, bot ownership, forbidden targets, unexpected command-help output, and read-only preview. One fully allocated Random Playerbot application passed on Zevon; incomplete-point refusal and broader M2 cases remain to be tested after the next compile.
 
+### Alt Bot invalid-talent repair inspection (separate draft; read-only)
+
+New proposed command: `.naxxbot talents repairpreview <online-altbot-name> <NT1-code>`. This command is **read-only**: it does not attempt any talent reset/rebuild, inventory movement, save, SQL update, or equipment generation. Existing `.naxxbot talents apply` still **denies** the operation when original talents are not safely restorable; **no repair Apply command exists**.
+
+For the user's affected Priest Alt Bots the original builds contained **Talent.dbc ID 1768 (Holy Concentration; Holy row 6, col 0)** and **1202 (Borrowed Time; Discipline row 9, col 1)**. These are in the **existing spec**, not necessarily the requested legal Vanilla NT1. The new diagnostic scans ALL selected active-spec DBC talent ranks, lists those outside the **requested era's actual `AvailableInEra` policy**, and runs the shared `CheckApplyReadiness` to explain the current blocker. It does not claim all possible non-DBC spell effects are covered.
+
+The command requires existing `AccessMode` rights, live human identity and bot control; it **refuses Random Playerbots** and additionally requires the issuing character's name in `AltBotAllowedPlayers`, including GMs. Empty default denies detailed Alt Bot repair inspection. Every source DBC class/rank/prerequisite rule and issuing-human IP-era check still comes from `ValidateRequest`. No new config/default or migration.
+
+**Important:** AzerothCore `Player::resetTalents(true)` may call `AutoUnequipOffhandIfNeed()`; neither ordinary talent Apply nor a hypothetical reset-and-repair automatically guarantees completely unchanged Alt Bot equipment. Future destructive repair must be independently reviewed with reliable character backups, explicit human confirmation, active-spec/inactive-spec and equipment GUID/bag invariants, and a validated offline recovery. No gear-changing repair has been implemented.
+
+See [read-only repair diagnostic command and acceptance plan](NT1-ALT-BOT-REPAIR-PREVIEW.md) and [repair recovery design on the audit PR #6 branch](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/6).
+
 ### Shared read-only Apply preflight (new draft PR — uncompiled)
 
 **Scope:** `src/Systems/BotTalentImport.cpp` now has a `CheckApplyReadiness` routine, shared by the existing `preview` and `apply` handlers. The helper is **read-only**: it reads character state, the current talent snapshot and SQL table metadata; it does not call talent resets, learning, save methods, profile writes, equipment or inventory operations. The only change in the mutation path is that it calls this same helper **again before any reset** and uses its validated old-build snapshot for existing best-effort rollback.
