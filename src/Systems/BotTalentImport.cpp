@@ -748,9 +748,56 @@ namespace NaxxramasBotTalentImport
         return true;
     }
 
-    bool ApplyValidated(Player* issuer, Player* bot, std::string const& code,
-        ValidatedBuild const& requested, std::string& error)
+    // Shared, READ-ONLY readiness check. Used by Preview to report whether
+    // Apply can currently proceed, and rerun immediately before any reset.
+    // It can query the database and read bot state, but NEVER resets,
+    // learns, saves or mutates the bot. No persistent confirmation token yet.
+    bool CheckApplyReadiness(Player* issuer, Player* bot,
+        ValidatedBuild const& requested, std::string& error,
+        ValidatedBuild* existingSnapshot = nullptr)
     {
+        if (!Enabled())
+        {
+            error = "NT1 talent importer is disabled.";
+            return false;
+        }
+
+        if (!issuer || !issuer->GetSession() ||
+            PlayerbotsMgr::instance().GetPlayerbotAI(issuer))
+        {
+            error = "An online human player is required.";
+            return false;
+        }
+
+        if (!bot || !bot->IsInWorld() || bot == issuer ||
+            !PlayerbotsMgr::instance().GetPlayerbotAI(bot))
+        {
+            error = "Target is not an eligible online Playerbot.";
+            return false;
+        }
+
+        bool const gm = issuer->GetSession()->GetSecurity() >= SEC_GAMEMASTER;
+        if (!gm && (!AllowNonGMPlayers() ||
+            !CanControlBot(issuer, bot,
+                PlayerbotsMgr::instance().GetPlayerbotAI(bot))))
+        {
+            error = "NT1 access denied: player is not permitted to "
+                    "control this bot.";
+            return false;
+        }
+
+        // The validated plan comes from ParseCode, but keep the live
+        // character level, class and point budget bound to its original plan.
+        if (requested.Class != ClassName(bot->getClass()) ||
+            bot->GetLevel() < 10 ||
+            bot->GetLevel() > requested.Progression.MaximumLevel ||
+            requested.Available != bot->CalculateTalentsPoints())
+        {
+            error = "Bot class, level or available talent points changed "
+                    "since plan validation.";
+            return false;
+        }
+
         if (bot->IsInCombat() || !bot->IsAlive())
         {
             error = "The bot must be alive and out of combat.";
@@ -817,19 +864,40 @@ namespace NaxxramasBotTalentImport
             return false;
         }
 
-        // A legacy-invalid talent snapshot may not be restorable through
-        // the normal talent API. Refuse to reset when that is the case.
+        // Ensure the CURRENT active spec has a valid, restorable snapshot.
+        // Previous/legacy builds may legitimately contain unspent points.
         std::string const previous = EncodeExisting(bot, requested.Progression);
         ValidatedBuild snapshot;
         std::string snapshotError;
-        if (!ParseCode(previous, bot, snapshot, snapshotError) ||
-            bot->GetFreeTalentPoints() != snapshot.Available - snapshot.Spent)
+        if (!ParseCode(previous, bot, snapshot, snapshotError))
         {
             error = "Existing talents cannot be safely restored: " +
                 snapshotError + ". No changes made.";
             return false;
         }
 
+        if (bot->GetFreeTalentPoints() != snapshot.Available - snapshot.Spent)
+        {
+            error = "Existing talents and remaining points disagree. "
+                    "No changes made.";
+            return false;
+        }
+
+        if (existingSnapshot)
+            *existingSnapshot = std::move(snapshot);
+        return true;
+    }
+
+    bool ApplyValidated(Player* issuer, Player* bot, std::string const& code,
+        ValidatedBuild const& requested, std::string& error)
+    {
+        // Do not rely on an earlier Preview or ValidateRequest: ownership,
+        // master/group, live point count and snapshot can all change.
+        ValidatedBuild snapshot;
+        if (!CheckApplyReadiness(issuer, bot, requested, error, &snapshot))
+            return false;
+
+        bool const randomBot = sRandomPlayerbotMgr.IsRandomBot(bot);
         uint8 const spec = bot->GetActiveSpec();
         ImportScope const scope(bot);
         bot->resetTalents(true);
@@ -966,11 +1034,18 @@ namespace NaxxramasBotTalentImport
         handler->PSendSysMessage(
             "Talent trees (server tab order): {} / {} / {}; {} talent entries.",
             build.Trees[0], build.Trees[1], build.Trees[2], build.Ordered.size());
-        if (build.Spent < build.Available)
-            handler->PSendSysMessage(
-                "NT1 APPLY BLOCKED: {} of {} points spent ({} unspent). "
-                "Spend all points before applying this build.",
-                build.Spent, build.Available, build.Available - build.Spent);
+        // Report ACTUAL Apply eligibility, not just valid NT1 syntax.
+        // No state change, token or permission grant is created by Preview.
+        std::string reason;
+        Player* issuer = handler && handler->GetSession() ?
+            handler->GetSession()->GetPlayer() : nullptr;
+        if (CheckApplyReadiness(issuer, bot, build, reason))
+            handler->SendSysMessage(
+                "NT1 PREFLIGHT READY (current state only): Apply will "
+                "recheck all requirements before changing talents.");
+        else
+            handler->PSendSysMessage("NT1 PREFLIGHT BLOCKED: {}", reason);
+
         handler->SendSysMessage(
             "Read-only validation: no talents have been reset or applied.");
     }
