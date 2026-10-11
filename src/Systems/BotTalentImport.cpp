@@ -646,6 +646,54 @@ namespace NaxxramasBotTalentImport
         return code;
     }
 
+    // Inspect ONLY the currently active spec, using the exact imported-era
+    // row/capstone filter already used by ParseCode. No talents are reset or
+    // learned. This is diagnostic evidence, NOT a recovery snapshot.
+    struct OutOfEraTalent
+    {
+        uint32 Id = 0;
+        uint32 Rank = 0;
+        uint32 Row = 0;
+        uint32 Col = 0;
+        uint32 Tree = 0;
+    };
+
+    std::vector<OutOfEraTalent> GetOutOfEraTalents(
+        Player const* bot, Era const& era)
+    {
+        std::vector<OutOfEraTalent> result;
+        if (!bot)
+            return result;
+
+        for (uint32 i = 0; i < sTalentStore.GetNumRows(); ++i)
+        {
+            TalentEntry const* talent = sTalentStore.LookupEntry(i);
+            if (!talent)
+                continue;
+
+            TalentTabEntry const* tab = sTalentTabStore.LookupEntry(
+                talent->TalentTab);
+            if (!tab || !(tab->ClassMask & bot->getClassMask()) ||
+                tab->tabpage >= 3)
+                continue;
+
+            uint32 rank = 0;
+            for (uint32 j = 0; j < MAX_TALENT_RANK; ++j)
+                if (talent->RankID[j] &&
+                    bot->HasTalent(talent->RankID[j], bot->GetActiveSpec()))
+                    rank = j + 1;
+
+            if (rank && !AvailableInEra(
+                {talent->TalentID, static_cast<uint8>(rank), talent, tab},
+                era))
+            {
+                result.push_back({talent->TalentID, rank,
+                    talent->Row, talent->Col, tab->tabpage});
+            }
+        }
+        return result;
+    }
+
     // Must run inside ImportScope. Never use PlayerbotFactory's default
     // importer, which may automatically fill unspent talent points.
     bool LearnValidated(Player* bot, ValidatedBuild const& plan,
@@ -1023,6 +1071,67 @@ namespace NaxxramasBotTalentImport
         return true;
     }
 
+    // Diagnostic-only Alt Bot repair preview. No repair/Apply route exists.
+    // Callers must pass normal command security AND AltBotAllowedPlayers
+    // before receiving the current character's selected-spec details.
+    void PrintAltBotRepairPreview(ChatHandler* handler, Player* issuer,
+        Player* bot, ValidatedBuild const& proposed)
+    {
+        std::vector<OutOfEraTalent> const illegal =
+            GetOutOfEraTalents(bot, proposed.Progression);
+
+        handler->PSendSysMessage(
+            "NT1 ALT BOT REPAIR INSPECTION: {} (level {}, active spec {}). "
+            "Requested {} build: {} / {} points.",
+            bot->GetName(), bot->GetLevel(),
+            static_cast<uint32>(bot->GetActiveSpec()),
+            proposed.Progression.Name, proposed.Spent, proposed.Available);
+
+        handler->PSendSysMessage(
+            "Existing active-spec talents outside {} policy: {}.",
+            proposed.Progression.Name, illegal.size());
+
+        // Avoid spamming the 3.3.5a chat buffer with a malformed old build.
+        // These are Talent.dbc IDs and ZERO-BASED tab row/column indices.
+        constexpr size_t MAX_DIAGNOSTIC_ENTRIES = 12;
+        for (size_t i = 0; i < illegal.size() &&
+            i < MAX_DIAGNOSTIC_ENTRIES; ++i)
+        {
+            OutOfEraTalent const& t = illegal[i];
+            handler->PSendSysMessage(
+                "Existing invalid Talent.dbc ID {}: rank {}, tree {}, "
+                "row {}, column {} (zero-based).",
+                t.Id, t.Rank, t.Tree, t.Row, t.Col);
+        }
+        if (illegal.size() > MAX_DIAGNOSTIC_ENTRIES)
+            handler->PSendSysMessage(
+                "{} additional invalid talents omitted from chat.",
+                illegal.size() - MAX_DIAGNOSTIC_ENTRIES);
+
+        // PR #7's shared PRE-RESET eligibility check is reused here. A valid
+        // target NT1 does not imply Apply can safely roll back the old build.
+        std::string reason;
+        if (CheckApplyReadiness(issuer, bot, proposed, reason))
+            handler->SendSysMessage(
+                "NT1 ALT REPAIR DIAGNOSTIC: ordinary talent preflight is "
+                "currently READY; a special repair is not required.");
+        else
+            handler->PSendSysMessage(
+                "NT1 ALT REPAIR DIAGNOSTIC BLOCKED: {}", reason);
+
+        if (proposed.Spent != proposed.Available)
+            handler->SendSysMessage(
+                "NT1 ALT REPAIR INCOMPLETE: the requested build must "
+                "spend every available talent point.");
+
+        handler->SendSysMessage(
+            "NT1 ALT REPAIR DISABLED: no repair Apply command exists. "
+            "Normal reset may affect offhand gear; recovery is unverified.");
+        handler->SendSysMessage(
+            "READ ONLY: no talents, spells, equipment, bags or database "
+            "records have been changed by this inspection.");
+    }
+
     void PrintPreview(ChatHandler* handler, Player* bot, ValidatedBuild const& build)
     {
         handler->PSendSysMessage(
@@ -1063,6 +1172,7 @@ public:
     {
         static ChatCommandTable talents = {
             {"preview", HandlePreview, SEC_PLAYER, Console::No},
+            {"repairpreview", HandleRepairPreview, SEC_PLAYER, Console::No},
             {"apply", HandleApply, SEC_PLAYER, Console::No},
         };
         static ChatCommandTable naxxbot = {
@@ -1083,6 +1193,50 @@ public:
             return true;
 
         NaxxramasBotTalentImport::PrintPreview(handler, bot, build);
+        return true;
+    }
+
+    static bool HandleRepairPreview(ChatHandler* handler, char const* args)
+    {
+        using namespace NaxxramasBotTalentImport;
+
+        Player* bot = nullptr;
+        ValidatedBuild build;
+        // The existing request validator checks AccessMode, bot identity,
+        // normal controller rights, DBC legality and the human's current IP.
+        if (!ValidateRequest(handler, args, bot, build))
+            return true;
+
+        Player* issuer = handler && handler->GetSession() ?
+            handler->GetSession()->GetPlayer() : nullptr;
+        if (!issuer || !issuer->IsInWorld() ||
+            PlayerbotsMgr::instance().GetPlayerbotAI(issuer))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT REPAIR DENIED: only a real online human player "
+                "can inspect an Alt Bot.");
+            return true;
+        }
+
+        if (sRandomPlayerbotMgr.IsRandomBot(bot))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT REPAIR DENIED: target is a Random Playerbot, "
+                "not an account-controlled Alt Bot.");
+            return true;
+        }
+
+        // The character-name allowlist is mandatory even for read-only
+        // repair diagnostics; GM permissions cannot bypass this check.
+        // It grants no authority to change inventory or equipment.
+        std::string error;
+        if (!CanApplyToAltBot(issuer, error))
+        {
+            handler->PSendSysMessage("NT1 ALT REPAIR DENIED: {}", error);
+            return true;
+        }
+
+        PrintAltBotRepairPreview(handler, issuer, bot, build);
         return true;
     }
 
