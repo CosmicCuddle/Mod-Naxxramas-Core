@@ -2,12 +2,20 @@
 
 **Project:** [CosmicCuddle / Mod-Naxxramas-Core](https://github.com/CosmicCuddle/Mod-Naxxramas-Core)  
 **Platform:** AzerothCore, World of Warcraft 3.3.5a  
-**Roadmap snapshot:** 10 October 2026  
+**Roadmap snapshot:** 11 October 2026  
 **Established release baseline:** 1.0.6.8.4  
 **Current development line:** **1.0.6.8.5**  
 **Primary active workstream:** Naxxramas Talent Calculator `NT1` → Playerbots integration
 
 > This is the central project-status and forward-development roadmap. It describes the repository's implemented systems, known risks, development milestones, release boundaries and verification requirements. It is **not** a claim that every commit on `main` has been compiled, installed or tested on the running server.
+
+## NT1 server integration audit — 11 October 2026 (draft, documentation only)
+
+**Review:** [NT1 Server Integration Audit and MultiBot 4.0.4 Handover](docs/NT1-SERVER-INTEGRATION-AUDIT.md). This document audits the source at `main` commit `1e00c5537a1e22d1be7572437c884ca05f4c3337` and MultiBot draft PR #5 at `6a935f129d3bc9e0478f2956ff5af71b980544d6`. No executable source, SQL, configuration, migrations, Playerbots, IP, DBCs or addon files are changed by the audit.
+
+**Required order (separate reviewable code PRs; none authorised yet):** (1) confirm compilation of the prior `GENERAL` enum header fix; (2) shared, complete read-only preview/preflight and reliable structured result reporting with server-side short-lived confirmation token; (3) deterministic *priority-bearing* level projection (NT1 final ranks alone do not contain levelling order); (4) persistence/maintenance/rollback acceptance tests; (5) separately designed, opt-in **Random Playerbot only** role-aware gear with audited item-source restrictions and non-exploitable provenance. Equipment changes on **Alt Bots are forbidden** regardless of talent allowlist.
+
+**Live status remains experimental:** Zevon's previous level-60 Random Mage apply passed (51/51; user-confirmed 14/0/37) on an earlier compiled revision, but the new 2026-10-11 source has not been confirmed compiled/tested. Latest MultiBot PR #5 passes Lua tests/lint/format at its head, but has no genuine WoW 3.3.5a screenshot or SavedVariables relog verification. Maintain `AccessMode=0` distributed default and `AltBotAllowedPlayers=""`. Do not merge or activate any destructive change on documentation alone.
 
 ## 1. Project direction
 
