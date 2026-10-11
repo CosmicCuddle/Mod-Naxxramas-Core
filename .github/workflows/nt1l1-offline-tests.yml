@@ -2,6 +2,8 @@ name: NT1L1 offline projection tests
 on:
   pull_request:
     paths:
+      - 'src/Systems/BotTalentImport.cpp'
+      - 'docs/NT1-LEVEL-PROJECTION-DESIGN.md'
       - 'scripts/check_nt1l1_priority.py'
       - 'tests/test_nt1l1*.py'
       - 'tests/fixtures/nt1l1_vanilla_frost_mage_2026_10_08.json'
@@ -10,6 +12,8 @@ on:
     branches:
       - feature/nt1-level-priority-preview
     paths:
+      - 'src/Systems/BotTalentImport.cpp'
+      - 'docs/NT1-LEVEL-PROJECTION-DESIGN.md'
       - 'scripts/check_nt1l1_priority.py'
       - 'tests/test_nt1l1*.py'
       - 'tests/fixtures/nt1l1_vanilla_frost_mage_2026_10_08.json'
