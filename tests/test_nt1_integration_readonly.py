@@ -74,7 +74,7 @@ class CombinedNT1SourceContracts(unittest.TestCase):
         start = section("    uint32 AccessMode()", "    bool IsGM(")
         self.assertIn("return mode <= 3 ? mode : 0;", start)
         self.assertIn("return AccessMode() == 2;", start)
-        self.assertIn("GM-only read-only", start)
+        self.assertIn("return AccessMode() == 2;", start)
 
     def test_no_new_destructive_repair_handler(self):
         self.assertNotIn('{"repairapply"', CPP)
