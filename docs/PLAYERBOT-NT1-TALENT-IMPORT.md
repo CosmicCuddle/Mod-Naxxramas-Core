@@ -9,7 +9,7 @@
 
 - Source: `src/Systems/BotTalentImport.cpp` (new CommandScript)
 - Loader: `src/NaxxramasCore_loader.cpp`
-- Only NT1 configuration key: `NaxxramasCore.BotTalentImport.AccessMode = 0` (disabled by default).
+- NT1 config uses `NaxxramasCore.BotTalentImport.AccessMode = 0` (disabled by default), plus **`NaxxramasCore.BotTalentImport.AltBotAllowedPlayers = ""`** (deny all Alt Bot talent applications by default).
 - **NO SQL/DBC installation or character update** during Phase 1. Phase 2 includes an **optional additive characters SQL migration** at `data/sql/db-characters/2026_10_10_00_bot_talent_import.sql`, which must not be installed without a database backup and explicit test planning.
 - The entire NT1 command system is governed by one mode: `0` disabled, `1` GMs, `2` all players with per-bot ownership checks. The command table permits SEC_PLAYER, but the handler enforces the selected mode and same-account/direct Playerbots-master control for non-GMs. Both commands require an online recognised Playerbot. Original Playerbots whispers are unchanged.
 - `preview` is always read-only. `apply` can **modify character talents** in either enabled mode (`1` or `2`). There is deliberately no preview-only access mode. Never enable an active mode on the live realm until the SQL, character backup, preflight and recovery requirements are reviewed.
@@ -41,6 +41,24 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
 - Test modes 0/1/2, bot ownership, forbidden targets, unexpected command-help output, and read-only preview. One fully allocated Random Playerbot application passed on Zevon; incomplete-point refusal and broader M2 cases remain to be tested after the next compile.
 
+### Alt Bot NT1 character-name allowlist (source committed; next build/test pending)
+
+**Alt Bots never participate in NT1 automatic gear generation.** The proposed post-NT1 role-gearing feature is reserved for eligible **Random Playerbots only**. An Alt Bot's existing equipped gear, bags and earned items must not be touched by that feature. This is scoped to **NT1-related automation**; it does not change the behaviour of stock Playerbots equipment commands run separately.
+
+The Alt Bot talent-application permission list is configured with the **names of real player characters using the command**, not the names of the bots being changed:
+
+```ini
+NaxxramasCore.BotTalentImport.AltBotAllowedPlayers = "Takali, Drakka, Sequoia"
+```
+
+- **The distributed default is `""` — all Alt Bot NT1 applications are blocked unless an administrator adds names to the active config.** GM status does not bypass the list. The names are compared as complete names, case-insensitively for ASCII letters; surrounding spaces and trailing commas are ignored.
+- The allowlist **does not grant extra permissions**. `AccessMode=0` blocks both commands, `AccessMode=1` still requires GM security, and `AccessMode=2` retains the ordinary non-GM same-account or bot-master ownership checks. Therefore adding a character name alone does NOT authorize a normal player in mode 1 or grant access to unrelated players' Alt Bots.
+- This additional allowlist is checked **only for Alt Bot `apply`**, before any talent reset, profile-table update or character save. **Alt Bot `preview` remains read-only** and requires the ordinary AccessMode and progression checks but not the allowlist.
+- **Random Playerbots are unaffected** by `AltBotAllowedPlayers`: they retain their own human master/group eligibility and the existing AccessMode/progression/full-point checks.
+- Unlike an account-ID allowlist, character-name authorization may transfer if a name is renamed or reassigned. Administrators must maintain this list accordingly. The module authenticates the current session's actual character name, not a user-supplied command argument.
+- **Implementation status:** GitHub source/config committed, not yet recompiled or field-tested. Test the empty list, an allowlisted GM, an unlisted GM, `AccessMode=1` non-GM denial, `AccessMode=2` allowlisted owner vs unauthorized owner, and a Random Playerbot regression. No SQL/DBC changes.
+- The future role-gearing system remains **design only**. Do not treat this talent-import allowlist as protection against separate standard Playerbots gear actions.
+
 ### Individual Progression era rule (new server-side source, awaiting next recompile)
 
 **An NT1 talent code must use exactly the same expansion as the player issuing the command.** This is enforced in `src/Systems/BotTalentImport.cpp` for **both `preview` and `apply`**, for both GMs and authorised ordinary players, and for both account-controlled Alt Bots and grouped Random Playerbots. The requested talent code's `vanilla`, `tbc` or `wotlk` era is **never trusted to grant an expansion unlock**.
@@ -55,7 +73,7 @@ When Individual Progression is enabled, the server reads the **issuing human cha
 
 The server also honours `IndividualProgression.ProgressionLimit` when determining the permitted stage. Modern IP's exported header enables the module to call the authoritative `GetPlayerProgressionFromQuests` API; when that header is not exported the existing 66001–66018 rewarded-hidden-quest format is read from the issuing character, as already used by the Naxxramas Core Battlemaster rules. A legacy IP header without the modern reader is **rejected safely**, rather than guessing its incompatible milestone numbering.
 
-If `IndividualProgression.Enable=0`, there is no character IP stage to check, so the importer retains its **existing bot-level era restriction and DBC talent-row limits**. The player-era rule cannot bypass those restrictions; a bot still needs the correct level/expansion, class/ranks/prerequisites and **all available talent points allocated**. No new configuration keys are introduced.
+If `IndividualProgression.Enable=0`, there is no character IP stage to check, so the importer retains its **existing bot-level era restriction and DBC talent-row limits**. The player-era rule cannot bypass those restrictions; a bot still needs the correct level/expansion, class/ranks/prerequisites and **all available talent points allocated**. This era rule adds no new configuration keys; the independent Alt Bot permission allowlist is documented above.
 
 **Wrong-era requests fail with `NT1 rejected: NT1 era blocked by Individual Progression: ... No talents changed.`** Preview remains read-only, and apply is denied before any talent reset. The live result of this rule has **not yet been tested**; it requires the administrator to pull, recompile and restart. **Only Naxxramas Core was changed**: no edits to IP, Playerbots, AzerothCore, addon or website.
 
@@ -74,9 +92,9 @@ If `IndividualProgression.Enable=0`, there is no character IP stage to check, so
 
 ### Grouped random Playerbots (first live apply passed; remaining cases untested)
 
-The NT1 importer now has two application cases under the existing `AccessMode` setting; **no additional config option** is needed.
+The NT1 importer has two application cases under the existing `AccessMode` setting. **Alt Bot `apply` additionally requires an explicitly allowlisted issuing character name.** Random Playerbot permissions remain unchanged.
 
-- **Account-controlled Alt Bots:** continue through the existing validity checks, and on success the importer writes the NT1 code into `mod_naxxramas_bot_talent_import` and saves the character's talents.
+- **Alt Bots:** `.naxxbot talents apply` is allowed only when the HUMAN issuing character's name is in `AltBotAllowedPlayers` **and** the original `AccessMode`/non-GM ownership checks pass. The default empty allowlist denies all Alt Bot NT1 applications, including GMs. On success, only normal talents and the stored NT1 intent are updated; **no equipment generation, gear replacement, item moves, or gear deletion is part of NT1 apply**.
 - **Random Playerbots:** may apply only while the issuing **real player** and the bot are **both members of the same active party or raid**. The bot must currently identify that player as its Playerbots AI master. If no master is assigned, only the **actual group leader** may issue the application command. A bot mastered by someone else remains off-limits, even to a GM who merely joins the group.
 - The random-bot case runs the **same** NT1 class/era/DBC/rank preflight, existing-build snapshot check, exact talent learning verification and best-effort rollback as the Alt Bot case; it still refuses applications when the bot is dead or in combat.
 - Successful random-bot application **does not insert/update the desired NT1 code in the persistent profile table**, so it will not intentionally lock a build into future randomised sessions. The normal character talents are still saved to the characters DB; **leaving the party does not immediately restore the old build**.
