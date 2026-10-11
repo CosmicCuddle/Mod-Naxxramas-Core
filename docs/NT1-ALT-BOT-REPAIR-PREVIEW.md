@@ -70,6 +70,14 @@ This diagnostic does **not** change or override the allowlist, grant any right t
 
 The inspection deliberately **does not** alter talent rows, learn spells, reset pets, touch other specializations, save to DB or touch bags/equipment. It does not inspect non-talent, separately learned class spells, original talent spell effects/auras, complete SQL snapshots, or comprehensive spec/glyph/pet recovery. The lack of these checks prevents destructive repair from being considered safe.
 
+## Read-only recovery and equipment risk checkpoint (new stacked draft)
+
+The next *separate unmerged draft* extends `repairpreview` to report which active spec is selected, total available spec slots and whether the target's **offhand slot is occupied**. It always warns that a normal AzerothCore `resetTalents(true)` may dismiss a pet and **move OR MAIL** offhand equipment. An empty offhand slot does not prove that a full talent replacement has no indirect side effects. No item GUID is modified or moved by the diagnostic.
+
+This stage also adds `scripts/audit_nt1_altbot_recovery_backup.py`, which reads an existing full offline `.sql` or `.sql.gz` **without connecting to MySQL**, checks CRC and table coverage and optionally creates a private SHA-256 JSON manifest. Even a passing structural audit is **not** proof that the SQL restore works. A full **offline isolated restore rehearsal** is required before a separate repair Apply could be considered.
+
+See **[NT1 Alt Bot Recovery Checkpoint](NT1-ALT-BOT-RECOVERY-CHECKPOINT.md)** for operator backup steps, complete required table list, limitations and recovery acceptance. Nothing in this phase grants permission to reset the Alt Bot's talents or equipment.
+
 ## Next approval gates (separate future PRs)
 
 1. **Compile and read-only field test:** after approval and a reviewable combined PR #7 + diagnostics build, test a single affected level-60 Priest Alt Bot with a 51/51 Vanilla NT1. Confirm both IDs display and that no talents/inventory change. Test allowlisted vs unlisted characters, other-account bot permissions, Random Bot refusal, wrong era and disabled mode. No Apply.
