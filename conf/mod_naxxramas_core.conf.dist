@@ -162,6 +162,24 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # Default: 0
 NaxxramasCore.BotTalentImport.AccessMode = 0
 
+# Alt Bot NT1 application permission list.
+# Comma-separated HUMAN PLAYER CHARACTER names (not Alt Bot names).
+# Example to copy into your ACTIVE config:
+# NaxxramasCore.BotTalentImport.AltBotAllowedPlayers = "Takali, Drakka, Sequoia"
+#
+# Only these characters can run .naxxbot talents apply on Alt Bots.
+# Names match exactly, ignoring case and spaces around the commas.
+# Trailing commas are harmless. An empty list DENIES all Alt Bot applies,
+# including GM attempts. Read-only preview is still available to callers
+# allowed by AccessMode. This is an additional check, not an override:
+# AccessMode 1 remains GM-only; AccessMode 2 still checks normal-player
+# bot ownership/master permissions. Random Playerbots are UNAFFECTED.
+# NT1 imports do not touch Alt Bot EQUIPMENT; any future role-autogear
+# feature must be restricted to Random Playerbots only.
+#
+# Default: "" (deny all Alt Bot apply)
+NaxxramasCore.BotTalentImport.AltBotAllowedPlayers = ""
+
 #####################################
 # Playerbot Talent Completion
 #####################################
