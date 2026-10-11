@@ -11,10 +11,10 @@ New **opt-in** `NT1L1:<era>:<class>:<id>-<added-ranks>.<id>-<added-ranks>...` sp
 Illustrative *syntax only* (NOT a legal 51-point build):
 
 ```text
-NT1L1:vanilla:mage:11-5.12-2.11-1
+NT1L1:vanilla:mage:11-3.12-2.11-2
 ```
 
-That example says “5 points in talent ID 37, 2 in talent ID 38, then 1 more in talent ID 37.” It will be rejected if a rank would exceed the DBC maximum, a prerequisite is missing, the chosen rows are locked, or the source is not a complete 51-point Vanilla plan. **Do not use it as a game-ready code.**
+That example says “3 points in talent ID 37, 2 in talent ID 38, then 2 more in talent ID 37.” It will be rejected if a rank would exceed the DBC maximum, a prerequisite is missing, the chosen rows are locked, or the source is not a complete 51-point Vanilla plan. **Do not use it as a game-ready code.**
 
 ### Read-only command
 
@@ -27,7 +27,7 @@ That example says “5 points in talent ID 37, 2 in talent ID 38, then 1 more in
 - Requires a **complete standard source template**: Vanilla 51 points, TBC 61, WotLK 71. The protocol is version 1; realms with a nonstandard source talent-point ceiling are rejected rather than guessed.
 - Uses `bot->CalculateTalentsPoints()` for the level-adjusted target budget. Captures the first `N` explicitly ordered *legal* rank steps, forms a canonical derived NT1 final-rank code, and runs it through the existing pure read-only `ParseCode` for a second complete validation. Target must spend exactly `N/N` points. Example on a level-30 Vanilla Mage with a legal 51-rank source: **21/21**.
 - Checks the issuing character's exact current Individual Progression era (modern hidden quests 66001–66018; TBC at 8, WotLK at 13), and then reports the usual `CheckApplyReadiness` result from PR #7. If a lower-level TBC or WotLK bot fails the existing stricter **bot-level** Apply era restriction, the result is `PREFLIGHT BLOCKED`, **not** an expansion bypass.
-- Prints target, level, points, three talent-tree totals, derived ranks and a `PREFLIGHT READY` or `PREFLIGHT BLOCKED` status, followed by an explicit “read-only, nothing changed” statement.
+- Prints target, level, points, three talent-tree totals, **paged Talent.dbc ID-rank pairs** (to avoid overlong chat lines), and a `PREFLIGHT READY` or `PREFLIGHT BLOCKED` status, followed by an explicit “read-only, nothing changed” statement.
 - Does **not** teach ranks, reset talents, call `ApplyValidated`, create items, persist an NT1 profile or produce an authorization token.
 - Existing `.naxxbot talents preview ... NT1:...` and `.naxxbot talents apply ... NT1:...` are not changed. Existing Apply rejects `NT1L1` (wrong `NT1` wire version); there is intentionally no `apply-priority` or `apply-project` command.
 
@@ -53,7 +53,7 @@ Do not trust client-provided preset names or URLs as authority. The later confir
 ```text
 NT1L1 projection for Examplemage (level 30 mage, era vanilla): 21 / 21 points from ordered 51-point source.
 Projected tree points (server order): <arcane> / <fire> / <frost>.
-Projected talent ranks: NT1:vanilla:mage:<actual-projected-DBC-ID-rank-pairs>
+Projected Talent.dbc ID-rank entries: <actual-projected-DBC-ID-rank-pairs>
 NT1L1 PREFLIGHT READY (read-only only): there is NO automatic level-projection Apply command.
 NT1L1 projection only: no talents, equipment or bot data changed.
 ```
