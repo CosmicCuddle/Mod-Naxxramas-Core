@@ -36,21 +36,15 @@
 #include <limits>
 #include <sstream>
 #include <string>
-#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-// Reuse modern Individual Progression's authoritative rewarded-quest reader
-// when its header is exposed. On builds that do not export the header,
-// the modern hidden-quest format is read directly from the issuing player.
-#if __has_include("IndividualProgression.h")
-#include "IndividualProgression.h"
-#define NAXXRAMAS_NT1_HAS_IP_HEADER 1
-#else
-#define NAXXRAMAS_NT1_HAS_IP_HEADER 0
-#endif
+// Keep IndividualProgression.h out of this translation unit:
+// it and PlayerbotAI.h both declare the global enum value GENERAL.
+// Read current IP's rewarded hidden quests through Player instead,
+// as the existing Naxxramas Core Battlemaster integration already does.
 
 using namespace Acore::ChatCommands;
 
@@ -199,28 +193,6 @@ namespace NaxxramasBotTalentImport
     constexpr uint32 IP_MAX_STAGE = 18;
     constexpr uint32 IP_HIDDEN_QUEST_START = 66000;
 
-#if NAXXRAMAS_NT1_HAS_IP_HEADER
-    // Legacy IP variants have a different stage schema and no modern
-    // rewarded-quest reader. Fail closed there rather than guessing a tier.
-    template <typename T, typename = void>
-    struct ModernIPStageReader
-    {
-        static bool Read(Player*, uint32&) { return false; }
-    };
-
-    template <typename T>
-    struct ModernIPStageReader<T, std::void_t<
-        decltype(std::declval<T const&>().GetPlayerProgressionFromQuests(
-            std::declval<Player*>()))>>
-    {
-        static bool Read(Player* player, uint32& stage)
-        {
-            stage = T::instance()->GetPlayerProgressionFromQuests(player);
-            return true;
-        }
-    };
-#endif
-
     // The requesting HUMAN character's IP expansion is authoritative.
     // Never infer it from a random bot's often-exempt progression state,
     // the requested code, or an artificially raised GM/bot level.
@@ -237,27 +209,17 @@ namespace NaxxramasBotTalentImport
         if (!sConfigMgr->GetOption<bool>("IndividualProgression.Enable", true))
             return true;
 
+        // Modern Individual Progression stores achieved stages in hidden,
+        // rewarded quest IDs 66001..66018. Reading Player quest state
+        // avoids conflicting IP/Playerbots headers and matches the modern
+        // GetPlayerProgressionFromQuests() highest-stage semantics.
+        // This path targets the current hidden-quest IP schema (not older
+        // player-settings-based variants).
         uint32 stage = 0;
-#if NAXXRAMAS_NT1_HAS_IP_HEADER
-        if (!sIndividualProgression->enabled)
-            return true;
-
-        if (!ModernIPStageReader<IndividualProgression>::Read(issuer, stage))
-        {
-            error = "Cannot verify Individual Progression on this legacy "
-                    "module version. NT1 application is blocked.";
-            return false;
-        }
-#else
-        // Modern IP stores each completed stage as a rewarded hidden quest.
-        // Only use this fallback when its public C++ header is unavailable.
-        // The highest rewarded stage takes precedence over missing earlier
-        // markers, matching GetPlayerProgressionFromQuests().
         for (uint32 i = 1; i <= IP_MAX_STAGE; ++i)
             if (issuer->GetQuestStatus(IP_HIDDEN_QUEST_START + i) ==
                 QUEST_STATUS_REWARDED)
                 stage = i;
-#endif
 
         uint32 const limit = sConfigMgr->GetOption<uint32>(
             "IndividualProgression.ProgressionLimit", 0);
