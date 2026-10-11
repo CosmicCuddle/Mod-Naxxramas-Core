@@ -41,6 +41,38 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
 - Test modes 0/1/2, bot ownership, forbidden targets, unexpected command-help output, and read-only preview. One fully allocated Random Playerbot application passed on Zevon; incomplete-point refusal and broader M2 cases remain to be tested after the next compile.
 
+### Shared read-only Apply preflight (new draft PR — uncompiled)
+
+**Scope:** `src/Systems/BotTalentImport.cpp` now has a `CheckApplyReadiness` routine, shared by the existing `preview` and `apply` handlers. The helper is **read-only**: it reads character state, the current talent snapshot and SQL table metadata; it does not call talent resets, learning, save methods, profile writes, equipment or inventory operations. The only change in the mutation path is that it calls this same helper **again before any reset** and uses its validated old-build snapshot for existing best-effort rollback.
+
+Preview now distinguishes two separate facts:
+
+- **`NT1 valid for ...`** — the submitted code is syntactically/class/DBC/era valid for the target's current level and available points. This alone does not imply Apply eligibility.
+- **`NT1 PREFLIGHT READY (current state only)`** — same immediate eligibility checks as Apply passed; **no token, reservation, persistence guarantee or authorization grant is issued**.
+- **`NT1 PREFLIGHT BLOCKED: <reason>`** — Apply is currently ineligible, including group/master status, empty or unmatched Alt Bot allowlist, combat/death, missing SQL table, expansion-vs-bot-level restriction, unspent target points, or an invalid/unrecoverable original bot spec. Preview still makes no changes and prints talent totals/tree distribution when the requested plan parses.
+
+Both commands retain `AccessMode` and direct owner/AI-master checks, and the shared helper also enforces these a second time, using the real human issuer and online target. The intended *new* behavior is to reject Apply before reset if a caller, current target, class, level or live budget no longer matches preflight requirements. **Alt Bot gear remains out of scope**. The Individual Progression header exclusion is unchanged, preventing the previously observed conflicting `GENERAL` enum.
+
+**Important limitations remaining:** This is a **current-state readiness report**, not a server-issued short-lived confirmation ticket. Preview and Apply are still separate commands; Apply checks everything again and can still fail if the bot or permissions change. The prior reset/learning and rollback routine remains best-effort and non-atomic, including the pre-existing active-spec-change failure path. The server has not adopted a structured addon protocol; MultiBot must not parse the new human-readable text as a durable authorization or infer success from dispatch.
+
+**Build/test status:** code committed to a separate *draft, unmerged* branch; static read-only/ordering review only, **server compilation and in-game regression tests pending**.
+
+Suggested minimum field tests *after an approved, successfully compiled candidate*:
+
+| Check | Preview expected | Apply expected |
+| --- | --- | --- |
+| 51/51 level-60 Vanilla Mage, controlled eligible grouped Random Bot | `PREFLIGHT READY` | Existing guarded talent application still works; no permanent random-bot NT1 profile |
+| Same Mage, ungrouped or foreign master | `PREFLIGHT BLOCKED` | `NT1 apply aborted` before reset |
+| Alt Bot with caller absent from the list (including GM) | `PREFLIGHT BLOCKED` | Denied; no talent or gear changes |
+| Allowlisted Alt Bot with valid ownership/security | `PREFLIGHT READY` | Experimental Apply only after recovery checks; no inventory changes |
+| 49/51 incomplete level-60 build | `PREFLIGHT BLOCKED` with missing point count | Denied before reset |
+| Correct code, bot in combat/dead | `PREFLIGHT BLOCKED` | Denied before reset |
+| Missing import table or unrestorable existing talents | `PREFLIGHT BLOCKED` | Denied before reset |
+| Wrong class, malformed rank or blocked IP era | `NT1 rejected` (fails parse/issuer-stage gate) | No reset |
+| `AccessMode=0` | Command unavailable | Command unavailable |
+
+The next stage requires an explicit reviewed **server-bound, one-use preview/confirmation protocol**, plus better rollback/error reporting; it is **not** implemented by this PR.
+
 ### Alt Bot NT1 character-name allowlist (source committed; next build/test pending)
 
 **Alt Bots never participate in NT1 automatic gear generation.** The proposed post-NT1 role-gearing feature is reserved for eligible **Random Playerbots only**. An Alt Bot's existing equipped gear, bags and earned items must not be touched by that feature. This is scoped to **NT1-related automation**; it does not change the behaviour of stock Playerbots equipment commands run separately.
