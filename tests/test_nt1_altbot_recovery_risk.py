@@ -86,12 +86,12 @@ class RecoveryWarningsSafetyTests(unittest.TestCase):
         shared = CPP.split("    bool CheckApplyReadiness(", 1)[1].split(
             "    bool ApplyValidated(", 1
         )[0]
-        shared = re.sub(r"//[^\\n]*", "", shared)
+        shared = re.sub(r"//[^\n]*", "", shared)
         self.assertNotRegex(
             shared,
-            r"\\b(?:resetTalents|LearnTalent|SaveToDB|DirectExecute|"
+            r"\b(?:resetTalents|LearnTalent|SaveToDB|DirectExecute|"
             r"EquipNewItem|DestroyItem|StoreItem|RemoveItem|"
-            r"AutoUnequipOffhandIfNeed)\\s*\\(",
+            r"AutoUnequipOffhandIfNeed)\s*\(",
         )
 
     def test_guard_does_not_change_altbot_allowlist_or_random_path(self):
