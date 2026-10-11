@@ -1139,8 +1139,8 @@ namespace NaxxramasBotTalentImport
             static_cast<uint32>(bot->GetSpecsCount()),
             hasOffhand ? "YES" : "NO");
         handler->SendSysMessage(
-            "NT1 ALT RECOVERY NOT VERIFIED: talent resets may dismiss "
-            "pets or move offhand gear; no equipment change is authorised.");
+            "NT1 ALT RECOVERY NOT VERIFIED: reset may dismiss pets and "
+            "move OR MAIL offhand gear; no item change is authorised.");
         handler->SendSysMessage(
             "NT1 ALT BACKUP REQUIRED: full characters database backup "
             "and tested OFFLINE restoration; not verifiable by this command.");
