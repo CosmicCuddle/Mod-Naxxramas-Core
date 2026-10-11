@@ -1383,7 +1383,27 @@ public:
         handler->PSendSysMessage(
             "Projected tree points (server order): {} / {} / {}.",
             plan.Trees[0], plan.Trees[1], plan.Trees[2]);
-        handler->PSendSysMessage("Projected talent ranks: {}", projectedCode);
+        // Paginate output as rank pairs, not a potentially truncated
+        // chat-length NT1 string. The full projected code is for internal
+        // read-only ParseCode validation, not a new Apply transport.
+        size_t const lastColon = projectedCode.rfind(':');
+        std::istringstream entries(projectedCode.substr(lastColon + 1));
+        std::string pair, rankLine;
+        while (std::getline(entries, pair, '.'))
+        {
+            if (rankLine.size() + pair.size() + 2 > 135)
+            {
+                handler->PSendSysMessage(
+                    "Projected Talent.dbc ID-rank entries: {}", rankLine);
+                rankLine.clear();
+            }
+            if (!rankLine.empty())
+                rankLine += ", ";
+            rankLine += pair;
+        }
+        if (!rankLine.empty())
+            handler->PSendSysMessage(
+                "Projected Talent.dbc ID-rank entries: {}", rankLine);
 
         if (CheckApplyReadiness(issuer, bot, plan, error))
             handler->SendSysMessage(
