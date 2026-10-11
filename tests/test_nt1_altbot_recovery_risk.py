@@ -24,7 +24,8 @@ class RecoveryWarningsSafetyTests(unittest.TestCase):
 
     def test_does_not_claim_gear_safe_when_offhand_empty(self):
         self.assertIn("Even an empty offhand slot cannot prove", PRINTER)
-        self.assertIn("talent resets may dismiss", PRINTER)
+        self.assertIn("reset may dismiss pets", PRINTER)
+        self.assertIn("move OR MAIL offhand gear", PRINTER)
 
     def test_backup_explicitly_not_verified(self):
         self.assertIn("NT1 ALT BACKUP REQUIRED", PRINTER)
