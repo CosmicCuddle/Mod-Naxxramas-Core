@@ -41,6 +41,14 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
 - Test modes 0/1/2, bot ownership, forbidden targets, unexpected command-help output, and read-only preview. One fully allocated Random Playerbot application passed on Zevon; incomplete-point refusal and broader M2 cases remain to be tested after the next compile.
 
+### Read-only Alt Bot state comparison (new stacked draft, NOT a repair)
+
+The allowlisted `.naxxbot talents repairpreview <bot> <NT1-code>` diagnostic now also observes both talent specs' existing, non-removed talent rank-spell records and learned spell IDs via their actual `specMask`, plus **active-spec glyphs** and the Item GUIDs in **all 19 equipped slots**. It reports only counts and three ephemeral non-cryptographic comparison fingerprints; it does **not** save a snapshot, switch specs, write SQL or grant a repair token.
+
+**Limits:** the public `GetGlyph(slot)` getter reads only the ACTIVE spec, so inactive-spec glyphs are deliberately **not** inspected in-game. Bag/bank/mail items, pets, auras, action bars, scripts, item attributes and actual rollback ability are also outside this observation. Use the FULL offline DB backup and a rehearsed isolated restore to protect those. The original invalid-talent old-build check and Alt Bot offhand/active-pet pre-reset denial remain in place, and a destructive Alt Bot repair command still does **not** exist.
+
+Source and risk boundaries: [Alt Bot Protected-State Observation](NT1-ALT-BOT-PROTECTED-STATE.md) and [Alt Bot Recovery Checkpoint](NT1-ALT-BOT-RECOVERY-CHECKPOINT.md). This development branch has **no C++ compile or real in-game verification** at this checkpoint.
+
 ### Known equipment/pet side-effect guard — separate draft (uncompiled)
 
 AzerothCore's `Player::resetTalents(true)` can automatically remove an active pet and relocate **or mail** an offhand item. To protect account-controlled **Alt Bots**, the common `CheckApplyReadiness` has a new **Alt Bot-only fail-closed guard**: ordinary `.naxxbot talents apply` refuses to reset an Alt Bot if **any offhand item is equipped or an active pet exists**, even if all requested NT1 ranks are valid. This check runs before `resetTalents`; it performs no item or pet operations. **Random Playerbots retain their existing behaviour.**
