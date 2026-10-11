@@ -545,6 +545,14 @@ FROM character_spell WHERE guid=73209 ORDER BY spell;
 - **Next action:** on server `cd /root/azerothcore-wotlk/modules/mod-naxxramas-core && git pull --ff-only`; then `cd /root/azerothcore-wotlk && cmake --build build --target worldserver --parallel 2`. Ask the administrator for the **first real compiler error** if it still fails; do not treat the corrected source as a proven successful compilation until confirmed. Restart Worldserver only after a successful build and then test read-only incorrect-era/points failures before any destructive apply.
 - **Status:** **source correction committed; user has not reported a successful rebuild yet.** The source is reviewed for absence of both header and related symbol references; no full integration compilation was performed in this chat.
 
+#### 11 October 2026 — LIVE READ-ONLY NT1 POSITIVE TEST (Castin, level 60 Mage, 14:53 local)
+
+- **User-provided actual in-game screenshot** confirms the previously tested Vanilla Frost Mage NT1 code was accepted for **Castin**, level **60**, class **Mage**, era **Vanilla**. This is a different target name from the previously planned **Catarea**; preserve names correctly and do not conflate character test evidence.
+- Exact screenshot response: `NT1 valid for Castin (level 60 mage, era vanilla).` / `Points: 51 planned / 51 available; 0 deliberately unspent.` / `Talent trees (server tab order): 14 / 0 / 37; 20 talent entries.` / `Read-only validation: no talents have been reset or applied.`
+- **Observed PASS**: existing running-server NT1 read-only parser, talent-rank/prerequisite/row-order validation and level-60 Vanilla 51/51 point-budget calculation all returned an accepted complete plan for Castin. Does not independently prove the absence of all UI/server side effects, though the invoked path is read-only by design.
+- **Not established:** destructive Apply success on Castin or Catarea; post-respec talent spells/auras, rollback, dual-spec state, SQL persistence, Random Bot maintenance, PR #7 shared `PREFLIGHT` messages, PR #8 `NT1L1` projection or exact deployed Git SHA. **No new Apply test is authorised** by this screenshot.
+- **Next non-destructive test:** optionally repeat the same Vanilla Mage `preview` on **Catarea** if that is still the intended target; separately prepare a valid incomplete 49/51 Vanilla build to observe `NT1 APPLY BLOCKED` and verify its loaded DBC legality. Keep experimental Apply gated behind verified backups/recovery.
+
 #### 11 October 2026 — LIVE READ-ONLY NT1 NEGATIVE TESTS (Catarea, level 60 Mage)
 
 - **User-provided in-game chat screenshots around 12:11–12:12** show `.naxxbot talents preview` responses from the rebuilt/restarted live server. Exact deployed Git SHA and successful build log have not been independently supplied; do not infer a full compiler/integration test pass from these screenshots.
