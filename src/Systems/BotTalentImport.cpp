@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <limits>
 #include <sstream>
@@ -116,6 +117,54 @@ namespace NaxxramasBotTalentImport
     {
         WorldSession* session = handler ? handler->GetSession() : nullptr;
         return session && session->GetSecurity() >= SEC_GAMEMASTER;
+    }
+
+    // Case-insensitive whole character-name matching. Ignore surrounding
+    // whitespace so configurations like "Takali, Drakka, Sequoia," work.
+    // Never use substring matching: "Takali" must not authorise "Takalina".
+    std::string NormalizeAllowedCharacterName(std::string value)
+    {
+        size_t const begin = value.find_first_not_of(" \t\r\n");
+        if (begin == std::string::npos)
+            return {};
+
+        size_t const end = value.find_last_not_of(" \t\r\n");
+        value = value.substr(begin, end - begin + 1);
+        std::transform(value.begin(), value.end(), value.begin(),
+            [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        return value;
+    }
+
+    // Additional ALT BOT protection; applies to the issuing human character,
+    // NOT the target bot's name. Empty list = deny every Alt Bot NT1 apply.
+    // This supplements AccessMode and the existing non-GM ownership checks;
+    // it does not grant new privileges or affect Random Playerbots.
+    bool CanApplyToAltBot(Player* issuer, std::string& error)
+    {
+        if (!issuer || !issuer->GetSession() ||
+            PlayerbotsMgr::instance().GetPlayerbotAI(issuer))
+        {
+            error = "Alt Bot NT1 apply requires an authorised human player. "
+                    "No talents changed.";
+            return false;
+        }
+
+        std::string const name = NormalizeAllowedCharacterName(issuer->GetName());
+        std::string const allowed = sConfigMgr->GetOption<std::string>(
+            "NaxxramasCore.BotTalentImport.AltBotAllowedPlayers", "");
+
+        std::istringstream entries(allowed);
+        std::string entry;
+        while (std::getline(entries, entry, ','))
+        {
+            if (!name.empty() && NormalizeAllowedCharacterName(entry) == name)
+                return true;
+        }
+
+        error = "Alt Bot NT1 apply denied: your character is not in "
+                "NaxxramasCore.BotTalentImport.AltBotAllowedPlayers. "
+                "No talents changed.";
+        return false;
     }
 
     // For normal players, the bot must belong to their account or have
@@ -748,6 +797,15 @@ namespace NaxxramasBotTalentImport
 
         bool const randomBot = sRandomPlayerbotMgr.IsRandomBot(bot);
         if (randomBot && !CanApplyToGroupedRandomBot(issuer, bot, error))
+            return false;
+
+        // Alt Bot talent application requires an explicit administrator
+        // allowlist IN ADDITION to AccessMode and ordinary-player control.
+        // Check before resetTalents, profile writes or character DB saves.
+        // There is deliberately NO Alt Bot equipment automation here:
+        // their equipped items must be left untouched by NT1 and by any
+        // future role-gearing feature.
+        if (!randomBot && !CanApplyToAltBot(issuer, error))
             return false;
 
         // Recheck inside the destructive path as well as ValidateRequest.
