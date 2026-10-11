@@ -60,6 +60,15 @@ NT1L1 projection only: no talents, equipment or bot data changed.
 
 A blocked preview can still show a valid projection but then explain why Apply would be currently ineligible (e.g. Random Bot group/master, Alt Bot allowlist, IP, current bot-era, SQL table or original spec snapshot).
 
+### Offline final-rank equivalence guard (added to this draft branch)
+
+A non-destructive developer tool now accompanies this projection prototype:
+
+- `scripts/check_nt1l1_priority.py`: compares a **human-authored** NT1L1 order with an approved full NT1 rank allocation. It rejects class/era mismatch, malformed/duplicate final NT1 entries, wrong full expansion point totals, rank-overflow and **any difference in resulting per-talent ranks**. Given a target level it shows the first N ranks in the supplied explicit order. It does **not** suggest an order or change bots.
+- `tests/test_nt1l1_priority.py`: 12 isolated Python regression tests for level-30/level-60 budgets, repeated ID increments, altered ranks, bad era/class, malformed entries, overspent ranks and incomplete sources. Executed offline in a local Python environment: **12 passed**. No AzerothCore build, Playerbots integration test or in-game DBC validation was run.
+- **Important test limitation:** its source-order Mage fixture deliberately checks **final-rank equality and point arithmetic only**. The test fixture's spend order has **not** been verified as a legal real-world levelling schedule and **must not** be pasted into the game or treated as an approved NT1L1 source. The real server `project` command is responsible for runtime DBC prerequisites/rows/rank spell checks. This is one additional safeguard, *not* a replacement.
+- To run the checks from the Naxxramas Core repository root: `python3 -m unittest discover -s tests -p 'test_nt1l1_priority.py' -v`. No SQL, Worldserver startup or new dependencies are required.
+
 ### Acceptance test matrix after review and compilation
 
 | Scenario | Expected read-only result |
