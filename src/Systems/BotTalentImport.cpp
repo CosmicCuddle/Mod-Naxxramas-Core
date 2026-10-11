@@ -19,6 +19,7 @@
 #include "DBCStores.h"
 #include "DatabaseEnv.h"
 #include "Group.h"
+#include "Item.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -694,6 +695,189 @@ namespace NaxxramasBotTalentImport
         return result;
     }
 
+    // Read-only volatile observation of what the server currently exposes.
+    // NOT an offline database backup, restore token, cryptographic signature,
+    // or proof that talent reset will preserve these records. In particular
+    // Player::GetGlyph(slot) only reads the ACTIVE spec, so inactive-spec
+    // glyphs must be checked against the separate OFFLINE DB backup.
+    struct AltBotProtectedState
+    {
+        uint32 CharacterGuid = 0;
+        uint32 Level = 0;
+        uint8 ActiveSpec = 0;
+        uint8 SpecsCount = 0;
+        std::array<std::vector<uint32>, MAX_TALENT_SPECS> Talents;
+        std::array<std::vector<uint32>, MAX_TALENT_SPECS> Spells;
+        std::array<uint32, MAX_GLYPH_SLOT_INDEX> ActiveGlyphs = {};
+        std::array<uint32, EQUIPMENT_SLOT_END> EquippedItemGuids = {};
+    };
+
+    AltBotProtectedState CaptureAltBotProtectedState(Player const* bot)
+    {
+        AltBotProtectedState snapshot;
+        if (!bot)
+            return snapshot;
+
+        snapshot.CharacterGuid = bot->GetGUID().GetCounter();
+        snapshot.Level = bot->GetLevel();
+        snapshot.ActiveSpec = bot->GetActiveSpec();
+        snapshot.SpecsCount = bot->GetSpecsCount();
+
+        // The maps include BOTH specializations, unlike active-spec-only
+        // HasTalent/HasSpell tests. Copy spell IDs with their spec bit.
+        for (auto const& [spellId, talent] : bot->GetTalentMap())
+        {
+            if (!talent || talent->State == PLAYERSPELL_REMOVED)
+                continue;
+            for (uint8 spec = 0; spec < MAX_TALENT_SPECS; ++spec)
+                if ((talent->specMask & (1u << spec)) != 0)
+                    snapshot.Talents[spec].push_back(spellId);
+        }
+
+        for (auto const& [spellId, spell] : bot->GetSpellMap())
+        {
+            if (!spell || spell->State == PLAYERSPELL_REMOVED)
+                continue;
+            for (uint8 spec = 0; spec < MAX_TALENT_SPECS; ++spec)
+                if ((spell->specMask & (1u << spec)) != 0)
+                    snapshot.Spells[spec].push_back(spellId);
+        }
+
+        // Unordered_map iteration is nondeterministic; stabilize order.
+        for (uint8 spec = 0; spec < MAX_TALENT_SPECS; ++spec)
+        {
+            std::sort(snapshot.Talents[spec].begin(),
+                snapshot.Talents[spec].end());
+            std::sort(snapshot.Spells[spec].begin(),
+                snapshot.Spells[spec].end());
+        }
+
+        for (uint8 slot = 0; slot < MAX_GLYPH_SLOT_INDEX; ++slot)
+            snapshot.ActiveGlyphs[slot] = bot->GetGlyph(slot);
+
+        // Equipment identities only. Bag contents, bank, mail and pet DB
+        // state are NOT captured. They require an offline characters backup.
+        for (uint8 slot = EQUIPMENT_SLOT_START;
+            slot < EQUIPMENT_SLOT_END; ++slot)
+        {
+            Item const* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+            snapshot.EquippedItemGuids[slot] =
+                item ? item->GetGUID().GetCounter() : 0;
+        }
+
+        return snapshot;
+    }
+
+    // A deterministic, diagnostic 64-bit FNV-style checksum of the current
+    // in-memory observation, NOT a security credential or proof of recovery.
+    void MixStateFingerprint(uint64& hash, uint32 value)
+    {
+        for (uint32 shift = 0; shift < 32; shift += 8)
+        {
+            hash ^= (value >> shift) & 0xffu;
+            hash *= 1099511628211ULL;
+        }
+    }
+
+    uint64 BeginStateFingerprint()
+    {
+        return 14695981039346656037ULL;
+    }
+
+    uint64 FingerprintAltBotTalentsAndSpells(
+        AltBotProtectedState const& snapshot)
+    {
+        uint64 hash = BeginStateFingerprint();
+        MixStateFingerprint(hash, snapshot.CharacterGuid);
+        MixStateFingerprint(hash, snapshot.Level);
+        MixStateFingerprint(hash, snapshot.SpecsCount);
+        MixStateFingerprint(hash, snapshot.ActiveSpec);
+        for (uint32 spec = 0; spec < MAX_TALENT_SPECS; ++spec)
+        {
+            MixStateFingerprint(hash, 0x11000000u + spec);
+            MixStateFingerprint(hash,
+                static_cast<uint32>(snapshot.Talents[spec].size()));
+            for (uint32 id : snapshot.Talents[spec])
+                MixStateFingerprint(hash, id);
+
+            MixStateFingerprint(hash, 0x22000000u + spec);
+            MixStateFingerprint(hash,
+                static_cast<uint32>(snapshot.Spells[spec].size()));
+            for (uint32 id : snapshot.Spells[spec])
+                MixStateFingerprint(hash, id);
+        }
+        return hash;
+    }
+
+    uint64 FingerprintAltBotEquipment(AltBotProtectedState const& snapshot)
+    {
+        uint64 hash = BeginStateFingerprint();
+        MixStateFingerprint(hash, snapshot.CharacterGuid);
+        for (uint32 slot = EQUIPMENT_SLOT_START;
+            slot < EQUIPMENT_SLOT_END; ++slot)
+        {
+            MixStateFingerprint(hash, slot);
+            MixStateFingerprint(hash, snapshot.EquippedItemGuids[slot]);
+        }
+        return hash;
+    }
+
+    uint64 FingerprintAltBotActiveGlyphs(AltBotProtectedState const& snapshot)
+    {
+        uint64 hash = BeginStateFingerprint();
+        MixStateFingerprint(hash, snapshot.CharacterGuid);
+        MixStateFingerprint(hash, snapshot.ActiveSpec);
+        for (uint32 slot = 0; slot < MAX_GLYPH_SLOT_INDEX; ++slot)
+        {
+            MixStateFingerprint(hash, slot);
+            MixStateFingerprint(hash, snapshot.ActiveGlyphs[slot]);
+        }
+        return hash;
+    }
+
+    std::string HexStateFingerprint(uint64 fingerprint)
+    {
+        std::ostringstream output;
+        output << std::hex << fingerprint;
+        return output.str();
+    }
+
+    void PrintAltBotProtectedState(ChatHandler* handler, Player const* bot)
+    {
+        AltBotProtectedState const state = CaptureAltBotProtectedState(bot);
+        uint32 equippedSlots = 0;
+        uint32 filledGlyphs = 0;
+        for (uint32 guid : state.EquippedItemGuids)
+            if (guid)
+                ++equippedSlots;
+        for (uint32 glyph : state.ActiveGlyphs)
+            if (glyph)
+                ++filledGlyphs;
+
+        handler->PSendSysMessage(
+            "NT1 ALT STATE TALENTS (rank-spell records): spec1 {}, spec2 {}. "
+            "Learned spell records: spec1 {}, spec2 {}.",
+            state.Talents[0].size(), state.Talents[1].size(),
+            state.Spells[0].size(), state.Spells[1].size());
+        handler->PSendSysMessage(
+            "NT1 ALT STATE active-spec glyphs: {} of {} slots; "
+            "inactive glyphs require OFFLINE DB backup.",
+            filledGlyphs, static_cast<uint32>(MAX_GLYPH_SLOT_INDEX));
+        handler->PSendSysMessage(
+            "NT1 ALT STATE equipment: {} of {} slots occupied. "
+            "Equipment ID checksum: {}.",
+            equippedSlots, static_cast<uint32>(EQUIPMENT_SLOT_END),
+            HexStateFingerprint(FingerprintAltBotEquipment(state)));
+        handler->PSendSysMessage(
+            "NT1 ALT STATE volatile talent/spell checksum: {}. "
+            "Active glyph checksum: {}.",
+            HexStateFingerprint(FingerprintAltBotTalentsAndSpells(state)),
+            HexStateFingerprint(FingerprintAltBotActiveGlyphs(state)));
+        handler->SendSysMessage(
+            "NT1 ALT STATE NOT A BACKUP: no bag/bank/mail or inactive "
+            "glyph values captured. Checksums are not restore tokens.");
+    }
+
     // Must run inside ImportScope. Never use PlayerbotFactory's default
     // importer, which may automatically fill unspent talent points.
     bool LearnValidated(Player* bot, ValidatedBuild const& plan,
@@ -1180,6 +1364,10 @@ namespace NaxxramasBotTalentImport
         handler->SendSysMessage(
             "NT1 ALT BACKUP REQUIRED: full characters database backup "
             "and tested OFFLINE restoration; not verifiable by this command.");
+
+        // Protected-state data is volatile, never persisted to a table,
+        // and visible only to a human who passed the Alt Bot allowlist.
+        PrintAltBotProtectedState(handler, bot);
 
         handler->SendSysMessage(
             "NT1 ALT REPAIR DISABLED: no repair Apply command exists. "
