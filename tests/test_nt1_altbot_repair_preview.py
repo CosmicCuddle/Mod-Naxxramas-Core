@@ -103,7 +103,7 @@ class RepairPreviewSourceSafetyTests(unittest.TestCase):
             "    // Must run inside ImportScope.",
         )
         self.assertIn("AvailableInEra(", d)
-        self.assertIn("requested.Progression", section(
+        self.assertIn("proposed.Progression", section(
             "    void PrintAltBotRepairPreview(", "    void PrintPreview("
         ))
 
