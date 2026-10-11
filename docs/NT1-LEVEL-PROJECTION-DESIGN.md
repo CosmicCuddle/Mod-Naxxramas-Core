@@ -69,6 +69,48 @@ A non-destructive developer tool now accompanies this projection prototype:
 - **Important test limitation:** its source-order Mage fixture deliberately checks **final-rank equality and point arithmetic only**. The test fixture's spend order has **not** been verified as a legal real-world levelling schedule and **must not** be pasted into the game or treated as an approved NT1L1 source. The real server `project` command is responsible for runtime DBC prerequisites/rows/rank spell checks. This is one additional safeguard, *not* a replacement.
 - To run the checks from the Naxxramas Core repository root: `python3 -m unittest discover -s tests -p 'test_nt1l1_priority.py' -v`. No SQL, Worldserver startup or new dependencies are required.
 
+### Reviewed Vanilla Frost Mage priority candidate (pinned snapshot, not yet game-tested)
+
+The project now contains a **real, explicitly authored** Frost-first sequence for the level-60 Mage NT1 build already accepted by the live server for **Castin** (51/51, Arcane 14 / Fire 0 / Frost 37). This is a deliberate **proposed levelling priority**, *not* a claim to reconstruct the user's original historical spend order.
+
+**Reference full NT1:**
+
+```text
+NT1:vanilla:mage:11-5.12-2.1p-3.1q-3.1r-2.1s-2.1u-3.1v-3.1w-3.1x-1.1z-1.20-1.21-3.22-2.23-5.24-3.2d-1.kl-2.19t-3.1f9-3
+```
+
+**Rank-priority candidate for the new, read-only `project` command (AFTER PR #7 and #8 are reviewed and compiled):**
+
+```text
+NT1L1:vanilla:mage:11-5.1q-3.12-2.21-3.19t-3.1p-3.1r-2.1x-1.1u-3.1v-3.kl-2.20-1.1s-2.1w-3.1z-1.22-2.24-3.23-5.2d-1.1f9-3
+```
+
+The full chat command for `Castin` is **152 characters**, below the addon-era 255-character constraint. Do **not** run it against production until the new `project` command is successfully compiled; the currently installed server does not have that command.
+
+**Snapshot provenance:** `CosmicCuddle/Naxxramas-Resource-Hub/talents/data/server-talents-v1.gz.b64` blob SHA `9a11c998850b3069ca15d42f5c6c24b124e5ec21`, published source label `Supplied server DBC, 2026-10-08`. The snapshot's Mage talent metadata was decoded and its chosen 20 talent IDs, permitted ranks, tree rows and dependency links pinned to `tests/fixtures/nt1l1_vanilla_frost_mage_2026_10_08.json`.
+
+**Known offline projections from this intentional order:**
+
+| Target level | Arcane | Fire | Frost | Allocated |
+| --- | ---: | ---: | ---: | ---: |
+| 20 | 0 | 0 | 11 | 11 / 11 |
+| 30 | 0 | 0 | 21 | 21 / 21 |
+| 40 | 0 | 0 | 31 | 31 / 31 |
+| 50 | 4 | 0 | 37 | 41 / 41 |
+| 60 | 14 | 0 | 37 | 51 / 51 |
+
+**Exact level-30 projected NT1** (derived offline; **not an in-game successful Preview or Apply**):
+
+```text
+NT1:vanilla:mage:11-5.12-2.1p-3.1q-3.1r-2.21-3.19t-3
+```
+
+**Validation:** the 51 individual rank purchases satisfy the *pinned snapshot* five-earlier-row-points-per-tier and Spell.dbc rank-count limits. Ice Barrier (Talent ID `1z`) is scheduled after its required Cold Snap (`20`); its dependency is enforced before the capstone. The exact final per-talent rank allocation equals the successful Castin NT1 source, independent of entry order.
+
+**GitHub Actions regression evidence:** [NT1L1 offline projection tests, run 38148875355](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38148875355) completed successfully, **25/25 Python unit tests passing**, including tests against the pinned Mage Talent.dbc metadata, level 30/40/50/60 projection, malformed input, blocked prerequisite and row-order cases, and a 152-character full command-length check. This is repeatable **offline Python test evidence only**; it does not prove compilation of the C++ module, the running server's latest DBC, actual Player::LearnTalent effects or rollback safety.
+
+**Next:** compare the currently installed server Talent.dbc if it has changed since the 8 October snapshot; compile the draft candidate only after explicit approval; run read-only `project` against a disposable level-30 Mage and the existing level-60 Mage. Do not enable level-adaptive Apply or automatic gearing.
+
 ### Acceptance test matrix after review and compilation
 
 | Scenario | Expected read-only result |
