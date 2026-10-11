@@ -610,6 +610,237 @@ namespace NaxxramasBotTalentImport
         return result;
     }
 
+    // NT1L1 is an EXPLICIT levelling-order format:
+    //   NT1L1:<era>:<class>:<talent-id>-<added-ranks>.<id>-<added-ranks>...
+    // Each entry advances ranks contiguously; a repeated talent ID resumes
+    // that talent later. Unlike NT1 final-rank allocations, the order has
+    // meaning. There is deliberately NO apply path for NT1L1.
+    //
+    // This is pure validation and projection: no Playerbot mutations, talent
+    // learning, DB writes or equipment operations. A projected NT1 is
+    // revalidated by the existing, read-only ParseCode before it is shown.
+    bool ProjectPriorityCode(std::string const& code, Player* bot,
+        ValidatedBuild& projected, std::string& projectedCode,
+        uint32& sourcePoints, std::string& error)
+    {
+        if (!bot || code.empty() || code.size() > MAX_CODE_LENGTH)
+        {
+            error = "Missing bot or empty/oversized NT1L1 code.";
+            return false;
+        }
+
+        std::array<std::string, 4> parts;
+        size_t pos = 0;
+        for (size_t i = 0; i < 3; ++i)
+        {
+            size_t const colon = code.find(':', pos);
+            if (colon == std::string::npos)
+            {
+                error = "Expected NT1L1:<era>:<class>:<ordered-rank-steps>.";
+                return false;
+            }
+            parts[i] = code.substr(pos, colon - pos);
+            pos = colon + 1;
+        }
+        parts[3] = code.substr(pos);
+        if (parts[0] != "NT1L1" || parts[3].empty() ||
+            parts[3].find(':') != std::string::npos)
+        {
+            error = "Invalid NT1L1 version or missing rank priorities.";
+            return false;
+        }
+
+        Era era;
+        if (!ReadEra(parts[1], era))
+        {
+            error = "Unknown NT1L1 expansion.";
+            return false;
+        }
+
+        char const* cls = ClassName(bot->getClass());
+        if (!cls || parts[2] != cls ||
+            (parts[2] == "deathknight" && parts[1] != "wotlk"))
+        {
+            error = "NT1L1 class/expansion does not match this bot.";
+            return false;
+        }
+
+        if (bot->GetLevel() < 10 || bot->GetLevel() > era.MaximumLevel)
+        {
+            error = "Bot level is outside the NT1L1 expansion range.";
+            return false;
+        }
+
+        uint32 const targetPoints = bot->CalculateTalentsPoints();
+        // The initial protocol describes a complete, standard, maximum-level
+        // talent template for the named expansion, with 51/61/71 ranks.
+        // A different/custom source-level budget needs a future version.
+        uint32 const fullPoints = era.MaximumLevel - 9;
+        if (targetPoints == 0 || targetPoints > fullPoints)
+        {
+            error = "Bot talent-point budget is unsupported by NT1L1 v1.";
+            return false;
+        }
+
+        sourcePoints = 0;
+        std::unordered_map<uint32, uint8> sourceRanks;
+        std::unordered_map<uint32, uint8> targetRanks;
+        size_t entryCount = 0;
+        size_t begin = 0;
+        while (begin < parts[3].size())
+        {
+            size_t const end = parts[3].find('.', begin);
+            std::string const entry = parts[3].substr(begin,
+                end == std::string::npos ? std::string::npos : end - begin);
+            size_t const dash = entry.find('-');
+            if (dash == std::string::npos ||
+                entry.find('-', dash + 1) != std::string::npos ||
+                entry.size() != dash + 2 ||
+                entry[dash + 1] < '1' || entry[dash + 1] > '5')
+            {
+                error = "Invalid NT1L1 priority entry: " + entry;
+                return false;
+            }
+
+            uint32 id = 0;
+            if (!DecodeBase36(entry.substr(0, dash), id) || id == 0)
+            {
+                error = "Invalid NT1L1 talent ID: " + entry;
+                return false;
+            }
+
+            uint8 const addedRanks = static_cast<uint8>(entry[dash + 1] - '0');
+            TalentEntry const* talent = sTalentStore.LookupEntry(id);
+            TalentTabEntry const* tab = talent ?
+                sTalentTabStore.LookupEntry(talent->TalentTab) : nullptr;
+            if (!talent || !tab || !(tab->ClassMask & bot->getClassMask()) ||
+                tab->tabpage >= 3)
+            {
+                error = "NT1L1 talent is missing or belongs to another class: " +
+                    std::to_string(id);
+                return false;
+            }
+
+            if (!AvailableInEra({id, 1, talent, tab}, era))
+            {
+                error = "NT1L1 talent is outside the permitted expansion rows: " +
+                    std::to_string(id);
+                return false;
+            }
+
+            if (++entryCount > MAX_ENTRIES)
+            {
+                error = "Too many NT1L1 priority entries.";
+                return false;
+            }
+
+            // Validate EVERY individual rank step, including those after
+            // the target's current level. Source priorities must themselves
+            // form a fully legal levelling sequence.
+            for (uint8 i = 0; i < addedRanks; ++i)
+            {
+                uint32 const nextRank = sourceRanks[id] + 1;
+                if (nextRank > MAX_TALENT_RANK ||
+                    !talent->RankID[nextRank - 1] ||
+                    !sSpellMgr->GetSpellInfo(talent->RankID[nextRank - 1]))
+                {
+                    error = "Invalid NT1L1 talent rank/spell for talent " +
+                        std::to_string(id);
+                    return false;
+                }
+
+                if (talent->DependsOn &&
+                    sourceRanks[talent->DependsOn] <
+                        talent->DependsOnRank + 1)
+                {
+                    error = "NT1L1 prerequisite is not yet satisfied for " +
+                        std::to_string(id);
+                    return false;
+                }
+
+                uint32 earlierPoints = 0;
+                for (auto const& rank : sourceRanks)
+                {
+                    TalentEntry const* spentTalent =
+                        sTalentStore.LookupEntry(rank.first);
+                    if (spentTalent &&
+                        spentTalent->TalentTab == talent->TalentTab &&
+                        spentTalent->Row < talent->Row)
+                        earlierPoints += rank.second;
+                }
+                if (earlierPoints < talent->Row * MAX_TALENT_RANK)
+                {
+                    error = "NT1L1 talent row is not unlocked at this step: " +
+                        std::to_string(id);
+                    return false;
+                }
+
+                if (++sourcePoints > fullPoints)
+                {
+                    error = "NT1L1 contains more ranks than the expansion allows.";
+                    return false;
+                }
+
+                sourceRanks[id] = static_cast<uint8>(nextRank);
+                if (sourcePoints <= targetPoints)
+                    targetRanks[id] = static_cast<uint8>(nextRank);
+            }
+
+            if (end == std::string::npos)
+                break;
+            begin = end + 1;
+            if (begin == parts[3].size())
+            {
+                error = "NT1L1 has a trailing empty priority entry.";
+                return false;
+            }
+        }
+
+        if (sourcePoints != fullPoints)
+        {
+            error = "NT1L1 requires a complete " +
+                std::to_string(fullPoints) + "-point " + parts[1] +
+                " source template; received " + std::to_string(sourcePoints) +
+                " points.";
+            return false;
+        }
+
+        // Canonicalize the derived final rank allocation. Ordinary NT1
+        // remains the only existing Apply wire format. This code path
+        // never invokes ApplyValidated or any equipment operation.
+        std::vector<uint32> ids;
+        ids.reserve(targetRanks.size());
+        for (auto const& rank : targetRanks)
+            ids.push_back(rank.first);
+        std::sort(ids.begin(), ids.end());
+
+        projectedCode = "NT1:" + parts[1] + ":" + parts[2] + ":";
+        bool first = true;
+        for (uint32 id : ids)
+        {
+            if (!first)
+                projectedCode += ".";
+            first = false;
+            projectedCode += EncodeBase36(id) + "-" +
+                std::to_string(targetRanks[id]);
+        }
+
+        ValidatedBuild plan;
+        if (!ParseCode(projectedCode, bot, plan, error))
+        {
+            error = "Level-adjusted NT1 failed final DBC validation: " + error;
+            return false;
+        }
+        if (plan.Spent != targetPoints || plan.Available != targetPoints)
+        {
+            error = "Level-adjusted NT1 does not spend the bot's full budget.";
+            return false;
+        }
+
+        projected = std::move(plan);
+        return true;
+    }
+
     // Capture the current active spec before any reset. We make a canonical
     // NT1 snapshot and require ParseCode to prove it can be restored.
     std::string EncodeExisting(Player* bot, Era const& era)
@@ -1417,6 +1648,7 @@ public:
     {
         static ChatCommandTable talents = {
             {"preview", HandlePreview, SEC_PLAYER, Console::No},
+            {"project", HandleProject, SEC_PLAYER, Console::No},
             {"repairpreview", HandleRepairPreview, SEC_PLAYER, Console::No},
             {"apply", HandleApply, SEC_PLAYER, Console::No},
         };
@@ -1438,6 +1670,106 @@ public:
             return true;
 
         NaxxramasBotTalentImport::PrintPreview(handler, bot, build);
+        return true;
+    }
+
+    // Only a read-only projection preview is supported for NT1L1.
+    // There is no NT1L1 apply handler and no automatic level adjustment
+    // in the existing destructive NT1 Apply command.
+    static bool HandleProject(ChatHandler* handler, char const* args)
+    {
+        using namespace NaxxramasBotTalentImport;
+
+        if (!Enabled())
+        {
+            handler->SendSysMessage(
+                "Naxxramas bot talent importer is disabled.");
+            return true;
+        }
+        bool const gm = IsGM(handler);
+        if (!gm && !AllowNonGMPlayers())
+        {
+            handler->SendSysMessage(
+                "NT1L1 access denied: player talent commands are disabled.");
+            return true;
+        }
+
+        std::string name, code;
+        if (!ReadArguments(args, name, code))
+        {
+            handler->SendSysMessage(
+                "Usage: .naxxbot talents project <online-botname> <NT1L1-code>");
+            return true;
+        }
+
+        Player* issuer = handler && handler->GetSession() ?
+            handler->GetSession()->GetPlayer() : nullptr;
+        Player* bot = ObjectAccessor::FindPlayerByName(name);
+        PlayerbotAI* ai = bot ?
+            PlayerbotsMgr::instance().GetPlayerbotAI(bot) : nullptr;
+        if (!issuer || !ai || !bot || !bot->IsInWorld() ||
+            (!gm && !CanControlBot(issuer, bot, ai)))
+        {
+            handler->SendSysMessage(
+                "NT1L1 denied: online bot and valid controlling player required.");
+            return true;
+        }
+
+        ValidatedBuild plan;
+        std::string projectedCode, error;
+        uint32 sourcePoints = 0;
+        if (!ProjectPriorityCode(code, bot, plan, projectedCode,
+            sourcePoints, error))
+        {
+            handler->PSendSysMessage("NT1L1 rejected: {}", error);
+            return true;
+        }
+        if (!CheckPlayerProgressionEra(issuer, plan.Progression, error))
+        {
+            handler->PSendSysMessage("NT1L1 rejected: {}", error);
+            return true;
+        }
+
+        handler->PSendSysMessage(
+            "NT1L1 projection for {} (level {} {}, era {}): {} / {} points "
+            "from ordered {}-point source.",
+            bot->GetName(), bot->GetLevel(), plan.Class, plan.Progression.Name,
+            plan.Spent, plan.Available, sourcePoints);
+        handler->PSendSysMessage(
+            "Projected tree points (server order): {} / {} / {}.",
+            plan.Trees[0], plan.Trees[1], plan.Trees[2]);
+        // Paginate output as rank pairs, not a potentially truncated
+        // chat-length NT1 string. The full projected code is for internal
+        // read-only ParseCode validation, not a new Apply transport.
+        size_t const lastColon = projectedCode.rfind(':');
+        std::istringstream entries(projectedCode.substr(lastColon + 1));
+        std::string pair, rankLine;
+        while (std::getline(entries, pair, '.'))
+        {
+            if (rankLine.size() + pair.size() + 2 > 135)
+            {
+                handler->PSendSysMessage(
+                    "Projected Talent.dbc ID-rank entries: {}", rankLine);
+                rankLine.clear();
+            }
+            if (!rankLine.empty())
+                rankLine += ", ";
+            rankLine += pair;
+        }
+        if (!rankLine.empty())
+            handler->PSendSysMessage(
+                "Projected Talent.dbc ID-rank entries: {}", rankLine);
+
+        if (CheckApplyReadiness(issuer, bot, plan, error))
+            handler->SendSysMessage(
+                "NT1L1 PREFLIGHT READY (read-only only): there is NO "
+                "automatic level-projection Apply command.");
+        else
+            handler->PSendSysMessage(
+                "NT1L1 PREFLIGHT BLOCKED: {}", error);
+
+        handler->SendSysMessage(
+            "NT1L1 projection only: no talents, equipment or bot data changed.");
         return true;
     }
 
