@@ -2,7 +2,7 @@
 
 **Project:** [CosmicCuddle / Mod-Naxxramas-Core](https://github.com/CosmicCuddle/Mod-Naxxramas-Core)  
 **Platform:** AzerothCore, World of Warcraft 3.3.5a  
-**Roadmap snapshot:** 10 October 2026  
+**Roadmap snapshot:** 11 October 2026  
 **Established release baseline:** 1.0.6.8.4  
 **Current development line:** **1.0.6.8.5**  
 **Primary active workstream:** Naxxramas Talent Calculator `NT1` → Playerbots integration
@@ -536,6 +536,17 @@ FROM character_spell WHERE guid=73209 ORDER BY spell;
 - **Other new NT1 safeguards unchanged:** full available talent point requirement, exact IP era matching before reset, grouped random-bot authorization, and Alt Bot `AltBotAllowedPlayers` allowlist. Proposed lower-level NT1 projection and Random Playerbot role-autogear remain **not implemented**.
 - **Next action:** on server `cd /root/azerothcore-wotlk/modules/mod-naxxramas-core && git pull --ff-only`; then `cd /root/azerothcore-wotlk && cmake --build build --target worldserver --parallel 2`. Ask the administrator for the **first real compiler error** if it still fails; do not treat the corrected source as a proven successful compilation until confirmed. Restart Worldserver only after a successful build and then test read-only incorrect-era/points failures before any destructive apply.
 - **Status:** **source correction committed; user has not reported a successful rebuild yet.** The source is reviewed for absence of both header and related symbol references; no full integration compilation was performed in this chat.
+
+#### 11 October 2026 — shared read-only NT1 Apply preflight, draft feature branch
+
+- **Branch:** `feature/nt1-shared-readonly-preflight` from `main` at `1e00c5537a1e22d1be7572437c884ca05f4c3337`. Separate from the documentation-only draft audit PR #6; remains a distinct, unmerged implementation proposal.
+- **Implementation:** move ALL existing non-destructive Apply preconditions to `NaxxramasBotTalentImport::CheckApplyReadiness`. This includes AccessMode, real-human issuer/online Playerbot target, non-GM ownership/master, grouped random-bot master/leader requirements, Alt Bot character allowlist, live target class/level/budget check, combat/death, exact issuing-human IP era, full available-points spend, existing bot-level era limit, required SQL table and a parseable/recoverable prior active-spec talent snapshot.
+- **Preview now reports** human-readable `NT1 PREFLIGHT READY (current state only)` or `NT1 PREFLIGHT BLOCKED: <reason>` after existing read-only plan totals. Wrong-class/invalid DBC/wrong IP stage still produce `NT1 rejected` before printing totals. Preview does not grant authorization, issue a token or modify a character.
+- **Apply now rechecks** that SAME readiness helper immediately before `resetTalents`, and receives its previous-build snapshot for existing best-effort restoration. Previous mutation, saving, Alt Bot profile policy and Random Bot nonpersistent policy remain otherwise unchanged. This is an incremental safety alignment, **not a fix for non-atomic rollback, dual spec, maintenance or real-world transport reliability**.
+- **No gear**: no random equipment generation and no Alt Bot equipment/inventory changes; lower-level NT1 projection, role selection, structured machine-readable status and server-bound confirmation token are not implemented by this change.
+- **Compatibility:** do not include `IndividualProgression.h` alongside `PlayerbotAI.h` (`GENERAL` conflict); modern hidden rewarded quest IDs `66001–66018` and `ProgressionLimit` remain supported via direct Player queries. Existing `AccessMode=0` and `AltBotAllowedPlayers=""` defaults preserved; no migration.
+- **Review/test status:** source statically inspected for no mutating calls in the helper and for immediate pre-reset recheck; **no local AzerothCore build or runtime/in-game test** available through GitHub, and the prior post-`GENERAL` fix build is still unconfirmed. Do not merge or enable experimental Apply based on this source audit alone. After approval, deploy only following full characters DB recovery procedures and exercise both ready and blocked cases from `docs/PLAYERBOT-NT1-TALENT-IMPORT.md`.
+- **Next tasks:** review draft code PR, obtain server compile result, run non-mutating Preview on valid/underallocated/unauthorized/out-of-combat cases, review a versioned one-use confirmation protocol with MultiBot, design priority-bearing level scaling and then separately improve rollback and Random Bot-only gear safety.
 
 ### Current checkpoint
 
