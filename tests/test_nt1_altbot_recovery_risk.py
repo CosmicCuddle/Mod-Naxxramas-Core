@@ -24,8 +24,9 @@ class RecoveryWarningsSafetyTests(unittest.TestCase):
 
     def test_does_not_claim_gear_safe_when_offhand_empty(self):
         self.assertIn("Even an empty offhand slot cannot prove", PRINTER)
-        self.assertIn("reset may dismiss pets", PRINTER)
-        self.assertIn("move OR MAIL offhand gear", PRINTER)
+        self.assertIn("NT1 ALT GUARD: ordinary Apply refuses Alt Bots", PRINTER)
+        self.assertIn("full recovery is still unproven", PRINTER)
+        self.assertIn("Active pet:", PRINTER)
 
     def test_backup_explicitly_not_verified(self):
         self.assertIn("NT1 ALT BACKUP REQUIRED", PRINTER)
@@ -50,6 +51,59 @@ class RecoveryWarningsSafetyTests(unittest.TestCase):
 
     def test_no_individual_progression_header_conflict(self):
         self.assertNotIn('#include "IndividualProgression.h"', CPP)
+
+    def test_risk_guard_is_inside_shared_apply_readiness(self):
+        shared = CPP.split("    bool CheckApplyReadiness(", 1)[1].split(
+            "    bool ApplyValidated(", 1
+        )[0]
+        self.assertIn("if (!randomBot)", shared)
+        self.assertIn("EQUIPMENT_SLOT_OFFHAND", shared)
+        self.assertIn("bot->GetPet() != nullptr", shared)
+
+    def test_risk_guard_denies_before_apply_can_reset(self):
+        shared = CPP.split("    bool CheckApplyReadiness(", 1)[1].split(
+            "    bool ApplyValidated(", 1
+        )[0]
+        self.assertLess(shared.rfind("if (!randomBot)"), shared.rfind("return true;"))
+        apply_code = CPP.split("    bool ApplyValidated(", 1)[1].split(
+            "    bool ReadArguments(", 1
+        )[0]
+        self.assertLess(
+            apply_code.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot)"),
+            apply_code.index("bot->resetTalents(true)"),
+        )
+
+    def test_offhand_and_pet_have_separate_explanations(self):
+        shared = CPP.split("    bool CheckApplyReadiness(", 1)[1].split(
+            "    bool ApplyValidated(", 1
+        )[0]
+        self.assertIn("Alt Bot NT1 Apply blocked: an offhand item is", shared)
+        self.assertIn("Alt Bot NT1 Apply blocked: the bot has an active", shared)
+        self.assertIn("Talent reset could move or MAIL it", shared)
+        self.assertIn("Talent reset could dismiss it", shared)
+
+    def test_readiness_guard_contains_no_mutations(self):
+        shared = CPP.split("    bool CheckApplyReadiness(", 1)[1].split(
+            "    bool ApplyValidated(", 1
+        )[0]
+        shared = re.sub(r"//[^\\n]*", "", shared)
+        self.assertNotRegex(
+            shared,
+            r"\\b(?:resetTalents|LearnTalent|SaveToDB|DirectExecute|"
+            r"EquipNewItem|DestroyItem|StoreItem|RemoveItem|"
+            r"AutoUnequipOffhandIfNeed)\\s*\\(",
+        )
+
+    def test_guard_does_not_change_altbot_allowlist_or_random_path(self):
+        shared = CPP.split("    bool CheckApplyReadiness(", 1)[1].split(
+            "    bool ApplyValidated(", 1
+        )[0]
+        self.assertIn("CanApplyToAltBot(issuer, error)", shared)
+        self.assertIn("CanApplyToGroupedRandomBot(issuer, bot, error)", shared)
+        self.assertLess(
+            shared.index("CanApplyToAltBot(issuer, error)"),
+            shared.rfind("if (!randomBot)"),
+        )
 
 
 if __name__ == "__main__":
