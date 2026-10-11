@@ -1,0 +1,32 @@
+name: NT1 Alt Bot read-only diagnostics
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/BotTalentImport.cpp'
+      - 'tests/test_nt1_altbot_repair_preview.py'
+      - '.github/workflows/nt1-altbot-repair-readonly-tests.yml'
+  push:
+    branches:
+      - feature/nt1-altbot-repair-readonly-diagnostics
+    paths:
+      - 'src/Systems/BotTalentImport.cpp'
+      - 'tests/test_nt1_altbot_repair_preview.py'
+      - '.github/workflows/nt1-altbot-repair-readonly-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out reviewed branch
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run read-only source-contract tests
+        run: python -m unittest discover -s tests -p 'test_nt1_altbot_repair_preview.py' -v

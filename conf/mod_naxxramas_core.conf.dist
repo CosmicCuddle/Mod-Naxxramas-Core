@@ -134,8 +134,10 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # 0 = Disabled
 # 1 = GM accounts only (preview and experimental apply)
 # 2 = All players (preview and experimental apply)
+# 3 = GM accounts ONLY (preview/project/repairpreview, NEVER apply)
 #
-# Both enabled modes allow talent application. Applying builds is still
+# Mode 3 is intended for controlled read-only integration testing.
+# Existing modes 1 and 2 still allow talent application. Applying builds is still
 # EXPERIMENTAL: back up the characters DB and verify a recovery procedure
 # before enabling on a live realm. An interrupted reset is not transactional.
 # Non-GMs may target only their same-account bots or directly mastered bots.
@@ -157,7 +159,12 @@ NaxxramasCore.ForcedPvP.Notify = 1
 #
 # Commands:
 # .naxxbot talents preview <online-botname> <NT1-code>
+# .naxxbot talents project <online-botname> <NT1L1-code>   (read-only)
+# .naxxbot talents repairpreview <online-altbot> <NT1-code> (read-only)
 # .naxxbot talents apply <online-botname> <NT1-code>
+# In mode 3, only the first three diagnostic commands are usable;
+# the Apply handler refuses before reset. repairpreview still enforces
+# AltBotAllowedPlayers (including GMs).
 #
 # Default: 0
 NaxxramasCore.BotTalentImport.AccessMode = 0

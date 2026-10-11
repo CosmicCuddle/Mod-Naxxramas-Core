@@ -1,0 +1,40 @@
+name: NT1 combined read-only integration checks
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/BotTalentImport.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'scripts/check_nt1l1_priority.py'
+      - 'scripts/audit_nt1_altbot_recovery_backup.py'
+      - 'tests/test_nt1*.py'
+      - 'tests/fixtures/nt1l1_vanilla_frost_mage_2026_10_08.json'
+      - '.github/workflows/nt1-integration-readonly-tests.yml'
+  push:
+    branches:
+      - integration/nt1-readonly-features-2026-10-11
+    paths:
+      - 'src/Systems/BotTalentImport.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'scripts/check_nt1l1_priority.py'
+      - 'scripts/audit_nt1_altbot_recovery_backup.py'
+      - 'tests/test_nt1*.py'
+      - 'tests/fixtures/nt1l1_vanilla_frost_mage_2026_10_08.json'
+      - '.github/workflows/nt1-integration-readonly-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out integration branch
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run every NT1 source, Mage priority and synthetic recovery test
+        run: python -m unittest discover -s tests -p 'test_nt1*.py' -v

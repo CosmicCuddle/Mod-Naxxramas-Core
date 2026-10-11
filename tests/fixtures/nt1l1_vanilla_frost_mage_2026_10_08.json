@@ -1,0 +1,161 @@
+{
+  "description": "Reviewed, deliberately authored Frost-first then Arcane NT1L1 priority, NOT the historical spend order",
+  "snapshot": {
+    "repository": "CosmicCuddle/Naxxramas-Resource-Hub",
+    "file": "talents/data/server-talents-v1.gz.b64",
+    "blob_sha": "9a11c998850b3069ca15d42f5c6c24b124e5ec21",
+    "source": "Supplied server DBC, 2026-10-08",
+    "validation": "selected Mage Talent.dbc rows, ranks and prerequisites extracted from published server talent snapshot; needs real-server confirmation"
+  },
+  "class": "mage",
+  "era": "vanilla",
+  "max_level": 60,
+  "full_points": 51,
+  "expected_nt1": "NT1:vanilla:mage:11-5.12-2.1p-3.1q-3.1r-2.1s-2.1u-3.1v-3.1w-3.1x-1.1z-1.20-1.21-3.22-2.23-5.24-3.2d-1.kl-2.19t-3.1f9-3",
+  "explicit_priority_nt1l1": "NT1L1:vanilla:mage:11-5.1q-3.12-2.21-3.19t-3.1p-3.1r-2.1x-1.1u-3.1v-3.kl-2.20-1.1s-2.1w-3.1z-1.22-2.24-3.23-5.2d-1.1f9-3",
+  "talents": {
+    "11": {
+      "name": "Improved Frostbolt",
+      "tree": "Frost",
+      "row": 0,
+      "max_rank": 5,
+      "requires": null
+    },
+    "12": {
+      "name": "Frostbite",
+      "tree": "Frost",
+      "row": 0,
+      "max_rank": 3,
+      "requires": null
+    },
+    "20": {
+      "name": "Cold Snap",
+      "tree": "Frost",
+      "row": 4,
+      "max_rank": 1,
+      "requires": null
+    },
+    "21": {
+      "name": "Ice Shards",
+      "tree": "Frost",
+      "row": 1,
+      "max_rank": 3,
+      "requires": null
+    },
+    "22": {
+      "name": "Arcane Subtlety",
+      "tree": "Arcane",
+      "row": 0,
+      "max_rank": 2,
+      "requires": null
+    },
+    "23": {
+      "name": "Arcane Concentration",
+      "tree": "Arcane",
+      "row": 1,
+      "max_rank": 5,
+      "requires": null
+    },
+    "24": {
+      "name": "Arcane Focus",
+      "tree": "Arcane",
+      "row": 0,
+      "max_rank": 3,
+      "requires": null
+    },
+    "1p": {
+      "name": "Piercing Ice",
+      "tree": "Frost",
+      "row": 2,
+      "max_rank": 3,
+      "requires": null
+    },
+    "1q": {
+      "name": "Ice Floes",
+      "tree": "Frost",
+      "row": 0,
+      "max_rank": 3,
+      "requires": null
+    },
+    "1r": {
+      "name": "Improved Blizzard",
+      "tree": "Frost",
+      "row": 2,
+      "max_rank": 3,
+      "requires": null
+    },
+    "1s": {
+      "name": "Improved Cone of Cold",
+      "tree": "Frost",
+      "row": 4,
+      "max_rank": 3,
+      "requires": null
+    },
+    "1u": {
+      "name": "Frost Channeling",
+      "tree": "Frost",
+      "row": 3,
+      "max_rank": 3,
+      "requires": null
+    },
+    "1v": {
+      "name": "Shatter",
+      "tree": "Frost",
+      "row": 3,
+      "max_rank": 3,
+      "requires": null
+    },
+    "1w": {
+      "name": "Winter's Chill",
+      "tree": "Frost",
+      "row": 5,
+      "max_rank": 3,
+      "requires": null
+    },
+    "1x": {
+      "name": "Icy Veins",
+      "tree": "Frost",
+      "row": 2,
+      "max_rank": 1,
+      "requires": null
+    },
+    "1z": {
+      "name": "Ice Barrier",
+      "tree": "Frost",
+      "row": 6,
+      "max_rank": 1,
+      "requires": {
+        "talent_id": "20",
+        "rank": 1
+      }
+    },
+    "2d": {
+      "name": "Arcane Fortitude",
+      "tree": "Arcane",
+      "row": 1,
+      "max_rank": 3,
+      "requires": null
+    },
+    "kl": {
+      "name": "Arctic Reach",
+      "tree": "Frost",
+      "row": 3,
+      "max_rank": 2,
+      "requires": null
+    },
+    "19t": {
+      "name": "Precision",
+      "tree": "Frost",
+      "row": 1,
+      "max_rank": 3,
+      "requires": null
+    },
+    "1f9": {
+      "name": "Student of the Mind",
+      "tree": "Arcane",
+      "row": 2,
+      "max_rank": 3,
+      "requires": null
+    }
+  }
+}

@@ -19,6 +19,7 @@
 #include "DBCStores.h"
 #include "DatabaseEnv.h"
 #include "Group.h"
+#include "Item.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -91,13 +92,14 @@ namespace NaxxramasBotTalentImport
 
     // One setting controls access to the entire NT1 system.
     // 0 = disabled; 1 = GM preview/apply; 2 = authorised player preview/apply.
-    // Both active modes permit experimental talent changes, so default OFF.
-    // Values outside the documented range fail closed.
+    // 3 = GM-only read-only diagnostics and projection (NO Apply).
+    // Modes 1/2 are experimental and permit destructive talent changes.
+    // Default remains OFF; undocumented values fail closed.
     uint32 AccessMode()
     {
         uint32 const mode = sConfigMgr->GetOption<uint32>(
             "NaxxramasCore.BotTalentImport.AccessMode", 0);
-        return mode <= 2 ? mode : 0;
+        return mode <= 3 ? mode : 0;
     }
 
     // SEC_PLAYER registration allows us to enforce the selected access mode
@@ -609,6 +611,237 @@ namespace NaxxramasBotTalentImport
         return result;
     }
 
+    // NT1L1 is an EXPLICIT levelling-order format:
+    //   NT1L1:<era>:<class>:<talent-id>-<added-ranks>.<id>-<added-ranks>...
+    // Each entry advances ranks contiguously; a repeated talent ID resumes
+    // that talent later. Unlike NT1 final-rank allocations, the order has
+    // meaning. There is deliberately NO apply path for NT1L1.
+    //
+    // This is pure validation and projection: no Playerbot mutations, talent
+    // learning, DB writes or equipment operations. A projected NT1 is
+    // revalidated by the existing, read-only ParseCode before it is shown.
+    bool ProjectPriorityCode(std::string const& code, Player* bot,
+        ValidatedBuild& projected, std::string& projectedCode,
+        uint32& sourcePoints, std::string& error)
+    {
+        if (!bot || code.empty() || code.size() > MAX_CODE_LENGTH)
+        {
+            error = "Missing bot or empty/oversized NT1L1 code.";
+            return false;
+        }
+
+        std::array<std::string, 4> parts;
+        size_t pos = 0;
+        for (size_t i = 0; i < 3; ++i)
+        {
+            size_t const colon = code.find(':', pos);
+            if (colon == std::string::npos)
+            {
+                error = "Expected NT1L1:<era>:<class>:<ordered-rank-steps>.";
+                return false;
+            }
+            parts[i] = code.substr(pos, colon - pos);
+            pos = colon + 1;
+        }
+        parts[3] = code.substr(pos);
+        if (parts[0] != "NT1L1" || parts[3].empty() ||
+            parts[3].find(':') != std::string::npos)
+        {
+            error = "Invalid NT1L1 version or missing rank priorities.";
+            return false;
+        }
+
+        Era era;
+        if (!ReadEra(parts[1], era))
+        {
+            error = "Unknown NT1L1 expansion.";
+            return false;
+        }
+
+        char const* cls = ClassName(bot->getClass());
+        if (!cls || parts[2] != cls ||
+            (parts[2] == "deathknight" && parts[1] != "wotlk"))
+        {
+            error = "NT1L1 class/expansion does not match this bot.";
+            return false;
+        }
+
+        if (bot->GetLevel() < 10 || bot->GetLevel() > era.MaximumLevel)
+        {
+            error = "Bot level is outside the NT1L1 expansion range.";
+            return false;
+        }
+
+        uint32 const targetPoints = bot->CalculateTalentsPoints();
+        // The initial protocol describes a complete, standard, maximum-level
+        // talent template for the named expansion, with 51/61/71 ranks.
+        // A different/custom source-level budget needs a future version.
+        uint32 const fullPoints = era.MaximumLevel - 9;
+        if (targetPoints == 0 || targetPoints > fullPoints)
+        {
+            error = "Bot talent-point budget is unsupported by NT1L1 v1.";
+            return false;
+        }
+
+        sourcePoints = 0;
+        std::unordered_map<uint32, uint8> sourceRanks;
+        std::unordered_map<uint32, uint8> targetRanks;
+        size_t entryCount = 0;
+        size_t begin = 0;
+        while (begin < parts[3].size())
+        {
+            size_t const end = parts[3].find('.', begin);
+            std::string const entry = parts[3].substr(begin,
+                end == std::string::npos ? std::string::npos : end - begin);
+            size_t const dash = entry.find('-');
+            if (dash == std::string::npos ||
+                entry.find('-', dash + 1) != std::string::npos ||
+                entry.size() != dash + 2 ||
+                entry[dash + 1] < '1' || entry[dash + 1] > '5')
+            {
+                error = "Invalid NT1L1 priority entry: " + entry;
+                return false;
+            }
+
+            uint32 id = 0;
+            if (!DecodeBase36(entry.substr(0, dash), id) || id == 0)
+            {
+                error = "Invalid NT1L1 talent ID: " + entry;
+                return false;
+            }
+
+            uint8 const addedRanks = static_cast<uint8>(entry[dash + 1] - '0');
+            TalentEntry const* talent = sTalentStore.LookupEntry(id);
+            TalentTabEntry const* tab = talent ?
+                sTalentTabStore.LookupEntry(talent->TalentTab) : nullptr;
+            if (!talent || !tab || !(tab->ClassMask & bot->getClassMask()) ||
+                tab->tabpage >= 3)
+            {
+                error = "NT1L1 talent is missing or belongs to another class: " +
+                    std::to_string(id);
+                return false;
+            }
+
+            if (!AvailableInEra({id, 1, talent, tab}, era))
+            {
+                error = "NT1L1 talent is outside the permitted expansion rows: " +
+                    std::to_string(id);
+                return false;
+            }
+
+            if (++entryCount > MAX_ENTRIES)
+            {
+                error = "Too many NT1L1 priority entries.";
+                return false;
+            }
+
+            // Validate EVERY individual rank step, including those after
+            // the target's current level. Source priorities must themselves
+            // form a fully legal levelling sequence.
+            for (uint8 i = 0; i < addedRanks; ++i)
+            {
+                uint32 const nextRank = sourceRanks[id] + 1;
+                if (nextRank > MAX_TALENT_RANK ||
+                    !talent->RankID[nextRank - 1] ||
+                    !sSpellMgr->GetSpellInfo(talent->RankID[nextRank - 1]))
+                {
+                    error = "Invalid NT1L1 talent rank/spell for talent " +
+                        std::to_string(id);
+                    return false;
+                }
+
+                if (talent->DependsOn &&
+                    sourceRanks[talent->DependsOn] <
+                        talent->DependsOnRank + 1)
+                {
+                    error = "NT1L1 prerequisite is not yet satisfied for " +
+                        std::to_string(id);
+                    return false;
+                }
+
+                uint32 earlierPoints = 0;
+                for (auto const& rank : sourceRanks)
+                {
+                    TalentEntry const* spentTalent =
+                        sTalentStore.LookupEntry(rank.first);
+                    if (spentTalent &&
+                        spentTalent->TalentTab == talent->TalentTab &&
+                        spentTalent->Row < talent->Row)
+                        earlierPoints += rank.second;
+                }
+                if (earlierPoints < talent->Row * MAX_TALENT_RANK)
+                {
+                    error = "NT1L1 talent row is not unlocked at this step: " +
+                        std::to_string(id);
+                    return false;
+                }
+
+                if (++sourcePoints > fullPoints)
+                {
+                    error = "NT1L1 contains more ranks than the expansion allows.";
+                    return false;
+                }
+
+                sourceRanks[id] = static_cast<uint8>(nextRank);
+                if (sourcePoints <= targetPoints)
+                    targetRanks[id] = static_cast<uint8>(nextRank);
+            }
+
+            if (end == std::string::npos)
+                break;
+            begin = end + 1;
+            if (begin == parts[3].size())
+            {
+                error = "NT1L1 has a trailing empty priority entry.";
+                return false;
+            }
+        }
+
+        if (sourcePoints != fullPoints)
+        {
+            error = "NT1L1 requires a complete " +
+                std::to_string(fullPoints) + "-point " + parts[1] +
+                " source template; received " + std::to_string(sourcePoints) +
+                " points.";
+            return false;
+        }
+
+        // Canonicalize the derived final rank allocation. Ordinary NT1
+        // remains the only existing Apply wire format. This code path
+        // never invokes ApplyValidated or any equipment operation.
+        std::vector<uint32> ids;
+        ids.reserve(targetRanks.size());
+        for (auto const& rank : targetRanks)
+            ids.push_back(rank.first);
+        std::sort(ids.begin(), ids.end());
+
+        projectedCode = "NT1:" + parts[1] + ":" + parts[2] + ":";
+        bool first = true;
+        for (uint32 id : ids)
+        {
+            if (!first)
+                projectedCode += ".";
+            first = false;
+            projectedCode += EncodeBase36(id) + "-" +
+                std::to_string(targetRanks[id]);
+        }
+
+        ValidatedBuild plan;
+        if (!ParseCode(projectedCode, bot, plan, error))
+        {
+            error = "Level-adjusted NT1 failed final DBC validation: " + error;
+            return false;
+        }
+        if (plan.Spent != targetPoints || plan.Available != targetPoints)
+        {
+            error = "Level-adjusted NT1 does not spend the bot's full budget.";
+            return false;
+        }
+
+        projected = std::move(plan);
+        return true;
+    }
+
     // Capture the current active spec before any reset. We make a canonical
     // NT1 snapshot and require ParseCode to prove it can be restored.
     std::string EncodeExisting(Player* bot, Era const& era)
@@ -644,6 +877,237 @@ namespace NaxxramasBotTalentImport
             code += EncodeBase36(id) + "-" + std::to_string(rank);
         }
         return code;
+    }
+
+    // Inspect ONLY the currently active spec, using the exact imported-era
+    // row/capstone filter already used by ParseCode. No talents are reset or
+    // learned. This is diagnostic evidence, NOT a recovery snapshot.
+    struct OutOfEraTalent
+    {
+        uint32 Id = 0;
+        uint32 Rank = 0;
+        uint32 Row = 0;
+        uint32 Col = 0;
+        uint32 Tree = 0;
+    };
+
+    std::vector<OutOfEraTalent> GetOutOfEraTalents(
+        Player const* bot, Era const& era)
+    {
+        std::vector<OutOfEraTalent> result;
+        if (!bot)
+            return result;
+
+        for (uint32 i = 0; i < sTalentStore.GetNumRows(); ++i)
+        {
+            TalentEntry const* talent = sTalentStore.LookupEntry(i);
+            if (!talent)
+                continue;
+
+            TalentTabEntry const* tab = sTalentTabStore.LookupEntry(
+                talent->TalentTab);
+            if (!tab || !(tab->ClassMask & bot->getClassMask()) ||
+                tab->tabpage >= 3)
+                continue;
+
+            uint32 rank = 0;
+            for (uint32 j = 0; j < MAX_TALENT_RANK; ++j)
+                if (talent->RankID[j] &&
+                    bot->HasTalent(talent->RankID[j], bot->GetActiveSpec()))
+                    rank = j + 1;
+
+            if (rank && !AvailableInEra(
+                {talent->TalentID, static_cast<uint8>(rank), talent, tab},
+                era))
+            {
+                result.push_back({talent->TalentID, rank,
+                    talent->Row, talent->Col, tab->tabpage});
+            }
+        }
+        return result;
+    }
+
+    // Read-only volatile observation of what the server currently exposes.
+    // NOT an offline database backup, restore token, cryptographic signature,
+    // or proof that talent reset will preserve these records. In particular
+    // Player::GetGlyph(slot) only reads the ACTIVE spec, so inactive-spec
+    // glyphs must be checked against the separate OFFLINE DB backup.
+    struct AltBotProtectedState
+    {
+        uint32 CharacterGuid = 0;
+        uint32 Level = 0;
+        uint8 ActiveSpec = 0;
+        uint8 SpecsCount = 0;
+        std::array<std::vector<uint32>, MAX_TALENT_SPECS> Talents;
+        std::array<std::vector<uint32>, MAX_TALENT_SPECS> Spells;
+        std::array<uint32, MAX_GLYPH_SLOT_INDEX> ActiveGlyphs = {};
+        std::array<uint32, EQUIPMENT_SLOT_END> EquippedItemGuids = {};
+    };
+
+    AltBotProtectedState CaptureAltBotProtectedState(Player const* bot)
+    {
+        AltBotProtectedState snapshot;
+        if (!bot)
+            return snapshot;
+
+        snapshot.CharacterGuid = bot->GetGUID().GetCounter();
+        snapshot.Level = bot->GetLevel();
+        snapshot.ActiveSpec = bot->GetActiveSpec();
+        snapshot.SpecsCount = bot->GetSpecsCount();
+
+        // The maps include BOTH specializations, unlike active-spec-only
+        // HasTalent/HasSpell tests. Copy spell IDs with their spec bit.
+        for (auto const& [spellId, talent] : bot->GetTalentMap())
+        {
+            if (!talent || talent->State == PLAYERSPELL_REMOVED)
+                continue;
+            for (uint8 spec = 0; spec < MAX_TALENT_SPECS; ++spec)
+                if ((talent->specMask & (1u << spec)) != 0)
+                    snapshot.Talents[spec].push_back(spellId);
+        }
+
+        for (auto const& [spellId, spell] : bot->GetSpellMap())
+        {
+            if (!spell || spell->State == PLAYERSPELL_REMOVED)
+                continue;
+            for (uint8 spec = 0; spec < MAX_TALENT_SPECS; ++spec)
+                if ((spell->specMask & (1u << spec)) != 0)
+                    snapshot.Spells[spec].push_back(spellId);
+        }
+
+        // Unordered_map iteration is nondeterministic; stabilize order.
+        for (uint8 spec = 0; spec < MAX_TALENT_SPECS; ++spec)
+        {
+            std::sort(snapshot.Talents[spec].begin(),
+                snapshot.Talents[spec].end());
+            std::sort(snapshot.Spells[spec].begin(),
+                snapshot.Spells[spec].end());
+        }
+
+        for (uint8 slot = 0; slot < MAX_GLYPH_SLOT_INDEX; ++slot)
+            snapshot.ActiveGlyphs[slot] = bot->GetGlyph(slot);
+
+        // Equipment identities only. Bag contents, bank, mail and pet DB
+        // state are NOT captured. They require an offline characters backup.
+        for (uint8 slot = EQUIPMENT_SLOT_START;
+            slot < EQUIPMENT_SLOT_END; ++slot)
+        {
+            Item const* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+            snapshot.EquippedItemGuids[slot] =
+                item ? item->GetGUID().GetCounter() : 0;
+        }
+
+        return snapshot;
+    }
+
+    // A deterministic, diagnostic 64-bit FNV-style checksum of the current
+    // in-memory observation, NOT a security credential or proof of recovery.
+    void MixStateFingerprint(uint64& hash, uint32 value)
+    {
+        for (uint32 shift = 0; shift < 32; shift += 8)
+        {
+            hash ^= (value >> shift) & 0xffu;
+            hash *= 1099511628211ULL;
+        }
+    }
+
+    uint64 BeginStateFingerprint()
+    {
+        return 14695981039346656037ULL;
+    }
+
+    uint64 FingerprintAltBotTalentsAndSpells(
+        AltBotProtectedState const& snapshot)
+    {
+        uint64 hash = BeginStateFingerprint();
+        MixStateFingerprint(hash, snapshot.CharacterGuid);
+        MixStateFingerprint(hash, snapshot.Level);
+        MixStateFingerprint(hash, snapshot.SpecsCount);
+        MixStateFingerprint(hash, snapshot.ActiveSpec);
+        for (uint32 spec = 0; spec < MAX_TALENT_SPECS; ++spec)
+        {
+            MixStateFingerprint(hash, 0x11000000u + spec);
+            MixStateFingerprint(hash,
+                static_cast<uint32>(snapshot.Talents[spec].size()));
+            for (uint32 id : snapshot.Talents[spec])
+                MixStateFingerprint(hash, id);
+
+            MixStateFingerprint(hash, 0x22000000u + spec);
+            MixStateFingerprint(hash,
+                static_cast<uint32>(snapshot.Spells[spec].size()));
+            for (uint32 id : snapshot.Spells[spec])
+                MixStateFingerprint(hash, id);
+        }
+        return hash;
+    }
+
+    uint64 FingerprintAltBotEquipment(AltBotProtectedState const& snapshot)
+    {
+        uint64 hash = BeginStateFingerprint();
+        MixStateFingerprint(hash, snapshot.CharacterGuid);
+        for (uint32 slot = EQUIPMENT_SLOT_START;
+            slot < EQUIPMENT_SLOT_END; ++slot)
+        {
+            MixStateFingerprint(hash, slot);
+            MixStateFingerprint(hash, snapshot.EquippedItemGuids[slot]);
+        }
+        return hash;
+    }
+
+    uint64 FingerprintAltBotActiveGlyphs(AltBotProtectedState const& snapshot)
+    {
+        uint64 hash = BeginStateFingerprint();
+        MixStateFingerprint(hash, snapshot.CharacterGuid);
+        MixStateFingerprint(hash, snapshot.ActiveSpec);
+        for (uint32 slot = 0; slot < MAX_GLYPH_SLOT_INDEX; ++slot)
+        {
+            MixStateFingerprint(hash, slot);
+            MixStateFingerprint(hash, snapshot.ActiveGlyphs[slot]);
+        }
+        return hash;
+    }
+
+    std::string HexStateFingerprint(uint64 fingerprint)
+    {
+        std::ostringstream output;
+        output << std::hex << fingerprint;
+        return output.str();
+    }
+
+    void PrintAltBotProtectedState(ChatHandler* handler, Player const* bot)
+    {
+        AltBotProtectedState const state = CaptureAltBotProtectedState(bot);
+        uint32 equippedSlots = 0;
+        uint32 filledGlyphs = 0;
+        for (uint32 guid : state.EquippedItemGuids)
+            if (guid)
+                ++equippedSlots;
+        for (uint32 glyph : state.ActiveGlyphs)
+            if (glyph)
+                ++filledGlyphs;
+
+        handler->PSendSysMessage(
+            "NT1 ALT STATE TALENTS (rank-spell records): spec1 {}, spec2 {}. "
+            "Learned spell records: spec1 {}, spec2 {}.",
+            state.Talents[0].size(), state.Talents[1].size(),
+            state.Spells[0].size(), state.Spells[1].size());
+        handler->PSendSysMessage(
+            "NT1 ALT STATE active-spec glyphs: {} of {} slots; "
+            "inactive glyphs require OFFLINE DB backup.",
+            filledGlyphs, static_cast<uint32>(MAX_GLYPH_SLOT_INDEX));
+        handler->PSendSysMessage(
+            "NT1 ALT STATE equipment: {} of {} slots occupied. "
+            "Equipment ID checksum: {}.",
+            equippedSlots, static_cast<uint32>(EQUIPMENT_SLOT_END),
+            HexStateFingerprint(FingerprintAltBotEquipment(state)));
+        handler->PSendSysMessage(
+            "NT1 ALT STATE volatile talent/spell checksum: {}. "
+            "Active glyph checksum: {}.",
+            HexStateFingerprint(FingerprintAltBotTalentsAndSpells(state)),
+            HexStateFingerprint(FingerprintAltBotActiveGlyphs(state)));
+        handler->SendSysMessage(
+            "NT1 ALT STATE NOT A BACKUP: no bag/bank/mail or inactive "
+            "glyph values captured. Checksums are not restore tokens.");
     }
 
     // Must run inside ImportScope. Never use PlayerbotFactory's default
@@ -748,9 +1212,56 @@ namespace NaxxramasBotTalentImport
         return true;
     }
 
-    bool ApplyValidated(Player* issuer, Player* bot, std::string const& code,
-        ValidatedBuild const& requested, std::string& error)
+    // Shared, READ-ONLY readiness check. Used by Preview to report whether
+    // Apply can currently proceed, and rerun immediately before any reset.
+    // It can query the database and read bot state, but NEVER resets,
+    // learns, saves or mutates the bot. No persistent confirmation token yet.
+    bool CheckApplyReadiness(Player* issuer, Player* bot,
+        ValidatedBuild const& requested, std::string& error,
+        ValidatedBuild* existingSnapshot = nullptr)
     {
+        if (!Enabled())
+        {
+            error = "NT1 talent importer is disabled.";
+            return false;
+        }
+
+        if (!issuer || !issuer->GetSession() ||
+            PlayerbotsMgr::instance().GetPlayerbotAI(issuer))
+        {
+            error = "An online human player is required.";
+            return false;
+        }
+
+        if (!bot || !bot->IsInWorld() || bot == issuer ||
+            !PlayerbotsMgr::instance().GetPlayerbotAI(bot))
+        {
+            error = "Target is not an eligible online Playerbot.";
+            return false;
+        }
+
+        bool const gm = issuer->GetSession()->GetSecurity() >= SEC_GAMEMASTER;
+        if (!gm && (!AllowNonGMPlayers() ||
+            !CanControlBot(issuer, bot,
+                PlayerbotsMgr::instance().GetPlayerbotAI(bot))))
+        {
+            error = "NT1 access denied: player is not permitted to "
+                    "control this bot.";
+            return false;
+        }
+
+        // The validated plan comes from ParseCode, but keep the live
+        // character level, class and point budget bound to its original plan.
+        if (requested.Class != ClassName(bot->getClass()) ||
+            bot->GetLevel() < 10 ||
+            bot->GetLevel() > requested.Progression.MaximumLevel ||
+            requested.Available != bot->CalculateTalentsPoints())
+        {
+            error = "Bot class, level or available talent points changed "
+                    "since plan validation.";
+            return false;
+        }
+
         if (bot->IsInCombat() || !bot->IsAlive())
         {
             error = "The bot must be alive and out of combat.";
@@ -817,19 +1328,84 @@ namespace NaxxramasBotTalentImport
             return false;
         }
 
-        // A legacy-invalid talent snapshot may not be restorable through
-        // the normal talent API. Refuse to reset when that is the case.
+        // Ensure the CURRENT active spec has a valid, restorable snapshot.
+        // Previous/legacy builds may legitimately contain unspent points.
         std::string const previous = EncodeExisting(bot, requested.Progression);
         ValidatedBuild snapshot;
         std::string snapshotError;
-        if (!ParseCode(previous, bot, snapshot, snapshotError) ||
-            bot->GetFreeTalentPoints() != snapshot.Available - snapshot.Spent)
+        if (!ParseCode(previous, bot, snapshot, snapshotError))
         {
             error = "Existing talents cannot be safely restored: " +
                 snapshotError + ". No changes made.";
             return false;
         }
 
+        if (bot->GetFreeTalentPoints() != snapshot.Available - snapshot.Spent)
+        {
+            error = "Existing talents and remaining points disagree. "
+                    "No changes made.";
+            return false;
+        }
+
+        // Strict fail-closed guard for Alt Bots only. AzerothCore's
+        // Player::resetTalents(true) can remove a pet and may automatically
+        // unequip OR MAIL offhand equipment. Until a verified alternative
+        // prevents every such item/pet side effect, refuse these states
+        // BEFORE calling resetTalents. This deliberately includes offhands
+        // that might happen to remain equipped: better a false-positive
+        // rejection than silently moving an earned Alt Bot item.
+        //
+        // Note: this is a conservative known-risk guard, NOT proof that
+        // arbitrary OnPlayerTalentsReset hooks cannot change something else.
+        // The dedicated Alt Bot repair Apply feature is NOT implemented.
+        if (!randomBot)
+        {
+            if (bot->GetItemByPos(
+                INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND) != nullptr)
+            {
+                error = "Alt Bot NT1 Apply blocked: an offhand item is "
+                        "equipped. Talent reset could move or MAIL it. "
+                        "No talents or equipment changed.";
+                return false;
+            }
+
+            if (bot->GetPet() != nullptr)
+            {
+                error = "Alt Bot NT1 Apply blocked: the bot has an active "
+                        "pet. Talent reset could dismiss it. "
+                        "No talents or equipment changed.";
+                return false;
+            }
+        }
+
+        // Purpose-built, GM-only read-only integration test mode. Keep
+        // this at the END of all existing preflight checks so that a Priest
+        // with out-of-era original talents still sees the actual earlier
+        // restoration blocker in repairpreview, not a generic mode error.
+        // Even a completely eligible plan is forbidden from Apply here.
+        if (AccessMode() == 3)
+        {
+            error = "NT1 READ-ONLY MODE: Apply is disabled by "
+                    "NaxxramasCore.BotTalentImport.AccessMode = 3. "
+                    "Preview/project/repairpreview do not change talents.";
+            return false;
+        }
+
+        if (existingSnapshot)
+            *existingSnapshot = std::move(snapshot);
+        return true;
+    }
+
+    bool ApplyValidated(Player* issuer, Player* bot, std::string const& code,
+        ValidatedBuild const& requested, std::string& error)
+    {
+        // Do not rely on an earlier Preview or ValidateRequest: ownership,
+        // master/group, live point count and snapshot can all change.
+        ValidatedBuild snapshot;
+        if (!CheckApplyReadiness(issuer, bot, requested, error, &snapshot))
+            return false;
+
+        bool const randomBot = sRandomPlayerbotMgr.IsRandomBot(bot);
         uint8 const spec = bot->GetActiveSpec();
         ImportScope const scope(bot);
         bot->resetTalents(true);
@@ -955,6 +1531,97 @@ namespace NaxxramasBotTalentImport
         return true;
     }
 
+    // Diagnostic-only Alt Bot repair preview. No repair/Apply route exists.
+    // Callers must pass normal command security AND AltBotAllowedPlayers
+    // before receiving the current character's selected-spec details.
+    void PrintAltBotRepairPreview(ChatHandler* handler, Player* issuer,
+        Player* bot, ValidatedBuild const& proposed)
+    {
+        std::vector<OutOfEraTalent> const illegal =
+            GetOutOfEraTalents(bot, proposed.Progression);
+
+        handler->PSendSysMessage(
+            "NT1 ALT BOT REPAIR INSPECTION: {} (level {}, active spec {}). "
+            "Requested {} build: {} / {} points.",
+            bot->GetName(), bot->GetLevel(),
+            static_cast<uint32>(bot->GetActiveSpec()),
+            proposed.Progression.Name, proposed.Spent, proposed.Available);
+
+        handler->PSendSysMessage(
+            "Existing active-spec talents outside {} policy: {}.",
+            proposed.Progression.Name, illegal.size());
+
+        // Avoid spamming the 3.3.5a chat buffer with a malformed old build.
+        // These are Talent.dbc IDs and ZERO-BASED tab row/column indices.
+        constexpr size_t MAX_DIAGNOSTIC_ENTRIES = 12;
+        for (size_t i = 0; i < illegal.size() &&
+            i < MAX_DIAGNOSTIC_ENTRIES; ++i)
+        {
+            OutOfEraTalent const& t = illegal[i];
+            handler->PSendSysMessage(
+                "Existing invalid Talent.dbc ID {}: rank {}, tree {}, "
+                "row {}, column {} (zero-based).",
+                t.Id, t.Rank, t.Tree, t.Row, t.Col);
+        }
+        if (illegal.size() > MAX_DIAGNOSTIC_ENTRIES)
+            handler->PSendSysMessage(
+                "{} additional invalid talents omitted from chat.",
+                illegal.size() - MAX_DIAGNOSTIC_ENTRIES);
+
+        // PR #7's shared PRE-RESET eligibility check is reused here. A valid
+        // target NT1 does not imply Apply can safely roll back the old build.
+        std::string reason;
+        if (CheckApplyReadiness(issuer, bot, proposed, reason))
+            handler->SendSysMessage(
+                "NT1 ALT REPAIR DIAGNOSTIC: ordinary talent preflight is "
+                "currently READY; a special repair is not required.");
+        else
+            handler->PSendSysMessage(
+                "NT1 ALT REPAIR DIAGNOSTIC BLOCKED: {}", reason);
+
+        if (proposed.Spent != proposed.Available)
+            handler->SendSysMessage(
+                "NT1 ALT REPAIR INCOMPLETE: the requested build must "
+                "spend every available talent point.");
+
+        // A normal AzerothCore reset can dismiss pets and invoke
+        // AutoUnequipOffhandIfNeed. This intentionally exposes only a
+        // READ-ONLY risk indicator, not an inventory snapshot or a safety
+        // authorization. Even an empty offhand slot cannot prove that every
+        // possible reset side effect has been accounted for.
+        bool const hasOffhand =
+            bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND)
+                != nullptr;
+        bool const hasActivePet = bot->GetPet() != nullptr;
+        handler->PSendSysMessage(
+            "NT1 ALT RECOVERY CHECK: active specialization {} of {}. "
+            "Offhand slot occupied: {}. Active pet: {}.",
+            static_cast<uint32>(bot->GetActiveSpec() + 1),
+            static_cast<uint32>(bot->GetSpecsCount()),
+            hasOffhand ? "YES" : "NO",
+            hasActivePet ? "YES" : "NO");
+        handler->SendSysMessage(
+            "NT1 ALT GUARD: ordinary Apply refuses Alt Bots with an "
+            "occupied offhand or active pet before talent reset.");
+        handler->SendSysMessage(
+            "NT1 ALT RECOVERY NOT VERIFIED: reset may affect other "
+            "state via hooks; full recovery is still unproven.");
+        handler->SendSysMessage(
+            "NT1 ALT BACKUP REQUIRED: full characters database backup "
+            "and tested OFFLINE restoration; not verifiable by this command.");
+
+        // Protected-state data is volatile, never persisted to a table,
+        // and visible only to a human who passed the Alt Bot allowlist.
+        PrintAltBotProtectedState(handler, bot);
+
+        handler->SendSysMessage(
+            "NT1 ALT REPAIR DISABLED: no repair Apply command exists. "
+            "Normal reset may affect offhand gear; recovery is unverified.");
+        handler->SendSysMessage(
+            "READ ONLY: no talents, spells, equipment, bags or database "
+            "records have been changed by this inspection.");
+    }
+
     void PrintPreview(ChatHandler* handler, Player* bot, ValidatedBuild const& build)
     {
         handler->PSendSysMessage(
@@ -966,11 +1633,18 @@ namespace NaxxramasBotTalentImport
         handler->PSendSysMessage(
             "Talent trees (server tab order): {} / {} / {}; {} talent entries.",
             build.Trees[0], build.Trees[1], build.Trees[2], build.Ordered.size());
-        if (build.Spent < build.Available)
-            handler->PSendSysMessage(
-                "NT1 APPLY BLOCKED: {} of {} points spent ({} unspent). "
-                "Spend all points before applying this build.",
-                build.Spent, build.Available, build.Available - build.Spent);
+        // Report ACTUAL Apply eligibility, not just valid NT1 syntax.
+        // No state change, token or permission grant is created by Preview.
+        std::string reason;
+        Player* issuer = handler && handler->GetSession() ?
+            handler->GetSession()->GetPlayer() : nullptr;
+        if (CheckApplyReadiness(issuer, bot, build, reason))
+            handler->SendSysMessage(
+                "NT1 PREFLIGHT READY (current state only): Apply will "
+                "recheck all requirements before changing talents.");
+        else
+            handler->PSendSysMessage("NT1 PREFLIGHT BLOCKED: {}", reason);
+
         handler->SendSysMessage(
             "Read-only validation: no talents have been reset or applied.");
     }
@@ -988,6 +1662,8 @@ public:
     {
         static ChatCommandTable talents = {
             {"preview", HandlePreview, SEC_PLAYER, Console::No},
+            {"project", HandleProject, SEC_PLAYER, Console::No},
+            {"repairpreview", HandleRepairPreview, SEC_PLAYER, Console::No},
             {"apply", HandleApply, SEC_PLAYER, Console::No},
         };
         static ChatCommandTable naxxbot = {
@@ -1008,6 +1684,150 @@ public:
             return true;
 
         NaxxramasBotTalentImport::PrintPreview(handler, bot, build);
+        return true;
+    }
+
+    // Only a read-only projection preview is supported for NT1L1.
+    // There is no NT1L1 apply handler and no automatic level adjustment
+    // in the existing destructive NT1 Apply command.
+    static bool HandleProject(ChatHandler* handler, char const* args)
+    {
+        using namespace NaxxramasBotTalentImport;
+
+        if (!Enabled())
+        {
+            handler->SendSysMessage(
+                "Naxxramas bot talent importer is disabled.");
+            return true;
+        }
+        bool const gm = IsGM(handler);
+        if (!gm && !AllowNonGMPlayers())
+        {
+            handler->SendSysMessage(
+                "NT1L1 access denied: player talent commands are disabled.");
+            return true;
+        }
+
+        std::string name, code;
+        if (!ReadArguments(args, name, code))
+        {
+            handler->SendSysMessage(
+                "Usage: .naxxbot talents project <online-botname> <NT1L1-code>");
+            return true;
+        }
+
+        Player* issuer = handler && handler->GetSession() ?
+            handler->GetSession()->GetPlayer() : nullptr;
+        Player* bot = ObjectAccessor::FindPlayerByName(name);
+        PlayerbotAI* ai = bot ?
+            PlayerbotsMgr::instance().GetPlayerbotAI(bot) : nullptr;
+        if (!issuer || !ai || !bot || !bot->IsInWorld() ||
+            (!gm && !CanControlBot(issuer, bot, ai)))
+        {
+            handler->SendSysMessage(
+                "NT1L1 denied: online bot and valid controlling player required.");
+            return true;
+        }
+
+        ValidatedBuild plan;
+        std::string projectedCode, error;
+        uint32 sourcePoints = 0;
+        if (!ProjectPriorityCode(code, bot, plan, projectedCode,
+            sourcePoints, error))
+        {
+            handler->PSendSysMessage("NT1L1 rejected: {}", error);
+            return true;
+        }
+        if (!CheckPlayerProgressionEra(issuer, plan.Progression, error))
+        {
+            handler->PSendSysMessage("NT1L1 rejected: {}", error);
+            return true;
+        }
+
+        handler->PSendSysMessage(
+            "NT1L1 projection for {} (level {} {}, era {}): {} / {} points "
+            "from ordered {}-point source.",
+            bot->GetName(), bot->GetLevel(), plan.Class, plan.Progression.Name,
+            plan.Spent, plan.Available, sourcePoints);
+        handler->PSendSysMessage(
+            "Projected tree points (server order): {} / {} / {}.",
+            plan.Trees[0], plan.Trees[1], plan.Trees[2]);
+        // Paginate output as rank pairs, not a potentially truncated
+        // chat-length NT1 string. The full projected code is for internal
+        // read-only ParseCode validation, not a new Apply transport.
+        size_t const lastColon = projectedCode.rfind(':');
+        std::istringstream entries(projectedCode.substr(lastColon + 1));
+        std::string pair, rankLine;
+        while (std::getline(entries, pair, '.'))
+        {
+            if (rankLine.size() + pair.size() + 2 > 135)
+            {
+                handler->PSendSysMessage(
+                    "Projected Talent.dbc ID-rank entries: {}", rankLine);
+                rankLine.clear();
+            }
+            if (!rankLine.empty())
+                rankLine += ", ";
+            rankLine += pair;
+        }
+        if (!rankLine.empty())
+            handler->PSendSysMessage(
+                "Projected Talent.dbc ID-rank entries: {}", rankLine);
+
+        if (CheckApplyReadiness(issuer, bot, plan, error))
+            handler->SendSysMessage(
+                "NT1L1 PREFLIGHT READY (read-only only): there is NO "
+                "automatic level-projection Apply command.");
+        else
+            handler->PSendSysMessage(
+                "NT1L1 PREFLIGHT BLOCKED: {}", error);
+
+        handler->SendSysMessage(
+            "NT1L1 projection only: no talents, equipment or bot data changed.");
+        return true;
+    }
+
+    static bool HandleRepairPreview(ChatHandler* handler, char const* args)
+    {
+        using namespace NaxxramasBotTalentImport;
+
+        Player* bot = nullptr;
+        ValidatedBuild build;
+        // The existing request validator checks AccessMode, bot identity,
+        // normal controller rights, DBC legality and the human's current IP.
+        if (!ValidateRequest(handler, args, bot, build))
+            return true;
+
+        Player* issuer = handler && handler->GetSession() ?
+            handler->GetSession()->GetPlayer() : nullptr;
+        if (!issuer || !issuer->IsInWorld() ||
+            PlayerbotsMgr::instance().GetPlayerbotAI(issuer))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT REPAIR DENIED: only a real online human player "
+                "can inspect an Alt Bot.");
+            return true;
+        }
+
+        if (sRandomPlayerbotMgr.IsRandomBot(bot))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT REPAIR DENIED: target is a Random Playerbot, "
+                "not an account-controlled Alt Bot.");
+            return true;
+        }
+
+        // The character-name allowlist is mandatory even for read-only
+        // repair diagnostics; GM permissions cannot bypass this check.
+        // It grants no authority to change inventory or equipment.
+        std::string error;
+        if (!CanApplyToAltBot(issuer, error))
+        {
+            handler->PSendSysMessage("NT1 ALT REPAIR DENIED: {}", error);
+            return true;
+        }
+
+        PrintAltBotRepairPreview(handler, issuer, bot, build);
         return true;
     }
 

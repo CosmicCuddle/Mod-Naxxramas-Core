@@ -1,0 +1,38 @@
+name: NT1L1 offline projection tests
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/BotTalentImport.cpp'
+      - 'docs/NT1-LEVEL-PROJECTION-DESIGN.md'
+      - 'scripts/check_nt1l1_priority.py'
+      - 'tests/test_nt1l1*.py'
+      - 'tests/fixtures/nt1l1_vanilla_frost_mage_2026_10_08.json'
+      - '.github/workflows/nt1l1-offline-tests.yml'
+  push:
+    branches:
+      - feature/nt1-level-priority-preview
+    paths:
+      - 'src/Systems/BotTalentImport.cpp'
+      - 'docs/NT1-LEVEL-PROJECTION-DESIGN.md'
+      - 'scripts/check_nt1l1_priority.py'
+      - 'tests/test_nt1l1*.py'
+      - 'tests/fixtures/nt1l1_vanilla_frost_mage_2026_10_08.json'
+      - '.github/workflows/nt1l1-offline-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-priority-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out review branch
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check reviewed Mage priority and all standalone equivalence tests
+        run: python -m unittest discover -s tests -p 'test_nt1l1*.py' -v
