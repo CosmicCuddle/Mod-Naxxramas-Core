@@ -931,6 +931,37 @@ namespace NaxxramasBotTalentImport
             return false;
         }
 
+        // Strict fail-closed guard for Alt Bots only. AzerothCore's
+        // Player::resetTalents(true) can remove a pet and may automatically
+        // unequip OR MAIL offhand equipment. Until a verified alternative
+        // prevents every such item/pet side effect, refuse these states
+        // BEFORE calling resetTalents. This deliberately includes offhands
+        // that might happen to remain equipped: better a false-positive
+        // rejection than silently moving an earned Alt Bot item.
+        //
+        // Note: this is a conservative known-risk guard, NOT proof that
+        // arbitrary OnPlayerTalentsReset hooks cannot change something else.
+        // The dedicated Alt Bot repair Apply feature is NOT implemented.
+        if (!randomBot)
+        {
+            if (bot->GetItemByPos(
+                INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND) != nullptr)
+            {
+                error = "Alt Bot NT1 Apply blocked: an offhand item is "
+                        "equipped. Talent reset could move or MAIL it. "
+                        "No talents or equipment changed.";
+                return false;
+            }
+
+            if (bot->GetPet() != nullptr)
+            {
+                error = "Alt Bot NT1 Apply blocked: the bot has an active "
+                        "pet. Talent reset could dismiss it. "
+                        "No talents or equipment changed.";
+                return false;
+            }
+        }
+
         if (existingSnapshot)
             *existingSnapshot = std::move(snapshot);
         return true;
@@ -1132,15 +1163,20 @@ namespace NaxxramasBotTalentImport
         bool const hasOffhand =
             bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND)
                 != nullptr;
+        bool const hasActivePet = bot->GetPet() != nullptr;
         handler->PSendSysMessage(
             "NT1 ALT RECOVERY CHECK: active specialization {} of {}. "
-            "Offhand slot occupied: {}.",
+            "Offhand slot occupied: {}. Active pet: {}.",
             static_cast<uint32>(bot->GetActiveSpec() + 1),
             static_cast<uint32>(bot->GetSpecsCount()),
-            hasOffhand ? "YES" : "NO");
+            hasOffhand ? "YES" : "NO",
+            hasActivePet ? "YES" : "NO");
         handler->SendSysMessage(
-            "NT1 ALT RECOVERY NOT VERIFIED: reset may dismiss pets and "
-            "move OR MAIL offhand gear; no item change is authorised.");
+            "NT1 ALT GUARD: ordinary Apply refuses Alt Bots with an "
+            "occupied offhand or active pet before talent reset.");
+        handler->SendSysMessage(
+            "NT1 ALT RECOVERY NOT VERIFIED: reset may affect other "
+            "state via hooks; full recovery is still unproven.");
         handler->SendSysMessage(
             "NT1 ALT BACKUP REQUIRED: full characters database backup "
             "and tested OFFLINE restoration; not verifiable by this command.");
