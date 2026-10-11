@@ -11,8 +11,8 @@
 - Loader: `src/NaxxramasCore_loader.cpp`
 - NT1 config uses `NaxxramasCore.BotTalentImport.AccessMode = 0` (disabled by default), plus **`NaxxramasCore.BotTalentImport.AltBotAllowedPlayers = ""`** (deny all Alt Bot talent applications by default).
 - **NO SQL/DBC installation or character update** during Phase 1. Phase 2 includes an **optional additive characters SQL migration** at `data/sql/db-characters/2026_10_10_00_bot_talent_import.sql`, which must not be installed without a database backup and explicit test planning.
-- The entire NT1 command system is governed by one mode: `0` disabled, `1` GMs, `2` all players with per-bot ownership checks. The command table permits SEC_PLAYER, but the handler enforces the selected mode and same-account/direct Playerbots-master control for non-GMs. Both commands require an online recognised Playerbot. Original Playerbots whispers are unchanged.
-- `preview` is always read-only. `apply` can **modify character talents** in either enabled mode (`1` or `2`). There is deliberately no preview-only access mode. Never enable an active mode on the live realm until the SQL, character backup, preflight and recovery requirements are reviewed.
+- The NT1 command system uses AccessMode `0` disabled (default), `1` GM Preview/Apply, `2` all players with per-bot ownership checks, and **new `3` GM-only read-only diagnostics**. The command table permits SEC_PLAYER, but handlers enforce the selected mode and existing per-bot controls. Original Playerbots whispers are unchanged.
+- `preview`, `project` and `repairpreview` are read-only. `apply` can **modify character talents** only in modes `1` and `2`. **Mode `3` refuses Apply before reset**, even for a fully legal target; this makes it the preferred GM-only integration-test setting. A restore-tested character backup remains necessary before any later destructive testing.
 
 ### Available commands (Phase 1)
 
@@ -21,7 +21,7 @@
 .naxxbot talents apply <online-botname> <NT1-code>
 ```
 
-An active mode always exposes both commands: preview validates without changes; apply calls the experimental mutation code after its database, **random-bot party/master eligibility**, and restorable-snapshot checks. **AccessMode 0 is the only no-application configuration.** This is intentional to keep the configuration concise; it also means live read-only testing should be completed before switching modes.
+The command table contains Preview, Project, Repair Preview and experimental Apply. **Mode 3 enables only the three read-only operations for GMs**, while Apply returns a specific denial after preflight and **before resetting talents**. Modes 1/2 retain the previously implemented experimental Apply behavior; do not use them just to test UI/diagnostics. Repair Preview always requires the issuing human character's name in `AltBotAllowedPlayers` even in mode 3.
 
 ### Single access setting (GM apply tested; broader permissions still pending)
 
@@ -29,6 +29,7 @@ An active mode always exposes both commands: preview validates without changes; 
 # 0 = Disabled
 # 1 = GM accounts only (preview and experimental apply)
 # 2 = All players (preview and experimental apply)
+# 3 = GM accounts only (read-only preview/project/repairpreview; NO Apply)
 # Default: 0
 NaxxramasCore.BotTalentImport.AccessMode = 0
 ```
@@ -36,10 +37,16 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - **Mode 0 (default):** both commands are disabled for GMs and ordinary players. It is the safe rollback setting, but does not undo previously changed character talents.
 - **Mode 1:** GMs may preview and apply NT1 codes to eligible online Playerbots. Non-GMs cannot use either command.
 - **Mode 2:** GMs and non-GMs may preview and apply. Non-GMs must control the bot through the same account or be its current Playerbots AI master; group membership or knowing the bot name does not grant permission.
-- Both active modes permit actual talent modification. Use them **only after a verified characters database backup and an agreed disposable-bot test and recovery procedure**. Grouped random bots are additionally restricted to the invoking real player who currently controls them. This path passed its first live happy-path test on Zevon, but permissions, maintenance and rollback remain unverified.
+- Modes **1 and 2** still permit actual talent modification. Use only with a verified character backup and agreed recovery. Mode **3** is a new GM-only read-only integration mode; it returns a deny message for Apply and does not relax other era/ownership/allowlist checks. Grouped random bot experimental Apply passed an earlier narrow happy-path test on Zevon, but rollback remains unverified.
 - Out-of-range configuration values are treated as mode 0.
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
-- Test modes 0/1/2, bot ownership, forbidden targets, unexpected command-help output, and read-only preview. One fully allocated Random Playerbot application passed on Zevon; incomplete-point refusal and broader M2 cases remain to be tested after the next compile.
+- Test all modes **0/1/2/3** separately, including the mandatory mode-3 Apply denial, per-bot ownership, Alt allowlist, invalid expansion and read-only Preview/Project/Repair Preview. The previous narrow Zevon Apply success does not validate this uncompiled integration branch.
+
+### Combined read-only integration checkpoint (new draft, no C++ compile)
+
+This integration branch combines read-only NT1L1 `.naxxbot talents project <bot> <NT1L1-code>` (explicit purchase/rank order), shared `.naxxbot talents preview`, and allowlisted `.naxxbot talents repairpreview` protected-state inspection. The requested `NT1L1` source is **not interchangeable with an ordinary final-rank `NT1` code**, and **no automated NT1L1 Apply exists**.
+
+**Preferred controlled test setting:** `NaxxramasCore.BotTalentImport.AccessMode = 3` for **GMs only** after explicit approval to deploy/compile. This stops all ordinary NT1 talent Apply calls before reset, and reports an NT1 read-only-mode denial; it is **not part of the user's running server yet**. Mode 3 still requires AltBotAllowedPlayers for detailed Alt repair diagnostics. Existing modes 1 and 2 remain experimental and destructive; distributed default remains 0. Full database recovery rehearsal remains necessary before any later repair or application test.
 
 ### Read-only Alt Bot state comparison (new stacked draft, NOT a repair)
 
