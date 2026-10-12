@@ -1,4 +1,4 @@
-"""Static integration contract: read-only NT1L1 + Alt Bot diagnostics + mode 3.
+"""Static integration contract: read-only NT1L1 + Alt Bot diagnostics + modes 3/4.
 
 Source-level tests only, NOT a C++ compiler or proof of Worldserver behaviour.
 """
@@ -56,25 +56,52 @@ class CombinedNT1SourceContracts(unittest.TestCase):
         ):
             self.assertIn(phrase, block)
 
-    def test_read_only_mode_3_disables_apply_before_reset(self):
+    def test_both_read_only_modes_denied_before_reset(self):
         readiness = section("    bool CheckApplyReadiness(", "    bool ApplyValidated(")
         apply = section("    bool ApplyValidated(", "    bool ReadArguments(")
-        self.assertIn("if (AccessMode() == 3)", readiness)
+        self.assertIn("if (IsReadOnlyAccessMode())", readiness)
         self.assertIn("NT1 READ-ONLY MODE: Apply is disabled", readiness)
+        self.assertLess(
+            apply.index("if (IsReadOnlyAccessMode())"),
+            apply.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot)"),
+        )
         self.assertLess(
             apply.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot)"),
             apply.index("bot->resetTalents(true)"),
         )
         self.assertLess(
             readiness.index("EncodeExisting(bot, requested.Progression)"),
-            readiness.index("if (AccessMode() == 3)"),
+            readiness.index("if (IsReadOnlyAccessMode())"),
         )
 
-    def test_mode_3_does_not_grant_player_permissions(self):
+    def test_mode_3_remains_gm_only_and_mode_4_grants_preview_to_controllers(self):
         start = section("    uint32 AccessMode()", "    bool IsGM(")
-        self.assertIn("return mode <= 3 ? mode : 0;", start)
-        self.assertIn("return AccessMode() == 2;", start)
-        self.assertIn("return AccessMode() == 2;", start)
+        self.assertIn("return mode <= 4 ? mode : 0;", start)
+        self.assertIn("return AccessMode() == 2 || AccessMode() == 4;", start)
+        self.assertIn("return mode == 3 || mode == 4;", start)
+        self.assertNotIn("return AccessMode() >= 2;", start)
+
+    def test_handler_denies_both_read_only_modes_before_validate_request(self):
+        handle = section("    static bool HandleApply(", "};\n\nvoid AddBotTalentImportScripts()")
+        self.assertIn("NaxxramasBotTalentImport::IsReadOnlyAccessMode()", handle)
+        self.assertLess(
+            handle.index("NaxxramasBotTalentImport::IsReadOnlyAccessMode()"),
+            handle.index("NaxxramasBotTalentImport::ValidateRequest("),
+        )
+        self.assertIn("Use preview, project, or repairpreview instead.", handle)
+
+    def test_mode_4_non_gm_still_requires_ownership(self):
+        validate = section("    bool ValidateRequest(", "    // Diagnostic-only Alt Bot repair preview.")
+        project = section("    static bool HandleProject(", "    static bool HandleRepairPreview(")
+        readiness = section("    bool CheckApplyReadiness(", "    bool ApplyValidated(")
+        for block in (validate, project, readiness):
+            self.assertIn("CanControlBot(", block)
+
+    def test_mode_4_alt_repair_details_keep_human_character_allowlist(self):
+        repair = section("    static bool HandleRepairPreview(", "    static bool HandleApply(")
+        self.assertIn("CanApplyToAltBot(issuer, error)", repair)
+        self.assertIn("PlayerbotsMgr::instance().GetPlayerbotAI(issuer)", repair)
+        self.assertIn("sRandomPlayerbotMgr.IsRandomBot(bot)", repair)
 
     def test_no_new_destructive_repair_handler(self):
         self.assertNotIn('{"repairapply"', CPP)
@@ -92,6 +119,7 @@ class CombinedNT1SourceContracts(unittest.TestCase):
         self.assertIn("NaxxramasCore.BotTalentImport.AccessMode = 0", CONFIG)
         self.assertIn('NaxxramasCore.BotTalentImport.AltBotAllowedPlayers = ""', CONFIG)
         self.assertIn("# 3 = GM accounts ONLY", CONFIG)
+        self.assertIn("# 4 = All players", CONFIG)
 
     def test_priority_fixture_and_checker_are_both_integrated(self):
         self.assertTrue((ROOT / "scripts" / "check_nt1l1_priority.py").is_file())
