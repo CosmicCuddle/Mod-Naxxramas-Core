@@ -1126,8 +1126,8 @@ namespace NaxxramasBotTalentImport
     //
     // resetTalents(true) clears Titan's Grip, may remove talent-granted
     // dual wield, dismisses pets and invokes other modules' reset hooks.
-    // ActivateSpec() is a different operation with additional glyph/action
-    // bar/pet effects; NEVER call it to inspect the inactive specialization.
+    // Switching specialization is a different operation with additional
+    // glyph/action bar/pet effects; NEVER do so to inspect inactive data.
     void PrintAltBotCrossClassSafetyAudit(ChatHandler* handler, Player const* bot)
     {
         if (!handler || !bot)
