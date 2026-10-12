@@ -93,20 +93,29 @@ namespace NaxxramasBotTalentImport
     // One setting controls access to the entire NT1 system.
     // 0 = disabled; 1 = GM preview/apply; 2 = authorised player preview/apply.
     // 3 = GM-only read-only diagnostics and projection (NO Apply).
+    // 4 = authorised ordinary players and GMs READ-ONLY (NO Apply).
     // Modes 1/2 are experimental and permit destructive talent changes.
     // Default remains OFF; undocumented values fail closed.
     uint32 AccessMode()
     {
         uint32 const mode = sConfigMgr->GetOption<uint32>(
             "NaxxramasCore.BotTalentImport.AccessMode", 0);
-        return mode <= 3 ? mode : 0;
+        return mode <= 4 ? mode : 0;
     }
 
     // SEC_PLAYER registration allows us to enforce the selected access mode
     // plus bot-control permissions for ordinary players inside the handler.
     bool AllowNonGMPlayers()
     {
-        return AccessMode() == 2;
+        // 2 allows current experimental Apply; 4 permits ONLY
+        // read-only inspection on account-owned/directly mastered bots.
+        return AccessMode() == 2 || AccessMode() == 4;
+    }
+
+    bool IsReadOnlyAccessMode()
+    {
+        uint32 const mode = AccessMode();
+        return mode == 3 || mode == 4;
     }
 
     bool IsGM(ChatHandler* handler)
@@ -1378,16 +1387,15 @@ namespace NaxxramasBotTalentImport
             }
         }
 
-        // Purpose-built, GM-only read-only integration test mode. Keep
-        // this at the END of all existing preflight checks so that a Priest
-        // with out-of-era original talents still sees the actual earlier
-        // restoration blocker in repairpreview, not a generic mode error.
-        // Even a completely eligible plan is forbidden from Apply here.
-        if (AccessMode() == 3)
+        // Both mode 3 (GM-only) and mode 4 (authorised normal players)
+        // are read-only. This preflight report comes AFTER old-build checks
+        // so repairpreview can still explain invalid original Priest ranks.
+        // ApplyValidated independently refuses both modes at entry.
+        if (IsReadOnlyAccessMode())
         {
-            error = "NT1 READ-ONLY MODE: Apply is disabled by "
-                    "NaxxramasCore.BotTalentImport.AccessMode = 3. "
-                    "Preview/project/repairpreview do not change talents.";
+            error = "NT1 READ-ONLY MODE: Apply is disabled in "
+                    "AccessMode 3 or 4. Preview/project/repairpreview "
+                    "do not change talents.";
             return false;
         }
 
@@ -1399,6 +1407,14 @@ namespace NaxxramasBotTalentImport
     bool ApplyValidated(Player* issuer, Player* bot, std::string const& code,
         ValidatedBuild const& requested, std::string& error)
     {
+        // Independent fail-closed barrier, even if this helper is called
+        // without the chat handler. No reset is reachable in mode 3/4.
+        if (IsReadOnlyAccessMode())
+        {
+            error = "NT1 READ-ONLY MODE: Apply is disabled in mode 3 or 4.";
+            return false;
+        }
+
         // Do not rely on an earlier Preview or ValidateRequest: ownership,
         // master/group, live point count and snapshot can all change.
         ValidatedBuild snapshot;
@@ -1833,6 +1849,16 @@ public:
 
     static bool HandleApply(ChatHandler* handler, char const* args)
     {
+        // Refuse before parsing or resolving the target. This also keeps
+        // read-only test commands from becoming destructive by accident.
+        if (NaxxramasBotTalentImport::IsReadOnlyAccessMode())
+        {
+            handler->SendSysMessage(
+                "NT1 READ-ONLY MODE: Apply is disabled in mode 3 or 4. "
+                "Use preview, project, or repairpreview instead.");
+            return true;
+        }
+
         Player* bot = nullptr;
         NaxxramasBotTalentImport::ValidatedBuild build;
         if (!NaxxramasBotTalentImport::ValidateRequest(
@@ -1840,7 +1866,7 @@ public:
             return true;
 
         // ValidateRequest already blocks mode 0 and unauthorised callers.
-        // All enabled access modes permit experimental talent application.
+        // Only modes 1 and 2 can ever reach experimental application.
         std::string name, code, error;
         if (!NaxxramasBotTalentImport::ReadArguments(args, name, code))
         {
