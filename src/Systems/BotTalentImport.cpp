@@ -1119,6 +1119,169 @@ namespace NaxxramasBotTalentImport
             "glyph values captured. Checksums are not restore tokens.");
     }
 
+    // Cross-class, READ-ONLY hazard classifier for ALL Alt Bot classes.
+    // Mirror only the observable branches in Player::AutoUnequipOffhandIfNeed;
+    // we deliberately DO NOT predict hook outcomes or remove the actual
+    // conservative offhand/pet block in CheckApplyReadiness.
+    //
+    // resetTalents(true) clears Titan's Grip, may remove talent-granted
+    // dual wield, dismisses pets and invokes other modules' reset hooks.
+    // ActivateSpec() is a different operation with additional glyph/action
+    // bar/pet effects; NEVER call it to inspect the inactive specialization.
+    void PrintAltBotCrossClassSafetyAudit(ChatHandler* handler, Player const* bot)
+    {
+        if (!handler || !bot)
+            return;
+
+        Item const* main = bot->GetItemByPos(
+            INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+        Item const* off = bot->GetItemByPos(
+            INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+        ItemTemplate const* const mainType = main ? main->GetTemplate() : nullptr;
+        ItemTemplate const* const offType = off ? off->GetTemplate() : nullptr;
+
+        handler->PSendSysMessage(
+            "NT1 ALT CROSS-CLASS AUDIT: {} level {}, spec {} of {}. "
+            "Read-only observation, NOT reset approval.",
+            ClassName(bot->getClass()), bot->GetLevel(),
+            static_cast<uint32>(bot->GetActiveSpec() + 1),
+            static_cast<uint32>(bot->GetSpecsCount()));
+
+        if (!off)
+        {
+            handler->SendSysMessage(
+                "NT1 ALT OFFHAND: EMPTY. No current offhand item to "
+                "relocate; this is NOT proof the talent reset is safe.");
+        }
+        else if (!offType || (main && !mainType))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT OFFHAND: UNKNOWN item template. Keep equipment "
+                "guard BLOCKED; cannot inspect potential relocation.");
+        }
+        else
+        {
+            bool const offWeapon =
+                offType->InventoryType == INVTYPE_WEAPONOFFHAND ||
+                offType->InventoryType == INVTYPE_WEAPON;
+            bool const offTwoHand =
+                offType->InventoryType == INVTYPE_2HWEAPON;
+            bool const mainForces =
+                mainType &&
+                (mainType->SubClass == ITEM_SUBCLASS_WEAPON_POLEARM ||
+                 mainType->SubClass == ITEM_SUBCLASS_WEAPON_STAFF ||
+                 mainType->SubClass == ITEM_SUBCLASS_WEAPON_FISHING_POLE);
+            bool const mainTwoHand = bot->IsTwoHandUsed();
+            // This reads LIVE abilities, not necessarily abilities AFTER
+            // resetTalents has removed talent-granted spell/auras.
+            bool const dualWieldRisk =
+                offWeapon && (!bot->CanDualWield() ||
+                    !bot->HasSpell(674));
+            bool const titansGripRisk = offTwoHand ||
+                (mainTwoHand && !bot->CanTitanGrip());
+
+            handler->PSendSysMessage(
+                "NT1 ALT EQUIPMENT: main item {}, type {}; "
+                "offhand item {}, type {}. CanDualWield {}. CanTitanGrip {}.",
+                main ? main->GetEntry() : 0,
+                mainType ? static_cast<uint32>(mainType->InventoryType) : 0,
+                off->GetEntry(), static_cast<uint32>(offType->InventoryType),
+                bot->CanDualWield() ? "YES" : "NO",
+                bot->CanTitanGrip() ? "YES" : "NO");
+
+            if (mainForces || dualWieldRisk || titansGripRisk)
+            {
+                handler->PSendSysMessage(
+                    "NT1 ALT OFFHAND RISK: CORE RELOCATION CONDITIONS "
+                    "MAY APPLY (main forced {}, dual wield {}, 2H/TitanGrip {}). "
+                    "KEEP BLOCKED; could move or MAIL original item.",
+                    mainForces ? "YES" : "NO",
+                    dualWieldRisk ? "YES" : "NO",
+                    titansGripRisk ? "YES" : "NO");
+            }
+            else if (offWeapon)
+            {
+                handler->SendSysMessage(
+                    "NT1 ALT OFFHAND RISK: WEAPON-ABILITY DEPENDENT. "
+                    "Dual Wield may change during talent reset. "
+                    "KEEP BLOCKED; current abilities are not a guarantee.");
+            }
+            else
+            {
+                handler->SendSysMessage(
+                    "NT1 ALT OFFHAND RISK: no current CORE relocation "
+                    "condition observed for non-weapon offhand. "
+                    "STILL BLOCKED; hooks and post-reset state unverified.");
+            }
+        }
+
+        // Class-specific risk reminders, NOT a prediction that a particular
+        // bot has the described talent, spell, pet or item.
+        char const* classRisks = nullptr;
+        switch (bot->getClass())
+        {
+            case CLASS_WARRIOR:
+                classRisks = "Warrior: Titan's Grip/dual-2H and stance spells";
+                break;
+            case CLASS_PALADIN:
+                classRisks = "Paladin: shield/2H transitions and active auras";
+                break;
+            case CLASS_HUNTER:
+                classRisks = "Hunter: permanent/exotic pet and pet talent state";
+                break;
+            case CLASS_ROGUE:
+                classRisks = "Rogue: dual-wield gear and talent-granted spells";
+                break;
+            case CLASS_PRIEST:
+                classRisks = "Priest: caster focus and temporary summon effects";
+                break;
+            case CLASS_DEATH_KNIGHT:
+                classRisks = "Death Knight: dual-wield setup and ghoul state";
+                break;
+            case CLASS_SHAMAN:
+                classRisks = "Shaman: talent-dependent Dual Wield and shield";
+                break;
+            case CLASS_MAGE:
+                classRisks = "Mage: Water Elemental and caster focus";
+                break;
+            case CLASS_WARLOCK:
+                classRisks = "Warlock: demons/Felguard, pet slots and auras";
+                break;
+            case CLASS_DRUID:
+                classRisks = "Druid: form-linked passives and caster focus";
+                break;
+            default:
+                classRisks = "Unknown class: unsupported risks; keep blocked";
+                break;
+        }
+        handler->PSendSysMessage(
+            "NT1 ALT CLASS REVIEW: {}. Check both specs before any "
+            "future destructive test.", classRisks);
+
+        // GetPet() may be null with a temporarily unsummoned/stabled pet.
+        // GetGlyph(slot) exposes ACTIVE spec only; spec-switching to inspect
+        // the other glyph set would itself modify player state.
+        handler->PSendSysMessage(
+            "NT1 ALT PET CHECK: active pet {}. "
+            "Unslotted/stabled pet and guardian data UNKNOWN without "
+            "offline characters DB inspection.",
+            bot->GetPet() ? "YES" : "NO");
+        handler->PSendSysMessage(
+            "NT1 ALT COMPLETION HOOK: BotTalentCompletion.Enabled {}. "
+            "Other Playerbots talent changes require separate verification.",
+            sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.BotTalentCompletion.Enabled", false)
+                ? "ON" : "OFF");
+        handler->SendSysMessage(
+            "NT1 ALT SPEC SWITCH RISK: core can change action bars, "
+            "glyph effects, pets and offhand on spec activation. "
+            "INACTIVE glyphs/actions not inspected; NO spec switch performed.");
+        handler->SendSysMessage(
+            "NT1 ALT SAFETY VERDICT: INSPECTION ONLY. No offhand "
+            "exceptions, item moves, pet changes, talent reset or "
+            "database writes authorised by this report.");
+    }
+
     // Must run inside ImportScope. Never use PlayerbotFactory's default
     // importer, which may automatically fill unspent talent points.
     bool LearnValidated(Player* bot, ValidatedBuild const& plan,
@@ -1625,6 +1788,9 @@ namespace NaxxramasBotTalentImport
         handler->SendSysMessage(
             "NT1 ALT BACKUP REQUIRED: full characters database backup "
             "and tested OFFLINE restoration; not verifiable by this command.");
+
+        // Read-only equipment/class/pet/spec risks; no guard is loosened.
+        PrintAltBotCrossClassSafetyAudit(handler, bot);
 
         // Protected-state data is volatile, never persisted to a table,
         // and visible only to a human who passed the Alt Bot allowlist.
