@@ -36,3 +36,7 @@ This reporter calls `GetTalentMap`, `sTalentStore` and `sTalentTabStore` only. I
 `tests/test_nt1_altbot_talent_map_integrity.py` covers in-memory source APIs, spec-mask bounds, removed ranks, valid shared two-spec talent, conflicting ranks in one spec, unknown DBC/class data, example ordering and size, and security order. These are Python source-contract/synthetic tests, **not C++ or in-game tests**.
 
 No automatic repair route is included. All warnings are forensic clues only, never permission to reset talents or overwrite existing character data.
+
+### Verified source CI after talent-map anomaly additions
+
+Commit `a81f217e1191274f467e5b3912aa7777986576fa`: [combined 167/167](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38257101158), [Alt recovery 90/90](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38257101154), [read-only diagnostics 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38257101115), [Mage 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38257101207), all **PASS**. Counts overlap. Tests inspect source and synthetic input only; they do not compile the user's AzerothCore/Playerbots/IP revisions, exercise in-game talent/map APIs, or test characters database restoration. No live server or character changes. PR #16 remains DRAFT, open and unmerged. Next gate is exact installed dependency revision evidence prior to any approved bundled compile.
