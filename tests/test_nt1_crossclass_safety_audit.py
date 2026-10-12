@@ -43,7 +43,8 @@ def core_branch_model(
     dual_risk = off_type in {"offhand-weapon", "weapon"} and (
         not dual_wield or not known_dual_spell
     )
-    titan_risk = off_type == "two-hand" or (main_two_handed and not titan_grip)
+    # AzerothCore clears Titan's Grip BEFORE the offhand recheck.
+    titan_risk = off_type == "two-hand" or main_two_handed
     if main_forces or dual_risk or titan_risk:
         return "CORE_RELOCATION_RISK"
     if off_type in {"offhand-weapon", "weapon"}:
@@ -101,7 +102,7 @@ class CrossClassReadOnlyRiskTests(unittest.TestCase):
             "ITEM_SUBCLASS_WEAPON_FISHING_POLE",
             "bot->CanDualWield()",
             "bot->CanTitanGrip()",
-            "bot->IsTwoHandUsed()",
+            "mainType->InventoryType == INVTYPE_2HWEAPON",
             "bot->HasSpell(674)",
         ):
             self.assertIn(phrase, AUDIT)
@@ -172,6 +173,12 @@ class CrossClassReadOnlyRiskTests(unittest.TestCase):
         self.assertEqual(
             core_branch_model("offhand-weapon", "sword", False, True, True, False),
             "WEAPON_ABILITY_DEPENDENT",
+        )
+
+    def test_synthetic_twohand_main_even_with_current_titans_grip_is_risky(self):
+        self.assertEqual(
+            core_branch_model("holdable", "sword", True, True, True, True),
+            "CORE_RELOCATION_RISK",
         )
 
     def test_synthetic_twohand_offhand_is_risky(self):
