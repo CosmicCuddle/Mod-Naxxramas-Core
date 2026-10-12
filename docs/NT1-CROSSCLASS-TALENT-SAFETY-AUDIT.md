@@ -6,13 +6,31 @@
 
 The purpose is to examine all classes/specializations consistently **before** planning any destructive reset, including the same class across Vanilla/TBC/WotLK progression. Do not use the new messages as permission to remove existing guards.
 
+### Practical no-code entry point (new in this draft)
+
+```text
+.naxxbot talents safetypreview <online-altbotname>
+```
+
+Use **safetypreview** to run the ten-class equipment/pet/spec/Talent Completion risk inspection **without any NT1 code**. This is particularly useful for test coverage across all classes and specs before the user has prepared their talent presets. It reports the existing protected-state counts/checksums plus class-wide equipment warnings, not a new talent build.
+
+**Security is strict:** importer enabled; GM or ordinary player with access mode 2/4; real human issuer; existing online non-Random Alt Bot; same-account/direct AI-master relationship for non-GMs; issuing HUMAN character must match the full `AltBotAllowedPlayers` allowlist **even for GMs**. Read-only mode 4 is preferred for normal account testing; mode 2 still exposes the old destructive experimental Apply command.
+
+`safetypreview` intentionally has **no era-specific talent code** and therefore does NOT claim a bot's ranks are Vanilla/TBC/WotLK-legal. Use `repairpreview` with a *valid code for that class and IP era* to inspect explicit active/inactive-spec forbidden talents. Neither command switches specializations, changes pets, moves items or writes SQL.
+
+### Both-spec out-of-era talent scan (new in this draft)
+
+The existing `repairpreview <bot> <NT1-code>` now scans **each owned specialization's talent spell mask separately** using the established `AvailableInEra` server policy. A legal active build does not imply the other specialization is legal. It prints the active-spec count plus each inactive-spec count, with up to six offending Talent.dbc ID/rank/tree/row/column records per inactive spec to avoid huge 3.3.5a chat output.
+
+The inactive scan calls **`Player::HasTalent(spellId, spec)`** for a specifically numbered spec; it does not change the active spec, read inactive glyph values, move equipment or remove pets. This scan is **diagnostic only** and must not be mistaken for a recovery-ready snapshot or approval to apply an NT1 build.
+
 ### Existing entry point
 
 `.naxxbot talents repairpreview <online-altbot> <valid-NT1-code>`
 
 - Existing access, actual non-GM Playerbots ownership/master, in-era DBC validation, real human identity, `AltBotAllowedPlayers` character allowlist and no-Random-Bot rules still apply.
 - `AccessMode=4` is normal-account read-only mode in the current **merged source**. Existing binaries require the corresponding compilation and Worldserver restart; `AccessMode=2` permits destructive experimental Apply and is **not** the safest testing mode.
-- The new `PrintAltBotCrossClassSafetyAudit` is invoked within already allowlisted `repairpreview`; no new player command is created.
+- The new `PrintAltBotCrossClassSafetyAudit` runs through existing allowlisted `repairpreview` and the new allowlisted no-code `safetypreview`; both remain read-only.
 - This command reads live equipment template IDs/types, current dual-wield/Titan's Grip flags, active pet state, active spec, number of specs, current module `BotTalentCompletion.Enabled` setting and the recognized class.
 
 ## AzerothCore source-backed reset facts
