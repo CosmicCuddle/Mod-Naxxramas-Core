@@ -142,3 +142,10 @@ New source/synthetic checks cover both-spec boundaries, issuer allowlist orderin
 ### CI verification after the no-code issuer-era scan
 
 Commit `41de01db0ebc12538c64a77a371b971cc6c176db`: [combined 152/152](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334648), [recovery 75/75](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334657), [diagnostics 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334631), [Mage 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334751) **PASS**. These suites overlap and are static/source/synthetic only. The exact-dependency compatibility gate and read-only local revision commands are specified in [NT1 Dependency Revision Checkpoint](NT1-DEPENDENCY-REVISION-CHECKPOINT.md). No real C++ build or in-game verification has occurred.
+
+
+### Third read-only review: talent-map anomaly detection
+
+The source now reports in-memory `PlayerTalentMap` inconsistencies separately from era-incompatible DBC ranks. Each owned spec gets an unmatched spell-record count plus a count of talents containing multiple live ranks; at most three sorted unmatched spell IDs are shown per affected spec. Records marked removed and a valid spell shared across specs are not treated as anomalies. The active-spec label in the longer `repairpreview` report is corrected to 1-based.
+
+An unmatched spell/Talent.dbc lookup can simply reflect a custom DBC update and **never triggers deletion or repair**. See [NT1 Talent Map Integrity](NT1-TALENT-MAP-INTEGRITY.md). Neither a zero-count era scan nor a zero-count integrity report certifies a legal build, data restoration or reset safety. Existing allowlist and offhand/pet restrictions are unchanged; source and synthetic tests are not C++ or game testing.

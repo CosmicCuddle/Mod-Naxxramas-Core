@@ -643,6 +643,13 @@ FROM character_spell WHERE guid=73209 ORDER BY spell;
 - Draft source commit `41de01db` passed GitHub CI: [combined 152/152](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334648), [recovery 75/75](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334657), [diagnostics 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334631), [Mage 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334751). Suite counts overlap, **no C++ build**.
 - New [NT1 Dependency Revision Checkpoint](docs/NT1-DEPENDENCY-REVISION-CHECKPOINT.md) documents read-only commands for obtaining exact installed AzerothCore, Playerbots, IP and Naxxramas Core revisions, plus dirty-worktree and build provenance review. Nothing has been run on the actual server. Do not merge/recompile/deploy prior to operator approval.
 
+
+#### 12 October 2026 — Talent-map integrity review (third draft refinement, PR #16)
+
+- New read-only `PrintAltBotTalentMapIntegrity` distinguishes DBC-era policy issues from **unrecognized in-memory talent rank-spells** and **multiple ranks of one talent within a spec**. Both specs observed without switching. Unmatched spell ID examples sorted and capped at three per spec; repairpreview active spec shown as 1-based.
+- New source/synthetic regression suite `tests/test_nt1_altbot_talent_map_integrity.py`. Documentation: [NT1 Talent Map Integrity](docs/NT1-TALENT-MAP-INTEGRITY.md). DBC mismatches are warning clues, not character corruption proof or permission to delete old talents.
+- No equipment/pet, build Apply, access-mode, SQL, DBC, upstream Playerbots/IP/AzerothCore or live server modifications. Exact revision/API audit, C++ compilation and offline characters DB recovery rehearsal remain outstanding; PR #16 stays draft/unmerged.
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer 1.0.6.8.5. The newest universal read-only cross-class work is on **draft PR #16**, not merged into `main` or installed on the live Worldserver. The real-game Zevon Mage Apply test belongs to an **earlier compiled revision**; it does not prove the new `safetypreview`, inactive-spec, or human-IP report features. Public upstream APIs have been source-reviewed, but the user's exact installed AzerothCore/Playerbots/IP revisions and C++ compatibility remain unverified. The latest shared live mode 2 still permits experimental Apply: avoid Apply, and set mode 4 only **after an approved merge, recompilation and restart**. Keep the original offhand/pet blocks and full offline recovery requirement intact.

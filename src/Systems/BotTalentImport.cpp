@@ -1003,6 +1003,91 @@ namespace NaxxramasBotTalentImport
             "inactive actions still require separate checks.");
     }
 
+    // Read-only anomaly hints that era-based Talent.dbc row checks miss.
+    // Unmatched spell records can reflect a DIFFERENT DBC version, not damage.
+    void PrintAltBotTalentMapIntegrity(ChatHandler* handler, Player const* bot)
+    {
+        if (!handler || !bot)
+            return;
+
+        uint8 const specCount = bot->GetSpecsCount();
+        if (!specCount || specCount > MAX_TALENT_SPECS ||
+            bot->GetActiveSpec() >= specCount)
+            handler->PSendSysMessage(
+                "NT1 ALT TALENT MAP: unusual spec metadata (active {}, "
+                "owned {}). Offline review required; NO repair attempted.",
+                static_cast<uint32>(bot->GetActiveSpec() + 1),
+                static_cast<uint32>(specCount));
+
+        // GetTalentMap() and specMask only observe in-memory state.
+        for (uint8 spec = 0; spec < specCount && spec < MAX_TALENT_SPECS;
+            ++spec)
+        {
+            std::unordered_map<uint32, uint32> rankCounts;
+            std::vector<uint32> unmatchedSpellIds;
+            uint32 multiRankTalents = 0;
+
+            for (auto const& [spellId, record] : bot->GetTalentMap())
+            {
+                if (!record || record->State == PLAYERSPELL_REMOVED ||
+                    !(record->specMask & (1u << spec)))
+                    continue;
+
+                TalentEntry const* talent =
+                    sTalentStore.LookupEntry(record->talentID);
+                TalentTabEntry const* tab = talent ?
+                    sTalentTabStore.LookupEntry(talent->TalentTab) : nullptr;
+                bool recognized = false;
+                if (talent && tab && tab->tabpage < 3 &&
+                    (tab->ClassMask & bot->getClassMask()))
+                {
+                    for (uint32 i = 0; i < MAX_TALENT_RANK; ++i)
+                        if (spellId && talent->RankID[i] == spellId)
+                        {
+                            recognized = true;
+                            break;
+                        }
+                }
+
+                if (!recognized)
+                {
+                    unmatchedSpellIds.push_back(spellId);
+                    continue;
+                }
+                // Count talents that own multiple rank-spells, not all
+                // extra ranks. These are integrity warnings, not repairs.
+                if (++rankCounts[record->talentID] == 2)
+                    ++multiRankTalents;
+            }
+
+            std::sort(unmatchedSpellIds.begin(), unmatchedSpellIds.end());
+            handler->PSendSysMessage(
+                "NT1 ALT TALENT MAP spec {}: unmatched rank spells {}, "
+                "multiple-rank talents {}. Review only; no mutation.",
+                static_cast<uint32>(spec + 1),
+                unmatchedSpellIds.size(), multiRankTalents);
+            if (!unmatchedSpellIds.empty())
+            {
+                std::ostringstream examples;
+                constexpr size_t MAX_UNMATCHED_EXAMPLES = 3;
+                for (size_t i = 0; i < unmatchedSpellIds.size() &&
+                    i < MAX_UNMATCHED_EXAMPLES; ++i)
+                {
+                    if (i)
+                        examples << ",";
+                    examples << unmatchedSpellIds[i];
+                }
+                handler->PSendSysMessage(
+                    "NT1 ALT TALENT MAP spec {} sample spell IDs: {} "
+                    "(up to 3; not a recovery snapshot).",
+                    static_cast<uint32>(spec + 1), examples.str());
+            }
+        }
+        handler->SendSysMessage(
+            "NT1 ALT TALENT MAP LIMIT: DBC differences can cause warnings. "
+            "Zero warnings do NOT prove complete build/reset safety.");
+    }
+
     // Read-only volatile observation of what the server currently exposes.
     // NOT an offline database backup, restore token, cryptographic signature,
     // or proof that talent reset will preserve these records. In particular
@@ -1796,7 +1881,7 @@ namespace NaxxramasBotTalentImport
             "NT1 ALT BOT REPAIR INSPECTION: {} (level {}, active spec {}). "
             "Requested {} build: {} / {} points.",
             bot->GetName(), bot->GetLevel(),
-            static_cast<uint32>(bot->GetActiveSpec()),
+            static_cast<uint32>(bot->GetActiveSpec() + 1),
             proposed.Progression.Name, proposed.Spent, proposed.Available);
 
         handler->PSendSysMessage(
@@ -1898,6 +1983,9 @@ namespace NaxxramasBotTalentImport
 
         // Read-only equipment/class/pet/spec risks; no guard is loosened.
         PrintAltBotCrossClassSafetyAudit(handler, bot);
+
+        // Rank-map anomalies are read in both owned specs, without changes.
+        PrintAltBotTalentMapIntegrity(handler, bot);
 
         // Protected-state data is volatile, never persisted to a table,
         // and visible only to a human who passed the Alt Bot allowlist.
@@ -2080,7 +2168,7 @@ public:
     // Cross-class no-NT1-code report: for class/gear/pet safety audits.
     // Exactly the same human / Alt allowlist / bot-control security as
     // repairpreview, but does not need a target talent build just to inspect.
-    // This handler ONLY calls two independently read-only reporters.
+    // Calls in-memory read-only reporters only, after all access checks.
     static bool HandleSafetyPreview(ChatHandler* handler, char const* args)
     {
         using namespace NaxxramasBotTalentImport;
@@ -2178,6 +2266,7 @@ public:
         }
 
         PrintAltBotProtectedState(handler, bot);
+        PrintAltBotTalentMapIntegrity(handler, bot);
         PrintAltBotCrossClassSafetyAudit(handler, bot);
         handler->SendSysMessage(
             "READ ONLY: safetypreview did not reset talents, switch "

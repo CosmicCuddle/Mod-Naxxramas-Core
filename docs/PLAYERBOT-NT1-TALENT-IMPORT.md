@@ -56,6 +56,9 @@ Latest draft refinement: `safetypreview` additionally reports the **issuing huma
 
 The no-code `safetypreview` now also runs a **bounded DBC era scan of each owned specialization** when Individual Progression is enabled. It compares against the issuing HUMAN's effective era (not a verified bot IP stage), prints per-spec illegal-rank counts and at most three sample Talent.dbc ID/rank pairs. This is **not** a valid-build or safe-reset verdict; inactive glyphs, pets and equipment must still be separately checked. With IP disabled, the era scan is omitted rather than inventing an era. There is no talent reset or spec switch.
 
+
+Third draft refinement: both `safetypreview` and `repairpreview` now also show a brief **read-only in-memory talent-map integrity** report per owned specialization. It counts rank-spell records unmatched by the current Talent.dbc/class and talents containing multiple rank-spells in one spec, with at most three sorted unmatched spell ID examples. A custom DBC change can explain an unmatched record; it is **not** authorization to delete or reset it. No inactive spec activation or glyph inspection. See [NT1 Talent Map Integrity](NT1-TALENT-MAP-INTEGRITY.md).
+
 Neither source change relaxes the conservative Alt Bot offhand/active pet Apply block, authorises an illegal-original-talent repair, or implements a safe full character rollback. **No user action, Git pull or recompile is needed until the separate draft PR is reviewed and merged.** See [cross-class safety design](NT1-CROSSCLASS-TALENT-SAFETY-AUDIT.md).
 
 ### Combined read-only integration checkpoint (new draft, no C++ compile)
