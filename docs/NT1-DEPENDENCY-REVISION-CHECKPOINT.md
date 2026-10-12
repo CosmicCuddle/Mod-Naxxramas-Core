@@ -73,3 +73,8 @@ Upstream [mod-playerbots documentation](https://github.com/mod-playerbots/mod-pl
 ### Actual Playerbots public-source baseline and safer directory discovery
 
 Public code interfaces have now been checked against the pinned [Playerbots-compatible fork API baseline](NT1-PUBLIC-PLAYERBOTS-FORK-API-BASELINE.md) rather than only stock AzerothCore `master`. To reduce manual folder-name confusion, the optional source checker provides `--core /actual/core --discover`, which lists probable module directories but **never chooses one automatically**; consult the [preflight operator guide](NT1-DEPENDENCY-API-PREFLIGHT.md). This still does not identify the user's live installed SHA or prove a compiled runtime.
+
+
+### Operator Git evidence received — checkpoint closed for source SHA collection
+
+The operator has now collected the actual four Git HEADs and clean working-tree observations. Exact values and API review are in [Owner Installed Baseline](NT1-OWNER-INSTALLED-BASELINE-2026-10-12.md). **Do not make the user rerun the optional Python preflight merely to recover the same SHAs.** This closes only the Git-evidence subtask; actual `worldserver` binary provenance, C++ compilation against these dependencies, runtime behaviour and isolated backup/restore remain outstanding and need separate approval.

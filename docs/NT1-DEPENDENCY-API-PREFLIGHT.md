@@ -110,3 +110,8 @@ The public API signatures have also been source-reviewed against the actual [Pla
 ### CI verification after `--discover` addition
 
 Commit `18adb9b2b6f76056cc82d14fd77ff62f8b387e3a` passed overlapping GitHub Actions source/synthetic suites on 12 October 2026: [combined NT1 **197/197 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38267119953) (including 30 dependency-audit regression tests), [Alt Bot recovery **90/90 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38267119967), [read-only diagnostics **12/12 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38267119900) and [Mage projection **25/25 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38267119926). Suite counts **overlap**. The public fork-source baseline is a pinned external code review, NOT the operator's installed checkout. No actual C++ compilation, local Linux audit, in-game 3.3.5a test, character database backup/restoration or live changes have been made. PR #16 remains DRAFT/unmerged.
+
+
+### Source-versions identified by the operator (12 October 2026)
+
+The required four source revisions were provided via MobaXterm and reviewed against public GitHub files. See [Owner Installed Baseline](NT1-OWNER-INSTALLED-BASELINE-2026-10-12.md). Running this optional discovery/preflight checker is **not required** to repeat already collected Git revisions, and no code has been installed on the server to run it. This utility remains available for future source or checkout changes. C++ compilation and live binary provenance are still unverified.
