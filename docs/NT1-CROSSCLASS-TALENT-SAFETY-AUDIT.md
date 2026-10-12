@@ -125,3 +125,7 @@ The audit now falls back to the non-null class label `unknown` instead of passin
 Additional source/synthetic regressions cover the shared capped IP stage, access-check ordering, missing mainhand, unknown templates and unknown class. The spell-674 dual-wield check stays **conservative**, not a promise that abilities survive reset. The original offhand/pet blockers, modes 3/4, and protected-state limitations remain.
 
 **Pending:** inspect exact deployed AzerothCore, Playerbots and IP revisions, run current GitHub source CI, then arrange a single approved C++ build and in-game **read-only** diagnostic pass. No tests here establish full DB restore or safe gear/spec recovery.
+
+### Source CI verification for second pass
+
+Commit `a9849977b15d883d3e60dc8fe34a60f3c9555809` passed [combined 147/147](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538734), [Alt recovery 70/70](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250539122), [read-only diagnostic 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538540), [Mage projection 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538905). These are overlapping Python/static/synthetic suites only, **not** C++ compilation, 3.3.5a chat verification, or a character DB restore rehearsal. PR #16 stays draft/unmerged.
