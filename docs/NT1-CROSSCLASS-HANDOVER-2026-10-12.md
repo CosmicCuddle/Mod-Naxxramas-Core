@@ -101,3 +101,16 @@ These suites **overlap** (139 combined already includes much of the above). They
 - Follow project-wide directives to avoid patronising phrasing, be specific about backups, test results, current access mode, Git status and what the user must do next.
 
 **Suggested handoff continuation:** “Read this ENTIRE handover and `docs/NT1-CROSSCLASS-TALENT-SAFETY-AUDIT.md` plus the current draft PR #16 and code/tests. Continue reviewing/refining the ten-class read-only NT1 safety audit. Keep PR draft and do not merge/recompile/deploy until the user approves a bundled test update.”
+
+
+## 8. Continuation checkpoint — second source/API review (12 October 2026)
+
+**Scope:** One batched draft-source refinement, regression additions, and docs. No live realm/DB action, no merge, no Worldserver compilation.
+
+- Confirmed public upstream AzerothCore signatures for item templates/entries, equipment, `HasTalent(spell,spec)`, glyphs, quest status, Dual Wield, Titan's Grip, `HasSpell`, and formatted chat. **This is NOT exact-local-source or C++ build validation.** The user's exact core, Playerbots and IP revision SHAs have not been supplied.
+- No-code `safetypreview` reports the issuing **HUMAN character's** effective capped IP stage and Vanilla/TBC/WotLK era through a read-only helper shared with the existing NT1 era gate. IP-disabled is explicitly reported. This does not validate the bot build or reveal an inactive spec's glyphs.
+- Unknown-template warnings print observed item entry IDs but remain **BLOCKED**. Unknown class text uses a non-null fallback. The Alt Bot offhand/active-pet guards and read-only mode 3/4 Apply denials have **not** been altered.
+- New Python source/synthetic regression cases cover permit checks before the human IP report, shared era policy, disabled-IP, missing mainhand, unknown templates and unknown class text.
+- PR #16 stays **DRAFT and UNMERGED**. CI must be rechecked on this new commit; older 139/139, 65/65, 12/12 and 25/25 results do **not** certify this update. No user-side Git pull/recompile is required merely because code was pushed.
+
+**Next engineering gate:** inspect exact installed dependency revisions, complete updated static CI, seek approval for a **single bundled C++ compile** after review, then test the new commands read-only with protected-state comparison and 3.3.5a chat readability. Any destructive repair remains blocked until a verified isolated `characters` database restore, covering pets, item GUIDs, action bars, glyphs and both specs, is demonstrated.

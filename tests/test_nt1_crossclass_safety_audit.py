@@ -203,5 +203,26 @@ class CrossClassReadOnlyRiskTests(unittest.TestCase):
         self.assertNotIn('#include "IndividualProgression.h"', CPP)
 
 
+    def test_unknown_template_reports_item_ids_no_dereference(self):
+        self.assertIn("UNKNOWN item template (main item {}", AUDIT)
+        self.assertIn("main ? main->GetEntry() : 0, off->GetEntry()", AUDIT)
+        self.assertIn("!offType || (main && !mainType)", AUDIT)
+        self.assertIn("KEEP BLOCKED; cannot assess relocation.", AUDIT)
+
+    def test_unknown_class_has_safe_non_null_chat_label(self):
+        self.assertIn('className ? className : "unknown"', AUDIT)
+        self.assertIn("Unknown class: unsupported risks; keep blocked", AUDIT)
+
+    def test_synthetic_missing_mainhand_does_not_grant_permission(self):
+        self.assertEqual(
+            core_branch_model("holdable", None, False, False, False, False),
+            "NO_CURRENT_CORE_TRIGGER_NOT_PERMISSION",
+        )
+        self.assertEqual(
+            core_branch_model("offhand-weapon", None, False, False, False, False),
+            "CORE_RELOCATION_RISK",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

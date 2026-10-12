@@ -52,6 +52,8 @@ A new `.naxxbot talents safetypreview <online-altbotname>` command will let any 
 
 Existing `repairpreview <bot> <NT1-code>` additionally inspects **out-of-era talents in both existing specs**, limited to six diagnostic entries per inactive spec. It uses the actual server talent spell map and does not activate the other spec, read its glyphs or change action bars. When arguments are missing, the shared NT1 validator now prints neutral usage (not misleading `preview`-only usage).
 
+Latest draft refinement: `safetypreview` additionally reports the **issuing human's effective IP era/stage** (capped by the configured Individual Progression limit), or explicitly reports IP disabled. This is diagnostic context, **not bot talent-build validation**. Unknown equipped-item templates now report the observed entry IDs without relaxing the offhand block. Public AzerothCore API signatures have been inspected but the operator's exact checkout and a C++ build remain unverified.
+
 Neither source change relaxes the conservative Alt Bot offhand/active pet Apply block, authorises an illegal-original-talent repair, or implements a safe full character rollback. **No user action, Git pull or recompile is needed until the separate draft PR is reviewed and merged.** See [cross-class safety design](NT1-CROSSCLASS-TALENT-SAFETY-AUDIT.md).
 
 ### Combined read-only integration checkpoint (new draft, no C++ compile)

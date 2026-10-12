@@ -112,3 +112,16 @@ Future *approved* test build:
 ### Rollback and operator guidance
 
 This source is on a **draft** branch and is not merged or installed. No immediate recompilation or config edits are required just to discuss the design. If eventually approved, the owner can back up the active source/config and binaries, merge/recompile only after CI+review, run read-only commands, and roll back to the known prior Git revision if necessary. A source rollback never reverses gameplay changes made by other systems.
+
+
+## 12 October 2026 — second source/API review (still draft)
+
+Public AzerothCore `master` interfaces were checked for `Item::GetTemplate() const`, `Player::GetItemByPos(bag,slot) const`, `Player::HasTalent(spell,spec) const`, `Player::GetSpecsCount()`, `Player::GetActiveSpec()`, `Player::GetGlyph()`, `Player::GetQuestStatus() const`, `Unit::CanDualWield() const`, `Player::CanTitanGrip() const`, `Player::HasSpell() const` and formatted `ChatHandler::PSendSysMessage`. These signatures support the current code shape; **the administrator's exact AzerothCore/Playerbots/IP checkout SHA is still unknown, and no compiler/game execution has validated it**.
+
+The audit now falls back to the non-null class label `unknown` instead of passing an unsupported class as a null pointer to formatted output. When equipped item's template is unavailable, the report includes main/offhand **item entry IDs**, while remaining fail-closed. No equipment state is changed.
+
+`safetypreview` also reports the **issuing HUMAN character's** effective Individual Progression era and capped stage, using the same hidden rewarded quest policy as `CheckPlayerProgressionEra`. If IP is disabled, output explicitly retains bot-level restrictions. It does **not** validate an NT1 build, determine a bot's era-legal talents, grant Apply, or create a permission. Stage/era are context for a human reviewer; no spec change or inactive glyph access occurs.
+
+Additional source/synthetic regressions cover the shared capped IP stage, access-check ordering, missing mainhand, unknown templates and unknown class. The spell-674 dual-wield check stays **conservative**, not a promise that abilities survive reset. The original offhand/pet blockers, modes 3/4, and protected-state limitations remain.
+
+**Pending:** inspect exact deployed AzerothCore, Playerbots and IP revisions, run current GitHub source CI, then arrange a single approved C++ build and in-game **read-only** diagnostic pass. No tests here establish full DB restore or safe gear/spec recovery.

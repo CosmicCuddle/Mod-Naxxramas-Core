@@ -204,6 +204,31 @@ namespace NaxxramasBotTalentImport
     constexpr uint32 IP_MAX_STAGE = 18;
     constexpr uint32 IP_HIDDEN_QUEST_START = 66000;
 
+    // Read-only source of truth for the issuing HUMAN character's effective
+    // Individual Progression stage. Honour the server progression cap.
+    // Never infer the stage from a bot, spec, or submitted NT1 code.
+    uint32 GetEffectiveIssuerProgressionStage(Player const* issuer)
+    {
+        uint32 stage = 0;
+        for (uint32 i = 1; i <= IP_MAX_STAGE; ++i)
+            if (issuer->GetQuestStatus(IP_HIDDEN_QUEST_START + i) ==
+                QUEST_STATUS_REWARDED)
+                stage = i;
+
+        uint32 const limit = sConfigMgr->GetOption<uint32>(
+            "IndividualProgression.ProgressionLimit", 0);
+        if (limit != 0 && stage > limit)
+            stage = limit;
+
+        return stage;
+    }
+
+    char const* IssuerProgressionEra(uint32 stage)
+    {
+        return stage >= IP_WOTLK_ENTRY ? "wotlk" :
+            stage >= IP_TBC_ENTRY ? "tbc" : "vanilla";
+    }
+
     // The requesting HUMAN character's IP expansion is authoritative.
     // Never infer it from a random bot's often-exempt progression state,
     // the requested code, or an artificially raised GM/bot level.
@@ -220,25 +245,10 @@ namespace NaxxramasBotTalentImport
         if (!sConfigMgr->GetOption<bool>("IndividualProgression.Enable", true))
             return true;
 
-        // Modern Individual Progression stores achieved stages in hidden,
-        // rewarded quest IDs 66001..66018. Reading Player quest state
-        // avoids conflicting IP/Playerbots headers and matches the modern
-        // GetPlayerProgressionFromQuests() highest-stage semantics.
-        // This path targets the current hidden-quest IP schema (not older
-        // player-settings-based variants).
-        uint32 stage = 0;
-        for (uint32 i = 1; i <= IP_MAX_STAGE; ++i)
-            if (issuer->GetQuestStatus(IP_HIDDEN_QUEST_START + i) ==
-                QUEST_STATUS_REWARDED)
-                stage = i;
-
-        uint32 const limit = sConfigMgr->GetOption<uint32>(
-            "IndividualProgression.ProgressionLimit", 0);
-        if (limit != 0 && stage > limit)
-            stage = limit;
-
-        char const* playerEra = stage >= IP_WOTLK_ENTRY ? "wotlk" :
-            stage >= IP_TBC_ENTRY ? "tbc" : "vanilla";
+        // Match the hidden-quest IP schema and capped human stage also
+        // reported by the no-code read-only safety command.
+        char const* playerEra = IssuerProgressionEra(
+            GetEffectiveIssuerProgressionStage(issuer));
         if (std::string(requested.Name) != playerEra)
         {
             error = "NT1 era blocked by Individual Progression: your "
@@ -1149,10 +1159,11 @@ namespace NaxxramasBotTalentImport
         ItemTemplate const* const mainType = main ? main->GetTemplate() : nullptr;
         ItemTemplate const* const offType = off ? off->GetTemplate() : nullptr;
 
+        char const* const className = ClassName(bot->getClass());
         handler->PSendSysMessage(
             "NT1 ALT CROSS-CLASS AUDIT: {} level {}, spec {} of {}. "
             "Read-only observation, NOT reset approval.",
-            ClassName(bot->getClass()), bot->GetLevel(),
+            className ? className : "unknown", bot->GetLevel(),
             static_cast<uint32>(bot->GetActiveSpec() + 1),
             static_cast<uint32>(bot->GetSpecsCount()));
 
@@ -1164,9 +1175,10 @@ namespace NaxxramasBotTalentImport
         }
         else if (!offType || (main && !mainType))
         {
-            handler->SendSysMessage(
-                "NT1 ALT OFFHAND: UNKNOWN item template. Keep equipment "
-                "guard BLOCKED; cannot inspect potential relocation.");
+            handler->PSendSysMessage(
+                "NT1 ALT OFFHAND: UNKNOWN item template (main item {}, "
+                "offhand item {}). KEEP BLOCKED; cannot assess relocation.",
+                main ? main->GetEntry() : 0, off->GetEntry());
         }
         else
         {
@@ -2097,6 +2109,24 @@ public:
             "NT1 ALT SAFETY INSPECTION: {} (level {}). NO talent code "
             "needed, NO talents or equipment changed.",
             bot->GetName(), bot->GetLevel());
+        // The importer's IP restriction belongs to the issuing HUMAN,
+        // not the Alt Bot. Inspect the same effective stage, without
+        // validating any target code or changing the character.
+        if (sConfigMgr->GetOption<bool>("IndividualProgression.Enable", true))
+        {
+            uint32 const stage = GetEffectiveIssuerProgressionStage(issuer);
+            handler->PSendSysMessage(
+                "NT1 ALT ISSUER IP: {} (effective stage {}). "
+                "Human progression only; bot build NOT validated.",
+                IssuerProgressionEra(stage), stage);
+        }
+        else
+        {
+            handler->SendSysMessage(
+                "NT1 ALT ISSUER IP: disabled. Bot-level talent rules "
+                "still apply; no build validation performed.");
+        }
+
         PrintAltBotProtectedState(handler, bot);
         PrintAltBotCrossClassSafetyAudit(handler, bot);
         handler->SendSysMessage(

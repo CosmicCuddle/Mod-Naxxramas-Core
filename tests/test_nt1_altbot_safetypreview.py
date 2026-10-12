@@ -106,5 +106,55 @@ class CrossClassNoCodeCommandTests(unittest.TestCase):
         self.assertIn("GetOutOfEraTalents(bot, proposed.Progression, spec)", CPP)
 
 
+    def test_human_ip_report_only_after_alt_access_checks(self):
+        self.assertIn("NT1 ALT ISSUER IP:", HANDLER)
+        self.assertIn("GetEffectiveIssuerProgressionStage(issuer)", HANDLER)
+        self.assertLess(
+            HANDLER.index("CanApplyToAltBot(issuer, error)"),
+            HANDLER.index("GetEffectiveIssuerProgressionStage(issuer)"),
+        )
+        self.assertLess(
+            HANDLER.index("sRandomPlayerbotMgr.IsRandomBot(bot)"),
+            HANDLER.index("GetEffectiveIssuerProgressionStage(issuer)"),
+        )
+
+    def test_ip_report_does_not_infer_stage_from_bot(self):
+        self.assertIn("IssuerProgressionEra(stage), stage", HANDLER)
+        self.assertIn("Human progression only; bot build NOT validated.", HANDLER)
+        self.assertNotIn("GetEffectiveIssuerProgressionStage(bot)", HANDLER)
+
+    def test_disabled_ip_explicitly_not_a_legal_build_claim(self):
+        self.assertIn('"IndividualProgression.Enable", true', HANDLER)
+        self.assertIn("NT1 ALT ISSUER IP: disabled.", HANDLER)
+        self.assertIn("Bot-level talent rules", HANDLER)
+        self.assertIn("no build validation performed.", HANDLER)
+
+    def test_import_validation_and_report_share_human_ip_stage(self):
+        helper = section(
+            "    uint32 GetEffectiveIssuerProgressionStage(",
+            "    // The requesting HUMAN character's IP expansion",
+        )
+        policy = section(
+            "    bool CheckPlayerProgressionEra(",
+            "    struct TalentSelection",
+        )
+        self.assertIn("GetQuestStatus(IP_HIDDEN_QUEST_START + i)", helper)
+        self.assertIn("QUEST_STATUS_REWARDED", helper)
+        self.assertIn('"IndividualProgression.ProgressionLimit"', helper)
+        self.assertIn("if (limit != 0 && stage > limit)", helper)
+        for policy_stage in ("IP_WOTLK_ENTRY", "IP_TBC_ENTRY"):
+            self.assertIn(policy_stage, helper)
+        self.assertIn("GetEffectiveIssuerProgressionStage(issuer)", policy)
+        self.assertIn("IssuerProgressionEra(", policy)
+        self.assertIn("GetEffectiveIssuerProgressionStage(issuer)", HANDLER)
+
+    def test_ip_report_not_an_apply_safety_token(self):
+        self.assertIn("bot build NOT validated.", HANDLER)
+        self.assertIn("PrintAltBotProtectedState(handler, bot);", HANDLER)
+        self.assertIn("PrintAltBotCrossClassSafetyAudit(handler, bot);", HANDLER)
+        self.assertNotIn("CheckApplyReadiness(", HANDLER)
+        self.assertNotIn("ApplyValidated(", HANDLER)
+
+
 if __name__ == "__main__":
     unittest.main()
