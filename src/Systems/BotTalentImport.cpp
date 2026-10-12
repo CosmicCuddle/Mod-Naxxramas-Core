@@ -888,9 +888,9 @@ namespace NaxxramasBotTalentImport
         return code;
     }
 
-    // Inspect ONLY the currently active spec, using the exact imported-era
-    // row/capstone filter already used by ParseCode. No talents are reset or
-    // learned. This is diagnostic evidence, NOT a recovery snapshot.
+    // Inspect any selected spec by talent spell mask without activating it.
+    // An inactive spec can contain illegal ranks even when active is legal.
+    // Diagnostic only: not a persistent or restorable snapshot.
     struct OutOfEraTalent
     {
         uint32 Id = 0;
@@ -901,10 +901,11 @@ namespace NaxxramasBotTalentImport
     };
 
     std::vector<OutOfEraTalent> GetOutOfEraTalents(
-        Player const* bot, Era const& era)
+        Player const* bot, Era const& era, uint8 spec)
     {
         std::vector<OutOfEraTalent> result;
-        if (!bot)
+        if (!bot || spec >= bot->GetSpecsCount() ||
+            spec >= MAX_TALENT_SPECS)
             return result;
 
         for (uint32 i = 0; i < sTalentStore.GetNumRows(); ++i)
@@ -922,7 +923,7 @@ namespace NaxxramasBotTalentImport
             uint32 rank = 0;
             for (uint32 j = 0; j < MAX_TALENT_RANK; ++j)
                 if (talent->RankID[j] &&
-                    bot->HasTalent(talent->RankID[j], bot->GetActiveSpec()))
+                    bot->HasTalent(talent->RankID[j], spec))
                     rank = j + 1;
 
             if (rank && !AvailableInEra(
@@ -934,6 +935,14 @@ namespace NaxxramasBotTalentImport
             }
         }
         return result;
+    }
+
+    // Existing active-spec diagnostics remain backward compatible.
+    std::vector<OutOfEraTalent> GetOutOfEraTalents(
+        Player const* bot, Era const& era)
+    {
+        return bot ? GetOutOfEraTalents(bot, era, bot->GetActiveSpec())
+            : std::vector<OutOfEraTalent>{};
     }
 
     // Read-only volatile observation of what the server currently exposes.
@@ -1749,6 +1758,40 @@ namespace NaxxramasBotTalentImport
             handler->PSendSysMessage(
                 "{} additional invalid talents omitted from chat.",
                 illegal.size() - MAX_DIAGNOSTIC_ENTRIES);
+
+        // Inactive-spec talent spell masks can be read without switching
+        // spec, invoking hooks, changing pets/glyphs or loading action bars.
+        constexpr size_t MAX_INACTIVE_DIAGNOSTIC_ENTRIES = 6;
+        for (uint8 spec = 0; spec < bot->GetSpecsCount() &&
+            spec < MAX_TALENT_SPECS; ++spec)
+        {
+            if (spec == bot->GetActiveSpec())
+                continue;
+
+            std::vector<OutOfEraTalent> const inactiveIllegal =
+                GetOutOfEraTalents(bot, proposed.Progression, spec);
+            handler->PSendSysMessage(
+                "NT1 ALT INACTIVE SPEC {}: {} talents outside {} policy. "
+                "No specialization was switched.",
+                static_cast<uint32>(spec + 1), inactiveIllegal.size(),
+                proposed.Progression.Name);
+
+            for (size_t i = 0; i < inactiveIllegal.size() &&
+                i < MAX_INACTIVE_DIAGNOSTIC_ENTRIES; ++i)
+            {
+                OutOfEraTalent const& t = inactiveIllegal[i];
+                handler->PSendSysMessage(
+                    "Inactive spec {} invalid Talent.dbc ID {}: "
+                    "rank {}, tree {}, row {}, column {} (zero-based).",
+                    static_cast<uint32>(spec + 1), t.Id, t.Rank,
+                    t.Tree, t.Row, t.Col);
+            }
+            if (inactiveIllegal.size() > MAX_INACTIVE_DIAGNOSTIC_ENTRIES)
+                handler->PSendSysMessage(
+                    "Inactive spec {}: {} further invalid talents omitted.",
+                    static_cast<uint32>(spec + 1),
+                    inactiveIllegal.size() - MAX_INACTIVE_DIAGNOSTIC_ENTRIES);
+        }
 
         // PR #7's shared PRE-RESET eligibility check is reused here. A valid
         // target NT1 does not imply Apply can safely roll back the old build.
