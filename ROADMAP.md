@@ -637,6 +637,12 @@ FROM character_spell WHERE guid=73209 ORDER BY spell;
 - A zero illegal rank count is NOT proof of a valid build, pet/glyph safety, legal bot IP stage or rollback capability; the issuing human's era may not be the bot's. All existing allowlist, Random Bot refusal, equipment/pet block and mode-3/4 Apply refusal remain intact.
 - Python/static regression tests added; the exact installed dependencies, actual C++ compilation, in-game chat readability and isolated characters DB restoration remain outstanding.
 
+
+#### 12 October 2026 — Verified no-code issuer-era scan and dependency checkpoint
+
+- Draft source commit `41de01db` passed GitHub CI: [combined 152/152](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334648), [recovery 75/75](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334657), [diagnostics 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334631), [Mage 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334751). Suite counts overlap, **no C++ build**.
+- New [NT1 Dependency Revision Checkpoint](docs/NT1-DEPENDENCY-REVISION-CHECKPOINT.md) documents read-only commands for obtaining exact installed AzerothCore, Playerbots, IP and Naxxramas Core revisions, plus dirty-worktree and build provenance review. Nothing has been run on the actual server. Do not merge/recompile/deploy prior to operator approval.
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer 1.0.6.8.5. The newest universal read-only cross-class work is on **draft PR #16**, not merged into `main` or installed on the live Worldserver. The real-game Zevon Mage Apply test belongs to an **earlier compiled revision**; it does not prove the new `safetypreview`, inactive-spec, or human-IP report features. Public upstream APIs have been source-reviewed, but the user's exact installed AzerothCore/Playerbots/IP revisions and C++ compatibility remain unverified. The latest shared live mode 2 still permits experimental Apply: avoid Apply, and set mode 4 only **after an approved merge, recompilation and restart**. Keep the original offhand/pet blocks and full offline recovery requirement intact.

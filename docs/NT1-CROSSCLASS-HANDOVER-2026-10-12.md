@@ -130,3 +130,8 @@ The issuer's current era **is not proof of the bot's own Individual Progression 
 New source/synthetic checks cover both-spec boundaries, issuer allowlist ordering before output, IP-disabled exclusion, three-example cap, zero-count caveats and no dangerous C++ calls. Exact installed core/Playerbots/IP revisions, 3.3.5a chat readability and real compiled behaviour are **not yet verified**.
 
 **Next:** rerun all source/synthetic workflows on the NEW code SHA; attach links and counts in PR #16. Leave the PR draft and unmerged. Do not compile or change live mode 2 without permission. A build check against the user's exact dependency SHAs and read-only in-game testing remain outstanding. No database changes or Talent.dbc edits have been made.
+
+
+### Latest source CI and exact-dependency checkpoint
+
+Source commit `41de01db0ebc12538c64a77a371b971cc6c176db` passed [combined 152/152](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334648), [recovery 75/75](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334657), [diagnostics 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334631), [Mage 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334751). Counts overlap. No AzerothCore C++ compilation, actual in-game class test or isolated DB restore has been done. The read-only operator/source-SHA discovery protocol is in [NT1 Dependency Revision Checkpoint](NT1-DEPENDENCY-REVISION-CHECKPOINT.md). **Next work: identify exact installed AzerothCore/Playerbots/IP source revisions from operator evidence before an approved bundled build.** Keep PR #16 draft/unmerged, existing offhand/active pet guards unchanged, and no live server/database changes.
