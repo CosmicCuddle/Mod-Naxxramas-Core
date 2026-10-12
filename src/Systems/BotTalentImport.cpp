@@ -1681,7 +1681,8 @@ namespace NaxxramasBotTalentImport
         if (!ReadArguments(args, name, code))
         {
             handler->SendSysMessage(
-                "Usage: .naxxbot talents preview <online-botname> <NT1-code>");
+                "Usage: .naxxbot talents preview/repairpreview/apply "
+                "<online-botname> <NT1-code>");
             return false;
         }
 
@@ -2157,7 +2158,8 @@ public:
         {
             handler->SendSysMessage(
                 "NT1 READ-ONLY MODE: Apply is disabled in mode 3 or 4. "
-                "Use preview, project, or repairpreview instead.");
+                "Use preview, project, or repairpreview instead. "
+                "For no-code audits, use safetypreview.");
             return true;
         }
 
