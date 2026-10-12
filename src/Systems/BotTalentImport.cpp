@@ -1892,6 +1892,7 @@ public:
             {"preview", HandlePreview, SEC_PLAYER, Console::No},
             {"project", HandleProject, SEC_PLAYER, Console::No},
             {"repairpreview", HandleRepairPreview, SEC_PLAYER, Console::No},
+            {"safetypreview", HandleSafetyPreview, SEC_PLAYER, Console::No},
             {"apply", HandleApply, SEC_PLAYER, Console::No},
         };
         static ChatCommandTable naxxbot = {
@@ -2012,6 +2013,95 @@ public:
 
         handler->SendSysMessage(
             "NT1L1 projection only: no talents, equipment or bot data changed.");
+        return true;
+    }
+
+    // Cross-class no-NT1-code report: for class/gear/pet safety audits.
+    // Exactly the same human / Alt allowlist / bot-control security as
+    // repairpreview, but does not need a target talent build just to inspect.
+    // This handler ONLY calls two independently read-only reporters.
+    static bool HandleSafetyPreview(ChatHandler* handler, char const* args)
+    {
+        using namespace NaxxramasBotTalentImport;
+
+        if (!handler || !Enabled())
+        {
+            if (handler)
+                handler->SendSysMessage(
+                    "NT1 safety preview disabled in active configuration.");
+            return true;
+        }
+
+        WorldSession* session = handler->GetSession();
+        Player* issuer = session ? session->GetPlayer() : nullptr;
+        if (!issuer || !issuer->IsInWorld() ||
+            PlayerbotsMgr::instance().GetPlayerbotAI(issuer))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT SAFETY DENIED: real online human player required.");
+            return true;
+        }
+
+        bool const gm = IsGM(handler);
+        if (!gm && !AllowNonGMPlayers())
+        {
+            handler->SendSysMessage(
+                "NT1 ALT SAFETY DENIED: player inspection disabled.");
+            return true;
+        }
+
+        std::istringstream input(args ? args : "");
+        std::string name;
+        std::string extra;
+        if (!(input >> name) || (input >> extra))
+        {
+            handler->SendSysMessage(
+                "Usage: .naxxbot talents safetypreview <online-altbotname>");
+            return true;
+        }
+
+        Player* bot = ObjectAccessor::FindPlayerByName(name);
+        PlayerbotAI* ai = bot ?
+            PlayerbotsMgr::instance().GetPlayerbotAI(bot) : nullptr;
+        if (!bot || !bot->IsInWorld() || !ai || bot == issuer)
+        {
+            handler->SendSysMessage(
+                "NT1 ALT SAFETY DENIED: target must be an online Alt Bot.");
+            return true;
+        }
+
+        if (!gm && !CanControlBot(issuer, bot, ai))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT SAFETY DENIED: you do not control this bot.");
+            return true;
+        }
+
+        if (sRandomPlayerbotMgr.IsRandomBot(bot))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT SAFETY DENIED: Random Playerbots are not Alt Bots.");
+            return true;
+        }
+
+        // No GM bypass. This is the issuing HUMAN character allowlist.
+        std::string error;
+        if (!CanApplyToAltBot(issuer, error))
+        {
+            handler->PSendSysMessage("NT1 ALT SAFETY DENIED: {}", error);
+            return true;
+        }
+
+        handler->PSendSysMessage(
+            "NT1 ALT SAFETY INSPECTION: {} (level {}). NO talent code "
+            "needed, NO talents or equipment changed.",
+            bot->GetName(), bot->GetLevel());
+        PrintAltBotProtectedState(handler, bot);
+        PrintAltBotCrossClassSafetyAudit(handler, bot);
+        handler->SendSysMessage(
+            "READ ONLY: safetypreview did not reset talents, switch "
+            "specs, move gear, dismiss pets or write to the database. "
+            "For era-specific illegal talents, use repairpreview with NT1.");
         return true;
     }
 
