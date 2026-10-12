@@ -105,3 +105,8 @@ This command **does not select a module**. It lists likely Playerbots, Individua
 Use `--discover --json` for stdout JSON. The full checker still needs all four explicit paths, deliberately refusing to silently pick among similar folders.
 
 The public API signatures have also been source-reviewed against the actual [Playerbots-compatible core `Playerbot` branch](NT1-PUBLIC-PLAYERBOTS-FORK-API-BASELINE.md), pinned to reviewed public Git commit `2a2211cd8f3d157da432ec0175ddd4b8a191931f`. This is **not** the administrator's installed fork or a verified C++ build.
+
+
+### CI verification after `--discover` addition
+
+Commit `18adb9b2b6f76056cc82d14fd77ff62f8b387e3a` passed overlapping GitHub Actions source/synthetic suites on 12 October 2026: [combined NT1 **197/197 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38267119953) (including 30 dependency-audit regression tests), [Alt Bot recovery **90/90 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38267119967), [read-only diagnostics **12/12 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38267119900) and [Mage projection **25/25 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38267119926). Suite counts **overlap**. The public fork-source baseline is a pinned external code review, NOT the operator's installed checkout. No actual C++ compilation, local Linux audit, in-game 3.3.5a test, character database backup/restoration or live changes have been made. PR #16 remains DRAFT/unmerged.
