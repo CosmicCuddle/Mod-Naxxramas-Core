@@ -696,6 +696,13 @@ Commit `18adb9b2b6f76056cc82d14fd77ff62f8b387e3a` passed overlapping GitHub Acti
 - Cross-checked exact public core/Playerbots/IP source methods and hidden rewarded quest policy. Installed Naxxramas Core is one commit behind current main; PR #16 is 31 commits further on its unmerged draft branch, so ordinary `git pull` is NOT a valid method of installing the draft.
 - **Next phase:** review and secure explicit approval for a single bundled C++ compile + read-only acceptance checks. No merge/pull/deploy/compile, live DB or config changes approved. Maintain strict offhand/pet/allowlist/Random Bot protections, preserve binary/config backups, and keep destructive work behind separate isolated DB restore evidence.
 
+
+#### 12 October 2026 — Exact dependency source review complete; single-build acceptance plan prepared
+
+- Confirmed basic C++ API declarations at owner's reported AzerothCore/Playerbots/IP commits, and documented an important `resetTalents` caveat: `OnPlayerTalentsReset` is called even before the early no-talents return. This is why no reset call is acceptable as a supposedly harmless test.
+- Published [Read-Only Release Acceptance Matrix](docs/NT1-READONLY-RELEASE-ACCEPTANCE.md): backup/rollback gate, separately approved one bundled C++ compile, correct mode 3/4 deployment and per-class read-only in-game checks, with original equipment GUID/pet and DBC warnings maintained. No new mutation feature, SQL, build or live-server action.
+- PR #16 stays **DRAFT/unmerged** until the owner explicitly approves merge/compile/restart. The source-level checkpoint is now complete; actual C++ compilation and field acceptance are pending.
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer 1.0.6.8.5. The newest universal read-only cross-class work is on **draft PR #16**, not merged into `main` or installed on the live Worldserver. The real-game Zevon Mage Apply test belongs to an **earlier compiled revision**; it does not prove the new `safetypreview`, inactive-spec, or human-IP report features. Exact installed AzerothCore/Playerbots/IP Git HEADs have now been collected and the public source API signatures reviewed, but actual C++ compatibility and installed binary provenance remain unverified. The latest shared live mode 2 still permits experimental Apply: avoid Apply, and set mode 4 only **after an approved merge, recompilation and restart**. Keep the original offhand/pet blocks and full offline recovery requirement intact.

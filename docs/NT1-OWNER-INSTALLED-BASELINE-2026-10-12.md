@@ -43,3 +43,8 @@ The module directory listing included all three needed module folders. Additiona
 5. Any reset/Apply/repair that may alter real characters still requires separate approval plus consistent offline characters-DB backup and a successfully tested **isolated restoration**. Source review, compilation and read-only tests do not grant that approval.
 
 Supporting documents: [Dependency Revision Checkpoint](NT1-DEPENDENCY-REVISION-CHECKPOINT.md), [Talent Map Integrity](NT1-TALENT-MAP-INTEGRITY.md), [Cross-class Talent Safety Audit](NT1-CROSSCLASS-TALENT-SAFETY-AUDIT.md), [Public Playerbots API Baseline](NT1-PUBLIC-PLAYERBOTS-FORK-API-BASELINE.md).
+
+
+## Prepared acceptance plan (not yet executed)
+
+A single-build, all-class read-only [release acceptance matrix](NT1-READONLY-RELEASE-ACCEPTANCE.md) now covers operator backups, actual binary provenance, Mode 4 issuer permission checks, protected-state checksums, ten classes, chat readability and no talent or equipment changes. Git checkout evidence is sufficient for the source-version checkpoint; **do not ask the operator to rerun Git commands or the optional Python preflight merely to duplicate the same SHAs**. Compilation, server restart and configured Mode 4 usage still require distinct approval.
