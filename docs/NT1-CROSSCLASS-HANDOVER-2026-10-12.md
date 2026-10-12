@@ -170,3 +170,10 @@ New source-only review found a material compatibility requirement in the officia
 The preflight has also been hardened to ignore API-looking strings/comments and to search `Player::resetTalents` side effects within the function body, not arbitrarily in unrelated `Player.cpp` methods. Additional source/synthetic tests reproduce commented-out method, unrelated pet call, nested braces, unsafe-remote-output and custom-fork conditions. See [Dependency API Preflight](NT1-DEPENDENCY-API-PREFLIGHT.md).
 
 **No changes to talent import C++ code or live equipment, no compilation or server DB action. Keep draft PR #16 unmerged; do not substitute a newer fork for the operator's actual custom core.**
+
+
+### Verified checker-hardening CI (commit `65ce613`)
+
+Commit `65ce613bbd59fbe333ce18593192829642606b26` passed four GitHub Actions workflows on 12 October 2026: [combined NT1 **191/191 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426320) (24 dependency preflight tests total, six new this pass), [Alt Bot recovery **90/90 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426376), [read-only diagnostics **12/12 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426199), [Mage projection **25/25 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426323). Counts overlap; **no C++ compilation, local checkout compatibility test, 3.3.5a runtime test, database action, or deployed binary verification**. PR #16 is still draft/unmerged.
+
+**Remaining gate:** the user's actual Playerbots-compatible AzerothCore checkout SHA, Playerbots/IP module SHAs (and dirty/local patch metadata) before an explicitly approved single bundled C++ build. Keep original Alt Bot offhand and pet fail-closed guards untouched. No Apply or repair is authorised.

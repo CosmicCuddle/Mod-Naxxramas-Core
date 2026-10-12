@@ -672,6 +672,11 @@ Commit `17df097254d927f35bfe5a9ad661fd4762d94411` passed **all four GitHub Actio
 - False-positive prevention: commented-out C++ APIs and quoted strings cannot pass signature checks, and reset side effects are inspected only within `Player::resetTalents`, not unrelated `Player.cpp` methods. No modifying commands. More synthetic regressions added; see [Dependency API Preflight](docs/NT1-DEPENDENCY-API-PREFLIGHT.md).
 - Runtime compilation, installed SHA and actual binary provenance unverified. PR #16 stays **DRAFT/unmerged**; do not pull or replace the user's customized Playerbots-compatible fork.
 
+
+#### 12 October 2026 — Verified hardened dependency preflight source CI
+
+Commit `65ce613bbd59fbe333ce18593192829642606b26` passed four GitHub Actions workflows on 12 October 2026: [combined NT1 **191/191 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426320) (24 dependency preflight tests total, six new this pass), [Alt Bot recovery **90/90 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426376), [read-only diagnostics **12/12 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426199), [Mage projection **25/25 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426323). Counts overlap; **no C++ compilation, local checkout compatibility test, 3.3.5a runtime test, database action, or deployed binary verification**. PR #16 is still draft/unmerged.
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer 1.0.6.8.5. The newest universal read-only cross-class work is on **draft PR #16**, not merged into `main` or installed on the live Worldserver. The real-game Zevon Mage Apply test belongs to an **earlier compiled revision**; it does not prove the new `safetypreview`, inactive-spec, or human-IP report features. Public upstream APIs have been source-reviewed, but the user's exact installed AzerothCore/Playerbots/IP revisions and C++ compatibility remain unverified. The latest shared live mode 2 still permits experimental Apply: avoid Apply, and set mode 4 only **after an approved merge, recompilation and restart**. Keep the original offhand/pet blocks and full offline recovery requirement intact.
