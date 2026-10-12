@@ -1171,14 +1171,17 @@ namespace NaxxramasBotTalentImport
                 (mainType->SubClass == ITEM_SUBCLASS_WEAPON_POLEARM ||
                  mainType->SubClass == ITEM_SUBCLASS_WEAPON_STAFF ||
                  mainType->SubClass == ITEM_SUBCLASS_WEAPON_FISHING_POLE);
-            bool const mainTwoHand = bot->IsTwoHandUsed();
-            // This reads LIVE abilities, not necessarily abilities AFTER
-            // resetTalents has removed talent-granted spell/auras.
+            // ResetTalents clears Titan's Grip BEFORE its offhand check.
+            // Therefore a currently dual-wielded 2H main hand is a risk
+            // even when IsTwoHandUsed() currently returns FALSE.
+            bool const mainTwoHand = mainType &&
+                mainType->InventoryType == INVTYPE_2HWEAPON;
+            // Read-only observed abilities are NOT guaranteed after reset:
+            // talent-granted spell 674 may disappear during the operation.
             bool const dualWieldRisk =
                 offWeapon && (!bot->CanDualWield() ||
                     !bot->HasSpell(674));
-            bool const titansGripRisk = offTwoHand ||
-                (mainTwoHand && !bot->CanTitanGrip());
+            bool const titansGripRisk = offTwoHand || mainTwoHand;
 
             handler->PSendSysMessage(
                 "NT1 ALT EQUIPMENT: main item {}, type {}; "
