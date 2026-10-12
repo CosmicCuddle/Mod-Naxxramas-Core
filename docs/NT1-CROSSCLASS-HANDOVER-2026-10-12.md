@@ -118,3 +118,15 @@ These suites **overlap** (139 combined already includes much of the above). They
 ### Verified post-refinement CI (commit `a9849977b15d883d3e60dc8fe34a60f3c9555809`)
 
 GitHub Actions source/synthetic workflows completed successfully on the **new code commit**: [combined 147/147](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538734), [Alt recovery 70/70](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250539122), [read-only diagnostic 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538540), [Mage projection 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538905). Counts overlap. No C++ compilation, live-game test or isolated DB restore was performed. PR #16 remains draft/unmerged. Exact deployed core/Playerbots/IP revisions and controlled read-only inspection remain the next engineering gates.
+
+## 9. Next draft addition — no-code, both-spec issuer-era comparison (12 October 2026)
+
+### Draft extension — no-code issuer-era rank screening (not full validation)
+
+When Individual Progression is enabled, allowlisted `.naxxbot talents safetypreview <online-altbotname>` now performs a **bounded, read-only DBC era-policy comparison in EACH owned specialization** against the **issuing HUMAN character's** effective capped Vanilla/TBC/WotLK era. The existing `GetOutOfEraTalents(bot, era, spec)` scans Talent.dbc rank spells via `HasTalent(spell, spec)`, without changing spec. Each spec displays a total plus at most three sample Talent.dbc ID/rank pairs. A missing or ineligible row is flagged even when there is no NT1 preset yet, making all-ten-class inspection more useful.
+
+The issuer's current era **is not proof of the bot's own Individual Progression stage**. A zero count is **not** proof the complete build is legal, that prerequisites/point allocation are correct, or that a reset is safe. Glyphs, pets, original item GUID recovery and any anomalies outside DBC era ranks remain separate audits. If IP is **disabled**, the no-code era comparison is **not performed**; level-based restrictions continue, and a specific NT1 `repairpreview` is needed to inspect a selected target era. No automated repair, full talent validation, permissions change, offhand or pet exemption is introduced. This adds at most four short chat messages for the DBC era comparison even on dual-spec characters.
+
+New source/synthetic checks cover both-spec boundaries, issuer allowlist ordering before output, IP-disabled exclusion, three-example cap, zero-count caveats and no dangerous C++ calls. Exact installed core/Playerbots/IP revisions, 3.3.5a chat readability and real compiled behaviour are **not yet verified**.
+
+**Next:** rerun all source/synthetic workflows on the NEW code SHA; attach links and counts in PR #16. Leave the PR draft and unmerged. Do not compile or change live mode 2 without permission. A build check against the user's exact dependency SHAs and read-only in-game testing remain outstanding. No database changes or Talent.dbc edits have been made.

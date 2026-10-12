@@ -20,6 +20,10 @@ def section(start: str, end: str) -> str:
 HANDLER = section("    static bool HandleSafetyPreview(", "    static bool HandleRepairPreview(")
 GET_COMMANDS = section("    ChatCommandTable GetCommands()", "    // AzerothCore treats false")
 CROSSCLASS = section("    void PrintAltBotCrossClassSafetyAudit(", "    // Must run inside ImportScope.")
+ERA_SCAN = section(
+    "    void PrintAltBotIssuerEraRankScan(",
+    "    // Read-only volatile observation",
+)
 
 
 class CrossClassNoCodeCommandTests(unittest.TestCase):
@@ -77,7 +81,8 @@ class CrossClassNoCodeCommandTests(unittest.TestCase):
             HANDLER.index("PrintAltBotProtectedState(handler, bot)"),
         )
 
-    def test_only_two_read_only_reporters_invoked(self):
+    def test_bounded_era_scan_and_original_reporters_invoked(self):
+        self.assertIn("PrintAltBotIssuerEraRankScan(handler, bot, stage);", HANDLER)
         self.assertIn("PrintAltBotProtectedState(handler, bot);", HANDLER)
         self.assertIn("PrintAltBotCrossClassSafetyAudit(handler, bot);", HANDLER)
 
@@ -88,7 +93,7 @@ class CrossClassNoCodeCommandTests(unittest.TestCase):
             r"AutoUnequipOffhandIfNeed|SetGlyph|EquipNewItem|"
             r"RemoveItem|StoreItem|MailDraft)\s*\("
         )
-        for src in (HANDLER, CROSSCLASS):
+        for src in (HANDLER, CROSSCLASS, ERA_SCAN):
             code = re.sub(r"//[^\n]*", "", src)
             code = re.sub(r'"(?:\\.|[^"\\])*"', '""', code)
             self.assertIsNone(mutating.search(code))
@@ -154,6 +159,47 @@ class CrossClassNoCodeCommandTests(unittest.TestCase):
         self.assertIn("PrintAltBotCrossClassSafetyAudit(handler, bot);", HANDLER)
         self.assertNotIn("CheckApplyReadiness(", HANDLER)
         self.assertNotIn("ApplyValidated(", HANDLER)
+
+
+    def test_no_code_era_scan_is_only_with_enabled_human_ip(self):
+        enabled = HANDLER.index('if (sConfigMgr->GetOption<bool>("IndividualProgression.Enable", true))')
+        scan = HANDLER.index("PrintAltBotIssuerEraRankScan(handler, bot, stage)")
+        disabled = HANDLER.index("NT1 ALT ISSUER IP: disabled.")
+        self.assertLess(enabled, scan)
+        self.assertLess(scan, disabled)
+        self.assertIn("No era-rank scan without an issuing human IP era.", HANDLER)
+
+    def test_scan_uses_existing_era_policy_and_explicit_each_spec(self):
+        self.assertIn("ReadEra(IssuerProgressionEra(issuerStage), era)", ERA_SCAN)
+        self.assertIn("GetOutOfEraTalents(bot, era, spec)", ERA_SCAN)
+        self.assertIn("spec < bot->GetSpecsCount()", ERA_SCAN)
+        self.assertIn("spec < MAX_TALENT_SPECS", ERA_SCAN)
+        self.assertIn("spec == bot->GetActiveSpec()", ERA_SCAN)
+        self.assertNotIn("ActivateSpec(", ERA_SCAN)
+        self.assertNotIn("SetActiveSpec(", ERA_SCAN)
+
+    def test_scan_examples_bounded_and_count_not_silently_truncated(self):
+        self.assertIn("MAX_EXAMPLE_TALENTS = 3", ERA_SCAN)
+        self.assertIn("i < MAX_EXAMPLE_TALENTS", ERA_SCAN)
+        self.assertIn("invalid.size(), era.Name", ERA_SCAN)
+        self.assertIn("invalid[i].Id", ERA_SCAN)
+        self.assertIn("invalid[i].Rank", ERA_SCAN)
+
+    def test_scan_does_not_claim_talent_or_reset_safety(self):
+        self.assertIn("not proof of the bot's IP status or build legality", ERA_SCAN)
+        self.assertIn("a zero count is NOT a valid build", ERA_SCAN)
+        self.assertIn("Pets, glyphs, talent prerequisites", ERA_SCAN)
+        self.assertIn("inactive actions still require separate checks", ERA_SCAN)
+
+    def test_no_code_era_scan_obeys_allowlist_before_sensitive_data(self):
+        self.assertLess(
+            HANDLER.index("CanApplyToAltBot(issuer, error)"),
+            HANDLER.index("PrintAltBotIssuerEraRankScan(handler, bot, stage)"),
+        )
+        self.assertLess(
+            HANDLER.index("sRandomPlayerbotMgr.IsRandomBot(bot)"),
+            HANDLER.index("PrintAltBotIssuerEraRankScan(handler, bot, stage)"),
+        )
 
 
 if __name__ == "__main__":

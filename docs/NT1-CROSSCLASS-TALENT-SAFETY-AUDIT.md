@@ -16,7 +16,7 @@ Use **safetypreview** to run the ten-class equipment/pet/spec/Talent Completion 
 
 **Security is strict:** importer enabled; GM or ordinary player with access mode 2/4; real human issuer; existing online non-Random Alt Bot; same-account/direct AI-master relationship for non-GMs; issuing HUMAN character must match the full `AltBotAllowedPlayers` allowlist **even for GMs**. Read-only mode 4 is preferred for normal account testing; mode 2 still exposes the old destructive experimental Apply command.
 
-`safetypreview` intentionally has **no era-specific talent code** and therefore does NOT claim a bot's ranks are Vanilla/TBC/WotLK-legal. Use `repairpreview` with a *valid code for that class and IP era* to inspect explicit active/inactive-spec forbidden talents. Neither command switches specializations, changes pets, moves items or writes SQL.
+`safetypreview` requires **no NT1 code**. When IP is enabled, it additionally performs a bounded, issuer-era DBC rank comparison across both specs; this does **not** certify bot progression or full talent legality. Use `repairpreview` with a *valid code for that class and IP era* for a concrete proposed build and detailed active/inactive forbidden-talent records. Neither command switches specializations, changes pets, moves items or writes SQL.
 
 ### Both-spec out-of-era talent scan (new in this draft)
 
@@ -129,3 +129,11 @@ Additional source/synthetic regressions cover the shared capped IP stage, access
 ### Source CI verification for second pass
 
 Commit `a9849977b15d883d3e60dc8fe34a60f3c9555809` passed [combined 147/147](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538734), [Alt recovery 70/70](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250539122), [read-only diagnostic 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538540), [Mage projection 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538905). These are overlapping Python/static/synthetic suites only, **not** C++ compilation, 3.3.5a chat verification, or a character DB restore rehearsal. PR #16 stays draft/unmerged.
+
+### Draft extension — no-code issuer-era rank screening (not full validation)
+
+When Individual Progression is enabled, allowlisted `.naxxbot talents safetypreview <online-altbotname>` now performs a **bounded, read-only DBC era-policy comparison in EACH owned specialization** against the **issuing HUMAN character's** effective capped Vanilla/TBC/WotLK era. The existing `GetOutOfEraTalents(bot, era, spec)` scans Talent.dbc rank spells via `HasTalent(spell, spec)`, without changing spec. Each spec displays a total plus at most three sample Talent.dbc ID/rank pairs. A missing or ineligible row is flagged even when there is no NT1 preset yet, making all-ten-class inspection more useful.
+
+The issuer's current era **is not proof of the bot's own Individual Progression stage**. A zero count is **not** proof the complete build is legal, that prerequisites/point allocation are correct, or that a reset is safe. Glyphs, pets, original item GUID recovery and any anomalies outside DBC era ranks remain separate audits. If IP is **disabled**, the no-code era comparison is **not performed**; level-based restrictions continue, and a specific NT1 `repairpreview` is needed to inspect a selected target era. No automated repair, full talent validation, permissions change, offhand or pet exemption is introduced. This adds at most four short chat messages for the DBC era comparison even on dual-spec characters.
+
+New source/synthetic checks cover both-spec boundaries, issuer allowlist ordering before output, IP-disabled exclusion, three-example cap, zero-count caveats and no dangerous C++ calls. Exact installed core/Playerbots/IP revisions, 3.3.5a chat readability and real compiled behaviour are **not yet verified**.

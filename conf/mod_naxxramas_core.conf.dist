@@ -172,8 +172,11 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # the Apply handler refuses before reset, even for GMs. repairpreview
 # and safetypreview enforce AltBotAllowedPlayers (including GMs).
 # safetypreview needs only an online Alt Bot name (no NT1 talent code).
-# It reports the issuing HUMAN's effective IP era/stage if IP is enabled;
-# diagnostic only: never validates the target bot's talent build.
+# It reports the issuing HUMAN's effective IP era/stage if IP is enabled
+# and compares both specs' existing DBC ranks with that issuer era.
+# Per-spec examples are capped at 3. This is NOT full build validation,
+# proof of the bot's IP stage, permission to Apply or gear/pet safety.
+# IP-disabled does not perform a no-code era comparison.
 #
 # Default: 0
 NaxxramasCore.BotTalentImport.AccessMode = 0

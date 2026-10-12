@@ -54,6 +54,8 @@ Existing `repairpreview <bot> <NT1-code>` additionally inspects **out-of-era tal
 
 Latest draft refinement: `safetypreview` additionally reports the **issuing human's effective IP era/stage** (capped by the configured Individual Progression limit), or explicitly reports IP disabled. This is diagnostic context, **not bot talent-build validation**. Unknown equipped-item templates now report the observed entry IDs without relaxing the offhand block. Public AzerothCore API signatures have been inspected but the operator's exact checkout and a C++ build remain unverified.
 
+The no-code `safetypreview` now also runs a **bounded DBC era scan of each owned specialization** when Individual Progression is enabled. It compares against the issuing HUMAN's effective era (not a verified bot IP stage), prints per-spec illegal-rank counts and at most three sample Talent.dbc ID/rank pairs. This is **not** a valid-build or safe-reset verdict; inactive glyphs, pets and equipment must still be separately checked. With IP disabled, the era scan is omitted rather than inventing an era. There is no talent reset or spec switch.
+
 Neither source change relaxes the conservative Alt Bot offhand/active pet Apply block, authorises an illegal-original-talent repair, or implements a safe full character rollback. **No user action, Git pull or recompile is needed until the separate draft PR is reviewed and merged.** See [cross-class safety design](NT1-CROSSCLASS-TALENT-SAFETY-AUDIT.md).
 
 ### Combined read-only integration checkpoint (new draft, no C++ compile)

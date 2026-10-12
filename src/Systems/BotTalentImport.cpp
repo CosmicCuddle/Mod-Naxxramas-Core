@@ -955,6 +955,54 @@ namespace NaxxramasBotTalentImport
             : std::vector<OutOfEraTalent>{};
     }
 
+    // Optional no-code DBC era inspection for the issuing HUMAN's IP era.
+    // Per-spec HasTalent is read-only: NEVER activate the inactive spec.
+    // Counts are policy observations, NOT a full talent or rollback audit.
+    void PrintAltBotIssuerEraRankScan(ChatHandler* handler,
+        Player const* bot, uint32 issuerStage)
+    {
+        if (!handler || !bot)
+            return;
+
+        Era era = {};
+        if (!ReadEra(IssuerProgressionEra(issuerStage), era))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT ERA SCAN: unknown issuer era. No scan performed.");
+            return;
+        }
+
+        handler->SendSysMessage(
+            "NT1 ALT ERA SCAN: issuing HUMAN's era only. "
+            "This is not proof of the bot's IP status or build legality.");
+        constexpr size_t MAX_EXAMPLE_TALENTS = 3;
+        for (uint8 spec = 0; spec < bot->GetSpecsCount() &&
+            spec < MAX_TALENT_SPECS; ++spec)
+        {
+            std::vector<OutOfEraTalent> const invalid =
+                GetOutOfEraTalents(bot, era, spec);
+            std::ostringstream examples;
+            for (size_t i = 0; i < invalid.size() &&
+                i < MAX_EXAMPLE_TALENTS; ++i)
+            {
+                if (i)
+                    examples << ", ";
+                examples << invalid[i].Id << "/r" << invalid[i].Rank;
+            }
+            handler->PSendSysMessage(
+                "NT1 ALT ERA SCAN spec {} {}: {} DBC talents outside "
+                "issuer {} policy. Sample ID/rank: {}.",
+                static_cast<uint32>(spec + 1),
+                spec == bot->GetActiveSpec() ? "(active)" : "(inactive)",
+                invalid.size(), era.Name,
+                invalid.empty() ? "none" : examples.str());
+        }
+        handler->SendSysMessage(
+            "NT1 ALT ERA SCAN LIMIT: a zero count is NOT a valid build "
+            "or safe reset. Pets, glyphs, talent prerequisites and "
+            "inactive actions still require separate checks.");
+    }
+
     // Read-only volatile observation of what the server currently exposes.
     // NOT an offline database backup, restore token, cryptographic signature,
     // or proof that talent reset will preserve these records. In particular
@@ -2119,12 +2167,14 @@ public:
                 "NT1 ALT ISSUER IP: {} (effective stage {}). "
                 "Human progression only; bot build NOT validated.",
                 IssuerProgressionEra(stage), stage);
+            PrintAltBotIssuerEraRankScan(handler, bot, stage);
         }
         else
         {
             handler->SendSysMessage(
                 "NT1 ALT ISSUER IP: disabled. Bot-level talent rules "
-                "still apply; no build validation performed.");
+                "still apply; no build validation performed. "
+                "No era-rank scan without an issuing human IP era.");
         }
 
         PrintAltBotProtectedState(handler, bot);
@@ -2132,7 +2182,7 @@ public:
         handler->SendSysMessage(
             "READ ONLY: safetypreview did not reset talents, switch "
             "specs, move gear, dismiss pets or write to the database. "
-            "For era-specific illegal talents, use repairpreview with NT1.");
+            "For a complete proposed build check, use repairpreview with NT1.");
         return true;
     }
 

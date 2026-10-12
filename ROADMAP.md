@@ -631,6 +631,12 @@ FROM character_spell WHERE guid=73209 ORDER BY spell;
 - **Verified updated source CI on `a9849977`:** [combined 147/147](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538734), [Alt recovery 70/70](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250539122), [read-only diagnostic 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538540), [Mage projection 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538905). Suite counts overlap; not C++ or game tests.
 - **No deployment:** PR #16 stays draft/unmerged; Python CI cannot establish C++ compilation, live-game behaviour or character DB restoration. Next: inspect exact installed core/Playerbots/IP versions, check updated CI, approve a single bundled build, then test all ten classes with read-only mode 4.
 
+#### 12 October 2026 — No-code issuer-era inspection added to draft PR #16
+
+- With IP enabled, `safetypreview` now compares **each owned spec's** existing DBC talents against the **human issuer's** capped era, via existing `HasTalent(spell, spec)` and `AvailableInEra`, without any specialization switch. It prints counts plus no more than three sample Talent.dbc IDs/ranks per spec. With IP off it skips this comparison.
+- A zero illegal rank count is NOT proof of a valid build, pet/glyph safety, legal bot IP stage or rollback capability; the issuing human's era may not be the bot's. All existing allowlist, Random Bot refusal, equipment/pet block and mode-3/4 Apply refusal remain intact.
+- Python/static regression tests added; the exact installed dependencies, actual C++ compilation, in-game chat readability and isolated characters DB restoration remain outstanding.
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer 1.0.6.8.5. The newest universal read-only cross-class work is on **draft PR #16**, not merged into `main` or installed on the live Worldserver. The real-game Zevon Mage Apply test belongs to an **earlier compiled revision**; it does not prove the new `safetypreview`, inactive-spec, or human-IP report features. Public upstream APIs have been source-reviewed, but the user's exact installed AzerothCore/Playerbots/IP revisions and C++ compatibility remain unverified. The latest shared live mode 2 still permits experimental Apply: avoid Apply, and set mode 4 only **after an approved merge, recompilation and restart**. Keep the original offhand/pet blocks and full offline recovery requirement intact.
