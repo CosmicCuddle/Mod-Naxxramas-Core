@@ -204,6 +204,31 @@ namespace NaxxramasBotTalentImport
     constexpr uint32 IP_MAX_STAGE = 18;
     constexpr uint32 IP_HIDDEN_QUEST_START = 66000;
 
+    // Read-only source of truth for the issuing HUMAN character's effective
+    // Individual Progression stage. Honour the server progression cap.
+    // Never infer the stage from a bot, spec, or submitted NT1 code.
+    uint32 GetEffectiveIssuerProgressionStage(Player const* issuer)
+    {
+        uint32 stage = 0;
+        for (uint32 i = 1; i <= IP_MAX_STAGE; ++i)
+            if (issuer->GetQuestStatus(IP_HIDDEN_QUEST_START + i) ==
+                QUEST_STATUS_REWARDED)
+                stage = i;
+
+        uint32 const limit = sConfigMgr->GetOption<uint32>(
+            "IndividualProgression.ProgressionLimit", 0);
+        if (limit != 0 && stage > limit)
+            stage = limit;
+
+        return stage;
+    }
+
+    char const* IssuerProgressionEra(uint32 stage)
+    {
+        return stage >= IP_WOTLK_ENTRY ? "wotlk" :
+            stage >= IP_TBC_ENTRY ? "tbc" : "vanilla";
+    }
+
     // The requesting HUMAN character's IP expansion is authoritative.
     // Never infer it from a random bot's often-exempt progression state,
     // the requested code, or an artificially raised GM/bot level.
@@ -220,25 +245,10 @@ namespace NaxxramasBotTalentImport
         if (!sConfigMgr->GetOption<bool>("IndividualProgression.Enable", true))
             return true;
 
-        // Modern Individual Progression stores achieved stages in hidden,
-        // rewarded quest IDs 66001..66018. Reading Player quest state
-        // avoids conflicting IP/Playerbots headers and matches the modern
-        // GetPlayerProgressionFromQuests() highest-stage semantics.
-        // This path targets the current hidden-quest IP schema (not older
-        // player-settings-based variants).
-        uint32 stage = 0;
-        for (uint32 i = 1; i <= IP_MAX_STAGE; ++i)
-            if (issuer->GetQuestStatus(IP_HIDDEN_QUEST_START + i) ==
-                QUEST_STATUS_REWARDED)
-                stage = i;
-
-        uint32 const limit = sConfigMgr->GetOption<uint32>(
-            "IndividualProgression.ProgressionLimit", 0);
-        if (limit != 0 && stage > limit)
-            stage = limit;
-
-        char const* playerEra = stage >= IP_WOTLK_ENTRY ? "wotlk" :
-            stage >= IP_TBC_ENTRY ? "tbc" : "vanilla";
+        // Match the hidden-quest IP schema and capped human stage also
+        // reported by the no-code read-only safety command.
+        char const* playerEra = IssuerProgressionEra(
+            GetEffectiveIssuerProgressionStage(issuer));
         if (std::string(requested.Name) != playerEra)
         {
             error = "NT1 era blocked by Individual Progression: your "
@@ -888,9 +898,9 @@ namespace NaxxramasBotTalentImport
         return code;
     }
 
-    // Inspect ONLY the currently active spec, using the exact imported-era
-    // row/capstone filter already used by ParseCode. No talents are reset or
-    // learned. This is diagnostic evidence, NOT a recovery snapshot.
+    // Inspect any selected spec by talent spell mask without activating it.
+    // An inactive spec can contain illegal ranks even when active is legal.
+    // Diagnostic only: not a persistent or restorable snapshot.
     struct OutOfEraTalent
     {
         uint32 Id = 0;
@@ -901,10 +911,11 @@ namespace NaxxramasBotTalentImport
     };
 
     std::vector<OutOfEraTalent> GetOutOfEraTalents(
-        Player const* bot, Era const& era)
+        Player const* bot, Era const& era, uint8 spec)
     {
         std::vector<OutOfEraTalent> result;
-        if (!bot)
+        if (!bot || spec >= bot->GetSpecsCount() ||
+            spec >= MAX_TALENT_SPECS)
             return result;
 
         for (uint32 i = 0; i < sTalentStore.GetNumRows(); ++i)
@@ -922,7 +933,7 @@ namespace NaxxramasBotTalentImport
             uint32 rank = 0;
             for (uint32 j = 0; j < MAX_TALENT_RANK; ++j)
                 if (talent->RankID[j] &&
-                    bot->HasTalent(talent->RankID[j], bot->GetActiveSpec()))
+                    bot->HasTalent(talent->RankID[j], spec))
                     rank = j + 1;
 
             if (rank && !AvailableInEra(
@@ -934,6 +945,147 @@ namespace NaxxramasBotTalentImport
             }
         }
         return result;
+    }
+
+    // Existing active-spec diagnostics remain backward compatible.
+    std::vector<OutOfEraTalent> GetOutOfEraTalents(
+        Player const* bot, Era const& era)
+    {
+        return bot ? GetOutOfEraTalents(bot, era, bot->GetActiveSpec())
+            : std::vector<OutOfEraTalent>{};
+    }
+
+    // Optional no-code DBC era inspection for the issuing HUMAN's IP era.
+    // Per-spec HasTalent is read-only: NEVER activate the inactive spec.
+    // Counts are policy observations, NOT a full talent or rollback audit.
+    void PrintAltBotIssuerEraRankScan(ChatHandler* handler,
+        Player const* bot, uint32 issuerStage)
+    {
+        if (!handler || !bot)
+            return;
+
+        Era era = {};
+        if (!ReadEra(IssuerProgressionEra(issuerStage), era))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT ERA SCAN: unknown issuer era. No scan performed.");
+            return;
+        }
+
+        handler->SendSysMessage(
+            "NT1 ALT ERA SCAN: issuing HUMAN's era only. "
+            "This is not proof of the bot's IP status or build legality.");
+        constexpr size_t MAX_EXAMPLE_TALENTS = 3;
+        for (uint8 spec = 0; spec < bot->GetSpecsCount() &&
+            spec < MAX_TALENT_SPECS; ++spec)
+        {
+            std::vector<OutOfEraTalent> const invalid =
+                GetOutOfEraTalents(bot, era, spec);
+            std::ostringstream examples;
+            for (size_t i = 0; i < invalid.size() &&
+                i < MAX_EXAMPLE_TALENTS; ++i)
+            {
+                if (i)
+                    examples << ", ";
+                examples << invalid[i].Id << "/r" << invalid[i].Rank;
+            }
+            handler->PSendSysMessage(
+                "NT1 ALT ERA SCAN spec {} {}: {} DBC talents outside "
+                "issuer {} policy. Sample ID/rank: {}.",
+                static_cast<uint32>(spec + 1),
+                spec == bot->GetActiveSpec() ? "(active)" : "(inactive)",
+                invalid.size(), era.Name,
+                invalid.empty() ? "none" : examples.str());
+        }
+        handler->SendSysMessage(
+            "NT1 ALT ERA SCAN LIMIT: a zero count is NOT a valid build "
+            "or safe reset. Pets, glyphs, talent prerequisites and "
+            "inactive actions still require separate checks.");
+    }
+
+    // Read-only anomaly hints that era-based Talent.dbc row checks miss.
+    // Unmatched spell records can reflect a DIFFERENT DBC version, not damage.
+    void PrintAltBotTalentMapIntegrity(ChatHandler* handler, Player const* bot)
+    {
+        if (!handler || !bot)
+            return;
+
+        uint8 const specCount = bot->GetSpecsCount();
+        if (!specCount || specCount > MAX_TALENT_SPECS ||
+            bot->GetActiveSpec() >= specCount)
+            handler->PSendSysMessage(
+                "NT1 ALT TALENT MAP: unusual spec metadata (active {}, "
+                "owned {}). Offline review required; NO repair attempted.",
+                static_cast<uint32>(bot->GetActiveSpec() + 1),
+                static_cast<uint32>(specCount));
+
+        // GetTalentMap() and specMask only observe in-memory state.
+        for (uint8 spec = 0; spec < specCount && spec < MAX_TALENT_SPECS;
+            ++spec)
+        {
+            std::unordered_map<uint32, uint32> rankCounts;
+            std::vector<uint32> unmatchedSpellIds;
+            uint32 multiRankTalents = 0;
+
+            for (auto const& [spellId, record] : bot->GetTalentMap())
+            {
+                if (!record || record->State == PLAYERSPELL_REMOVED ||
+                    !(record->specMask & (1u << spec)))
+                    continue;
+
+                TalentEntry const* talent =
+                    sTalentStore.LookupEntry(record->talentID);
+                TalentTabEntry const* tab = talent ?
+                    sTalentTabStore.LookupEntry(talent->TalentTab) : nullptr;
+                bool recognized = false;
+                if (talent && tab && tab->tabpage < 3 &&
+                    (tab->ClassMask & bot->getClassMask()))
+                {
+                    for (uint32 i = 0; i < MAX_TALENT_RANK; ++i)
+                        if (spellId && talent->RankID[i] == spellId)
+                        {
+                            recognized = true;
+                            break;
+                        }
+                }
+
+                if (!recognized)
+                {
+                    unmatchedSpellIds.push_back(spellId);
+                    continue;
+                }
+                // Count talents that own multiple rank-spells, not all
+                // extra ranks. These are integrity warnings, not repairs.
+                if (++rankCounts[record->talentID] == 2)
+                    ++multiRankTalents;
+            }
+
+            std::sort(unmatchedSpellIds.begin(), unmatchedSpellIds.end());
+            handler->PSendSysMessage(
+                "NT1 ALT TALENT MAP spec {}: unmatched rank spells {}, "
+                "multiple-rank talents {}. Review only; no mutation.",
+                static_cast<uint32>(spec + 1),
+                unmatchedSpellIds.size(), multiRankTalents);
+            if (!unmatchedSpellIds.empty())
+            {
+                std::ostringstream examples;
+                constexpr size_t MAX_UNMATCHED_EXAMPLES = 3;
+                for (size_t i = 0; i < unmatchedSpellIds.size() &&
+                    i < MAX_UNMATCHED_EXAMPLES; ++i)
+                {
+                    if (i)
+                        examples << ",";
+                    examples << unmatchedSpellIds[i];
+                }
+                handler->PSendSysMessage(
+                    "NT1 ALT TALENT MAP spec {} sample spell IDs: {} "
+                    "(up to 3; not a recovery snapshot).",
+                    static_cast<uint32>(spec + 1), examples.str());
+            }
+        }
+        handler->SendSysMessage(
+            "NT1 ALT TALENT MAP LIMIT: DBC differences can cause warnings. "
+            "Zero warnings do NOT prove complete build/reset safety.");
     }
 
     // Read-only volatile observation of what the server currently exposes.
@@ -1117,6 +1269,174 @@ namespace NaxxramasBotTalentImport
         handler->SendSysMessage(
             "NT1 ALT STATE NOT A BACKUP: no bag/bank/mail or inactive "
             "glyph values captured. Checksums are not restore tokens.");
+    }
+
+    // Cross-class, READ-ONLY hazard classifier for ALL Alt Bot classes.
+    // Mirror only the observable branches in Player::AutoUnequipOffhandIfNeed;
+    // we deliberately DO NOT predict hook outcomes or remove the actual
+    // conservative offhand/pet block in CheckApplyReadiness.
+    //
+    // resetTalents(true) clears Titan's Grip, may remove talent-granted
+    // dual wield, dismisses pets and invokes other modules' reset hooks.
+    // Switching specialization is a different operation with additional
+    // glyph/action bar/pet effects; NEVER do so to inspect inactive data.
+    void PrintAltBotCrossClassSafetyAudit(ChatHandler* handler, Player const* bot)
+    {
+        if (!handler || !bot)
+            return;
+
+        Item const* main = bot->GetItemByPos(
+            INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+        Item const* off = bot->GetItemByPos(
+            INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+        ItemTemplate const* const mainType = main ? main->GetTemplate() : nullptr;
+        ItemTemplate const* const offType = off ? off->GetTemplate() : nullptr;
+
+        char const* const className = ClassName(bot->getClass());
+        handler->PSendSysMessage(
+            "NT1 ALT CROSS-CLASS AUDIT: {} level {}, spec {} of {}. "
+            "Read-only observation, NOT reset approval.",
+            className ? className : "unknown", bot->GetLevel(),
+            static_cast<uint32>(bot->GetActiveSpec() + 1),
+            static_cast<uint32>(bot->GetSpecsCount()));
+
+        if (!off)
+        {
+            handler->SendSysMessage(
+                "NT1 ALT OFFHAND: EMPTY. No current offhand item to "
+                "relocate; this is NOT proof the talent reset is safe.");
+        }
+        else if (!offType || (main && !mainType))
+        {
+            handler->PSendSysMessage(
+                "NT1 ALT OFFHAND: UNKNOWN item template (main item {}, "
+                "offhand item {}). KEEP BLOCKED; cannot assess relocation.",
+                main ? main->GetEntry() : 0, off->GetEntry());
+        }
+        else
+        {
+            bool const offWeapon =
+                offType->InventoryType == INVTYPE_WEAPONOFFHAND ||
+                offType->InventoryType == INVTYPE_WEAPON;
+            bool const offTwoHand =
+                offType->InventoryType == INVTYPE_2HWEAPON;
+            bool const mainForces =
+                mainType &&
+                (mainType->SubClass == ITEM_SUBCLASS_WEAPON_POLEARM ||
+                 mainType->SubClass == ITEM_SUBCLASS_WEAPON_STAFF ||
+                 mainType->SubClass == ITEM_SUBCLASS_WEAPON_FISHING_POLE);
+            // ResetTalents clears Titan's Grip BEFORE its offhand check.
+            // Therefore a currently dual-wielded 2H main hand is a risk
+            // even when IsTwoHandUsed() currently returns FALSE.
+            bool const mainTwoHand = mainType &&
+                mainType->InventoryType == INVTYPE_2HWEAPON;
+            // Read-only observed abilities are NOT guaranteed after reset:
+            // talent-granted spell 674 may disappear during the operation.
+            bool const dualWieldRisk =
+                offWeapon && (!bot->CanDualWield() ||
+                    !bot->HasSpell(674));
+            bool const titansGripRisk = offTwoHand || mainTwoHand;
+
+            handler->PSendSysMessage(
+                "NT1 ALT EQUIPMENT: main item {}, type {}; "
+                "offhand item {}, type {}. CanDualWield {}. CanTitanGrip {}.",
+                main ? main->GetEntry() : 0,
+                mainType ? static_cast<uint32>(mainType->InventoryType) : 0,
+                off->GetEntry(), static_cast<uint32>(offType->InventoryType),
+                bot->CanDualWield() ? "YES" : "NO",
+                bot->CanTitanGrip() ? "YES" : "NO");
+
+            if (mainForces || dualWieldRisk || titansGripRisk)
+            {
+                handler->PSendSysMessage(
+                    "NT1 ALT OFFHAND RISK: CORE RELOCATION CONDITIONS "
+                    "MAY APPLY (main forced {}, dual wield {}, 2H/TitanGrip {}). "
+                    "KEEP BLOCKED; could move or MAIL original item.",
+                    mainForces ? "YES" : "NO",
+                    dualWieldRisk ? "YES" : "NO",
+                    titansGripRisk ? "YES" : "NO");
+            }
+            else if (offWeapon)
+            {
+                handler->SendSysMessage(
+                    "NT1 ALT OFFHAND RISK: WEAPON-ABILITY DEPENDENT. "
+                    "Dual Wield may change during talent reset. "
+                    "KEEP BLOCKED; current abilities are not a guarantee.");
+            }
+            else
+            {
+                handler->SendSysMessage(
+                    "NT1 ALT OFFHAND RISK: no current CORE relocation "
+                    "condition observed for non-weapon offhand. "
+                    "STILL BLOCKED; hooks and post-reset state unverified.");
+            }
+        }
+
+        // Class-specific risk reminders, NOT a prediction that a particular
+        // bot has the described talent, spell, pet or item.
+        char const* classRisks = nullptr;
+        switch (bot->getClass())
+        {
+            case CLASS_WARRIOR:
+                classRisks = "Warrior: Titan's Grip/dual-2H and stance spells";
+                break;
+            case CLASS_PALADIN:
+                classRisks = "Paladin: shield/2H transitions and active auras";
+                break;
+            case CLASS_HUNTER:
+                classRisks = "Hunter: permanent/exotic pet and pet talent state";
+                break;
+            case CLASS_ROGUE:
+                classRisks = "Rogue: dual-wield gear and talent-granted spells";
+                break;
+            case CLASS_PRIEST:
+                classRisks = "Priest: caster focus and temporary summon effects";
+                break;
+            case CLASS_DEATH_KNIGHT:
+                classRisks = "Death Knight: dual-wield setup and ghoul state";
+                break;
+            case CLASS_SHAMAN:
+                classRisks = "Shaman: talent-dependent Dual Wield and shield";
+                break;
+            case CLASS_MAGE:
+                classRisks = "Mage: Water Elemental and caster focus";
+                break;
+            case CLASS_WARLOCK:
+                classRisks = "Warlock: demons/Felguard, pet slots and auras";
+                break;
+            case CLASS_DRUID:
+                classRisks = "Druid: form-linked passives and caster focus";
+                break;
+            default:
+                classRisks = "Unknown class: unsupported risks; keep blocked";
+                break;
+        }
+        handler->PSendSysMessage(
+            "NT1 ALT CLASS REVIEW: {}. Check both specs before any "
+            "future destructive test.", classRisks);
+
+        // GetPet() may be null with a temporarily unsummoned/stabled pet.
+        // GetGlyph(slot) exposes ACTIVE spec only; spec-switching to inspect
+        // the other glyph set would itself modify player state.
+        handler->PSendSysMessage(
+            "NT1 ALT PET CHECK: active pet {}. "
+            "Unslotted/stabled pet and guardian data UNKNOWN without "
+            "offline characters DB inspection.",
+            bot->GetPet() ? "YES" : "NO");
+        handler->PSendSysMessage(
+            "NT1 ALT COMPLETION HOOK: BotTalentCompletion.Enabled {}. "
+            "Other Playerbots talent changes require separate verification.",
+            sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.BotTalentCompletion.Enabled", false)
+                ? "ON" : "OFF");
+        handler->SendSysMessage(
+            "NT1 ALT SPEC SWITCH RISK: core can change action bars, "
+            "glyph effects, pets and offhand on spec activation. "
+            "INACTIVE glyphs/actions not inspected; NO spec switch performed.");
+        handler->SendSysMessage(
+            "NT1 ALT SAFETY VERDICT: INSPECTION ONLY. No offhand "
+            "exceptions, item moves, pet changes, talent reset or "
+            "database writes authorised by this report.");
     }
 
     // Must run inside ImportScope. Never use PlayerbotFactory's default
@@ -1506,7 +1826,8 @@ namespace NaxxramasBotTalentImport
         if (!ReadArguments(args, name, code))
         {
             handler->SendSysMessage(
-                "Usage: .naxxbot talents preview <online-botname> <NT1-code>");
+                "Usage: .naxxbot talents preview/repairpreview/apply "
+                "<online-botname> <NT1-code>");
             return false;
         }
 
@@ -1560,7 +1881,7 @@ namespace NaxxramasBotTalentImport
             "NT1 ALT BOT REPAIR INSPECTION: {} (level {}, active spec {}). "
             "Requested {} build: {} / {} points.",
             bot->GetName(), bot->GetLevel(),
-            static_cast<uint32>(bot->GetActiveSpec()),
+            static_cast<uint32>(bot->GetActiveSpec() + 1),
             proposed.Progression.Name, proposed.Spent, proposed.Available);
 
         handler->PSendSysMessage(
@@ -1583,6 +1904,40 @@ namespace NaxxramasBotTalentImport
             handler->PSendSysMessage(
                 "{} additional invalid talents omitted from chat.",
                 illegal.size() - MAX_DIAGNOSTIC_ENTRIES);
+
+        // Inactive-spec talent spell masks can be read without switching
+        // spec, invoking hooks, changing pets/glyphs or loading action bars.
+        constexpr size_t MAX_INACTIVE_DIAGNOSTIC_ENTRIES = 6;
+        for (uint8 spec = 0; spec < bot->GetSpecsCount() &&
+            spec < MAX_TALENT_SPECS; ++spec)
+        {
+            if (spec == bot->GetActiveSpec())
+                continue;
+
+            std::vector<OutOfEraTalent> const inactiveIllegal =
+                GetOutOfEraTalents(bot, proposed.Progression, spec);
+            handler->PSendSysMessage(
+                "NT1 ALT INACTIVE SPEC {}: {} talents outside {} policy. "
+                "No specialization was switched.",
+                static_cast<uint32>(spec + 1), inactiveIllegal.size(),
+                proposed.Progression.Name);
+
+            for (size_t i = 0; i < inactiveIllegal.size() &&
+                i < MAX_INACTIVE_DIAGNOSTIC_ENTRIES; ++i)
+            {
+                OutOfEraTalent const& t = inactiveIllegal[i];
+                handler->PSendSysMessage(
+                    "Inactive spec {} invalid Talent.dbc ID {}: "
+                    "rank {}, tree {}, row {}, column {} (zero-based).",
+                    static_cast<uint32>(spec + 1), t.Id, t.Rank,
+                    t.Tree, t.Row, t.Col);
+            }
+            if (inactiveIllegal.size() > MAX_INACTIVE_DIAGNOSTIC_ENTRIES)
+                handler->PSendSysMessage(
+                    "Inactive spec {}: {} further invalid talents omitted.",
+                    static_cast<uint32>(spec + 1),
+                    inactiveIllegal.size() - MAX_INACTIVE_DIAGNOSTIC_ENTRIES);
+        }
 
         // PR #7's shared PRE-RESET eligibility check is reused here. A valid
         // target NT1 does not imply Apply can safely roll back the old build.
@@ -1625,6 +1980,12 @@ namespace NaxxramasBotTalentImport
         handler->SendSysMessage(
             "NT1 ALT BACKUP REQUIRED: full characters database backup "
             "and tested OFFLINE restoration; not verifiable by this command.");
+
+        // Read-only equipment/class/pet/spec risks; no guard is loosened.
+        PrintAltBotCrossClassSafetyAudit(handler, bot);
+
+        // Rank-map anomalies are read in both owned specs, without changes.
+        PrintAltBotTalentMapIntegrity(handler, bot);
 
         // Protected-state data is volatile, never persisted to a table,
         // and visible only to a human who passed the Alt Bot allowlist.
@@ -1680,6 +2041,7 @@ public:
             {"preview", HandlePreview, SEC_PLAYER, Console::No},
             {"project", HandleProject, SEC_PLAYER, Console::No},
             {"repairpreview", HandleRepairPreview, SEC_PLAYER, Console::No},
+            {"safetypreview", HandleSafetyPreview, SEC_PLAYER, Console::No},
             {"apply", HandleApply, SEC_PLAYER, Console::No},
         };
         static ChatCommandTable naxxbot = {
@@ -1803,6 +2165,116 @@ public:
         return true;
     }
 
+    // Cross-class no-NT1-code report: for class/gear/pet safety audits.
+    // Exactly the same human / Alt allowlist / bot-control security as
+    // repairpreview, but does not need a target talent build just to inspect.
+    // Calls in-memory read-only reporters only, after all access checks.
+    static bool HandleSafetyPreview(ChatHandler* handler, char const* args)
+    {
+        using namespace NaxxramasBotTalentImport;
+
+        if (!handler || !Enabled())
+        {
+            if (handler)
+                handler->SendSysMessage(
+                    "NT1 safety preview disabled in active configuration.");
+            return true;
+        }
+
+        WorldSession* session = handler->GetSession();
+        Player* issuer = session ? session->GetPlayer() : nullptr;
+        if (!issuer || !issuer->IsInWorld() ||
+            PlayerbotsMgr::instance().GetPlayerbotAI(issuer))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT SAFETY DENIED: real online human player required.");
+            return true;
+        }
+
+        bool const gm = IsGM(handler);
+        if (!gm && !AllowNonGMPlayers())
+        {
+            handler->SendSysMessage(
+                "NT1 ALT SAFETY DENIED: player inspection disabled.");
+            return true;
+        }
+
+        std::istringstream input(args ? args : "");
+        std::string name;
+        std::string extra;
+        if (!(input >> name) || (input >> extra))
+        {
+            handler->SendSysMessage(
+                "Usage: .naxxbot talents safetypreview <online-altbotname>");
+            return true;
+        }
+
+        Player* bot = ObjectAccessor::FindPlayerByName(name);
+        PlayerbotAI* ai = bot ?
+            PlayerbotsMgr::instance().GetPlayerbotAI(bot) : nullptr;
+        if (!bot || !bot->IsInWorld() || !ai || bot == issuer)
+        {
+            handler->SendSysMessage(
+                "NT1 ALT SAFETY DENIED: target must be an online Alt Bot.");
+            return true;
+        }
+
+        if (!gm && !CanControlBot(issuer, bot, ai))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT SAFETY DENIED: you do not control this bot.");
+            return true;
+        }
+
+        if (sRandomPlayerbotMgr.IsRandomBot(bot))
+        {
+            handler->SendSysMessage(
+                "NT1 ALT SAFETY DENIED: Random Playerbots are not Alt Bots.");
+            return true;
+        }
+
+        // No GM bypass. This is the issuing HUMAN character allowlist.
+        std::string error;
+        if (!CanApplyToAltBot(issuer, error))
+        {
+            handler->PSendSysMessage("NT1 ALT SAFETY DENIED: {}", error);
+            return true;
+        }
+
+        handler->PSendSysMessage(
+            "NT1 ALT SAFETY INSPECTION: {} (level {}). NO talent code "
+            "needed, NO talents or equipment changed.",
+            bot->GetName(), bot->GetLevel());
+        // The importer's IP restriction belongs to the issuing HUMAN,
+        // not the Alt Bot. Inspect the same effective stage, without
+        // validating any target code or changing the character.
+        if (sConfigMgr->GetOption<bool>("IndividualProgression.Enable", true))
+        {
+            uint32 const stage = GetEffectiveIssuerProgressionStage(issuer);
+            handler->PSendSysMessage(
+                "NT1 ALT ISSUER IP: {} (effective stage {}). "
+                "Human progression only; bot build NOT validated.",
+                IssuerProgressionEra(stage), stage);
+            PrintAltBotIssuerEraRankScan(handler, bot, stage);
+        }
+        else
+        {
+            handler->SendSysMessage(
+                "NT1 ALT ISSUER IP: disabled. Bot-level talent rules "
+                "still apply; no build validation performed. "
+                "No era-rank scan without an issuing human IP era.");
+        }
+
+        PrintAltBotProtectedState(handler, bot);
+        PrintAltBotTalentMapIntegrity(handler, bot);
+        PrintAltBotCrossClassSafetyAudit(handler, bot);
+        handler->SendSysMessage(
+            "READ ONLY: safetypreview did not reset talents, switch "
+            "specs, move gear, dismiss pets or write to the database. "
+            "For a complete proposed build check, use repairpreview with NT1.");
+        return true;
+    }
+
     static bool HandleRepairPreview(ChatHandler* handler, char const* args)
     {
         using namespace NaxxramasBotTalentImport;
@@ -1855,7 +2327,8 @@ public:
         {
             handler->SendSysMessage(
                 "NT1 READ-ONLY MODE: Apply is disabled in mode 3 or 4. "
-                "Use preview, project, or repairpreview instead.");
+                "Use preview, project, or repairpreview instead. "
+                "For no-code audits, use safetypreview.");
             return true;
         }
 

@@ -611,6 +611,98 @@ FROM character_spell WHERE guid=73209 ORDER BY spell;
 - **Operator's existing live config:** keep Honor Overflow, Honor Reset, Elemental Invasions, forced PvP, meeting stones, Battlegrounds and Talent Completion unchanged. For **safest read-only mode**, after code merge, `git pull`, recompilation and normal Worldserver restart, set only `NaxxramasCore.BotTalentImport.AccessMode = 4`. Existing older binary treats 4 as disabled, not read-only. Back up the active config first.
 - **Testing:** update integrated Python source-contract tests for mode 4 ordinary-player control and three independent Apply-denial gates. **Python tests do not prove C++ build or in-game state safety.** No destructive Alt Bot repair, new SQL migration, upstream AzerothCore/Playerbots/IP changes or automatic gear actions.
 
+#### 12 October 2026 — Universal read-only NT1 cross-class equipment/pet/spec risk assessment (DRAFT)
+
+- **Follow-up completed in the same draft PR:** `repairpreview` now scans INACTIVE specialization talent spell masks for out-of-era DBC ranks using `Player::HasTalent(spell, spec)` and existing `AvailableInEra`; never switches specs or inspects inactive glyphs. Entries per inactive spec capped at six chat lines, plus count. Existing active-spec report retained.
+- **Practical all-class read-only command:** `.naxxbot talents safetypreview <online-altbotname>` requires no NT1 build and runs protected-state and equipment/class/pet/spec risk reports. Enabled AccessMode, real online human, non-GM same-account/direct master, non-Random Alt Bot and exact issuing-human `AltBotAllowedPlayers` are mandatory even for GMs. No talents, gear, pet, spec, SQL, NPC, addon or DBC changes.
+- **Verified GitHub Actions CI for latest draft:** [combined 139/139](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38247088382), [recovery 65/65](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38247088365), [repair diagnostic 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38247088349), [NT1L1 priority 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38247088351). Overlapping source/synthetic suites; NO new compilation or server tests. Keep PR #16 DRAFT/unmerged until agreed bundled recompile.
+
+
+- Reviewed AzerothCore `Player::resetTalents(true)`, `AutoUnequipOffhandIfNeed()`, `ActivateSpec()`, talent-derived spells and pet-state handling. Existing equipment/active pet failure on Alt Bot Apply is intentionally still enforced. An equipped caster focus may have no immediate *core* removal trigger, but arbitrary hooks, active/inactive glyphs, pet records and non-item side effects remain unverified.
+- Module-only draft `feature/nt1-crossclass-readonly-risk-audit`: extend the existing allowlisted `repairpreview` read-only diagnostic with `PrintAltBotCrossClassSafetyAudit`, which reports main/offhand item-entry/inventory types and current Dual Wield/Titan's Grip, potential core offhand relocation conditions, current active pet, class-specific audit category, active spec count and `BotTalentCompletion.Enabled`. Explicitly reports it does **not** switch specs, inspect offline inactive glyphs/stabled pets, loosen existing safeguards, save item data or approve reset. Covers Warrior/Paladin/Hunter/Rogue/Priest/DK/Shaman/Mage/Warlock/Druid.
+- Regression tests cover all ten class messages and synthetic offhand combinations (shields/caster orb/staff/Dual Wield/two-handed), forbidden mutation call sites, unchanged Alt Bot Apply guard, existing mode 3/4 early denial, existing allowlist, both-spec limitations and backup requirements. **Python/static checks cannot establish real in-game equipment safety.**
+- Track source and acceptance in `docs/NT1-CROSSCLASS-TALENT-SAFETY-AUDIT.md`. No live DB writes or login/logout operation, no AzerothCore/Playerbots/IP source edits, no new automatic repair. Next gate: green source CI, operator-reviewed compile in exact live core version, then read-only normal-player Mode 4 tests. Dedicated destructive reset/repair remains separately blocked pending tested FULL offline restore.
+
+#### 12 October 2026 — Second universal NT1 safety review (draft PR #16)
+
+- Public upstream AzerothCore signatures checked at source level for `Item::GetTemplate`, item/equipment access, `Player::HasTalent(spell,spec)`, `GetGlyph`, `GetQuestStatus`, `Unit::CanDualWield`, `Player::CanTitanGrip`, `Player::HasSpell`, and `ChatHandler::PSendSysMessage`. **Exact installed dependency revisions remain unknown; no new C++ compilation has been performed.**
+- No-code `safetypreview` now reports the issuing **human's effective capped IP era/stage**, or IP disabled; existing `CheckPlayerProgressionEra` shares the stage observer. This does not validate an NT1 build. Unknown item templates print observed item entry IDs but stay blocked; unknown classes print a non-null label.
+- Additional source/synthetic regressions cover IP/allowlist order, absent mainhand, unknown item template/class. Both specializations remain diagnostic only; protected gear/pet Apply refusal and read-only modes 3/4 are unchanged.
+- **Verified updated source CI on `a9849977`:** [combined 147/147](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538734), [Alt recovery 70/70](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250539122), [read-only diagnostic 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538540), [Mage projection 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38250538905). Suite counts overlap; not C++ or game tests.
+- **No deployment:** PR #16 stays draft/unmerged; Python CI cannot establish C++ compilation, live-game behaviour or character DB restoration. Next: inspect exact installed core/Playerbots/IP versions, check updated CI, approve a single bundled build, then test all ten classes with read-only mode 4.
+
+#### 12 October 2026 — No-code issuer-era inspection added to draft PR #16
+
+- With IP enabled, `safetypreview` now compares **each owned spec's** existing DBC talents against the **human issuer's** capped era, via existing `HasTalent(spell, spec)` and `AvailableInEra`, without any specialization switch. It prints counts plus no more than three sample Talent.dbc IDs/ranks per spec. With IP off it skips this comparison.
+- A zero illegal rank count is NOT proof of a valid build, pet/glyph safety, legal bot IP stage or rollback capability; the issuing human's era may not be the bot's. All existing allowlist, Random Bot refusal, equipment/pet block and mode-3/4 Apply refusal remain intact.
+- Python/static regression tests added; the exact installed dependencies, actual C++ compilation, in-game chat readability and isolated characters DB restoration remain outstanding.
+
+
+#### 12 October 2026 — Verified no-code issuer-era scan and dependency checkpoint
+
+- Draft source commit `41de01db` passed GitHub CI: [combined 152/152](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334648), [recovery 75/75](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334657), [diagnostics 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334631), [Mage 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334751). Suite counts overlap, **no C++ build**.
+- New [NT1 Dependency Revision Checkpoint](docs/NT1-DEPENDENCY-REVISION-CHECKPOINT.md) documents read-only commands for obtaining exact installed AzerothCore, Playerbots, IP and Naxxramas Core revisions, plus dirty-worktree and build provenance review. Nothing has been run on the actual server. Do not merge/recompile/deploy prior to operator approval.
+
+
+#### 12 October 2026 — Talent-map integrity review (third draft refinement, PR #16)
+
+- New read-only `PrintAltBotTalentMapIntegrity` distinguishes DBC-era policy issues from **unrecognized in-memory talent rank-spells** and **multiple ranks of one talent within a spec**. Both specs observed without switching. Unmatched spell ID examples sorted and capped at three per spec; repairpreview active spec shown as 1-based.
+- New source/synthetic regression suite `tests/test_nt1_altbot_talent_map_integrity.py`. Documentation: [NT1 Talent Map Integrity](docs/NT1-TALENT-MAP-INTEGRITY.md). DBC mismatches are warning clues, not character corruption proof or permission to delete old talents.
+- No equipment/pet, build Apply, access-mode, SQL, DBC, upstream Playerbots/IP/AzerothCore or live server modifications. Exact revision/API audit, C++ compilation and offline characters DB recovery rehearsal remain outstanding; PR #16 stays draft/unmerged.
+
+#### 12 October 2026 — Verified talent-map integrity source CI
+
+- Commit `a81f217e1191274f467e5b3912aa7777986576fa` completed GitHub Actions successfully: [combined 167/167](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38257101158), [Alt recovery 90/90](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38257101154), [read-only diagnostics 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38257101115), [Mage 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38257101207). **Counts overlap**. All tests are Python/static/synthetic, no C++ or in-game execution. No change to server, DB, source of other modules, or installed mode 2. PR #16 remains DRAFT/unmerged; exact installed dependency SHAs remain required before an approved bundled build.
+
+#### 12 October 2026 — Safe installed-source API preflight (draft PR #16)
+
+- Added **read-only** `scripts/audit_nt1_dependency_apis.py` to inspect exact source API signatures, four Git revisions/worktree dirty flags, parent checkout relationships, Playerbots headers, IP header presence and original offhand/pet reset risks. This is a smoke test only: **not** C++ compilation, live binary provenance, or character backup/restore.
+- Added `tests/test_nt1_dependency_api_audit.py` (18 synthetic/local mock tests) and [operator guide](docs/NT1-DEPENDENCY-API-PREFLIGHT.md). Incompatible/missing source signatures fail conservatively; Individual Progression stage/quest semantics remain a manual review.
+- No server command needs to be executed now; do not checkout/pull/merge/install without permission. Exact user deployed AzerothCore/Playerbots/IP SHAs remain unknown. PR #16 stays draft/unmerged; current main and live DB untouched.
+
+
+#### 12 October 2026 — Dependency checker source CI verified
+
+Commit `17df097254d927f35bfe5a9ad661fd4762d94411` passed **all four GitHub Actions source/synthetic workflows** on 12 October 2026: [combined 185/185 PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38260675563) (includes **18 new mock dependency tests**), [Alt Bot recovery 90/90 PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38260675571), [read-only diagnostics 12/12 PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38260675593), and [Mage 25/25 PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38260675585). **Counts overlap.** No exact-local-AzerothCore compile, local-source-version evidence, in-game inspection, or backup/restore rehearsal was performed. Draft PR #16 remains unmerged; nothing changed on the user's installed server.
+
+
+#### 12 October 2026 — Tightened source preflight accuracy (PR #16 draft)
+
+- Confirmed official Playerbots upstream requires a compatible AzerothCore `Playerbot` fork; public stock AzerothCore master is insufficient to establish production compatibility. Checker now classifies the local **Git origin family** safely (does not print tokens in remote URL) and treats custom forks as requiring manual review.
+- False-positive prevention: commented-out C++ APIs and quoted strings cannot pass signature checks, and reset side effects are inspected only within `Player::resetTalents`, not unrelated `Player.cpp` methods. No modifying commands. More synthetic regressions added; see [Dependency API Preflight](docs/NT1-DEPENDENCY-API-PREFLIGHT.md).
+- Runtime compilation, installed SHA and actual binary provenance unverified. PR #16 stays **DRAFT/unmerged**; do not pull or replace the user's customized Playerbots-compatible fork.
+
+
+#### 12 October 2026 — Verified hardened dependency preflight source CI
+
+Commit `65ce613bbd59fbe333ce18593192829642606b26` passed four GitHub Actions workflows on 12 October 2026: [combined NT1 **191/191 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426320) (24 dependency preflight tests total, six new this pass), [Alt Bot recovery **90/90 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426376), [read-only diagnostics **12/12 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426199), [Mage projection **25/25 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426323). Counts overlap; **no C++ compilation, local checkout compatibility test, 3.3.5a runtime test, database action, or deployed binary verification**. PR #16 is still draft/unmerged.
+
+
+#### 12 October 2026 — Pinned public Playerbots API evidence and operator-friendly discovery (draft)
+
+- Reviewed public `mod-playerbots/azerothcore-wotlk` `Playerbot` source at commit `2a2211cd` and module headers at `79bd428` (not the local installation). Stored file signatures, blob hashes and reset/offhand/pet observations in [Public Playerbots API Baseline](docs/NT1-PUBLIC-PLAYERBOTS-FORK-API-BASELINE.md).
+- Extended read-only `scripts/audit_nt1_dependency_apis.py` with **`--core /actual/core --discover`**: lists non-symlink immediate folder candidates; does not choose or alter module paths. The full source audit still requires explicitly verified paths. Added 6 source/synthetic tests for conservative discovery and CLI behaviour.
+- The live server's exact core/Playerbots/IP revisions remain unknown, and the draft remains unmerged. **No C++ compile, live testing, DB query or deployment.**
+
+
+#### 12 October 2026 — Pinned Playerbots public baseline and discovery source CI verified
+
+Commit `18adb9b2b6f76056cc82d14fd77ff62f8b387e3a` passed overlapping GitHub Actions source/synthetic suites on 12 October 2026: [combined NT1 **197/197 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38267119953) (including 30 dependency-audit regression tests), [Alt Bot recovery **90/90 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38267119967), [read-only diagnostics **12/12 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38267119900) and [Mage projection **25/25 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38267119926). Suite counts **overlap**. The public fork-source baseline is a pinned external code review, NOT the operator's installed checkout. No actual C++ compilation, local Linux audit, in-game 3.3.5a test, character database backup/restoration or live changes have been made. PR #16 remains DRAFT/unmerged.
+
+
+#### 12 October 2026 — Operator's installed core/Playerbots/IP/Naxxramas revisions recorded
+
+- Completed read-only Git revision collection on the owner's Linux server: core `b7f06a16`, Playerbots `037c0141`, IP `283abe12`, Naxxramas Core `969f0429`, with empty `git status --short` output on all four source folders. Detailed [Owner Installed Baseline](docs/NT1-OWNER-INSTALLED-BASELINE-2026-10-12.md) includes full SHAs and precise verification limits.
+- Cross-checked exact public core/Playerbots/IP source methods and hidden rewarded quest policy. Installed Naxxramas Core is one commit behind current main; PR #16 is 31 commits further on its unmerged draft branch, so ordinary `git pull` is NOT a valid method of installing the draft.
+- **Next phase:** review and secure explicit approval for a single bundled C++ compile + read-only acceptance checks. No merge/pull/deploy/compile, live DB or config changes approved. Maintain strict offhand/pet/allowlist/Random Bot protections, preserve binary/config backups, and keep destructive work behind separate isolated DB restore evidence.
+
+
+#### 12 October 2026 — Exact dependency source review complete; single-build acceptance plan prepared
+
+- Confirmed basic C++ API declarations at owner's reported AzerothCore/Playerbots/IP commits, and documented an important `resetTalents` caveat: `OnPlayerTalentsReset` is called even before the early no-talents return. This is why no reset call is acceptable as a supposedly harmless test.
+- Published [Read-Only Release Acceptance Matrix](docs/NT1-READONLY-RELEASE-ACCEPTANCE.md): backup/rollback gate, separately approved one bundled C++ compile, correct mode 3/4 deployment and per-class read-only in-game checks, with original equipment GUID/pet and DBC warnings maintained. No new mutation feature, SQL, build or live-server action.
+- PR #16 stays **DRAFT/unmerged** until the owner explicitly approves merge/compile/restart. The source-level checkpoint is now complete; actual C++ compilation and field acceptance are pending.
+
 ### Current checkpoint
 
-**Main development focus:** NT1 importer 1.0.6.8.5. **Latest build blocker:** C++ compile failed because `BotTalentImport.cpp` included Individual Progression and Playerbots headers that both defined global `GENERAL`; corrected source now avoids the IP header and reads modern hidden rewarded quests directly, but still awaits a successful user build.  **Newest source-only change:** Alt Bot NT1 apply now needs an issuing-character name explicitly listed in `AltBotAllowedPlayers` (empty default blocks all, including GMs); this is in addition to AccessMode and ownership checks. Alt Bot gear is excluded from any future NT1 role equipment automation.  **Two newly committed server safety rules awaiting next Git Pull/recompile/restart:** (1) `apply` requires `Spent == Available` for target bot, with incomplete preview warning; (2) when IP is enabled, the NT1 era must match the **issuing player's own Individual Progression**: Vanilla 0–7, TBC 8–12, WotLK 13+. Both apply to Alt Bots and grouped random bots, including GM callers; denial happens before any talent reset. **Previous live success retained:** Zevon, grouped random level-60 Mage, `51 spent / 0 unspent`, with user-confirmed `14/0/37` talents, on preceding compiled revision. Neither new rule has yet been compiled or field-tested. Random bots can still be rerandomised; AccessMode 2, Alt Bot apply, dual spec, fallback restore and permanence remain unverified. Project is experimental/unreleased; full characters database backup is reported but restorability remains unproven.
+**Main development focus:** NT1 importer 1.0.6.8.5. The newest universal read-only cross-class work is on **draft PR #16**, not merged into `main` or installed on the live Worldserver. The real-game Zevon Mage Apply test belongs to an **earlier compiled revision**; it does not prove the new `safetypreview`, inactive-spec, or human-IP report features. Exact installed AzerothCore/Playerbots/IP Git HEADs have now been collected and the public source API signatures reviewed, but actual C++ compatibility and installed binary provenance remain unverified. The latest shared live mode 2 still permits experimental Apply: avoid Apply, and set mode 4 only **after an approved merge, recompilation and restart**. Keep the original offhand/pet blocks and full offline recovery requirement intact.

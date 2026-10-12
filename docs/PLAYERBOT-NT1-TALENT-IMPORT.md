@@ -18,6 +18,9 @@
 
 ```text
 .naxxbot talents preview <online-botname> <NT1-code>
+.naxxbot talents project <online-botname> <NT1L1-code>
+.naxxbot talents repairpreview <online-altbotname> <NT1-code>
+.naxxbot talents safetypreview <online-altbotname>
 .naxxbot talents apply <online-botname> <NT1-code>
 ```
 
@@ -42,6 +45,21 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - Out-of-range configuration values are treated as mode 0.
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
 - Test all modes **0/1/2/3/4** separately, including mandatory mode-3 AND mode-4 Apply denial, per-bot ownership, Alt allowlist, invalid expansion and read-only Preview/Project/Repair Preview. The previous narrow Zevon Apply success does not validate this uncompiled integration branch.
+
+### Cross-class read-only testing (new draft; not on running server yet)
+
+A new `.naxxbot talents safetypreview <online-altbotname>` command will let any authorised GM or normal player (AccessMode 4 after rebuilding) inspect online Alt Bot equipment, active pet, currently observable weapon abilities, both-spec volatile state counts and class-specific risks **without preparing a valid NT1 build**. The caller must still pass direct Playerbots ownership/master checks and the issuing HUMAN character must be in `AltBotAllowedPlayers` (including GMs). Random bots are rejected. No DB/gear/talent/spec writes occur in the command.
+
+Existing `repairpreview <bot> <NT1-code>` additionally inspects **out-of-era talents in both existing specs**, limited to six diagnostic entries per inactive spec. It uses the actual server talent spell map and does not activate the other spec, read its glyphs or change action bars. When arguments are missing, the shared NT1 validator now prints neutral usage (not misleading `preview`-only usage).
+
+Latest draft refinement: `safetypreview` additionally reports the **issuing human's effective IP era/stage** (capped by the configured Individual Progression limit), or explicitly reports IP disabled. This is diagnostic context, **not bot talent-build validation**. Unknown equipped-item templates now report the observed entry IDs without relaxing the offhand block. Public AzerothCore API signatures have been inspected but the operator's exact checkout and a C++ build remain unverified.
+
+The no-code `safetypreview` now also runs a **bounded DBC era scan of each owned specialization** when Individual Progression is enabled. It compares against the issuing HUMAN's effective era (not a verified bot IP stage), prints per-spec illegal-rank counts and at most three sample Talent.dbc ID/rank pairs. This is **not** a valid-build or safe-reset verdict; inactive glyphs, pets and equipment must still be separately checked. With IP disabled, the era scan is omitted rather than inventing an era. There is no talent reset or spec switch.
+
+
+Third draft refinement: both `safetypreview` and `repairpreview` now also show a brief **read-only in-memory talent-map integrity** report per owned specialization. It counts rank-spell records unmatched by the current Talent.dbc/class and talents containing multiple rank-spells in one spec, with at most three sorted unmatched spell ID examples. A custom DBC change can explain an unmatched record; it is **not** authorization to delete or reset it. No inactive spec activation or glyph inspection. See [NT1 Talent Map Integrity](NT1-TALENT-MAP-INTEGRITY.md).
+
+Neither source change relaxes the conservative Alt Bot offhand/active pet Apply block, authorises an illegal-original-talent repair, or implements a safe full character rollback. **No user action, Git pull or recompile is needed until the separate draft PR is reviewed and merged.** See [cross-class safety design](NT1-CROSSCLASS-TALENT-SAFETY-AUDIT.md).
 
 ### Combined read-only integration checkpoint (new draft, no C++ compile)
 

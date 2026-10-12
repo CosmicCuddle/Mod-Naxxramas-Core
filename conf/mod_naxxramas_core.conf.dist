@@ -166,10 +166,17 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # .naxxbot talents preview <online-botname> <NT1-code>
 # .naxxbot talents project <online-botname> <NT1L1-code>   (read-only)
 # .naxxbot talents repairpreview <online-altbot> <NT1-code> (read-only)
+# .naxxbot talents safetypreview <online-altbot> (read-only, no NT1 code)
 # .naxxbot talents apply <online-botname> <NT1-code>
-# In mode 3 or 4, only the first three diagnostic commands are usable;
+# In mode 3 or 4, all four diagnostic commands are usable;
 # the Apply handler refuses before reset, even for GMs. repairpreview
-# still enforces AltBotAllowedPlayers (including GMs).
+# and safetypreview enforce AltBotAllowedPlayers (including GMs).
+# safetypreview needs only an online Alt Bot name (no NT1 talent code).
+# It reports the issuing HUMAN's effective IP era/stage if IP is enabled
+# and compares both specs' existing DBC ranks with that issuer era.
+# Per-spec examples are capped at 3. This is NOT full build validation,
+# proof of the bot's IP stage, permission to Apply or gear/pet safety.
+# IP-disabled does not perform a no-code era comparison.
 #
 # Default: 0
 NaxxramasCore.BotTalentImport.AccessMode = 0
