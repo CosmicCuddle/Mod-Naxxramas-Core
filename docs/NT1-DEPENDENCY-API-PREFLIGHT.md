@@ -89,3 +89,19 @@ These are **static text checks**, not an AST parser or real compiled-runtime evi
 ### Verified checker-hardening CI (12 October 2026)
 
 Commit `65ce613bbd59fbe333ce18593192829642606b26` passed four GitHub Actions workflows on 12 October 2026: [combined NT1 **191/191 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426320) (24 dependency preflight tests total, six new this pass), [Alt Bot recovery **90/90 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426376), [read-only diagnostics **12/12 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426199), [Mage projection **25/25 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426323). Counts overlap; **no C++ compilation, local checkout compatibility test, 3.3.5a runtime test, database action, or deployed binary verification**. PR #16 is still draft/unmerged.
+
+
+## Easier first step — discover likely module directories
+
+Before using the full checker, run the **discovery-only** option from a separately reviewed copy of the script. Replace `/actual/core` with your real AzerothCore source directory.
+
+```bash
+python3 /reviewed/draft/source/scripts/audit_nt1_dependency_apis.py \
+  --core /actual/core --discover
+```
+
+This command **does not select a module**. It lists likely Playerbots, Individual Progression, and Naxxramas Core directories directly under `modules/`. It skips symlinked directories and does not recurse into other sources, run Git, install a branch, alter any files or contact the network. Only direct folder names are used. **Check the candidates yourself** before putting their actual paths in the full audit command. If the modules directory is missing or a symlink, the discovery exits unsuccessfully and asks for manual path review.
+
+Use `--discover --json` for stdout JSON. The full checker still needs all four explicit paths, deliberately refusing to silently pick among similar folders.
+
+The public API signatures have also been source-reviewed against the actual [Playerbots-compatible core `Playerbot` branch](NT1-PUBLIC-PLAYERBOTS-FORK-API-BASELINE.md), pinned to reviewed public Git commit `2a2211cd8f3d157da432ec0175ddd4b8a191931f`. This is **not** the administrator's installed fork or a verified C++ build.

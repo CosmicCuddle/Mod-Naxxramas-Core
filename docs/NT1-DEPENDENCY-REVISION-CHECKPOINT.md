@@ -68,3 +68,8 @@ A source-only preflight with mock-tested Git/API introspection has been prepared
 ### Playerbots-fork compatibility caution
 
 Upstream [mod-playerbots documentation](https://github.com/mod-playerbots/mod-playerbots/wiki/Installation-Guide) specifically requires its [AzerothCore Playerbot fork](https://github.com/mod-playerbots/azerothcore-wotlk/tree/Playerbot). Reviewing the **standard** upstream AzerothCore API alone is therefore insufficient; the exact custom Playerbots-compatible fork and local patches must be reviewed. `scripts/audit_nt1_dependency_apis.py` classifies Git origin families without disclosing a configured origin URL. `STANDARD_AZEROTHCORE`, `CUSTOM_OR_OTHER` and `UNKNOWN` require manual follow-up; even `PLAYERBOTS_FORK` is not a build certificate. If the server uses a customised fork, never replace or rebase it to the public fork automatically.
+
+
+### Actual Playerbots public-source baseline and safer directory discovery
+
+Public code interfaces have now been checked against the pinned [Playerbots-compatible fork API baseline](NT1-PUBLIC-PLAYERBOTS-FORK-API-BASELINE.md) rather than only stock AzerothCore `master`. To reduce manual folder-name confusion, the optional source checker provides `--core /actual/core --discover`, which lists probable module directories but **never chooses one automatically**; consult the [preflight operator guide](NT1-DEPENDENCY-API-PREFLIGHT.md). This still does not identify the user's live installed SHA or prove a compiled runtime.

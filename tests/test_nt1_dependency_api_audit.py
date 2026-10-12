@@ -249,6 +249,76 @@ class NT1DependencyPreflightTests(unittest.TestCase):
                 x["scope"] == "core-origin" and x["status"] == "REVIEW"
                 for x in report["findings"]))
 
+
+    def test_module_discovery_lists_candidates_without_selecting(self):
+        root = self.path / "src-check"
+        modules = root / "modules"
+        modules.mkdir(parents=True)
+        for name in ("mod-playerbots", "mod-individual-progression",
+                     "mod-naxxramas-core", "unrelated-addon"):
+            (modules / name).mkdir()
+        discovered = audit.discover_modules(root)
+        self.assertEqual(len(discovered["candidates"]), 3)
+        self.assertEqual(
+            [entry["possible_roles"] for entry in discovered["candidates"]],
+            [["ip"], ["module"], ["playerbots"]])
+        self.assertIn("CANDIDATES ONLY", discovered["warning"])
+        self.assertNotIn("unrelated-addon", str(discovered["candidates"]))
+
+    def test_discovery_does_not_follow_module_symlinks(self):
+        root = self.path / "root"
+        outside = self.path / "outside"
+        (root / "modules").mkdir(parents=True)
+        outside.mkdir()
+        (root / "modules" / "mod-playerbots").symlink_to(
+            outside, target_is_directory=True)
+        self.assertEqual(audit.discover_modules(root)["candidates"], [])
+
+    def test_discovery_does_not_follow_modules_root_symlink(self):
+        core = self.path / "core-symlink"
+        external = self.path / "external-modules"
+        core.mkdir()
+        external.mkdir()
+        (core / "modules").symlink_to(external, target_is_directory=True)
+        obj = audit.discover_modules(core)
+        self.assertEqual(obj["candidates"], [])
+        self.assertIn("symlink", obj["warning"])
+        capture = io.StringIO()
+        with contextlib.redirect_stdout(capture):
+            code = audit.main(["--core", str(core), "--discover", "--json"])
+        self.assertEqual(code, 1)
+        self.assertIn("symlink", capture.getvalue())
+
+    def test_discovery_cli_needs_only_core_and_returns_stdout_json(self):
+        root = self.path / "core-discovery"
+        (root / "modules" / "mod-playerbots").mkdir(parents=True)
+        capture = io.StringIO()
+        with contextlib.redirect_stdout(capture):
+            code = audit.main(["--core", str(root), "--discover", "--json"])
+        self.assertEqual(code, 0)
+        import json
+        parsed = json.loads(capture.getvalue())
+        self.assertEqual(parsed["candidates"][0]["possible_roles"], ["playerbots"])
+        self.assertNotIn("repositories", parsed)
+        self.assertNotIn("failed", parsed)
+
+    def test_discovery_missing_module_directory_fails_conservatively(self):
+        core = self.path / "empty-core"
+        core.mkdir()
+        capture = io.StringIO()
+        with contextlib.redirect_stdout(capture):
+            code = audit.main(["--core", str(core), "--discover"])
+        self.assertEqual(code, 1)
+        self.assertIn("modules folder absent", capture.getvalue())
+
+    def test_full_audit_still_requires_explicit_module_paths(self):
+        capture = io.StringIO()
+        with contextlib.redirect_stderr(capture):
+            with self.assertRaises(SystemExit) as raised:
+                audit.main(["--core", str(self.core)])
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--playerbots, --ip, --module", capture.getvalue())
+
     def test_git_failures_do_not_invent_revision(self):
         def runner(args, **kwargs):
             raise FileNotFoundError("git unavailable")

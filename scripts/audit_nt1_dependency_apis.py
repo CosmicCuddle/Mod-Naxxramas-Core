@@ -244,6 +244,34 @@ def check_module(root):
     return findings
 
 
+def discover_modules(core):
+    """List direct module folders only; never guess or choose a dependency."""
+    module_root = core / "modules"
+    if not module_root.is_dir() or module_root.is_symlink():
+        return {"core": str(core), "candidates": [],
+                "warning": "modules folder absent or symlink; inspect paths manually"}
+    candidates = []
+    try:
+        # Capped immediate directory listing; no recursive search, no symlinks.
+        entries = sorted(module_root.iterdir(), key=lambda x: x.name.lower())[:512]
+        for candidate in entries:
+            if candidate.is_symlink() or not candidate.is_dir():
+                continue
+            name = candidate.name.lower()
+            matches = [role for role, needles in (
+                ("playerbots", ("playerbot",)),
+                ("ip", ("individual", "progression")),
+                ("module", ("naxxramas",)),
+            ) if any(term in name for term in needles)]
+            if matches:
+                candidates.append({"path": str(candidate), "possible_roles": matches})
+    except OSError:
+        return {"core": str(core), "candidates": [],
+                "warning": "module directory unreadable; inspect paths manually"}
+    return {"core": str(core), "candidates": candidates,
+            "warning": "CANDIDATES ONLY; check each source and Git top-level manually"}
+
+
 def audit(paths):
     findings = []
     repo_details = []
@@ -298,13 +326,37 @@ def audit(paths):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    for label in ("core", "playerbots", "ip", "module"):
-        parser.add_argument("--" + label, required=True, type=Path,
-                            help="EXISTING local source directory (read-only)")
-    parser.add_argument("--json", action="store_true", help="print report as JSON to stdout")
+    parser.add_argument("--core", required=True, type=Path,
+                        help="EXISTING local AzerothCore source directory")
+    for label in ("playerbots", "ip", "module"):
+        parser.add_argument("--" + label, type=Path,
+                            help="EXISTING module source directory (read-only)")
+    parser.add_argument("--discover", action="store_true",
+                        help="list probable module folders only; select none")
+    parser.add_argument("--json", action="store_true",
+                        help="print report as JSON to stdout")
     args = parser.parse_args(argv)
-    paths = {label: getattr(args, label).expanduser().resolve()
-             for label in ("core", "playerbots", "ip", "module")}
+    core = args.core.expanduser().resolve()
+    if args.discover:
+        report = discover_modules(core)
+        if args.json:
+            print(json.dumps(report, indent=2, sort_keys=True))
+        else:
+            print("NT1 MODULE DISCOVERY ONLY - no files changed or paths selected")
+            for found in report["candidates"]:
+                print("POSSIBLE {}: {}".format(
+                    ",".join(found["possible_roles"]), found["path"]))
+            print(report["warning"])
+        return 0 if core.is_dir() and (core / "modules").is_dir() and not (core / "modules").is_symlink() else 1
+    missing = [label for label in ("playerbots", "ip", "module")
+               if getattr(args, label) is None]
+    if missing:
+        parser.error("Full audit also requires " +
+                     ", ".join("--" + label for label in missing) +
+                     " (or use --discover for folder candidates)")
+    paths = {"core": core}
+    paths.update({label: getattr(args, label).expanduser().resolve()
+                  for label in ("playerbots", "ip", "module")})
     report = audit(paths)
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))

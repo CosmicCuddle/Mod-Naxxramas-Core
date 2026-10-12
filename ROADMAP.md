@@ -677,6 +677,13 @@ Commit `17df097254d927f35bfe5a9ad661fd4762d94411` passed **all four GitHub Actio
 
 Commit `65ce613bbd59fbe333ce18593192829642606b26` passed four GitHub Actions workflows on 12 October 2026: [combined NT1 **191/191 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426320) (24 dependency preflight tests total, six new this pass), [Alt Bot recovery **90/90 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426376), [read-only diagnostics **12/12 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426199), [Mage projection **25/25 PASS**](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38264426323). Counts overlap; **no C++ compilation, local checkout compatibility test, 3.3.5a runtime test, database action, or deployed binary verification**. PR #16 is still draft/unmerged.
 
+
+#### 12 October 2026 — Pinned public Playerbots API evidence and operator-friendly discovery (draft)
+
+- Reviewed public `mod-playerbots/azerothcore-wotlk` `Playerbot` source at commit `2a2211cd` and module headers at `79bd428` (not the local installation). Stored file signatures, blob hashes and reset/offhand/pet observations in [Public Playerbots API Baseline](docs/NT1-PUBLIC-PLAYERBOTS-FORK-API-BASELINE.md).
+- Extended read-only `scripts/audit_nt1_dependency_apis.py` with **`--core /actual/core --discover`**: lists non-symlink immediate folder candidates; does not choose or alter module paths. The full source audit still requires explicitly verified paths. Added 6 source/synthetic tests for conservative discovery and CLI behaviour.
+- The live server's exact core/Playerbots/IP revisions remain unknown, and the draft remains unmerged. **No C++ compile, live testing, DB query or deployment.**
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer 1.0.6.8.5. The newest universal read-only cross-class work is on **draft PR #16**, not merged into `main` or installed on the live Worldserver. The real-game Zevon Mage Apply test belongs to an **earlier compiled revision**; it does not prove the new `safetypreview`, inactive-spec, or human-IP report features. Public upstream APIs have been source-reviewed, but the user's exact installed AzerothCore/Playerbots/IP revisions and C++ compatibility remain unverified. The latest shared live mode 2 still permits experimental Apply: avoid Apply, and set mode 4 only **after an approved merge, recompilation and restart**. Keep the original offhand/pet blocks and full offline recovery requirement intact.
