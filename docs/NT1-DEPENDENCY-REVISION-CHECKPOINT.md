@@ -59,3 +59,7 @@ Commit `41de01db0ebc12538c64a77a371b971cc6c176db`:
 - [NT1L1 Mage projection 25/25 PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38254334751)
 
 **Counts overlap; no C++ compilation, in-game character inspection, binary install, database backup or isolated restoration was performed.**
+
+## New optional read-only source-check script (PR #16 draft)
+
+A source-only preflight with mock-tested Git/API introspection has been prepared in `scripts/audit_nt1_dependency_apis.py`. See [NT1 Dependency API Preflight](NT1-DEPENDENCY-API-PREFLIGHT.md) for read-only usage, interpretation, directory placeholders, and limits. It is not installed on the live server; exact dependency SHAs remain unknown. It does **not** build C++, fetch/pull modules, touch config, query or write the character database, inspect the running binary, or authorize any talent Apply.

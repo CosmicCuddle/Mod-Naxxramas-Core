@@ -654,6 +654,12 @@ FROM character_spell WHERE guid=73209 ORDER BY spell;
 
 - Commit `a81f217e1191274f467e5b3912aa7777986576fa` completed GitHub Actions successfully: [combined 167/167](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38257101158), [Alt recovery 90/90](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38257101154), [read-only diagnostics 12/12](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38257101115), [Mage 25/25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38257101207). **Counts overlap**. All tests are Python/static/synthetic, no C++ or in-game execution. No change to server, DB, source of other modules, or installed mode 2. PR #16 remains DRAFT/unmerged; exact installed dependency SHAs remain required before an approved bundled build.
 
+#### 12 October 2026 — Safe installed-source API preflight (draft PR #16)
+
+- Added **read-only** `scripts/audit_nt1_dependency_apis.py` to inspect exact source API signatures, four Git revisions/worktree dirty flags, parent checkout relationships, Playerbots headers, IP header presence and original offhand/pet reset risks. This is a smoke test only: **not** C++ compilation, live binary provenance, or character backup/restore.
+- Added `tests/test_nt1_dependency_api_audit.py` (18 synthetic/local mock tests) and [operator guide](docs/NT1-DEPENDENCY-API-PREFLIGHT.md). Incompatible/missing source signatures fail conservatively; Individual Progression stage/quest semantics remain a manual review.
+- No server command needs to be executed now; do not checkout/pull/merge/install without permission. Exact user deployed AzerothCore/Playerbots/IP SHAs remain unknown. PR #16 stays draft/unmerged; current main and live DB untouched.
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer 1.0.6.8.5. The newest universal read-only cross-class work is on **draft PR #16**, not merged into `main` or installed on the live Worldserver. The real-game Zevon Mage Apply test belongs to an **earlier compiled revision**; it does not prove the new `safetypreview`, inactive-spec, or human-IP report features. Public upstream APIs have been source-reviewed, but the user's exact installed AzerothCore/Playerbots/IP revisions and C++ compatibility remain unverified. The latest shared live mode 2 still permits experimental Apply: avoid Apply, and set mode 4 only **after an approved merge, recompilation and restart**. Keep the original offhand/pet blocks and full offline recovery requirement intact.
