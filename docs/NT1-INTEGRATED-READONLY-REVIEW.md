@@ -2,6 +2,22 @@
 
 **Review status:** Unmerged, **not yet C++ compiled, not deployed and not tested in-game**. Integration branch combines the independent draft NT1L1 read-only projection (#8) with the stacked Alt Bot diagnostic/recovery/protected-state drafts (#7, #9, #10, #11 and #12). The integration adds a **new GM-only read-only AccessMode 3** to avoid exposing experimental Apply during initial field checks.
 
+## Normal player read-only mode 4 (follow-up integration)
+
+A separate follow-up on this merged integration adds `AccessMode=4`: normal players and GMs may call `preview`, `project` and `repairpreview` **without unlocking Apply**. Normal players must control the bot through the same account or direct Playerbots master rights; the detailed Alt repair inspection additionally requires the exact human issuing character in `AltBotAllowedPlayers`. Random Playerbots remain forbidden from repairpreview. No other modes are relaxed: **0 off by default; 1 GM experimental Apply; 2 authorised players experimental Apply; 3 GM read-only; 4 authorised players read-only.**
+
+Modes 3/4 now have **defence in depth**: the chat Apply handler returns before `ValidateRequest`, `ApplyValidated` returns at function entry, and shared `CheckApplyReadiness` also reports that Apply is disabled. These barriers all precede the single `resetTalents(true)` call. Existing source tests cover the order. This is C++ source behaviour to **compile/test**, not a guarantee that some external Playerbots whisper or independent module can't change talents.
+
+### Operator rollout after a successful compile
+
+1. Back up the current active module configuration; keep the currently running Worldserver binary as an independent fallback.
+2. Pull the merged revision of Mod-Naxxramas-Core `main` and recompile as normal. **Do not edit upstream core/Playerbots/IP sources.**
+3. In the ACTIVE config, change only `NaxxramasCore.BotTalentImport.AccessMode = 2` to `= 4`. Keep existing `AltBotAllowedPlayers` names unchanged and keep all other module settings intact.
+4. Restart Worldserver normally and log in with an ordinary, allowlisted human player controlling an online Alt Bot. Run **only** `preview`, `project` and `repairpreview`, and verify the non-GM access succeeds. Do **not** run destructive Apply merely to test refusal until you have a verified characters DB backup. No invalid Priest talents are repaired by this stage.
+5. In an emergency, return `AccessMode = 0` and restart; this prevents new NT1 command use but does not roll back any previously modified character state.
+
+**Existing binaries from before this follow-up treat mode 4 as an undocumented value and fail closed to mode 0.** Pull/recompile first; no new SQL migration is introduced for Mode 4.
+
 ## Branch and source boundaries
 
 - Base: branch feature/nt1-altbot-protected-state-readonly (PR #12; inherits #11 -> #10 -> #9 -> #7). Source code remains confined to src/Systems/BotTalentImport.cpp and module config, never to AzerothCore/Playerbots/Individual Progression upstream repositories.
