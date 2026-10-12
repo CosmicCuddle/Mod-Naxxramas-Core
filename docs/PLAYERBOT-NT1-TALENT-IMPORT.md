@@ -18,6 +18,9 @@
 
 ```text
 .naxxbot talents preview <online-botname> <NT1-code>
+.naxxbot talents project <online-botname> <NT1L1-code>
+.naxxbot talents repairpreview <online-altbotname> <NT1-code>
+.naxxbot talents safetypreview <online-altbotname>
 .naxxbot talents apply <online-botname> <NT1-code>
 ```
 
@@ -42,6 +45,14 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 - Out-of-range configuration values are treated as mode 0.
 - The older `BotTalentImport.Enabled`, `BotTalentImport.AllowNonGMPlayers` and `BotTalentImport.ApplyEnabled` settings are **obsolete and ignored** by this revision. Remove them from the active config to avoid confusion.
 - Test all modes **0/1/2/3/4** separately, including mandatory mode-3 AND mode-4 Apply denial, per-bot ownership, Alt allowlist, invalid expansion and read-only Preview/Project/Repair Preview. The previous narrow Zevon Apply success does not validate this uncompiled integration branch.
+
+### Cross-class read-only testing (new draft; not on running server yet)
+
+A new `.naxxbot talents safetypreview <online-altbotname>` command will let any authorised GM or normal player (AccessMode 4 after rebuilding) inspect online Alt Bot equipment, active pet, currently observable weapon abilities, both-spec volatile state counts and class-specific risks **without preparing a valid NT1 build**. The caller must still pass direct Playerbots ownership/master checks and the issuing HUMAN character must be in `AltBotAllowedPlayers` (including GMs). Random bots are rejected. No DB/gear/talent/spec writes occur in the command.
+
+Existing `repairpreview <bot> <NT1-code>` additionally inspects **out-of-era talents in both existing specs**, limited to six diagnostic entries per inactive spec. It uses the actual server talent spell map and does not activate the other spec, read its glyphs or change action bars. When arguments are missing, the shared NT1 validator now prints neutral usage (not misleading `preview`-only usage).
+
+Neither source change relaxes the conservative Alt Bot offhand/active pet Apply block, authorises an illegal-original-talent repair, or implements a safe full character rollback. **No user action, Git pull or recompile is needed until the separate draft PR is reviewed and merged.** See [cross-class safety design](NT1-CROSSCLASS-TALENT-SAFETY-AUDIT.md).
 
 ### Combined read-only integration checkpoint (new draft, no C++ compile)
 
