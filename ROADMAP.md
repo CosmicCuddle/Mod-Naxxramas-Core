@@ -665,6 +665,13 @@ FROM character_spell WHERE guid=73209 ORDER BY spell;
 
 Commit `17df097254d927f35bfe5a9ad661fd4762d94411` passed **all four GitHub Actions source/synthetic workflows** on 12 October 2026: [combined 185/185 PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38260675563) (includes **18 new mock dependency tests**), [Alt Bot recovery 90/90 PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38260675571), [read-only diagnostics 12/12 PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38260675593), and [Mage 25/25 PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38260675585). **Counts overlap.** No exact-local-AzerothCore compile, local-source-version evidence, in-game inspection, or backup/restore rehearsal was performed. Draft PR #16 remains unmerged; nothing changed on the user's installed server.
 
+
+#### 12 October 2026 — Tightened source preflight accuracy (PR #16 draft)
+
+- Confirmed official Playerbots upstream requires a compatible AzerothCore `Playerbot` fork; public stock AzerothCore master is insufficient to establish production compatibility. Checker now classifies the local **Git origin family** safely (does not print tokens in remote URL) and treats custom forks as requiring manual review.
+- False-positive prevention: commented-out C++ APIs and quoted strings cannot pass signature checks, and reset side effects are inspected only within `Player::resetTalents`, not unrelated `Player.cpp` methods. No modifying commands. More synthetic regressions added; see [Dependency API Preflight](docs/NT1-DEPENDENCY-API-PREFLIGHT.md).
+- Runtime compilation, installed SHA and actual binary provenance unverified. PR #16 stays **DRAFT/unmerged**; do not pull or replace the user's customized Playerbots-compatible fork.
+
 ### Current checkpoint
 
 **Main development focus:** NT1 importer 1.0.6.8.5. The newest universal read-only cross-class work is on **draft PR #16**, not merged into `main` or installed on the live Worldserver. The real-game Zevon Mage Apply test belongs to an **earlier compiled revision**; it does not prove the new `safetypreview`, inactive-spec, or human-IP report features. Public upstream APIs have been source-reviewed, but the user's exact installed AzerothCore/Playerbots/IP revisions and C++ compatibility remain unverified. The latest shared live mode 2 still permits experimental Apply: avoid Apply, and set mode 4 only **after an approved merge, recompilation and restart**. Keep the original offhand/pet blocks and full offline recovery requirement intact.

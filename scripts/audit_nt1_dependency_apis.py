@@ -56,6 +56,53 @@ def result(severity, scope, detail):
     return {"status": severity, "scope": scope, "detail": detail}
 
 
+def code_only(source):
+    """Mask C++ comments and quoted literals; retain line/bracket positions.
+
+    Searching raw text could treat a commented-out security API as present.
+    This is still a textual smoke test, NOT parsing or compilation.
+    """
+    tokens = re.compile(
+        r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|'
+        r"'(?:\\.|[^'\\])*'", re.DOTALL)
+    return tokens.sub(
+        lambda match: "".join("\n" if c == "\n" else " "
+                              for c in match.group(0)), source)
+
+
+def function_body(source, declaration):
+    """Read only braces inside a named C++ definition, not unrelated methods."""
+    if source is None:
+        return None
+    cleaned = code_only(source)
+    match = re.search(declaration + r"\s*\{", cleaned)
+    if not match:
+        return None
+    opening = cleaned.find("{", match.start(), match.end())
+    depth = 0
+    for pos in range(opening, len(cleaned)):
+        if cleaned[pos] == "{":
+            depth += 1
+        elif cleaned[pos] == "}":
+            depth -= 1
+            if depth == 0:
+                return cleaned[opening + 1:pos]
+    return None
+
+
+def origin_family(origin):
+    """Classify a GitHub checkout WITHOUT printing origin URL credentials."""
+    if not origin:
+        return "UNKNOWN"
+    matched = re.search(
+        r"github\.com[:/](mod-playerbots|azerothcore)/"
+        r"azerothcore-wotlk(?:\.git)?/?$", origin.strip(), re.IGNORECASE)
+    if not matched:
+        return "CUSTOM_OR_OTHER"
+    return ("PLAYERBOTS_FORK" if matched.group(1).lower() == "mod-playerbots"
+            else "STANDARD_AZEROTHCORE")
+
+
 def read_text(path, max_bytes=10_000_000):
     try:
         if not path.is_file() or path.stat().st_size > max_bytes:
@@ -81,10 +128,13 @@ def inspect_git(directory, label, runner=subprocess.run):
     head = invoke("rev-parse", "HEAD")
     toplevel = invoke("rev-parse", "--show-toplevel")
     status = invoke("status", "--porcelain", "--untracked-files=normal")
+    origin = origin_family(invoke("remote", "get-url", "origin"))
     if not head or not re.fullmatch(r"[0-9a-f]{40,64}", head) or not toplevel or status is None:
-        return {"label": label, "head": None, "toplevel": toplevel, "dirty": None}
-    return {"label": label, "head": head, "toplevel": str(Path(toplevel).resolve()),
-            "dirty": bool(status)}
+        return {"label": label, "head": None, "toplevel": toplevel,
+                "dirty": None, "origin_family": origin}
+    return {"label": label, "head": head,
+            "toplevel": str(Path(toplevel).resolve()),
+            "dirty": bool(status), "origin_family": origin}
 
 
 def find_named_headers(root, desired, max_dirs=6000):
@@ -106,29 +156,45 @@ def find_named_headers(root, desired, max_dirs=6000):
 def check_core(core):
     results = []
     sources = {label: read_text(core / rel) for label, rel in CORE_FILES.items()}
+    code = {label: code_only(text) if text is not None else None
+            for label, text in sources.items()}
     for label, expression, description in CORE_CHECKS:
-        source = sources[label]
+        source = code[label]
         if source is None:
             results.append(result("MISSING", "core", label + " is absent/unreadable"))
         elif not re.search(expression, source):
             results.append(result("MISSING", "core", description + " signature not found in " + label))
         else:
             results.append(result("FOUND", "core", description))
-    # These are critical risk conditions in the *source*, not proof their
-    # behavior survives every module hook or runtime talent modification.
-    player = sources["Player.cpp"] or ""
-    for expression, description in (
-        (r"\bAutoUnequipOffhandIfNeed\s*\(\s*\)\s*;", "reset invokes offhand recheck"),
-        (r"\bRemovePet\s*\(", "pet state may be affected"),
-        (r"\bSetCanTitanGrip\s*\(\s*false\s*\)", "Titan's Grip may be cleared"),
-        (r"\bSetCanDualWield\s*\(\s*false\s*\)", "Dual Wield may be cleared"),
-    ):
-        results.append(result("REVIEW" if re.search(expression, player) else "MISSING",
-                              "reset-risk", description +
-                              ("; KEEP ALT BOT APPLY BLOCKED" if re.search(expression, player)
-                               else "; behavior differs or could not be found")))
+    # Observe ONLY the reset body. Player.cpp has other pet and
+    # equipment operations unrelated to resetTalents; whole-file matching
+    # could wrongly describe those other functions as reset side effects.
+    reset = function_body(sources["Player.cpp"],
+                          r"\bbool\s+Player::resetTalents\s*\([^)]*\)")
+    checks = (
+        (r"\bAutoUnequipOffhandIfNeed\s*\(\s*\)\s*;", "offhand recheck"),
+        (r"\bRemovePet\s*\(", "pet removal"),
+        (r"\bSetCanTitanGrip\s*\(\s*false\s*\)", "Titan's Grip removal"),
+        (r"\bSetCanDualWield\s*\(\s*false\s*\)", "Dual Wield removal"),
+        (r"\bOnPlayerTalentsReset\s*\(", "external talent-reset hook"),
+    )
+    for expression, description in checks:
+        present = reset is not None and re.search(expression, reset)
+        results.append(result(
+            "REVIEW" if present else "MISSING", "reset-risk",
+            description + (": observed in resetTalents; KEEP BLOCKED"
+                           if present else
+                           ": not observed in resetTalents; review local fork")))
+    offhand = function_body(
+        sources["Player.cpp"],
+        r"\bvoid\s+Player::AutoUnequipOffhandIfNeed\s*\([^)]*\)")
+    results.append(result(
+        "REVIEW", "reset-risk",
+        "offhand MailDraft fallback " +
+        ("observed" if offhand is not None and
+         re.search(r"\bMailDraft\s*\(", offhand) else "not confirmed") +
+        "; neither outcome proves safe reset"))
     return results
-
 
 def check_playerbots(root):
     findings = []
@@ -140,7 +206,8 @@ def check_playerbots(root):
             continue
         for method in methods:
             findings.append(result(
-                "FOUND" if re.search(r"\b" + re.escape(method) + r"\s*\(", source)
+                "FOUND" if re.search(r"\b" + re.escape(method) + r"\s*\(",
+                                     code_only(source))
                 else "MISSING", "playerbots", name + ": " + method))
     return findings
 
@@ -193,6 +260,19 @@ def audit(paths):
                                    "tracked/untracked working tree changes; HEAD alone is not complete"))
         else:
             findings.append(result("FOUND", label, "Git revision captured"))
+        if label == "core":
+            family = info["origin_family"]
+            if family == "PLAYERBOTS_FORK":
+                findings.append(result(
+                    "FOUND", "core-origin",
+                    "Git origin matches public mod-playerbots/azerothcore-wotlk "
+                    "family; branch, patchset and binary still unverified"))
+            else:
+                findings.append(result(
+                    "REVIEW", "core-origin",
+                    "Git origin family " + family +
+                    "; Playerbots expects its compatible core fork; "
+                    "private/custom forks require manual source review"))
     if paths["core"].is_dir():
         findings.extend(check_core(paths["core"]))
     if paths["playerbots"].is_dir():
@@ -231,9 +311,9 @@ def main(argv=None):
     else:
         print("NT1 source preflight ONLY; no compile, changes, or server access")
         for r in report["repositories"]:
-            print("GIT {}: {} (top-level {}; working tree changes: {})".format(
+            print("GIT {}: {} (top-level {}; changes: {}; origin family: {})".format(
                 r["label"], r["head"] or "UNKNOWN",
-                r["toplevel"] or "UNKNOWN", r["dirty"]))
+                r["toplevel"] or "UNKNOWN", r["dirty"], r["origin_family"]))
         for finding in report["findings"]:
             print("[{}] {}: {}".format(
                 finding["status"], finding["scope"], finding["detail"]))

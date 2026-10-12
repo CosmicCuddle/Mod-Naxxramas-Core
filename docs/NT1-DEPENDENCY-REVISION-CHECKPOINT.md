@@ -63,3 +63,8 @@ Commit `41de01db0ebc12538c64a77a371b971cc6c176db`:
 ## New optional read-only source-check script (PR #16 draft)
 
 A source-only preflight with mock-tested Git/API introspection has been prepared in `scripts/audit_nt1_dependency_apis.py`. See [NT1 Dependency API Preflight](NT1-DEPENDENCY-API-PREFLIGHT.md) for read-only usage, interpretation, directory placeholders, and limits. It is not installed on the live server; exact dependency SHAs remain unknown. It does **not** build C++, fetch/pull modules, touch config, query or write the character database, inspect the running binary, or authorize any talent Apply.
+
+
+### Playerbots-fork compatibility caution
+
+Upstream [mod-playerbots documentation](https://github.com/mod-playerbots/mod-playerbots/wiki/Installation-Guide) specifically requires its [AzerothCore Playerbot fork](https://github.com/mod-playerbots/azerothcore-wotlk/tree/Playerbot). Reviewing the **standard** upstream AzerothCore API alone is therefore insufficient; the exact custom Playerbots-compatible fork and local patches must be reviewed. `scripts/audit_nt1_dependency_apis.py` classifies Git origin families without disclosing a configured origin URL. `STANDARD_AZEROTHCORE`, `CUSTOM_OR_OTHER` and `UNKNOWN` require manual follow-up; even `PLAYERBOTS_FORK` is not a build certificate. If the server uses a customised fork, never replace or rebase it to the public fork automatically.

@@ -9,6 +9,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -30,6 +31,7 @@ bool CanTitanGrip() const;
 PLAYER_CPP = """
 bool Player::HasTalent(uint32 spell_id, uint8 spec) const { return true; }
 bool Player::resetTalents(bool noCost) {
+    sScriptMgr->OnPlayerTalentsReset(this, noCost);
     RemovePet(nullptr); SetCanTitanGrip(false);
     SetCanDualWield(false); AutoUnequipOffhandIfNeed(); return true;
 }
@@ -125,12 +127,13 @@ class NT1DependencyPreflightTests(unittest.TestCase):
             output = {
                 "rev-parse": "a" * 40 if args[-1] == "HEAD" else str(self.core),
                 "status": "",
+                "remote": "git@github.com:mod-playerbots/azerothcore-wotlk.git",
             }[subcommand]
             return SimpleNamespace(returncode=0, stdout=output, stderr="")
         info = audit.inspect_git(self.core, "core", runner=runner)
         self.assertEqual(info["head"], "a" * 40)
         self.assertFalse(info["dirty"])
-        self.assertEqual(len(called), 3)
+        self.assertEqual(len(called), 4)
         for args, kw in called:
             self.assertEqual(args[:4], ["git", "--no-optional-locks",
                                         "-C", str(self.core)])
@@ -181,6 +184,70 @@ class NT1DependencyPreflightTests(unittest.TestCase):
                             for x in report["findings"]))
         self.assertTrue(any("no result permits talent Apply" in x["detail"]
                             for x in report["findings"]))
+
+    def test_commented_out_core_api_is_missing_not_found(self):
+        file = self.core / audit.CORE_FILES["Player.h"]
+        file.write_text(PLAYER.replace(
+            "bool HasTalent(uint32 spell_id, uint8 spec) const;",
+            "// bool HasTalent(uint32 spell_id, uint8 spec) const;"),
+            encoding="utf-8")
+        self.assertTrue(any(
+            x["status"] == "MISSING" and "per-spec HasTalent" in x["detail"]
+            for x in audit.check_core(self.core)))
+
+    def test_string_containing_fake_api_is_not_counted(self):
+        file = self.core / audit.CORE_FILES["Player.h"]
+        file.write_text(PLAYER.replace(
+            "PlayerTalentMap const& GetTalentMap() const;",
+            'char const* fake = "PlayerTalentMap const& GetTalentMap() const;";'),
+            encoding="utf-8")
+        self.assertTrue(any(
+            x["status"] == "MISSING" and "const talent map" in x["detail"]
+            for x in audit.check_core(self.core)))
+
+    def test_reset_risk_never_borrowed_from_other_cpp_method(self):
+        file = self.core / audit.CORE_FILES["Player.cpp"]
+        source = PLAYER_CPP.replace("RemovePet(nullptr);", "/* no pet removal here */")
+        file.write_text(source + "\nvoid Player::Unrelated() { RemovePet(nullptr); }\n",
+                        encoding="utf-8")
+        self.assertTrue(any(
+            x["status"] == "MISSING" and "pet removal" in x["detail"]
+            for x in audit.check_core(self.core)))
+
+    def test_nested_reset_body_is_bounded(self):
+        sample = ('bool Player::resetTalents(bool noCost) {'
+                  'if (noCost) { RemovePet(nullptr); } return false; }'
+                  'void Player::Unrelated() { SetCanTitanGrip(false); }')
+        body = audit.function_body(
+            sample, r"\bbool\s+Player::resetTalents\s*\([^)]*\)")
+        self.assertIn("RemovePet(", body)
+        self.assertNotIn("SetCanTitanGrip(", body)
+
+    def test_fork_origin_family_is_classified_without_exposing_token(self):
+        origin = "https://SECRET-CREDENTIAL@github.com/mod-playerbots/azerothcore-wotlk.git"
+        self.assertEqual(audit.origin_family(origin), "PLAYERBOTS_FORK")
+        self.assertEqual(audit.origin_family(
+            "git@github.com:azerothcore/azerothcore-wotlk.git"),
+            "STANDARD_AZEROTHCORE")
+        self.assertEqual(audit.origin_family(
+            "ssh://github.com/CosmicCuddle/private-core.git"),
+            "CUSTOM_OR_OTHER")
+        self.assertEqual(audit.origin_family(None), "UNKNOWN")
+        self.assertNotIn("SECRET-CREDENTIAL", audit.origin_family(origin))
+
+    def test_core_origin_is_review_when_standard_or_custom(self):
+        for origin in ("STANDARD_AZEROTHCORE", "CUSTOM_OR_OTHER", "UNKNOWN"):
+            paths = {"core": self.core,
+                     "playerbots": self.path / "none-bot",
+                     "ip": self.path / "none-ip",
+                     "module": self.path / "none-module"}
+            with mock.patch.object(audit, "inspect_git", return_value={
+                "head": "c" * 40, "toplevel": str(self.core), "dirty": False,
+                "origin_family": origin, "label": "core"}):
+                report = audit.audit(paths)
+            self.assertTrue(any(
+                x["scope"] == "core-origin" and x["status"] == "REVIEW"
+                for x in report["findings"]))
 
     def test_git_failures_do_not_invent_revision(self):
         def runner(args, **kwargs):
