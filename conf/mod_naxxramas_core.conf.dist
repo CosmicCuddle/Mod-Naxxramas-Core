@@ -135,8 +135,13 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # 1 = GM accounts only (preview and experimental apply)
 # 2 = All players (preview and experimental apply)
 # 3 = GM accounts ONLY (preview/project/repairpreview, NEVER apply)
+# 4 = All players (preview/project/repairpreview, NEVER apply)
+#     Non-GMs must control the target bot; Alt repair inspection
+#     additionally requires their character in AltBotAllowedPlayers.
 #
-# Mode 3 is intended for controlled read-only integration testing.
+# Modes 3 and 4 are intended for controlled read-only testing.
+# Mode 3 is GM-only; mode 4 allows normal players with existing
+# ownership/master requirements. Neither mode can reset talent builds.
 # Existing modes 1 and 2 still allow talent application. Applying builds is still
 # EXPERIMENTAL: back up the characters DB and verify a recovery procedure
 # before enabling on a live realm. An interrupted reset is not transactional.
@@ -162,9 +167,9 @@ NaxxramasCore.ForcedPvP.Notify = 1
 # .naxxbot talents project <online-botname> <NT1L1-code>   (read-only)
 # .naxxbot talents repairpreview <online-altbot> <NT1-code> (read-only)
 # .naxxbot talents apply <online-botname> <NT1-code>
-# In mode 3, only the first three diagnostic commands are usable;
-# the Apply handler refuses before reset. repairpreview still enforces
-# AltBotAllowedPlayers (including GMs).
+# In mode 3 or 4, only the first three diagnostic commands are usable;
+# the Apply handler refuses before reset, even for GMs. repairpreview
+# still enforces AltBotAllowedPlayers (including GMs).
 #
 # Default: 0
 NaxxramasCore.BotTalentImport.AccessMode = 0
@@ -179,8 +184,9 @@ NaxxramasCore.BotTalentImport.AccessMode = 0
 # Trailing commas are harmless. An empty list DENIES all Alt Bot applies,
 # including GM attempts. Read-only preview is still available to callers
 # allowed by AccessMode. This is an additional check, not an override:
-# AccessMode 1 remains GM-only; AccessMode 2 still checks normal-player
+# AccessMode 1 remains GM-only; modes 2 and 4 still check normal-player
 # bot ownership/master permissions. Random Playerbots are UNAFFECTED.
+# Mode 4 allows read-only tests without enabling experimental Apply.
 # NT1 imports do not touch Alt Bot EQUIPMENT; any future role-autogear
 # feature must be restricted to Random Playerbots only.
 #
