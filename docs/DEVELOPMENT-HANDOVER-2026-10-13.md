@@ -104,6 +104,13 @@ A source review of the pinned AzerothCore `src/server/database/Updater/UpdateFet
 - Staging checklist and module design document were updated with manual-only activation and stock-handler default. **This is a GitHub branch change only**; no staging/production DB was accessed.
 - Prior successful [Northpass shrine full Worldserver build 38445137510](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38445137510) remains valid for unchanged gameplay C++, but **rerun exact-head CI** for this change and ensure current success before later release discussion. Runtime acceptance/installed-fork verification remain separate gates.
 
+### EP owner-fork compatibility gate — read-only revision instructions
+
+- A new pinned-source test checks that AzerothCore's `UpdateFetcher.cpp` actually traverses enabled modules' `data/sql` directories. This makes the prior safety fix (the manual EP SQL now lives only under `docs/install/`) an enforceable compatibility contract for the pinned source. A successful pinned test does not replace checking the actual installed fork.
+- Updated [staging acceptance checklist](EP-TOWER-STAGING-ACCEPTANCE-CHECKLIST.md) with **four explicitly read-only Git commands** that the owner may run in MobaXterm against their source checkout, with an explanation of missing paths and the pinned AzerothCore, Playerbots and Individual Progression SHAs.
+- Owner's actual installed fork commit and running binary are **not yet independently verified**; do not claim deployment readiness or assume the owner's checkout matches CI.
+- Most recent completed gameplay-code full build [38445137510](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38445137510) **PASSED**. The full pinned build for manual SQL relocation [38454791617](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38454791617) was still running at this prior checkpoint; recheck GitHub before promoting the branch. PR #21 remains draft, module-only and uninstalled.
+
 ## 2. Separate continuing workstream: NT1 Alt Bot talent imports — PR #18
 
 - [DRAFT PR #18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/18), branch `research/nt1-offhand-preservation-review`.

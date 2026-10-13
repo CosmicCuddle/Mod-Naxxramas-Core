@@ -201,6 +201,28 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertNotIn("INSERT", FORWARD)
         self.assertNotIn("INSERT", BACK)
 
+    def test_pinned_updater_requires_manual_ep_sql_location(self):
+        # Verify this pinned core actually scans module data/sql folders
+        # automatically; docs/install must stay outside those folders.
+        core = ROOT.parents[1]
+        updater = core / "src/server/database/Updater/UpdateFetcher.cpp"
+        if not updater.is_file():
+            self.skipTest("Pinned AzerothCore updater source not checked out")
+        content = updater.read_text()
+        self.assertIn(
+            '"/modules/" + moduleName + "/data/sql/"', content
+        )
+        self.assertIn(
+            'if (dirName.find(_dbModuleName) == std::string::npos)',
+            content
+        )
+        self.assertIn(
+            'FillFileListRecursively(entry.path, files, entry.state, 1);',
+            content
+        )
+        self.assertTrue((ROOT / "docs/install/"
+            "2026_10_13_00_ep_tower_lock_module_bind.sql").is_file())
+
     def test_ep_sql_migration_requires_manual_owner_opt_in(self):
         # AzerothCore's module SQL updater auto-discovers data/sql/db-world.
         # The optional EP binding must remain outside its scanned subtree.

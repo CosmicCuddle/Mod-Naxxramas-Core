@@ -10,6 +10,29 @@
 
 - [ ] Obtain explicit owner approval for *staging* installation and tests.
 - [ ] Record actual installed AzerothCore fork commit, Playerbots commit, Individual Progression commit and Naxxramas Core commit; compare their relevant EP APIs with the pinned CI stack. CI is not proof of installed-fork compatibility.
+
+### Read-only installed-source revision check (no staging activation)
+
+This step can be performed from an owner's **source checkout**, without stopping Worldserver, changing SQL or applying the PR. Use **MobaXterm SSH** and replace `/actual/path/to/azerothcore` with the known source folder; do not guess paths. Commands only **read Git metadata**. If the module paths differ, locate their actual checkout folders first. If Git returns `not a git repository`, stop and ask for the source location—do not initialise a new repository or switch branches.
+
+```bash
+git -C /actual/path/to/azerothcore rev-parse HEAD
+git -C /actual/path/to/azerothcore/modules/mod-playerbots rev-parse HEAD
+git -C /actual/path/to/azerothcore/modules/mod-individual-progression rev-parse HEAD
+git -C /actual/path/to/azerothcore/modules/mod-naxxramas-core rev-parse HEAD
+```
+
+Capture all four output SHAs with their labels. Compare the owner-supplied result against the **pinned CI references**:
+
+| Component | CI-pinned revision |
+|---|---|
+| Playerbots-compatible AzerothCore | `b7f06a16ac7120b5abc2e8d3f96a94265a363224` |
+| Playerbots module | `037c01418b5d01506917a3db9b44fd56ac5f965c` |
+| Individual Progression module | `283abe12774801e5671da746ea8bf535cc0252e0` |
+| Proposed Naxxramas Core EP branch | Read current draft PR #21 head; do not assume deployed main is the same |
+
+If the owner's core or modules differ, stop automatic compatibility claims and review relevant C++ interfaces, build settings and SQL updater behaviour on those exact revisions **before** an isolated staging build. This Git check proves source checkout identity only; it does **not** establish which binary is currently running, nor is an installed-module/rebuild instruction.
+
 - [ ] Confirm this is a conventional realm Worldserver **not a cross-realm node**. In the pinned core `WorldState::setWorldState` intentionally keeps cross-realm state in memory only, so persistent 90-minute locks cannot be promised on cross-realm nodes. **STOP** until this is independently addressed if the server is cross-realm.
 - [ ] Confirm the exact PR head has both a successful real-source compile and a **completed successful full Worldserver link**, including the unique module script string; an in-progress build does not satisfy this gate.
 - [ ] Make and restore-test **full staging** backups of `acore_world` and `acore_characters`; save a known-good Worldserver executable, original module, configs and pinned source revisions in a separate safe location.
