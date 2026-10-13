@@ -377,7 +377,7 @@ class ModuleOnlySourceContract(unittest.TestCase):
             r = subprocess.run(["bash", str(script), str(core)],
                                capture_output=True, text=True, check=False)
             self.assertEqual(r.returncode, 3, r.stderr)
-            self.assertEqual(r.stdout.count("SHA: "), 4)
+            self.assertEqual(sum(line.startswith("SHA: ") for line in r.stdout.splitlines()), 4)
             self.assertIn("running binary were NOT checked", r.stdout)
 
     def test_revision_script_rejects_parent_repo_false_positive(self):
