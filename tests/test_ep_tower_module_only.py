@@ -210,6 +210,65 @@ class ModuleOnlySourceContract(unittest.TestCase):
                 self.assertNotIn("synchronize]", workflow)
                 self.assertIn("  workflow_dispatch:", workflow)
 
+    def test_pinned_real_core_restart_order_and_graceful_db_drain(self):
+        # This is source integration: GitHub Actions checks out the exact
+        # pinned core beside modules/mod-naxxramas-core. A standalone module
+        # checkout cannot prove these outside-core interfaces and skips.
+        core = ROOT.parents[1]
+        world_path = core / "src/server/game/World/World.cpp"
+        pool_path = core / "src/server/database/Database/DatabaseWorkerPool.cpp"
+        state_path = core / "src/server/game/World/WorldState.cpp"
+        if not all(p.is_file() for p in (
+            world_path, pool_path, state_path
+        )):
+            self.skipTest("Pinned AzerothCore source not checked out beside module")
+        world = world_path.read_text()
+        pool = pool_path.read_text()
+        state = state_path.read_text()
+        self.assertLess(
+            world.index("sWorldState->LoadWorldStates();"),
+            world.index("sOutdoorPvPMgr->InitOutdoorPvP();")
+        )
+        self.assertLess(
+            world.index("sMapMgr->Initialize();"),
+            world.index("sOutdoorPvPMgr->InitOutdoorPvP();")
+        )
+        self.assertIn("CharacterDatabase.Execute(stmt);", state)
+        self.assertIn("!sToCloud9Sidecar->IsCrossrealm()", state)
+        self.assertIn("_queue->Shutdown();", pool)
+        self.assertIn("_connections[IDX_ASYNC].clear();", pool)
+        # Queue drain applies to graceful shutdown only, NOT power loss.
+        self.assertNotIn("CharacterDatabase.DirectExecute", CPP)
+
+    def test_pinned_real_core_late_loaded_spawn_metadata_contract(self):
+        core = ROOT.parents[1]
+        go_path = core / "src/server/game/Entities/GameObject/GameObject.cpp"
+        outdoor_path = core / "src/server/game/OutdoorPvP/OutdoorPvP.cpp"
+        ep_path = core / "src/server/scripts/OutdoorPvP/OutdoorPvPEP.h"
+        if not all(p.is_file() for p in (
+            go_path, outdoor_path, ep_path
+        )):
+            self.skipTest("Pinned AzerothCore source not checked out beside module")
+        go = go_path.read_text()
+        outdoor = outdoor_path.read_text()
+        ep = ep_path.read_text()
+        self.assertIn(
+            "void GameObject::SetGoArtKit(uint8 artkit, "
+            "GameObject* go, ObjectGuid::LowType lowguid)", go
+        )
+        self.assertIn("sObjectMgr->GetGameObjectData(lowguid)", go)
+        self.assertIn("const_cast<GameObjectData*>(data)->artKit = artkit;", go)
+        self.assertIn("sMapMgr->CreateBaseMap(areaTable->mapid);", outdoor)
+        expected_indices = (
+            "EP_EWT = 0", "EP_NPT,", "EP_PWT,", "EP_CGT,"
+        )
+        offsets = [ep.index(v) for v in expected_indices]
+        self.assertEqual(offsets, sorted(offsets))
+        self.assertIn("EP_EWT_FLAGS", ep)
+        self.assertIn("EP_NPT_FLAGS", ep)
+        self.assertIn("EP_PWT_FLAGS", ep)
+        self.assertIn("EP_CGT_FLAGS", ep)
+
     def test_endpoint_sign_matches_capturing_faction(self):
         for side, partial, wrong, full in (
             ("alliance", 0.999, -1.0, 1.0),
