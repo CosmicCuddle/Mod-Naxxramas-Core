@@ -104,3 +104,27 @@ N-MultiBot-Chatless remains a client-side request/inspection interface: server p
 **Retain the occupied-offhand guard and active-pet guard.** The static core logic offers a plausible basis for a *future* more precise rule, **not a current safety proof**. Prefer detecting **already-identical builds read-only** as the next independently testable feature; do not attempt non-idempotent resets with protected offhands without proven end-to-end recovery.
 
 Related: [issue #17 — zero-talent imports](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/17), [PR #16 — original read-only audit](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/16).
+
+
+## 7. Stage A implemented IN DRAFT as read-only active-talent comparison (not deployed)
+
+To make the next decision less speculative, the draft now adds `InspectActiveTalentMatch` in `src/Systems/BotTalentImport.cpp` and surfaces `PrintActiveTalentMatch` in the existing **Preview** and Alt Bot **Repair Preview** reports. No new chat command or addon protocol was introduced; read-only diagnostics cannot call `LearnTalent`, `resetTalents`, `SaveToDB` or equip/move/mail items.
+
+The result is **EXACT**, **DIFFERENT**, or **CANNOT VERIFY**:
+- **EXACT** demands equality of the full active-spec `PlayerTalentMap` rank IDs *and* free-point budget against the server-validated NT1 code. 51/51 points or 14/37/0 tree totals alone are never enough.
+- **DIFFERENT** means known active ranks differ; the report shows counts, not a permission to reset.
+- **CANNOT VERIFY** takes precedence for missing or stale `PlayerTalent` records, wrong-class or unmatched custom DBC rank spells, multiple active ranks for one Talent.dbc entry, suspicious spec metadata, changed class/level budget or mismatched observed/free points. This is **not** interpreted as "different but safe."
+- The existing `ValidateRequest` first performs server-side class, DBC, era and issuer/ownership checks. The **general Preview** displays protected Alt Bot exact-rank comparison **only** when the issuing human also passes `AltBotAllowedPlayers`, including GMs. Random Playerbots do not receive this Alt-only report. The dedicated `repairpreview` handler already checks the human allowlist before any report.
+- Reporting is a volatile inspection of the **active spec only**; it does not cover inactive-spec glyphs, talent-granted auxiliary spells, equipment, pets, mail, bank, bags or recovery. A matched existing build **does not make Apply safe** while an offhand is occupied.
+
+**Important:** the imported NT1 Apply and post-failure recovery paths remain **byte-for-byte unchanged**. Both original reset opportunities, occupied-offhand and active-pet blocks, config AccessMode and role-independent gear policy are preserved. No automatic no-op, exemption, gear movement or role change was implemented.
+
+**Source/synthetic test scope:** `tests/test_nt1_active_talent_exact_match.py` asserts the three-way model for equal-point-but-different builds, mismatched ranks, unknown DBC class/spells, multiple active ranks, free-point corruption, empty and partial allocations; it also enforces the handler allowlist ordering, no diagnostic mutations and original double-reset + gear/pet guards. These tests are *not* a C++ compile or a live-item safety trial.
+
+### Still needed before this change is production-ready
+
+An owner-approved C++ compilation against the pinned AzerothCore/Playerbots source revisions, then test only `.naxxbot talents preview <bot> <code>` or `.naxxbot talents repairpreview <altbot> <code>` in-game. Do **not** issue Apply to validate the report. Confirm three-way output for a disposable known exact build, a different build with equal point totals, and a corrupted/custom DBC case in an isolated test environment. If there is no match report on general Preview, confirm the **issuing human name allowlist**; do not weaken it for a GM.
+
+### Mandatory MultiBot release handover — still pending
+
+**Owner request:** when the Naxxramas Core offhand/talent work is FINISHED, give the owner a concise, copy-paste-ready handover for the separately managed [N-MultiBot-Chatless](https://github.com/CosmicCuddle/N-MultiBot-Chatless) development chat (draft PR #5). Include what actually changed and its merge/deployment state, command syntax, new user-visible messages (EXACT / DIFFERENT / CANNOT VERIFY), server-only permissions, preserved Apply/two-click confirmation/targeting, unaltered offhand and pet blocks, 3.3.5a message length, no automatic role gearing, tests and any addon changes recommended/required. **Do not declare integration complete before final server decisions and in-game validation.** The previous coordination comment is already on MultiBot PR #5; the final owner handover is a separate deliverable.
