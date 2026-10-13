@@ -38,6 +38,7 @@ The patch reserves **eight** `acore_characters.worldstates` keys (not client-vis
 | CGT | 93420003 | 93420007 |
 
 - Owner-state value: core `TeamId` (Alliance=0, Horde=1, Neutral=2); expiry value: UNIX seconds.
+- **The writer records the owner before the expiry timestamp**, because AzerothCore uses numeric TeamId 0 for Alliance; an expiry-first half-write of a Horde capture could otherwise look like a valid Alliance lock after a crash. A restored owner without an unexpired expiry is neutral.
 - The two keys must be absent/unused by other modules before deployment. **Collision-check the owner's actual live database and installed source**, not only the pinned public source. Never overwrite unknown rows. The pinned core's `WorldState::setWorldState` persists these keys through the characters DB.
 - A valid unexpired owner/expiry pair reloads that tower at its faction's full capture value and preserves the **original** expiry. An expired or corrupt pair clears to neutral. If a write is interrupted, mismatched values fail closed to neutral at startup.
 - The existing `worldstates` table is reused: **no new SQL schema/table or configuration** is required. This is nevertheless a characters DB write and must be backed up and restored in staging before owner-approved installation.

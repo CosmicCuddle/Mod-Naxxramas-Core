@@ -88,6 +88,17 @@ class TowerLockSourceSafety(unittest.TestCase):
         self.assertIn("expiry <= now", PATCH)
         self.assertIn("expiry > now + EP_TOWER_LOCK_SECONDS", PATCH)
 
+    def test_worldstate_owner_written_before_expiry_for_crash_safety(self):
+        # Alliance's valid numeric TeamId is zero: writing expiry first
+        # can make an interrupted Horde capture look like Alliance.
+        block = PATCH.split(
+            "void OPvPCapturePointEP_Lockable::SaveTowerLock(", 1
+        )[1].split("void OPvPCapturePointEP_Lockable::ResetToNeutral()", 1)[0]
+        self.assertLess(
+            block.index("EP_TOWER_LOCK_OWNER_STATE_BASE + m_TowerIndex, uint32(team)"),
+            block.index("EP_TOWER_LOCK_EXPIRY_STATE_BASE + m_TowerIndex, expiresAt"),
+        )
+
     def test_neutral_reset_cleans_special_objectives(self):
         self.assertIn("m_UnitsSummonedSideId = TEAM_NEUTRAL", PATCH)
         self.assertIn("LinkGraveyard(TEAM_NEUTRAL)", PATCH)
