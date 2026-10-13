@@ -88,6 +88,14 @@ The pinned AzerothCore `OutdoorPvP::SetMapFromZone` creates map 0 on EP handler 
 - [PR #21](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/21) remains **draft/unmerged**. No actual gameplay, database restore, manual tower tests, real installed-fork validation, backup/rollback or production activity. Do not replace these gates with source CI success; see [staging checklist](EP-TOWER-STAGING-ACCEPTANCE-CHECKLIST.md).
 - **Exact next check**: check run `38445137510`; if PASS, compare owner fork revisions; if FAIL, inspect failed step/log and fix strictly inside the Naxxramas Core PR. Staging requires separate owner authorisation.
 
+### EP migration / rollback safety test checkpoint
+
+- [`d26c11f`](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/commit/d26c11f8222683221f369455e25022f44655c22e) extends the **module-only test suite to 27 tests**, with real forward and rollback SQL statements run against an **isolated in-memory SQLite** table. It proves the portable exact `TypeId=6` + script-name-match semantics, repeated-run idempotence, preservation of other zones and refusal to overwrite a third-party EP handler. It **does not** access any live MySQL server or certify the actual world DB installation.
+- [Pinned source compile + test run 38453731581](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38453731581) **COMPLETED SUCCESS**, including the SQL tests, synthetic transitions and actual EP translation-unit compilation against pinned AzerothCore/Playerbots/IP sources.
+- Most recent **Northpass shrine gameplay-code full link** [38445137510](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38445137510) **was still running** at documentation time; do not promote PR based solely on previous successful links. The preceding **flag-artkit gameplay-code full link** [38438203265](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38438203265) passed.
+- **STOP before actual database work:** Back up/restore-test `acore_world` and `acore_characters`; preflight exact `TypeId=6` binding and unclaimed character worldstate keys 93420020–93420023; compare owner's installed AzerothCore fork; obtain explicit owner approval for an isolated staging realm, execute full four-tower tests, and rehearse rollback. No live server/database/character action has been authorised.
+- PR #21 remains **DRAFT and unmerged**. This checkpoint only changes module tests and documentation. Preserves the independent 90-minute locks, no config switch, no new announcements and untouched original AzerothCore source.
+
 ## 2. Separate continuing workstream: NT1 Alt Bot talent imports — PR #18
 
 - [DRAFT PR #18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/18), branch `research/nt1-offhand-preservation-review`.
