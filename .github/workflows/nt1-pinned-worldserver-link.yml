@@ -1,0 +1,106 @@
+name: NT1 pinned Worldserver compile and link
+
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/**'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'tests/test_nt1_pinned_worldserver_link.py'
+      - '.github/workflows/nt1-pinned-worldserver-link.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-link-isolated-worldserver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - name: Checkout pinned Playerbots-compatible AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/azerothcore-wotlk
+          ref: b7f06a16ac7120b5abc2e8d3f96a94265a363224
+          path: acore
+          persist-credentials: false
+
+      - name: Checkout pinned Playerbots module
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+
+      - name: Checkout pinned Individual Progression module
+        uses: actions/checkout@v4
+        with:
+          repository: ZhengPeiRu21/mod-individual-progression
+          ref: 283abe12774801e5671da746ea8bf535cc0252e0
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+
+      - name: Checkout exact Naxxramas Core draft PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+
+      - name: Verify all four exact source revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "b7f06a16ac7120b5abc2e8d3f96a94265a363224"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "283abe12774801e5671da746ea8bf535cc0252e0"
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Install pinned stack Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+
+      - name: Configure full static script and module Worldserver build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMODULES=static \
+            -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only \
+            -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON \
+            -DUSE_SCRIPTPCH=ON
+          test -f acore-build/build.ninja
+
+      - name: Build and LINK isolated Worldserver with both modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build acore-build --target worldserver --parallel 2
+
+      - name: Verify full linked executable exists (never launch it)
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="$(find acore-build -type f -name worldserver -print -quit)"
+          if [[ -z "$binary" || ! -s "$binary" || ! -x "$binary" ]]; then
+            echo "FAIL: no linked Worldserver executable located"
+            exit 1
+          fi
+          file "$binary"
+          echo "PASS: isolated Worldserver binary linked; NO runtime, DB, migration or character test."
+
+      - name: State limitations regardless of outcome
+        if: always()
+        run: |
+          echo "A GitHub runner is not the owner's running server or custom-patched fork."
+          echo "Build success alone does not establish addon compatibility, in-game behaviour,"
+          echo "pet preservation, original item GUID safety or a transactional talent reset."
+          echo "No Worldserver startup, database access, SQL migration, gameplay Apply or merge."
