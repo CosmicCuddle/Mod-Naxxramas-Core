@@ -147,7 +147,12 @@ ORDER BY entry;
 
 ## 6. Required evidence before proposing merge or release
 
-- [ ] GitHub full Worldserver link **finished SUCCESS**, at exact current PR HEAD.
+**Final build scheduling note:** The current full-link workflow uses narrowly scoped branch `push.paths` filters and its workflow file is **not present on `main`** at this checkpoint. A docs-only change may legitimately receive no new full-link run. A `workflow_dispatch` declaration is not proof that it can be launched on a non-default branch. Before staging/release, deliberately create and verify a full-link run for the **final frozen candidate commit** through a reviewed eligible branch push or supported GitHub Actions trigger; do not fake or infer a passing run, and do not merge merely to run CI. The pinned CI result is also not proof of compatibility with the actual installed fork.
+
+
+- [ ] GitHub full Worldserver link **finished SUCCESS** against the **frozen release-candidate PR HEAD**, with the exact commit SHA recorded in the evidence sheet. **Do not** count an older successful link as proof of a newer code revision.
+- [ ] Final source/31+ test workflow **finished SUCCESS** at the same frozen candidate HEAD; record the exact run URL and checked-out revision.
+- [ ] Save the completed [staging evidence record](EP-TOWER-STAGING-EVIDENCE-RECORD.md) with timestamps, observed results and rollback evidence before requesting release approval.
 - [ ] Installed-fork compile and ScriptMgr binding verified.
 - [ ] Backup and **off-server restore** actually tested.
 - [ ] No worldstate-key collision and no pre-existing custom EP binding.

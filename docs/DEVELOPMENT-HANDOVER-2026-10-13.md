@@ -7,6 +7,9 @@
 
 ## Current verified PR #21 checkpoint (read before historical notes)
 
+> **Staging evidence:** A [blank verification worksheet](EP-TOWER-STAGING-EVIDENCE-RECORD.md) is prepared to record exact candidate commits, backups, SQL preflight, eight faction/tower captures, restart/late-grid behaviour, rollback and explicit authorisation. It is a blank, unapproved staging test record—not evidence that gameplay or DB work has been performed. Before proposing merge, the full Worldserver link must pass for the frozen final PR candidate SHA (the full-link workflow does not auto-run for every docs-only commit and is not currently in `main`).
+
+
 - **Branch and status:** `feature/ep-tower-lock-module-only`, **DRAFT / OPEN / UNMERGED**, latest gameplay C++ commit `0e7516a1b1ca8e7c032d1249ab92bdd2aa0693e0`; subsequent changes concern only test/CI, SQL relocation and docs.
 - **Automated tests and real pinned C++ source compilation:** **31/31 PASS** at [workflow 38457600069](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38457600069) (branch commit `30197fdbe95e073676af1478c57f6f1ffbecdeb4`). This includes the **default-off** handler-selection contract, empty-zone timer expiry contract and the exclusion of manual world SQL from AzerothCore's automatic updater.
 - **Full Worldserver game-code build:** **PASS** at [workflow 38445137510](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38445137510) (latest gameplay C++ `0e7516a` and unique handler string).
