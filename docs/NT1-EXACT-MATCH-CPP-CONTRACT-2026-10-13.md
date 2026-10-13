@@ -54,3 +54,7 @@ The GitHub Actions [combined read-only integration check](https://github.com/Cos
 When the Naxxramas Core workstream is actually finished, supply the owner a **copy-paste-ready final transfer note** for [N-MultiBot-Chatless PR #5](https://github.com/CosmicCuddle/N-MultiBot-Chatless/pull/5). Include precise server merge/deployment status, all new read-only output strings, whether Addon needs to display the lines, preserved `preview` / `repairpreview` / `safetypreview` / `apply` interfaces, no claimed `APPLY_READY` handshake, owner/GM allowlist, unchanged equipment guard, and real acceptance results.
 
 **Never label this work "complete" solely because the isolated C++ harness passed.**
+
+## Additional validation after the original mock harness
+
+The separate [pinned-header translation-unit GitHub Action](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38392268627) has now **passed**: it used the actual CMake-generated build command to syntax-check the *complete* `BotTalentImport.cpp` against the pinned AzerothCore/Playerbots/Individual Progression repository stack. This addresses the original mock-harness header compatibility gap, but **not linking, runtime operation, custom installed patches, or safety of any equipment mutations**. Both stages of evidence should remain clearly distinguished.

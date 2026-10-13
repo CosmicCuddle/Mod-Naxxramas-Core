@@ -78,6 +78,8 @@ class PinnedCompileRunnerTests(unittest.TestCase):
         ):
             self.assertIn("ref: " + sha, WORKFLOW)
         self.assertIn("path: acore/modules/mod-naxxramas-core", WORKFLOW)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", WORKFLOW)
+        self.assertIn('test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)"', WORKFLOW)
         self.assertIn("repository: ZhengPeiRu21/mod-individual-progression", WORKFLOW)
 
     def test_no_worldserver_launch_or_database_changes(self):

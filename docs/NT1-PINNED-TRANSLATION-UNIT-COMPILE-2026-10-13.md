@@ -47,3 +47,7 @@ A **FAIL** should be treated as a specific pre-release blocker. Diagnose the log
 5. Provide the mandatory final owner-to-N-MultiBot-Chatless handover only after actual server behaviour is verified; record any new exact-match chat lines without advertising them as Apply authorization.
 
 **The Alt Bot occupied-offhand and active-pet blocks remain unchanged.**
+
+## Observed pinned-source check: PASS (13 October 2026)
+
+[GitHub Actions run #38392268627](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38392268627) completed successfully. The logs confirmed checkout of the three exact pinned dependencies, CMake configuration, and a **successful `-fsyntax-only` compilation of the full `src/Systems/BotTalentImport.cpp` translation unit against real source headers and CMake-generated flags**. This check did not link Worldserver. The draft work remains unmerged; the offhand and active-pet protections are unchanged. Subsequent checks of this gate must inspect the **most recent PR HEAD workflow**, not rely on this older successful revision.

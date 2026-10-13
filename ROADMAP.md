@@ -1,5 +1,8 @@
 # Naxxramas Core — Project Roadmap & Development Status
 
+**13 October 2026 — pinned-source NT1 compile PASS (syntax-only):** [GitHub Actions run #38392268627](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38392268627) successfully configured the pinned AzerothCore, Playerbots and Individual Progression stack and syntax-compiled the **whole** NT1 C++ source file using its real CMake compile invocation. This supersedes the former *simulated headers only* limitation for that translation unit. **Still not a linked Worldserver build, owner server install or live Apply test.** PR #18 remains draft; no offhand/pet guard changes; final owner-to-MultiBot handover mandatory.
+
+
 
 **Isolated C++ comparator gate — 13 October 2026:** [details and remaining real-build prerequisites](docs/NT1-EXACT-MATCH-CPP-CONTRACT-2026-10-13.md). Draft PR #18 compiled and ran the exact read-only comparator C++ source slice against 15 deterministic **mock** API scenarios; latest combined CI passed 243 Python tests + all 15 C++ scenarios. **NOT a real pinned AzerothCore/Playerbots Worldserver compilation and NOT permission to deploy.** Existing offhand/pet guards and twice-reset best-effort recovery unchanged. Require final MultiBot handover when actual server work is completed.
 
