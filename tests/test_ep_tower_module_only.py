@@ -359,8 +359,8 @@ class ModuleOnlySourceContract(unittest.TestCase):
         # In the pinned core World::Update drives OutdoorPvPMgr regardless
         # of players in the zone; that manager visits every outdoor PvP
         # handler, not just ones with active capture-point GOs. Our module
-        # handles wall-clock lock expiry BEFORE OPvPCapturePoint::Update(0),
-        # which may itself return false if the grid is not loaded.
+        # checks wall-clock lock expiry even if OPvPCapturePoint::Update(0)
+        # returns false when the grid is not loaded.
         core = ROOT.parents[1]
         world_file = core / "src/server/game/World/World.cpp"
         mgr_file = core / "src/server/game/OutdoorPvP/OutdoorPvPMgr.cpp"
@@ -378,14 +378,14 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertIn("for (auto const& itr : m_OutdoorPvPSet)", updater)
         self.assertIn("itr->Update(m_UpdateTimer);", updater)
         self.assertNotIn("HasPlayer(", updater)
-        self.assertIn("if (!_capturePoint)\\n        return false;", base)
+        self.assertIn("if (!_capturePoint)\n        return false;", base)
         tower = CPP.split("bool Update(uint32 diff) override", 1)[1].split(
             "void CorrectLateNorthpassShrine", 1
         )[0]
         self.assertLess(tower.index("if (_expiresAt)"),
                         tower.index("OPvPCapturePoint::Update(diff)"))
-        self.assertLess(tower.index("if (now >= _expiresAt)"),
-                        tower.index("OPvPCapturePoint::Update(0)"))
+        self.assertLess(tower.index("OPvPCapturePoint::Update(0)"),
+                        tower.index("if (now >= _expiresAt)"))
         self.assertIn("ResetToNeutral();", tower)
 
     def test_pinned_real_core_restart_order_and_graceful_db_drain(self):
