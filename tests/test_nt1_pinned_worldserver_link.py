@@ -37,17 +37,24 @@ class PinnedWorldserverLinkContractTests(unittest.TestCase):
             "file \"$binary\"",
         ):
             self.assertIn(token, WORKFLOW)
+        self.assertIn('grep -aFq "NT1 ACTIVE TALENT MATCH: EXACT"', WORKFLOW)
+        self.assertIn('grep -aFq "Alt Bot NT1 Apply blocked: an offhand item is"', WORKFLOW)
         self.assertNotIn("-fsyntax-only", WORKFLOW)
 
     def test_no_live_database_or_runtime_operations(self):
         run_lines = re.sub(r"(?m)^\s*#.*$", "", WORKFLOW)
         for token in (
             "mysqldump", "mysql --", "mysql -u",
-            ".naxxbot talents apply", "worldserver --",
+            ".naxxbot talents apply",
             "systemctl", "git push", "git pull", "DROP TABLE",
             "deploy:", "upload-artifact", "download-artifact",
         ):
             self.assertNotIn(token, run_lines)
+        # Do not mistake the compiler's "worldserver --parallel" target flag
+        # for a command starting a game server.
+        self.assertNotRegex(
+            run_lines, r"(?m)^\s*(?:\./)?worldserver(?:\s|$)"
+        )
         self.assertIn("persist-credentials: false", WORKFLOW)
 
     def test_build_isolated_from_server_and_missing_build_fails(self):

@@ -95,7 +95,19 @@ jobs:
             exit 1
           fi
           file "$binary"
-          echo "PASS: isolated Worldserver binary linked; NO runtime, DB, migration or character test."
+          # A linked core without the Naxxramas module is NOT a passing build.
+          # Verify both the new diagnostic and existing offhand refusal were
+          # actually included in the output executable.
+          if ! grep -aFq "NT1 ACTIVE TALENT MATCH: EXACT" "$binary"; then
+            echo "FAIL: NT1 active talent diagnostic missing from linked binary"
+            exit 1
+          fi
+          if ! grep -aFq "Alt Bot NT1 Apply blocked: an offhand item is" "$binary"; then
+            echo "FAIL: original offhand refusal missing from linked binary"
+            exit 1
+          fi
+          echo "PASS: linked Worldserver contains NT1 exact-match diagnostics and offhand guard."
+          echo "NO runtime, DB, migration or character test."
 
       - name: State limitations regardless of outcome
         if: always()
