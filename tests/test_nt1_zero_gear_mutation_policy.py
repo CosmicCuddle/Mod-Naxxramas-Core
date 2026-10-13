@@ -57,7 +57,7 @@ class ZeroGearMutationPolicyGuardrails(unittest.TestCase):
         )
         self.assertIn("No talents or equipment changed.", READINESS)
         self.assertIn(
-            "if (!CheckApplyReadiness(issuer, bot, requested, error, &snapshot,)",
+            "if (!CheckApplyReadiness(issuer, bot, requested, error, &snapshot,",
             APPLY,
         )
         self.assertLess(

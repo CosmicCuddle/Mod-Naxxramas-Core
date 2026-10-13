@@ -131,7 +131,7 @@ class OffhandSourceContractTests(unittest.TestCase):
         self.assertEqual(model_core_offhand_decision(None), "NO_OFFHAND")
 
     def test_all_occupied_alt_bot_offhands_still_fail_closed(self):
-        self.assertIn("if (!randomBot)", READINESS)
+        self.assertIn("if (!randomBot && !verifiedNoOp)", READINESS)
         self.assertIn("INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND", READINESS)
         self.assertIn("Alt Bot NT1 Apply blocked: an offhand item is", READINESS)
         self.assertIn("Talent reset could move or MAIL it", READINESS)
