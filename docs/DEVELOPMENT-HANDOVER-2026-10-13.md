@@ -7,6 +7,8 @@
 
 ## Current verified PR #21 checkpoint (read before historical notes)
 
+> **Optional read-only installed-fork check:** `scripts/check_ep_source_revisions.sh` reports all four separate checkout SHAs (with module-vs-parent Git-root verification) and compares the three pinned upstream revisions; instructions are in the staging checklist. It neither updates Git nor verifies the installed/running Worldserver binary. All staging remains blocked without separate owner approval.
+
 > **Staging evidence:** A [blank verification worksheet](EP-TOWER-STAGING-EVIDENCE-RECORD.md) is prepared to record exact candidate commits, backups, SQL preflight, eight faction/tower captures, restart/late-grid behaviour, rollback and explicit authorisation. It is a blank, unapproved staging test record—not evidence that gameplay or DB work has been performed. Before proposing merge, the full Worldserver link must pass for the frozen final PR candidate SHA (the full-link workflow does not auto-run for every docs-only commit and is not currently in `main`).
 
 

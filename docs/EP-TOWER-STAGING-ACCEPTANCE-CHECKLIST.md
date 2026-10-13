@@ -13,6 +13,15 @@
 
 ### Read-only installed-source revision check (no staging activation)
 
+**One-command option:** If this PR's Naxxramas Core source checkout is present, use MobaXterm SSH from that module folder and replace the example with the known AzerothCore source path:
+
+```bash
+bash scripts/check_ep_source_revisions.sh /actual/path/to/azerothcore
+```
+
+The script reads all four Git checkout SHAs and compares upstream revisions against pinned CI. If your module folders have different names, supply the real Playerbots, Individual Progression and Naxxramas Core paths as three additional arguments. It rejects accidentally reporting the parent AzerothCore SHA for a module. It performs **no writes, fetches, SQL or restarts**, but it **does not** verify the running binary or any uncommitted source edits. Different SHAs require API review; they are not automatic proof of incompatibility. The four manual Git commands below are also valid.
+
+
 This step can be performed from an owner's **source checkout**, without stopping Worldserver, changing SQL or applying the PR. Use **MobaXterm SSH** and replace `/actual/path/to/azerothcore` with the known source folder; do not guess paths. Commands only **read Git metadata**. If the module paths differ, locate their actual checkout folders first. If Git returns `not a git repository`, stop and ask for the source location—do not initialise a new repository or switch branches.
 
 ```bash

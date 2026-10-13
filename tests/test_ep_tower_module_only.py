@@ -355,6 +355,54 @@ class ModuleOnlySourceContract(unittest.TestCase):
                 self.assertNotIn("synchronize]", workflow)
                 self.assertIn("  workflow_dispatch:", workflow)
 
+    def test_revision_script_reads_four_separate_git_roots(self):
+        import subprocess
+        import tempfile
+        script = ROOT / "scripts/check_ep_source_revisions.sh"
+        self.assertTrue(script.exists())
+        with tempfile.TemporaryDirectory() as temp:
+            core = Path(temp) / "acore"
+            dirs = [core, core / "modules/mod-playerbots",
+                    core / "modules/mod-individual-progression",
+                    core / "modules/mod-naxxramas-core"]
+            for d in dirs:
+                d.mkdir(parents=True)
+                subprocess.run(["git", "init", "-q", str(d)],
+                               check=True, capture_output=True)
+                subprocess.run(
+                    ["git", "-C", str(d), "-c", "user.name=CI",
+                     "-c", "user.email=ci@example.invalid",
+                     "commit", "--allow-empty", "-qm", "fixture"],
+                    check=True, capture_output=True)
+            r = subprocess.run(["bash", str(script), str(core)],
+                               capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, 3, r.stderr)
+            self.assertEqual(r.stdout.count("SHA: "), 4)
+            self.assertIn("running binary were NOT checked", r.stdout)
+
+    def test_revision_script_rejects_parent_repo_false_positive(self):
+        import subprocess
+        import tempfile
+        script = ROOT / "scripts/check_ep_source_revisions.sh"
+        with tempfile.TemporaryDirectory() as temp:
+            core = Path(temp) / "acore"
+            core.mkdir()
+            subprocess.run(["git", "init", "-q", str(core)],
+                           check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-C", str(core), "-c", "user.name=CI",
+                 "-c", "user.email=ci@example.invalid",
+                 "commit", "--allow-empty", "-qm", "fixture"],
+                check=True, capture_output=True)
+            for name in ("mod-playerbots", "mod-individual-progression",
+                         "mod-naxxramas-core"):
+                (core / "modules" / name).mkdir(parents=True)
+            r = subprocess.run(["bash", str(script), str(core)],
+                               capture_output=True, text=True, check=False)
+            self.assertEqual(r.returncode, 2, r.stderr)
+            self.assertEqual(r.stdout.count("WRONG CHECKOUT ROOT"), 3)
+            self.assertIn("STOP:", r.stdout)
+
     def test_pinned_outdoor_pvp_handler_is_selected_only_by_world_db(self):
         # Registering our unique script in the module cannot by itself
         # override the stock EP handler. The pinned manager uses the
