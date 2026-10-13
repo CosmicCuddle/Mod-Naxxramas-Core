@@ -1,0 +1,93 @@
+name: NT1 pinned AzerothCore translation unit compile
+
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/BotTalentImport.cpp'
+      - 'scripts/check_nt1_pinned_compile_commands.py'
+      - 'tests/test_nt1_pinned_compile_runner.py'
+      - '.github/workflows/nt1-pinned-translation-unit-compile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-nt1-against-pinned-headers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout pinned Playerbots-compatible AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/azerothcore-wotlk
+          ref: b7f06a16ac7120b5abc2e8d3f96a94265a363224
+          path: acore
+          persist-credentials: false
+
+      - name: Checkout pinned Playerbots module
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+
+      - name: Checkout pinned Individual Progression module
+        uses: actions/checkout@v4
+        with:
+          repository: ZhengPeiRu21/mod-individual-progression
+          ref: 283abe12774801e5671da746ea8bf535cc0252e0
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+
+      - name: Checkout proposed Naxxramas Core revision
+        uses: actions/checkout@v4
+        with:
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+
+      - name: Verify source revisions before CMake
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "b7f06a16ac7120b5abc2e8d3f96a94265a363224"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "283abe12774801e5671da746ea8bf535cc0252e0"
+          git -C acore/modules/mod-naxxramas-core rev-parse HEAD
+
+      - name: Install standard Linux C++ configure dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+
+      - name: Configure AzerothCore against pinned dependencies (no build)
+        shell: bash
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static \
+            -DSCRIPTS=none \
+            -DAPPS_BUILD=world-only \
+            -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=OFF \
+            -DUSE_SCRIPTPCH=OFF
+
+      - name: Compile NT1 C++ translation unit with real generated flags
+        shell: bash
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_nt1_pinned_compile_commands.py \
+            --core-root acore \
+            --compile-commands acore-build/compile_commands.json \
+            --timeout 240
+
+      - name: State validation limits
+        if: always()
+        run: |
+          echo "Source-pinned syntax-only compile, NOT a linked Worldserver."
+          echo "No Worldserver process, SQL migration, Apply, item handling or live test."
+          echo "Original offhand/pet guard must stay enabled regardless of result."
