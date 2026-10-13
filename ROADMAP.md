@@ -1,5 +1,8 @@
 # Naxxramas Core — Project Roadmap & Development Status
 
+**Read-only preservation-evidence gate (13 October 2026):** draft PR #18 now includes [a disposable-only isolated DB procedure](docs/NT1-DISPOSABLE-ALTBOT-EVIDENCE-PROCEDURE.md), [pinned-schema SELECT-only SQL](scripts/nt1_altbot_evidence_readonly.sql), and regression tests that prohibit write statements. Never run destructive tests against Arndor/Rakari or against the live `acore_characters` database. Confirm item **instance GUID**, equip slot and mail, not merely item template ID. This template is preparation, **not** proof of end-to-end reset safety. The mandatory final owner-to-MultiBot handover still applies.
+
+
 **Project:** [CosmicCuddle / Mod-Naxxramas-Core](https://github.com/CosmicCuddle/Mod-Naxxramas-Core)  
 **Platform:** AzerothCore, World of Warcraft 3.3.5a  
 **Roadmap snapshot:** 11 October 2026  
