@@ -87,8 +87,8 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertIn("this->SendChangePhase()", CPP)
 
     def test_full_capture_only(self):
-        self.assertIn("_value >= _maxValue", CPP)
-        self.assertIn("_value <= -_maxValue", CPP)
+        self.assertIn("this->_value >= this->_maxValue", CPP)
+        self.assertIn("this->_value <= -this->_maxValue", CPP)
         self.assertIn("_maxValue > 0.0f", CPP)
         self.assertIn("TowerLockSeconds = 90 * 60", CPP)
         self.assertIn("OPvPCapturePoint::Update(diff)", CPP)

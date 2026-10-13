@@ -99,15 +99,15 @@ namespace
 
             // Vanilla marks objective ALLIANCE/HORDE at the neutral edge:
             // that is NOT 100%. Require the clamped endpoint of the bar.
-            if (_maxValue > 0.0f &&
-                ((_state == OBJECTIVESTATE_ALLIANCE &&
-                  _team == TEAM_ALLIANCE && _value >= _maxValue) ||
-                 (_state == OBJECTIVESTATE_HORDE &&
-                  _team == TEAM_HORDE && _value <= -_maxValue)))
+            if (this->_maxValue > 0.0f &&
+                ((this->_state == OBJECTIVESTATE_ALLIANCE &&
+                  this->_team == TEAM_ALLIANCE && this->_value >= this->_maxValue) ||
+                 (this->_state == OBJECTIVESTATE_HORDE &&
+                  this->_team == TEAM_HORDE && this->_value <= -this->_maxValue)))
             {
                 uint32 packed = 0;
                 uint64 const expiresAt = now + TowerLockSeconds;
-                if (PackLock(_team, expiresAt, packed))
+                if (PackLock(this->_team, expiresAt, packed))
                 {
                     _expiresAt = expiresAt;
                     sWorldState->setWorldState(TowerStateBase + Index, packed);
@@ -131,7 +131,7 @@ namespace
             uint64 const now = CurrentUnixSeconds();
 
             if (expiresAt <= now || expiresAt > now + TowerLockSeconds ||
-                _maxValue <= 0.0f)
+                this->_maxValue <= 0.0f)
             {
                 // Expired, corrupted or impossible locks restart neutral.
                 sWorldState->setWorldState(TowerStateBase + Index, 0);
@@ -141,16 +141,16 @@ namespace
             TeamId const team = (packed & 1) ?
                 TEAM_HORDE : TEAM_ALLIANCE;
             _expiresAt = expiresAt;
-            _team = team;
-            _value = team == TEAM_ALLIANCE ?
-                _maxValue : -_maxValue;
-            _state = team == TEAM_ALLIANCE ?
+            this->_team = team;
+            this->_value = team == TEAM_ALLIANCE ?
+                this->_maxValue : -this->_maxValue;
+            this->_state = team == TEAM_ALLIANCE ?
                 OBJECTIVESTATE_ALLIANCE : OBJECTIVESTATE_HORDE;
 
             // Suppress vanilla re-capture / loss zone text on server restart.
             // These original scripts only broadcast capture text when the
             // state changed; no players are inside the objective at setup.
-            _oldState = _state;
+            this->_oldState = this->_state;
             OriginalTower::ChangeState();
             _pendingInitialRefresh = true;
         }
@@ -161,17 +161,17 @@ namespace
             _expiresAt = 0;
             sWorldState->setWorldState(TowerStateBase + Index, 0);
 
-            // Do not use the old faction as _oldState: vanilla ChangeState
+            // Do not use the old faction as this->_oldState: vanilla ChangeState
             // would send a "lost tower" announcement. The requested reset
             // should not introduce new player-facing notifications.
-            _state = OBJECTIVESTATE_NEUTRAL;
-            _oldState = OBJECTIVESTATE_NEUTRAL;
-            _team = TEAM_NEUTRAL;
-            _value = 0.0f;
+            this->_state = OBJECTIVESTATE_NEUTRAL;
+            this->_oldState = OBJECTIVESTATE_NEUTRAL;
+            this->_team = TEAM_NEUTRAL;
+            this->_value = 0.0f;
 
             // Original ChangeState's neutral case does not always call
             // SetControlledState. Do it explicitly for all four towers.
-            static_cast<OutdoorPvPEP*>(_pvp)->SetControlledState(
+            static_cast<OutdoorPvPEP*>(this->_pvp)->SetControlledState(
                 Index, TEAM_NEUTRAL);
 
             OriginalTower::ChangeState();
