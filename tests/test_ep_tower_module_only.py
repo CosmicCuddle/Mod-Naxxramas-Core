@@ -26,10 +26,18 @@ class SimTower:
     expiry: int = 0
 
     def capture(self, owner, value, now):
-        if self.expiry and now < self.expiry:
+        # The production wrapper will not take a new capture until the
+        # existing lock expires and Update() has reset it to neutral.
+        if self.expiry:
             return False
         self.value, self.owner = value, owner
-        if abs(value) == 1.0 and owner in ("alliance", "horde"):
+        # Mirror the module's faction AND signed endpoint requirements;
+        # ownership alone, or the opposite sign, must never start a lock.
+        full_for_faction = (
+            (owner == "alliance" and value >= 1.0) or
+            (owner == "horde" and value <= -1.0)
+        )
+        if full_for_faction:
             self.expiry = now + DURATION
             return True
         return False
@@ -165,6 +173,67 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertTrue(t.update(now + DURATION))
         self.assertEqual(t.owner, "neutral")
 
+
+    def test_endpoint_sign_matches_capturing_faction(self):
+        for side, partial, wrong, full in (
+            ("alliance", 0.999, -1.0, 1.0),
+            ("horde", -0.999, 1.0, -1.0),
+        ):
+            with self.subTest(side=side):
+                tower = SimTower()
+                self.assertFalse(tower.capture(side, partial, EPOCH + 100))
+                self.assertEqual(tower.expiry, 0)
+                self.assertFalse(tower.capture(side, wrong, EPOCH + 110))
+                self.assertEqual(tower.expiry, 0)
+                self.assertTrue(tower.capture(side, full, EPOCH + 120))
+                self.assertEqual(tower.expiry, EPOCH + 120 + DURATION)
+
+    def test_lock_is_not_restarted_on_same_tick_as_deadline(self):
+        captured = EPOCH + 1000
+        tower = SimTower()
+        self.assertTrue(tower.capture("horde", -1.0, captured))
+        original_expiry = tower.expiry
+        # Production checks expiry before allowing a new capture update.
+        self.assertFalse(tower.capture("alliance", 1.0, original_expiry))
+        self.assertEqual(tower.expiry, original_expiry)
+        self.assertTrue(tower.update(original_expiry))
+        self.assertEqual(tower.owner, "neutral")
+        self.assertEqual(tower.value, 0.0)
+        self.assertTrue(tower.capture("alliance", 1.0, original_expiry + 1))
+        self.assertEqual(tower.expiry, original_expiry + 1 + DURATION)
+
+    def test_unreasonably_future_persisted_state_is_rejected(self):
+        now = EPOCH + 2000
+        for side in (0, 1):
+            with self.subTest(faction_bit=side):
+                impossible_expiry = now + DURATION + 1
+                value = ((impossible_expiry - EPOCH) << 1) | side
+                restored = SimTower.restore(value, now)
+                self.assertEqual(restored.owner, "neutral")
+                self.assertEqual(restored.value, 0.0)
+                self.assertEqual(restored.expiry, 0)
+
+    def test_reset_calls_vanilla_neutral_cleanup_with_no_new_announcements(self):
+        reset = CPP.split("void ResetToNeutral()", 1)[1].split(
+            "uint64 _expiresAt", 1)[0]
+        self.assertIn("this->_value = 0.0f", reset)
+        self.assertIn("this->_team = TEAM_NEUTRAL", reset)
+        self.assertIn("this->_oldState = OBJECTIVESTATE_NEUTRAL", reset)
+        self.assertLess(
+            reset.index("SetControlledState("),
+            reset.index("OriginalTower::ChangeState()")
+        )
+        self.assertIn("this->SendChangePhase()", reset)
+        self.assertNotIn("SendZoneText(", reset)
+        self.assertNotIn("SendObjectiveComplete(", reset)
+
+    def test_rollback_is_outside_auto_sql_update_tree(self):
+        self.assertTrue((ROOT / "docs/rollback/"
+            "2026_10_13_00_ep_tower_lock_module_unbind.sql").is_file())
+        updater = ROOT / "data/sql/db-world"
+        self.assertEqual(
+            list(updater.rglob("*ep_tower_lock*unbind*.sql")), []
+        )
 
 if __name__ == "__main__":
     unittest.main()
