@@ -151,7 +151,7 @@ class OffhandSourceContractTests(unittest.TestCase):
 
     def test_one_preflight_and_both_possible_resets_still_present(self):
         self.assertLess(
-            APPLY.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot)"),
+            APPLY.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot,"),
             APPLY.index("bot->resetTalents(true)"),
         )
         self.assertEqual(APPLY.count("bot->resetTalents(true);"), 2)

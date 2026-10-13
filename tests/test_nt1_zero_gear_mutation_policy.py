@@ -57,7 +57,7 @@ class ZeroGearMutationPolicyGuardrails(unittest.TestCase):
         )
         self.assertIn("No talents or equipment changed.", READINESS)
         self.assertIn(
-            "if (!CheckApplyReadiness(issuer, bot, requested, error, &snapshot))",
+            "if (!CheckApplyReadiness(issuer, bot, requested, error, &snapshot,)",
             APPLY,
         )
         self.assertLess(
@@ -90,12 +90,20 @@ class ZeroGearMutationPolicyGuardrails(unittest.TestCase):
                     rf"\b{symbol}\s*\(",
                 )
 
-    def test_exact_match_is_diagnostic_only_until_no_op_review(self):
+    def test_exact_match_only_adds_early_return_before_resets(self):
         self.assertIn("InspectActiveTalentMatch(", CPP)
-        self.assertNotIn("InspectActiveTalentMatch(", APPLY)
+        self.assertIn("HasVerifiedExactActiveBuild(bot, requested)", READINESS)
+        self.assertIn("if (!randomBot && !verifiedNoOp)", READINESS)
         self.assertNotIn("PrintActiveTalentMatch(", APPLY)
-        self.assertIn("read-only", CPP.lower())
-        # Keep explicit visibility that existing Apply is NOT transactional.
+        self.assertLess(
+            APPLY.index("if (verifiedNoOp)"),
+            APPLY.index("ImportScope const scope(bot)"),
+        )
+        self.assertLess(
+            APPLY.index("if (verifiedNoOp)"),
+            APPLY.index("bot->resetTalents(true)"),
+        )
+        # The different-build fallback remains non-transactional.
         self.assertEqual(
             APPLY.count("bot->resetTalents(true)"), 2
         )
@@ -110,7 +118,7 @@ class ZeroGearMutationPolicyGuardrails(unittest.TestCase):
             )
         self.assertIn("No exceptions", POLICY)
         self.assertIn("without a disabling configuration setting", PLAN)
-        self.assertIn("no new Apply/gear functionality implemented", PLAN)
+        self.assertIn("no different-build apply/gear functionality implemented", PLAN.lower())
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 **Development date:** 13 October 2026  
 **Owner decision:** Keep `NaxxramasCore.BotTalentImport.AltBotAllowedPlayers` (human-character authorisation) and enforce the universal Alt Bot [zero gear mutation contract](NT1-ALT-BOT-ZERO-GEAR-MUTATION-CONTRACT.md) **without a disabling configuration setting**.  
-**Status:** Source review and regression protections; **no new Apply/gear functionality implemented**. PR #18 remains draft, unmerged, and uninstalled.
+**Status:** Source review, regression protections and an **unreleased draft early-return for a proven exact-match Alt Bot**. **No different-build Apply/gear functionality implemented**, no in-game tests. PR #18 remains draft, unmerged, and uninstalled.
 
 ## Exact source evidence (pinned public stack)
 
@@ -32,12 +32,12 @@ Source SHAs:
 - Add a CI regression test that fails if the allowlist, conservative guard or no-gear-command discipline is casually removed.
 - Keep equipment/role changes out of MultiBot talent actions, including Shadow-to-Holy or DPS-to-Tank transitions.
 
-## Phase 2 — Safely avoid unnecessary resets (separate reviewed C++ change)
+## Phase 2 — Safely avoid unnecessary resets (draft C++ implementation, not deployed)
 
-Develop and test a **strictly authorised no-op** when the entire active-spec rank map is *provably identical* to the request. The existing comparator returns `EXACT`, `DIFFERENT` or `CANNOT VERIFY`; it is currently read-only.
+A small **unreleased exact-match no-op path** now uses the existing full active-spec comparator (`EXACT`, `DIFFERENT`, `CANNOT VERIFY`). A caller requesting a no-op is accepted only after the usual human/allowlist/control/era/full point budget, old-build snapshot, character database table and read-only mode checks. Unlike the still-destructive different-build path, it returns **before ImportScope, reset, LearnTalent, SaveToDB or profile persistence**. This has not yet been tested in the owner's server, and does **not** address different-build imports.
 
 Requirements for any future no-op Apply:
-1. The same issuer security, AccessMode 1/2, Alt Bot allowlist, owner/master checks, bot identity, level, class, IP era, legal full point budget and out-of-combat checks apply. Never let a diagnostic `EXACT` bypass these.
+1. The same issuer security, AccessMode 1/2, Alt Bot allowlist, owner/master checks, bot identity, level, class, IP era, legal full point budget and out-of-combat checks apply. Never let a diagnostic `EXACT` bypass these. The exact path still requires the read-only database table and original snapshot check, retaining fail-closed semantics.
 2. Recheck the live rank map atomically with the decision. An indeterminate result is **not** success.
 3. No `resetTalents`, `LearnTalent`, `SaveToDB`, database intent insert, equip API, packet implying a changed build, bot AI factory, or spec switch.
 4. Return a distinctive `ALREADY MATCHES / NO CHANGES MADE` result. The addon must not treat this as a destructive Apply or role-gear request.
@@ -68,4 +68,4 @@ Before implementing or enabling a different-build Apply path:
 - No gear safety override/config flag will be introduced.
 - A final **copy-and-paste Naxxramas Core → N-MultiBot-Chatless owner handover** is mandatory after the actual server behaviour has been verified and released. The addon must continue obeying server Apply refusals.
 
-**Recommended immediate next coding task:** an isolated, test-driven exact-match no-op *only after a focused design review confirms all issuer/access gates can be enforced without falling into existing destructive readiness checks*. It must never be advertised as fixing different-build Arndor until the gear-inert engine and disposable runtime tests pass.
+**Next engineering gate:** run full regression tests, pinned real-header compilation and full Worldserver link of the draft exact-match no-op, then review in-game acceptance on an owner-approved disposable test bot with a verified characters DB restoration. It must never be advertised as fixing different-build Arndor until the gear-inert engine and disposable runtime tests pass.

@@ -1541,14 +1541,22 @@ namespace NaxxramasBotTalentImport
         return true;
     }
 
+    // Forward declaration: implemented after strict read-only comparator.
+    bool HasVerifiedExactActiveBuild(Player const* bot,
+        ValidatedBuild const& requested);
+
     // Shared, READ-ONLY readiness check. Used by Preview to report whether
     // Apply can currently proceed, and rerun immediately before any reset.
     // It can query the database and read bot state, but NEVER resets,
     // learns, saves or mutates the bot. No persistent confirmation token yet.
     bool CheckApplyReadiness(Player* issuer, Player* bot,
         ValidatedBuild const& requested, std::string& error,
-        ValidatedBuild* existingSnapshot = nullptr)
+        ValidatedBuild* existingSnapshot = nullptr,
+        bool* exactNoOpEligible = nullptr)
     {
+        if (exactNoOpEligible)
+            *exactNoOpEligible = false;
+
         if (!Enabled())
         {
             error = "NT1 talent importer is disabled.";
@@ -1676,8 +1684,14 @@ namespace NaxxramasBotTalentImport
             return false;
         }
 
-        // Strict fail-closed guard for Alt Bots only. AzerothCore's
-        // Player::resetTalents(true) can remove a pet and may automatically
+        // Only a deliberately opting-in caller may report an EXACT Alt Bot
+        // no-op. All issuer, allowlist, era, class, budget, existing build
+        // and database preflights above still apply.
+        bool const verifiedNoOp = !randomBot && exactNoOpEligible &&
+            HasVerifiedExactActiveBuild(bot, requested);
+
+        // Strict fail-closed guard for Alt Bots requiring an actual reset.
+        // AzerothCore's Player::resetTalents(true) can remove a pet and may automatically
         // unequip OR MAIL offhand equipment. Until a verified alternative
         // prevents every such item/pet side effect, refuse these states
         // BEFORE calling resetTalents. This deliberately includes offhands
@@ -1687,7 +1701,7 @@ namespace NaxxramasBotTalentImport
         // Note: this is a conservative known-risk guard, NOT proof that
         // arbitrary OnPlayerTalentsReset hooks cannot change something else.
         // The dedicated Alt Bot repair Apply feature is NOT implemented.
-        if (!randomBot)
+        if (!randomBot && !verifiedNoOp)
         {
             if (bot->GetItemByPos(
                 INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND) != nullptr)
@@ -1721,12 +1735,18 @@ namespace NaxxramasBotTalentImport
 
         if (existingSnapshot)
             *existingSnapshot = std::move(snapshot);
+        if (exactNoOpEligible)
+            *exactNoOpEligible = verifiedNoOp;
         return true;
     }
 
     bool ApplyValidated(Player* issuer, Player* bot, std::string const& code,
-        ValidatedBuild const& requested, std::string& error)
+        ValidatedBuild const& requested, std::string& error,
+        bool* unchanged = nullptr)
     {
+        if (unchanged)
+            *unchanged = false;
+
         // Independent fail-closed barrier, even if this helper is called
         // without the chat handler. No reset is reachable in mode 3/4.
         if (IsReadOnlyAccessMode())
@@ -1738,8 +1758,20 @@ namespace NaxxramasBotTalentImport
         // Do not rely on an earlier Preview or ValidateRequest: ownership,
         // master/group, live point count and snapshot can all change.
         ValidatedBuild snapshot;
-        if (!CheckApplyReadiness(issuer, bot, requested, error, &snapshot))
+        bool verifiedNoOp = false;
+        if (!CheckApplyReadiness(issuer, bot, requested, error, &snapshot,
+            &verifiedNoOp))
             return false;
+
+        // This is deliberately BEFORE ImportScope, resetTalents, any
+        // SaveToDB/intent write, LearnTalent or bot equipment operations.
+        // DIFFERENT/CANNOT VERIFY builds retain the original safety blocks.
+        if (verifiedNoOp)
+        {
+            if (unchanged)
+                *unchanged = true;
+            return true;
+        }
 
         bool const randomBot = sRandomPlayerbotMgr.IsRandomBot(bot);
         uint8 const spec = bot->GetActiveSpec();
@@ -2021,6 +2053,13 @@ namespace NaxxramasBotTalentImport
         return report;
     }
 
+    bool HasVerifiedExactActiveBuild(Player const* bot,
+        ValidatedBuild const& requested)
+    {
+        return InspectActiveTalentMatch(bot, requested).Status ==
+            ActiveTalentMatchStatus::Exact;
+    }
+
     void PrintActiveTalentMatch(ChatHandler* handler, Player const* bot,
         ValidatedBuild const& requested)
     {
@@ -2134,10 +2173,19 @@ namespace NaxxramasBotTalentImport
         // PR #7's shared PRE-RESET eligibility check is reused here. A valid
         // target NT1 does not imply Apply can safely roll back the old build.
         std::string reason;
-        if (CheckApplyReadiness(issuer, bot, proposed, reason))
-            handler->SendSysMessage(
-                "NT1 ALT REPAIR DIAGNOSTIC: ordinary talent preflight is "
-                "currently READY; a special repair is not required.");
+        bool wouldNoOp = false;
+        if (CheckApplyReadiness(issuer, bot, proposed, reason, nullptr,
+            &wouldNoOp))
+        {
+            if (wouldNoOp)
+                handler->SendSysMessage(
+                    "NT1 ALT REPAIR ALREADY MATCHES: authorised Apply would "
+                    "be a no-op. No reset, equipment or pet changes.");
+            else
+                handler->SendSysMessage(
+                    "NT1 ALT REPAIR DIAGNOSTIC: ordinary talent preflight is "
+                    "currently READY; a special repair is not required.");
+        }
         else
             handler->PSendSysMessage(
                 "NT1 ALT REPAIR DIAGNOSTIC BLOCKED: {}", reason);
@@ -2217,10 +2265,19 @@ namespace NaxxramasBotTalentImport
         std::string reason;
         Player* issuer = handler && handler->GetSession() ?
             handler->GetSession()->GetPlayer() : nullptr;
-        if (CheckApplyReadiness(issuer, bot, build, reason))
-            handler->SendSysMessage(
-                "NT1 PREFLIGHT READY (current state only): Apply will "
-                "recheck all requirements before changing talents.");
+        bool wouldNoOp = false;
+        if (CheckApplyReadiness(issuer, bot, build, reason, nullptr,
+            &wouldNoOp))
+        {
+            if (wouldNoOp)
+                handler->SendSysMessage(
+                    "NT1 PREFLIGHT ALREADY MATCHES: authorised Apply would "
+                    "make NO CHANGES. Access and build will be rechecked.");
+            else
+                handler->SendSysMessage(
+                    "NT1 PREFLIGHT READY (current state only): Apply will "
+                    "recheck all requirements before changing talents.");
+        }
         else
             handler->PSendSysMessage("NT1 PREFLIGHT BLOCKED: {}", reason);
 
@@ -2551,10 +2608,20 @@ public:
 
         Player* issuer = handler->GetSession() ?
             handler->GetSession()->GetPlayer() : nullptr;
+        bool unchanged = false;
         if (!NaxxramasBotTalentImport::ApplyValidated(
-                issuer, bot, code, build, error))
+                issuer, bot, code, build, error, &unchanged))
         {
             handler->PSendSysMessage("NT1 apply aborted: {}", error);
+            return true;
+        }
+
+        if (unchanged)
+        {
+            handler->PSendSysMessage(
+                "NT1 ALREADY MATCHES: {} has exact active-spec talents. "
+                "NO CHANGES MADE; no reset, talent learning, equipment, "
+                "pet, profile or database write.", bot->GetName());
             return true;
         }
 
