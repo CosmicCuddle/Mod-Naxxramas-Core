@@ -185,8 +185,8 @@ class ModuleOnlySourceContract(unittest.TestCase):
             with self.subTest(workflow=filename):
                 workflow = (ROOT / ".github/workflows" / filename).read_text()
                 self.assertIn("types: [opened, reopened]", workflow)
-                self.assertIn("  push:\\n    branches: [feature/ep-tower-lock-module-only]", workflow)
-                self.assertIn("    paths:\\n", workflow)
+                self.assertIn("  push:\n    branches: [feature/ep-tower-lock-module-only]", workflow)
+                self.assertIn("    paths:\n", workflow)
                 self.assertNotIn("synchronize]", workflow)
                 self.assertIn("  workflow_dispatch:", workflow)
 
