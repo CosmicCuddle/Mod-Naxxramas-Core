@@ -119,6 +119,44 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertIn("ChangeState();\n            _pendingInitialRefresh", CPP)
         self.assertIn("ChangeState();\n\n            if constexpr", CPP)
 
+    def test_northpass_shrine_late_spawn_uses_stock_faction(self):
+        # Stock NPT::SummonGO only updates currently instantiated shrine GOs;
+        # a restart can restore the tower before its grid loads.
+        fn = CPP.split("void CorrectLateNorthpassShrine(GameObject* go)", 1)[1].split(
+            "void ChangeState() override", 1
+        )[0]
+        self.assertIn("std::is_same_v<OriginalTower, OPvPCapturePointEP_NPT>", fn)
+        self.assertIn("this->_team != TEAM_ALLIANCE", fn)
+        self.assertIn("this->_team != TEAM_HORDE", fn)
+        self.assertIn("this->_objects.find(EP_NPT_BUFF)", fn)
+        self.assertIn("shrine->second != go->GetSpawnId()", fn)
+        self.assertIn("go->SetUInt32Value(GAMEOBJECT_FACTION,", fn)
+        self.assertIn("this->_team == TEAM_ALLIANCE ? 84 : 83", fn)
+        outer = CPP.split("class NaxxramasOutdoorPvPEP final", 1)[1]
+        self.assertIn("void OnGameObjectCreate(GameObject* go) override", outer)
+        self.assertLess(
+            outer.index("OutdoorPvP::OnGameObjectCreate(go);"),
+            outer.index("_northpassTower->CorrectLateNorthpassShrine(go);")
+        )
+        self.assertIn("_northpassTower = npt;", outer)
+        self.assertIn("NorthpassTower* _northpassTower = nullptr;", outer)
+
+    def test_pinned_northpass_spawn_callback_and_stock_faction(self):
+        core = ROOT.parents[1]
+        go_path = core / "src/server/game/Entities/GameObject/GameObject.cpp"
+        ep_path = core / "src/server/scripts/OutdoorPvP/OutdoorPvPEP.cpp"
+        if not (go_path.is_file() and ep_path.is_file()):
+            self.skipTest("Pinned AzerothCore source not checked out beside module")
+        go = go_path.read_text()
+        ep = ep_path.read_text()
+        self.assertIn("m_zoneScript->OnGameObjectCreate(this);", go)
+        npt = ep.split("void OPvPCapturePointEP_NPT::SummonGO", 1)[1].split(
+            "// CGT", 1
+        )[0]
+        self.assertIn("AddObject(EP_NPT_BUFF,", npt)
+        self.assertIn("(teamId == TEAM_ALLIANCE ? 84 : 83)", npt)
+        self.assertIn("GetGameObjectBySpawnIdStore()", npt)
+
     def test_full_capture_only(self):
         self.assertIn("this->_value >= this->_maxValue", CPP)
         self.assertIn("this->_value <= -this->_maxValue", CPP)

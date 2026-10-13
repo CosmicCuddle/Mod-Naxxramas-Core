@@ -29,6 +29,7 @@ The original AzerothCore capture update flags towers as controlled once the capt
 - Original NPT shrine and PWT flight-master neutral branches are reused. Zone-level counts and buffs recompute after expiry.
 - During startup restoration, the original `ChangeState()` restores each captured tower's benefits with `_oldState=_state` to avoid extra capture text. The initial zero-diff refresh recalculates the original zone's private control-count cache.
 - **Late-loaded flag appearance:** The original `ChangeState()` updates artkits only on currently loaded map objects. The module wrapper additionally uses the pinned `GameObject::SetGoArtKit(kit, nullptr, spawnId)` API to refresh **in-memory spawn metadata** for both each tower's capture point and its flag, including on restart restoration and neutral expiry. Thus grids loaded later inherit the faction/neutral artkit. This does not edit GameObject C++ or write to the world DB. Actual unloaded-grid behaviour remains a staging acceptance test.
+- **Northpass shrine loaded after restart:** Stock `OPvPCapturePointEP_NPT::SummonGO` applies faction 84/83 only to a loaded shrine object. The module now forwards `OutdoorPvP::OnGameObjectCreate` and re-applies that same stock faction only when the generated **Northpass shrine spawn ID** appears, and only while Alliance/Horde controls the tower. This does not change faction semantics for any other gameobject. Verify delayed shrine spawning on staging.
 - No new messages or client-side countdowns are introduced.
 
 ## Restart-safe characters database state

@@ -76,6 +76,7 @@ Use disposable Alliance and Horde test characters in the **isolated staging real
 | Restart after 89 minutes | Approximately 1 minute remains |
 | Keep Worldserver offline past expiry then start | Tower is neutral immediately on next startup, without an extra capture/loss announcement |
 | Restart while EP tower grid is unloaded; first character enters later | Both tower capture point and flag show the retained faction artkit; after expiry and later grid reload they show neutral artkit |
+| Restart while Northpass shrine grid is unloaded; visit after restart | Shrine spawns with the original faction (Alliance=84, Horde=83), and neutral expiry removes it; other GO factions remain unchanged |
 | Concurrent active zone, Playerbots and IP | No duplicate handler, quest credit, buff or off-zone regressions |
 | Terokkar Forest towers | Entirely unchanged |
 

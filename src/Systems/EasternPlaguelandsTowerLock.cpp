@@ -120,6 +120,28 @@ namespace
             return changed;
         }
 
+        void CorrectLateNorthpassShrine(GameObject* go)
+        {
+            if constexpr (std::is_same_v<OriginalTower, OPvPCapturePointEP_NPT>)
+            {
+                // Stock SummonGO assigns shrine faction only to a GO already
+                // instantiated in the map. Restoring a lock on an unloaded
+                // grid creates spawn data, not necessarily a live shrine.
+                // Apply the SAME stock factions when that exact shrine loads.
+                if (!go || (this->_team != TEAM_ALLIANCE &&
+                            this->_team != TEAM_HORDE))
+                    return;
+
+                auto const shrine = this->_objects.find(EP_NPT_BUFF);
+                if (shrine == this->_objects.end() ||
+                    shrine->second != go->GetSpawnId())
+                    return;
+
+                go->SetUInt32Value(GAMEOBJECT_FACTION,
+                    this->_team == TEAM_ALLIANCE ? 84 : 83);
+            }
+        }
+
         void ChangeState() override
         {
             // Let the original tower own all side effects, capture text,
@@ -240,6 +262,13 @@ namespace
     class NaxxramasOutdoorPvPEP final : public OutdoorPvPEP
     {
     public:
+        void OnGameObjectCreate(GameObject* go) override
+        {
+            OutdoorPvP::OnGameObjectCreate(go);
+            if (_northpassTower)
+                _northpassTower->CorrectLateNorthpassShrine(go);
+        }
+
         bool SetupOutdoorPvP() override
         {
             // Recreate the vanilla four-tower setup with subclasses rather
@@ -252,6 +281,8 @@ namespace
             auto* npt = new NorthpassTower(this);
             auto* pwt = new PlaguewoodTower(this);
             auto* cgt = new CrownGuardTower(this);
+
+            _northpassTower = npt;
 
             AddCapturePoint(ewt);
             AddCapturePoint(pwt);
@@ -271,6 +302,9 @@ namespace
             OutdoorPvPEP::Update(0);
             return true;
         }
+
+    private:
+        NorthpassTower* _northpassTower = nullptr;
     };
 
     class NaxxramasEasternPlaguelandsPvPScript final
