@@ -5,6 +5,7 @@ Full pinned Worldserver compile and disposable staging validation are required.
 """
 from dataclasses import dataclass
 from pathlib import Path
+import sqlite3
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -199,6 +200,63 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertNotIn("DELETE", BACK)
         self.assertNotIn("INSERT", FORWARD)
         self.assertNotIn("INSERT", BACK)
+
+    def test_sql_roundtrip_updates_only_stock_ep_in_disposable_db(self):
+        # Execute the actual module SQL on an IN-MEMORY SQLite table. This
+        # cannot touch MySQL, credentials or production DBs. This checks the
+        # narrow, portable UPDATE/WHERE semantics, not MySQL deployment.
+        with sqlite3.connect(":memory:") as db:
+            db.execute(
+                "CREATE TABLE outdoorpvp_template "
+                "(TypeId INTEGER PRIMARY KEY, ScriptName TEXT NOT NULL)"
+            )
+            db.executemany(
+                "INSERT INTO outdoorpvp_template VALUES (?, ?)",
+                [(6, "outdoorpvp_ep"),
+                 (7, "another_zone_handler"),
+                 (8, "outdoorpvp_naxxramas_ep_lock")]
+            )
+            changed = db.execute(FORWARD).rowcount
+            self.assertEqual(changed, 1)
+            self.assertEqual(
+                db.execute("SELECT ScriptName FROM outdoorpvp_template "
+                           "WHERE TypeId=6").fetchone()[0],
+                "outdoorpvp_naxxramas_ep_lock"
+            )
+            self.assertEqual(db.execute(FORWARD).rowcount, 0)
+            self.assertEqual(db.execute(BACK).rowcount, 1)
+            self.assertEqual(db.execute(BACK).rowcount, 0)
+            self.assertEqual(
+                db.execute("SELECT TypeId, ScriptName "
+                           "FROM outdoorpvp_template ORDER BY TypeId"
+                ).fetchall(),
+                [(6, "outdoorpvp_ep"),
+                 (7, "another_zone_handler"),
+                 (8, "outdoorpvp_naxxramas_ep_lock")]
+            )
+
+    def test_sql_does_not_replace_unknown_ep_handler_in_disposable_db(self):
+        # Existing third-party PvP handlers are a mandatory STOP condition.
+        # Neither forward migration nor rollback may overwrite a custom EP
+        # script (or a stock-named handler belonging to another TypeId).
+        with sqlite3.connect(":memory:") as db:
+            db.execute(
+                "CREATE TABLE outdoorpvp_template "
+                "(TypeId INTEGER PRIMARY KEY, ScriptName TEXT NOT NULL)"
+            )
+            db.executemany(
+                "INSERT INTO outdoorpvp_template VALUES (?, ?)",
+                [(6, "outdoorpvp_custom_owner"),
+                 (7, "outdoorpvp_ep")]
+            )
+            self.assertEqual(db.execute(FORWARD).rowcount, 0)
+            self.assertEqual(db.execute(BACK).rowcount, 0)
+            self.assertEqual(
+                db.execute("SELECT TypeId, ScriptName "
+                           "FROM outdoorpvp_template ORDER BY TypeId"
+                ).fetchall(),
+                [(6, "outdoorpvp_custom_owner"), (7, "outdoorpvp_ep")]
+            )
 
     def test_partial_capture_does_not_lock(self):
         t = SimTower()
