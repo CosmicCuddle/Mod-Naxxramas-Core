@@ -111,8 +111,8 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertIn("artkit = 21", state)
         self.assertIn("artkit = 2", state)
         self.assertIn("artkit = 1", state)
-        self.assertIn("ChangeState();\\n            _pendingInitialRefresh", CPP)
-        self.assertIn("ChangeState();\\n\\n            if constexpr", CPP)
+        self.assertIn("ChangeState();\n            _pendingInitialRefresh", CPP)
+        self.assertIn("ChangeState();\n\n            if constexpr", CPP)
 
     def test_full_capture_only(self):
         self.assertIn("this->_value >= this->_maxValue", CPP)
