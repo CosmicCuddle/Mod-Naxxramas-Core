@@ -94,6 +94,26 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertIn("SetControlledState(", CPP)
         self.assertIn("this->SendChangePhase()", CPP)
 
+    def test_restored_flags_keep_faction_artkit_when_grids_load_late(self):
+        # The pinned GameObject::SetGoArtKit(uint8, GameObject*,
+        # LowType) updates in-memory spawn metadata even with go=nullptr.
+        # Normal vanilla ChangeState only updates currently loaded GOs.
+        self.assertIn('#include "GameObject.h"', CPP)
+        state = CPP.split("void ChangeState() override", 1)[1].split(
+            "void RestoreFromPersistentState()", 1)[0]
+        self.assertIn("OriginalTower::ChangeState();", state)
+        self.assertIn("GameObject::SetGoArtKit(", state)
+        self.assertIn("this->m_capturePointSpawnId", state)
+        for flag in ("EP_EWT_FLAGS", "EP_NPT_FLAGS",
+                     "EP_PWT_FLAGS", "EP_CGT_FLAGS"):
+            self.assertIn(flag, state)
+        self.assertIn("this->_objects.find(FlagSlot)", state)
+        self.assertIn("artkit = 21", state)
+        self.assertIn("artkit = 2", state)
+        self.assertIn("artkit = 1", state)
+        self.assertIn("ChangeState();\\n            _pendingInitialRefresh", CPP)
+        self.assertIn("ChangeState();\\n\\n            if constexpr", CPP)
+
     def test_full_capture_only(self):
         self.assertIn("this->_value >= this->_maxValue", CPP)
         self.assertIn("this->_value <= -this->_maxValue", CPP)
@@ -237,7 +257,7 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertIn("this->_oldState = OBJECTIVESTATE_NEUTRAL", reset)
         self.assertLess(
             reset.index("SetControlledState("),
-            reset.index("OriginalTower::ChangeState()")
+            reset.index("ChangeState();")
         )
         self.assertIn("this->SendChangePhase()", reset)
         self.assertNotIn("SendZoneText(", reset)

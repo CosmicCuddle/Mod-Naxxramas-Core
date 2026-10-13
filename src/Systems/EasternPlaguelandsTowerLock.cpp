@@ -12,6 +12,7 @@
  */
 
 #include "GameTime.h"
+#include "GameObject.h"
 #include "OutdoorPvPScript.h"
 #include "WorldState.h"
 
@@ -119,6 +120,36 @@ namespace
             return changed;
         }
 
+        void ChangeState() override
+        {
+            // Let the original tower own all side effects, capture text,
+            // buffs, shrine, NPCs, flight master and graveyard decisions.
+            OriginalTower::ChangeState();
+
+            // Vanilla's SetGoArtKit() in ChangeState only visits objects
+            // currently loaded into the map. On startup the base map may
+            // exist while the tower's grid has not loaded yet. Update the
+            // in-memory spawn data too, so late-spawned capture points and
+            // tower flags adopt the restored owner instead of looking neutral.
+            uint8 artkit = 21; // Original neutral/challenge art kit.
+            if (this->_state == OBJECTIVESTATE_ALLIANCE)
+                artkit = 2;
+            else if (this->_state == OBJECTIVESTATE_HORDE)
+                artkit = 1;
+
+            GameObject::SetGoArtKit(
+                artkit, nullptr, this->m_capturePointSpawnId);
+
+            constexpr uint32 FlagSlot =
+                Index == EP_EWT ? EP_EWT_FLAGS :
+                Index == EP_NPT ? EP_NPT_FLAGS :
+                Index == EP_PWT ? EP_PWT_FLAGS : EP_CGT_FLAGS;
+
+            auto const flag = this->_objects.find(FlagSlot);
+            if (flag != this->_objects.end())
+                GameObject::SetGoArtKit(artkit, nullptr, flag->second);
+        }
+
         void RestoreFromPersistentState()
         {
             uint32 const packed = uint32(
@@ -151,7 +182,7 @@ namespace
             // These original scripts only broadcast capture text when the
             // state changed; no players are inside the objective at setup.
             this->_oldState = this->_state;
-            OriginalTower::ChangeState();
+            ChangeState();
             _pendingInitialRefresh = true;
         }
 
@@ -174,7 +205,7 @@ namespace
             static_cast<OutdoorPvPEP*>(this->_pvp)->SetControlledState(
                 Index, TEAM_NEUTRAL);
 
-            OriginalTower::ChangeState();
+            ChangeState();
 
             if constexpr (std::is_same_v<OriginalTower, OPvPCapturePointEP_EWT>)
             {
