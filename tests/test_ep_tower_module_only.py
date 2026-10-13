@@ -174,6 +174,22 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertEqual(t.owner, "neutral")
 
 
+    def test_pinned_ep_ci_uses_feature_push_without_duplicate_pr_synchronizes(self):
+        # GitHub PR path filters compare against the whole PR diff, not the
+        # most recent commit. Push path filters catch feature-code changes;
+        # limiting PR events prevents redundant full links for docs edits.
+        for filename in (
+            "ep-module-pinned-compile.yml",
+            "ep-module-pinned-worldserver-link.yml",
+        ):
+            with self.subTest(workflow=filename):
+                workflow = (ROOT / ".github/workflows" / filename).read_text()
+                self.assertIn("types: [opened, reopened]", workflow)
+                self.assertIn("  push:\\n    branches: [feature/ep-tower-lock-module-only]", workflow)
+                self.assertIn("    paths:\\n", workflow)
+                self.assertNotIn("synchronize]", workflow)
+                self.assertIn("  workflow_dispatch:", workflow)
+
     def test_endpoint_sign_matches_capturing_faction(self):
         for side, partial, wrong, full in (
             ("alliance", 0.999, -1.0, 1.0),

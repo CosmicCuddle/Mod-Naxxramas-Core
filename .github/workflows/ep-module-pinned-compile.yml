@@ -1,6 +1,10 @@
 name: EP module-only pinned source compile
 on:
   pull_request:
+    # Push validates every relevant commit on the feature branch; avoid
+    # duplicate expensive runs on every pull_request.synchronize event.
+    # Still run when an eligible PR is first opened or reopened.
+    types: [opened, reopened]
     paths:
       - 'src/Systems/EasternPlaguelandsTowerLock.cpp'
       - 'src/NaxxramasCore_loader.cpp'
