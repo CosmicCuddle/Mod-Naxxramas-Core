@@ -48,6 +48,12 @@
 - Playerbots: `mod-playerbots/mod-playerbots@037c01418b5d01506917a3db9b44fd56ac5f965c`
 - Individual Progression: `ZhengPeiRu21/mod-individual-progression@283abe12774801e5671da746ea8bf535cc0252e0`
 
+### Current EP staging-validation companion
+
+The [staging acceptance checklist](EP-TOWER-STAGING-ACCEPTANCE-CHECKLIST.md) records the required backup, read-only SQL, four-tower/faction acceptance matrix, clean-restart/downtime cases and safe rollback drill. **This is a plan, not staging authorisation.** On the pinned source the character `worldstates.value` column is `INT UNSIGNED`, compatible with the packed per-tower value. However, `WorldState::setWorldState` skips database persistence on **cross-realm** nodes; such deployments are blocked pending a revised storage design. Async hard-crash durability is still not established.
+
+Recent review checkpoint: EP source compile and the synthetic regressions were successful for `fd1be1f9eb4e9e26330eb15018463c01419c4d81`. Full Worldserver link was still **in progress** at review time, not declared passed; always verify the newest PR head and its own workflow results. No upstream C++ or live SQL was modified.
+
 ## 2. Separate continuing workstream: NT1 Alt Bot talent imports — PR #18
 
 - [DRAFT PR #18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/18), branch `research/nt1-offhand-preservation-review`.
