@@ -12,7 +12,7 @@ CPP = (ROOT / "src/Systems/EasternPlaguelandsTowerLock.cpp").read_text()
 LOADER = (ROOT / "src/NaxxramasCore_loader.cpp").read_text()
 FORWARD = (ROOT / "data/sql/db-world/"
     "2026_10_13_00_ep_tower_lock_module_bind.sql").read_text()
-BACK = (ROOT / "data/sql/db-world/rollback/"
+BACK = (ROOT / "docs/rollback/"
     "2026_10_13_00_ep_tower_lock_module_unbind.sql").read_text()
 SECOND = 1
 DURATION = 5400

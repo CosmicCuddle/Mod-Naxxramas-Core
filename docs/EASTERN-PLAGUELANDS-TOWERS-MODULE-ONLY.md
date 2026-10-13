@@ -13,7 +13,8 @@ The Naxxramas module installs its **own uniquely named** factory `outdoorpvp_nax
 
 - Module-owned C++: `src/Systems/EasternPlaguelandsTowerLock.cpp` and registration in `src/NaxxramasCore_loader.cpp`.
 - World binding: `data/sql/db-world/2026_10_13_00_ep_tower_lock_module_bind.sql`.
-- Unbind: `data/sql/db-world/rollback/2026_10_13_00_ep_tower_lock_module_unbind.sql`.
+- Unbind: `docs/rollback/2026_10_13_00_ep_tower_lock_module_unbind.sql`.
+- The rollback script deliberately lives **outside `data/sql/db-world`** so any module SQL updater cannot accidentally run the uninstall step during a normal installation or upgrade.
 - Four wrappers derive from **existing** `OPvPCapturePointEP_EWT`, `_NPT`, `_PWT` and `_CGT` classes and call their normal `ChangeState()` when restoring/canceling ownership. The original `OutdoorPvPEP` remains the parent of the zone wrapper so existing buff/count/quest UI logic stays in charge.
 
 **Pinned implementation assumption:** standard source layout `azerothcore/modules/mod-naxxramas-core/src/Systems` can include the core's original `OutdoorPvPEP.h`. The owner's fork's compile/link and original script class visibility **must be checked**. Do not force-copy or replace AzerothCore headers.
@@ -70,7 +71,7 @@ One packed `uint32` stores (Unix expiry seconds - 2020-01-01 epoch) in the upper
 ## Reversal and uninstall (backup first)
 
 1. Stop Worldserver, retain full database and known-good binary backups. Do not remove module code while the DB still selects its custom handler.
-2. In the reviewed world DB, run the **module-supplied rollback SQL** `data/sql/db-world/rollback/2026_10_13_00_ep_tower_lock_module_unbind.sql`, which rebinds only the exact `ScriptName='outdoorpvp_naxxramas_ep_lock'` `TypeId=6` entry to stock `outdoorpvp_ep`. Other custom scripts are untouched.
+2. In the reviewed world DB, run the **module-supplied rollback SQL** `docs/rollback/2026_10_13_00_ep_tower_lock_module_unbind.sql`, which rebinds only the exact `ScriptName='outdoorpvp_naxxramas_ep_lock'` `TypeId=6` entry to stock `outdoorpvp_ep`. Other custom scripts are untouched.
 3. Restart a known-good Worldserver with stock `outdoorpvp_ep` and verify towers return to the default AzerothCore behaviour.
 4. The four module-owned `worldstates` values are inert when unbound. **Do not delete them blindly.** With a verified database backup and owner permission, remove only the audited four patch-owned rows if desired. Removing the C++ in a later release is a separate reviewed action.
 5. If any part fails, restore the full backed-up databases and known-good binary rather than attempting guessed repairs.
