@@ -12,7 +12,8 @@ AzerothCore's `OutdoorPvPMgr::InitOutdoorPvP` reads the world DB `outdoorpvp_tem
 The Naxxramas module installs its **own uniquely named** factory `outdoorpvp_naxxramas_ep_lock`. The original `outdoorpvp_ep` source still compiles but is **not selected** for this zone while the reviewed world SQL binding is active. It is **NOT registered under the stock script name**. Reversing the SQL re-selects the untouched stock script on next Worldserver startup.
 
 - Module-owned C++: `src/Systems/EasternPlaguelandsTowerLock.cpp` and registration in `src/NaxxramasCore_loader.cpp`.
-- World binding: `data/sql/db-world/2026_10_13_00_ep_tower_lock_module_bind.sql`.
+- World binding: `docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql`.
+- **Manual-only safety:** AzerothCore discovers module `data/sql/db-world` migrations automatically at startup. Therefore the optional EP handler binding is intentionally held under `docs/install/`, **outside updater discovery**. Merely compiling or installing the module cannot opt the server into this feature by running this SQL; the owner must explicitly authorise the isolated staging update after read-only checks and backups.
 - Unbind: `docs/rollback/2026_10_13_00_ep_tower_lock_module_unbind.sql`.
 - The rollback script deliberately lives **outside `data/sql/db-world`** so any module SQL updater cannot accidentally run the uninstall step during a normal installation or upgrade.
 - Four wrappers derive from **existing** `OPvPCapturePointEP_EWT`, `_NPT`, `_PWT` and `_CGT` classes and call their normal `ChangeState()` when restoring/canceling ownership. The original `OutdoorPvPEP` remains the parent of the zone wrapper so existing buff/count/quest UI logic stays in charge.

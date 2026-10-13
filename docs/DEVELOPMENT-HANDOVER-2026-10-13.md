@@ -26,7 +26,7 @@
 
 - `src/Systems/EasternPlaguelandsTowerLock.cpp`: unique `OutdoorPvPScript("outdoorpvp_naxxramas_ep_lock")`, original four tower classes wrapped via subclasses, `OutdoorPvPEP` extended within the module. No original core files edited.
 - `src/NaxxramasCore_loader.cpp`: module registration.
-- `data/sql/db-world/2026_10_13_00_ep_tower_lock_module_bind.sql`: targeted world DB `outdoorpvp_template.TypeId=6` script-name migration from stock `outdoorpvp_ep` to module handler **only when the existing name exactly matches**.
+- `docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql`: targeted world DB `outdoorpvp_template.TypeId=6` script-name migration from stock `outdoorpvp_ep` to module handler **only when the existing name exactly matches**.
 - **Rollback SQL is intentionally kept OUT of auto-discovered world-update directories**: find the current path and detailed instructions in `docs/EASTERN-PLAGUELANDS-TOWERS-MODULE-ONLY.md`. Never auto-apply the rollback script during normal updates.
 - `acore_characters.worldstates` keys **93420020–93420023**: single packed uint32 per tower, encoding faction and Unix expiry offset to avoid torn two-row owner/expiry pairs. Before first installation, check these keys are unclaimed by the actual server; no migration or production DB write has been authorised. `WorldState::setWorldState` is asynchronous; **hard-crash durability remains unproven**.
 - `tests/test_ep_tower_module_only.py` and `.github/workflows/ep-module-pinned-compile.yml`, `ep-module-pinned-worldserver-link.yml` implement synthetic/source testing and pinned-stack compile/link.
@@ -95,6 +95,14 @@ The pinned AzerothCore `OutdoorPvP::SetMapFromZone` creates map 0 on EP handler 
 - Most recent **Northpass shrine gameplay-code full link** [38445137510](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38445137510) **was still running** at documentation time; do not promote PR based solely on previous successful links. The preceding **flag-artkit gameplay-code full link** [38438203265](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38438203265) passed.
 - **STOP before actual database work:** Back up/restore-test `acore_world` and `acore_characters`; preflight exact `TypeId=6` binding and unclaimed character worldstate keys 93420020–93420023; compare owner's installed AzerothCore fork; obtain explicit owner approval for an isolated staging realm, execute full four-tower tests, and rehearse rollback. No live server/database/character action has been authorised.
 - PR #21 remains **DRAFT and unmerged**. This checkpoint only changes module tests and documentation. Preserves the independent 90-minute locks, no config switch, no new announcements and untouched original AzerothCore source.
+
+### EP release safety correction — optional world SQL must never auto-run
+
+A source review of the pinned AzerothCore `src/server/database/Updater/UpdateFetcher.cpp` confirms that the updater automatically searches enabled modules' `data/sql/db-world` folders for pending SQL. The former PR #21 location was therefore an inadvertent **auto-activation risk**. The forward EP script-name binding has been **moved to** [`docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql`](install/2026_10_13_00_ep_tower_lock_module_bind.sql), outside the scanned location; the former `data/sql/db-world/2026_10_13_00_ep_tower_lock_module_bind.sql` is **deleted from the PR tree**. Both SQL directions require explicit manual, owner-approved staging steps; neither must be applied to production automatically. Do not restore the old path.
+
+- Added regression guard that the optional EP SQL stays outside module updater discovery. Source compile and full Worldserver CI track both the relocated file and relevant build source. Subsequent code changes must not reintroduce the old `data/sql/` path.
+- Staging checklist and module design document were updated with manual-only activation and stock-handler default. **This is a GitHub branch change only**; no staging/production DB was accessed.
+- Prior successful [Northpass shrine full Worldserver build 38445137510](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38445137510) remains valid for unchanged gameplay C++, but **rerun exact-head CI** for this change and ensure current success before later release discussion. Runtime acceptance/installed-fork verification remain separate gates.
 
 ## 2. Separate continuing workstream: NT1 Alt Bot talent imports — PR #18
 

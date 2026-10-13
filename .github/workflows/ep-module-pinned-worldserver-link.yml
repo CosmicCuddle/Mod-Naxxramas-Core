@@ -8,14 +8,14 @@ on:
     paths:
       - 'src/Systems/EasternPlaguelandsTowerLock.cpp'
       - 'src/NaxxramasCore_loader.cpp'
-      - 'data/sql/db-world/**'
+      - 'docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql'
       - '.github/workflows/ep-module-pinned-worldserver-link.yml'
   push:
     branches: [feature/ep-tower-lock-module-only]
     paths:
       - 'src/Systems/EasternPlaguelandsTowerLock.cpp'
       - 'src/NaxxramasCore_loader.cpp'
-      - 'data/sql/db-world/2026_10_13_00_ep_tower_lock_module_bind.sql'
+      - 'docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql'
       - '.github/workflows/ep-module-pinned-worldserver-link.yml'
   workflow_dispatch:
 

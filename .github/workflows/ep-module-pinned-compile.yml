@@ -10,7 +10,7 @@ on:
       - 'src/NaxxramasCore_loader.cpp'
       - 'scripts/check_ep_module_compile_commands.py'
       - 'tests/test_ep_tower_module_only.py'
-      - 'data/sql/db-world/2026_10_13_00_ep_tower_lock_module_bind.sql'
+      - 'docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql'
       - 'docs/rollback/2026_10_13_00_ep_tower_lock_module_unbind.sql'
       - '.github/workflows/ep-module-pinned-compile.yml'
   push:
@@ -20,7 +20,7 @@ on:
       - 'src/NaxxramasCore_loader.cpp'
       - 'scripts/check_ep_module_compile_commands.py'
       - 'tests/test_ep_tower_module_only.py'
-      - 'data/sql/db-world/2026_10_13_00_ep_tower_lock_module_bind.sql'
+      - 'docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql'
       - 'docs/rollback/2026_10_13_00_ep_tower_lock_module_unbind.sql'
       - '.github/workflows/ep-module-pinned-compile.yml'
   workflow_dispatch:

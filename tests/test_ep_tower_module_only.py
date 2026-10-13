@@ -11,7 +11,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 CPP = (ROOT / "src/Systems/EasternPlaguelandsTowerLock.cpp").read_text()
 LOADER = (ROOT / "src/NaxxramasCore_loader.cpp").read_text()
-FORWARD = (ROOT / "data/sql/db-world/"
+FORWARD = (ROOT / "docs/install/"
     "2026_10_13_00_ep_tower_lock_module_bind.sql").read_text()
 BACK = (ROOT / "docs/rollback/"
     "2026_10_13_00_ep_tower_lock_module_unbind.sql").read_text()
@@ -200,6 +200,19 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertNotIn("DELETE", BACK)
         self.assertNotIn("INSERT", FORWARD)
         self.assertNotIn("INSERT", BACK)
+
+    def test_ep_sql_migration_requires_manual_owner_opt_in(self):
+        # AzerothCore's module SQL updater auto-discovers data/sql/db-world.
+        # The optional EP binding must remain outside its scanned subtree.
+        forward_file = ROOT / "docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql"
+        self.assertTrue(forward_file.is_file())
+        self.assertFalse((ROOT / "data/sql/db-world/"
+            "2026_10_13_00_ep_tower_lock_module_bind.sql").exists())
+        self.assertNotIn("outdoorpvp_naxxramas_ep_lock",
+            "\\n".join(path.read_text() for path in
+                (ROOT / "data/sql").rglob("*.sql")
+            if path.is_file()))
+        self.assertIn("WHERE `TypeId` = 6", forward_file.read_text())
 
     def test_sql_roundtrip_updates_only_stock_ep_in_disposable_db(self):
         # Execute the actual module SQL on an IN-MEMORY SQLite table. This

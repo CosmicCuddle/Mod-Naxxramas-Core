@@ -2,7 +2,9 @@
 
 **Status:** TEST PLAN ONLY. PR #21 remains a draft. No staging deployment, SQL migration, hard-crash simulation or live-server modification is authorised by this document.
 
-**Scope:** `Mod-Naxxramas-Core` custom C++ and one reversible module-supplied world-SQL binding. No original AzerothCore C++ modifications. Do not deploy the superseded core-patch PR #20.
+**Scope:** `Mod-Naxxramas-Core` custom C++ and one reversible module-supplied world-SQL binding.
+
+**Critical installation safeguard:** The optional forward binding lives under `docs/install/`, not `data/sql/db-world/`. The pinned AzerothCore updater scans module `data/sql/db-world` automatically; do **not** move the optional binding there. Merely compiling/loading the module must not change the world handler. Explicitly apply the binding **only on isolated staging after owner approval, preflight and verified backups**, and confirm it was not already applied before any manual SQL. Keep the rollback under `docs/rollback/`. No original AzerothCore C++ modifications. Do not deploy the superseded core-patch PR #20.
 
 ## 1. Gates before any staging work
 
@@ -49,7 +51,7 @@ The pinned character table stores `value` as `INT UNSIGNED`; the packed expiry +
 
 1. Stop **staging** Worldserver. Retain pre-migration backup snapshots.
 2. Install only the PR #21 Naxxramas Core build with matching pinned-fork headers; do not copy/patch upstream `OutdoorPvPEP.cpp` or `.h`.
-3. Apply `data/sql/db-world/2026_10_13_00_ep_tower_lock_module_bind.sql` to **staging `acore_world` only**, after the read-only checks. The UPDATE intentionally matches `TypeId=6` and the unmodified stock handler.
+3. Apply `docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql` to **staging `acore_world` only**, after the read-only checks. The UPDATE intentionally matches `TypeId=6` and the unmodified stock handler.
 4. Read back `TypeId=6`. Require exactly one row with `ScriptName='outdoorpvp_naxxramas_ep_lock'`; verify the module handler is registered in startup logs.
 5. If the binding does not match, STOP; do not blindly re-run SQL or add duplicate scripts.
 
