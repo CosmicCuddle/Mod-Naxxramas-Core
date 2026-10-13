@@ -80,6 +80,14 @@ The pinned AzerothCore `OutdoorPvP::SetMapFromZone` creates map 0 on EP handler 
 - The older late-grid **flag artkit** fix build [38438203265](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38438203265) is separate; the Northpass shrine fix needs its **own** link to verify.
 - The updated [staging checklist](EP-TOWER-STAGING-ACCEPTANCE-CHECKLIST.md) explicitly tests delayed Northpass shrine spawning for both factions. Runtime tests remain **blocked pending explicit owner approval, full backups/restore checks and confirmation of the owner's installed AzerothCore fork**. No production operations took place.
 
+### EP validation update — flag-restoration full link passed
+
+- [Pinned full Worldserver run 38438203265](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38438203265) at gameplay commit `d760d39478db8cec2afdfeba48dd1603d6465b09` **COMPLETED SUCCESS**: actual full-worldserver static C++ compile/link and the unique `outdoorpvp_naxxramas_ep_lock` string check passed. This **does cover** the late-loaded flag artkit restoration fix.
+- [Pinned source compile/run 38445399205](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38445399205) at newest gameplay source plus the routing-test follow-up `81fd3e16dbd204a2039665b251bf2b2fe739e331` **COMPLETED SUCCESS**, all 25 tests and real EP C++ source compile.
+- The newest **Northpass shrine late-spawn fix** `0e7516a1b1ca8e7c032d1249ab92bdd2aa0693e0` **still requires its own full link outcome**: [pinned run 38445137510](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38445137510) was **in progress** when checked. Previous successful full links **do not** verify this later commit.
+- [PR #21](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/21) remains **draft/unmerged**. No actual gameplay, database restore, manual tower tests, real installed-fork validation, backup/rollback or production activity. Do not replace these gates with source CI success; see [staging checklist](EP-TOWER-STAGING-ACCEPTANCE-CHECKLIST.md).
+- **Exact next check**: check run `38445137510`; if PASS, compare owner fork revisions; if FAIL, inspect failed step/log and fix strictly inside the Naxxramas Core PR. Staging requires separate owner authorisation.
+
 ## 2. Separate continuing workstream: NT1 Alt Bot talent imports — PR #18
 
 - [DRAFT PR #18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/18), branch `research/nt1-offhand-preservation-review`.
