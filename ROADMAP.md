@@ -1,5 +1,9 @@
 # Naxxramas Core — Project Roadmap & Development Status
 
+
+**Isolated C++ comparator gate — 13 October 2026:** [details and remaining real-build prerequisites](docs/NT1-EXACT-MATCH-CPP-CONTRACT-2026-10-13.md). Draft PR #18 compiled and ran the exact read-only comparator C++ source slice against 15 deterministic **mock** API scenarios; latest combined CI passed 243 Python tests + all 15 C++ scenarios. **NOT a real pinned AzerothCore/Playerbots Worldserver compilation and NOT permission to deploy.** Existing offhand/pet guards and twice-reset best-effort recovery unchanged. Require final MultiBot handover when actual server work is completed.
+
+
 **Read-only preservation-evidence gate (13 October 2026):** draft PR #18 now includes [a disposable-only isolated DB procedure](docs/NT1-DISPOSABLE-ALTBOT-EVIDENCE-PROCEDURE.md), [pinned-schema SELECT-only SQL](scripts/nt1_altbot_evidence_readonly.sql), and regression tests that prohibit write statements. Never run destructive tests against Arndor/Rakari or against the live `acore_characters` database. Confirm item **instance GUID**, equip slot and mail, not merely item template ID. This template is preparation, **not** proof of end-to-end reset safety. The mandatory final owner-to-MultiBot handover still applies.
 
 
