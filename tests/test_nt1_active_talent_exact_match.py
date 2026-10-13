@@ -42,10 +42,11 @@ def synthetic_compare(expected, records, free, budget, metadata_ok=True):
     for record in records:
         if record is None:
             return "INDETERMINATE"
-        talent, rank, class_valid, dbc_valid, removed = record
+        talent, rank, class_valid, dbc_valid, removed = record[:5]
+        state_valid = len(record) == 5 or record[5]
         if removed:
             continue
-        if not class_valid or not dbc_valid or rank < 1 or rank > 5:
+        if not state_valid or not class_valid or not dbc_valid or rank < 1 or rank > 5:
             return "INDETERMINATE"
         if talent in observed:
             return "INDETERMINATE"
@@ -117,6 +118,19 @@ class ActiveTalentMatchModelTests(unittest.TestCase):
             {}, [None], 10, 10
         ), "INDETERMINATE")
 
+    def test_unexpected_live_record_state_is_indeterminate(self):
+        self.assertEqual(synthetic_compare(
+            {101: 3}, [(101, 3, True, True, False, False)],
+            7, 10
+        ), "INDETERMINATE")
+
+    def test_duplicate_dbc_rank_mapping_is_indeterminate(self):
+        # dbc_valid=False also models a spell ID present in two rank slots.
+        self.assertEqual(synthetic_compare(
+            {101: 3}, [(101, 3, True, False, False)],
+            7, 10
+        ), "INDETERMINATE")
+
     def test_stale_free_point_count_must_be_indeterminate(self):
         self.assertEqual(synthetic_compare(
             {101: 5}, [(101, 5, True, True, False)],
@@ -137,7 +151,7 @@ class ActiveTalentMatchSourceTests(unittest.TestCase):
     def test_expected_ranks_come_from_validated_build(self):
         self.assertIn("requested.Ordered", CHECK)
         self.assertIn("expected.emplace(choice.Id, choice.Rank)", CHECK)
-        self.assertIn("requested.Class != ClassName(bot->getClass())", CHECK)
+        self.assertIn("!currentClass || requested.Class != currentClass", CHECK)
         self.assertIn("requested.Available != bot->CalculateTalentsPoints()", CHECK)
 
     def test_reads_only_active_spec_mask(self):
@@ -153,6 +167,8 @@ class ActiveTalentMatchSourceTests(unittest.TestCase):
             "tab->tabpage >= 3", "tab->ClassMask & bot->getClassMask()",
             "talent->RankID[index] == spellId",
             "!sSpellMgr->GetSpellInfo(spellId)",
+            "matchingDbcRanks != 1",
+            "record->State != PLAYERSPELL_NEW",
             "!observed.emplace(record->talentID, rank).second",
             "observedPoints + bot->GetFreeTalentPoints() != requested.Available",
         ):

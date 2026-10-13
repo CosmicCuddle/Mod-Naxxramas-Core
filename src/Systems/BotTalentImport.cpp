@@ -1905,7 +1905,8 @@ namespace NaxxramasBotTalentImport
         // ParseCode already checked the proposed talent IDs, spell ranks,
         // class, dependencies and point budget. Check for stale caller data
         // as well: no 'exact' verdict across a changed level/class budget.
-        if (requested.Class != ClassName(bot->getClass()) ||
+        char const* currentClass = ClassName(bot->getClass());
+        if (!currentClass || requested.Class != currentClass ||
             requested.Available != bot->CalculateTalentsPoints() ||
             requested.Spent > requested.Available)
         {
@@ -1938,6 +1939,15 @@ namespace NaxxramasBotTalentImport
             if (record->State == PLAYERSPELL_REMOVED ||
                 !(record->specMask & (1u << spec)))
                 continue;
+            // Temporary/unknown record states cannot certify an exact
+            // persistent allocation (including custom-core extensions).
+            if (record->State != PLAYERSPELL_UNCHANGED &&
+                record->State != PLAYERSPELL_CHANGED &&
+                record->State != PLAYERSPELL_NEW)
+            {
+                report.Reason = "unexpected active talent record state";
+                return report;
+            }
 
             TalentEntry const* talent =
                 sTalentStore.LookupEntry(record->talentID);
@@ -1951,15 +1961,18 @@ namespace NaxxramasBotTalentImport
             }
 
             uint8 rank = 0;
+            uint8 matchingDbcRanks = 0;
             for (uint8 index = 0; index < MAX_TALENT_RANK; ++index)
             {
                 if (talent->RankID[index] == spellId && spellId != 0)
                 {
                     rank = index + 1;
-                    break;
+                    ++matchingDbcRanks;
                 }
             }
-            if (!rank || !sSpellMgr->GetSpellInfo(spellId) ||
+            // A malformed DBC mapping one spell to two ranks is ambiguous.
+            if (matchingDbcRanks != 1 ||
+                !sSpellMgr->GetSpellInfo(spellId) ||
                 !bot->HasTalent(spellId, spec))
             {
                 report.Reason = "unmatched active talent spell or DBC rank";
