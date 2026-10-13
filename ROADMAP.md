@@ -1,5 +1,8 @@
 # Naxxramas Core — Project Roadmap & Development Status
 
+**NT1 pre-merge diagnostic milestone — 13 October 2026:** [pre-merge release checklist](docs/NT1-EXACT-MATCH-PREMERGE-RELEASE-CHECKLIST-2026-10-13.md). PR #18 was compared to `main`: **202 additive C++ lines in `BotTalentImport.cpp`; no changes to `ApplyValidated`, `CheckApplyReadiness`, SQL or config**. Latest reviewed code commit `ec5dc97`: [all six CI workflows passed](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/18/checks), including 255 Python tests, 15 isolated C++ cases, whole NT1 translation unit compile and full **linked** Worldserver. Source checks and build are **not** in-game acceptance or proof that the different-build offhand restriction is safe to remove. Retain Alt Bot offhand/pet blocks. PR stays draft/unmerged pending explicit owner merge approval and backup/release staging. Final owner-to-MultiBot handover remains **required after actual workstream completion**.
+
+
 **13 October 2026 — pinned-source NT1 compile PASS (syntax-only):** [GitHub Actions run #38392268627](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38392268627) successfully configured the pinned AzerothCore, Playerbots and Individual Progression stack and syntax-compiled the **whole** NT1 C++ source file using its real CMake compile invocation. This supersedes the former *simulated headers only* limitation for that translation unit. **Still not a linked Worldserver build, owner server install or live Apply test.** PR #18 remains draft; no offhand/pet guard changes; final owner-to-MultiBot handover mandatory.
 
 
