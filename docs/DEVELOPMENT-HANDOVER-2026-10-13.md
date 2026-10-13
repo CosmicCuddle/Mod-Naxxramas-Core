@@ -54,6 +54,16 @@ The [staging acceptance checklist](EP-TOWER-STAGING-ACCEPTANCE-CHECKLIST.md) rec
 
 Recent review checkpoint: EP source compile and the synthetic regressions were successful for `fd1be1f9eb4e9e26330eb15018463c01419c4d81`. Full Worldserver link was still **in progress** at review time, not declared passed; always verify the newest PR head and its own workflow results. No upstream C++ or live SQL was modified.
 
+### EP review: later-loaded tower flag appearance
+
+The pinned AzerothCore `OutdoorPvP::SetMapFromZone` creates map 0 on EP handler setup, avoiding a null base-map pointer, but it does **not guarantee tower grids are loaded**. Stock tower `ChangeState()` sets artkit on only currently loaded GO instances. On restart with an unloaded EP grid, a newly loaded tower flag or capture point could therefore retain neutral artkit despite restored ownership.
+
+- [`d760d39`](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/commit/d760d39478db8cec2afdfeba48dd1603d6465b09) adds a module-owned override of `ChangeState()`, calls the unchanged stock method first, and then uses the pinned **public** `GameObject::SetGoArtKit(uint8, GameObject*, ObjectGuid::LowType)` API with a null live GO pointer to synchronize **in-memory spawn metadata** for the proper per-tower capture object and flag. It applies to captures, restart restoration, and neutral expiry. It neither edits original AzerothCore files nor writes GO artkit values to the SQL database. A new source-contract test and unloaded-grid staging test were added.
+- The first synthetic source workflow for that commit failed on an **escaped newline in the new test**, *not an established C++ failure*. [`5cc3a11`](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/commit/5cc3a11efc7410e7eb0a8759f5ac268ebd0a5256) corrects the test; its exact-head compile and the earlier gameplay-code full-link job were **still in progress** when recorded. Do not claim the new C++ is validated until these pass.
+- An older full Worldserver link at `5c88cea` **SUCCEEDED** and confirmed the unique module script name in the linked Worldserver, but that is **before** the flag appearance fix and cannot substitute for the new linked build.
+
+**Latest active PR #21 commit at this checkpoint:** `5cc3a11efc7410e7eb0a8759f5ac268ebd0a5256`. Recheck GitHub for newer commits and CI outcomes before planning installation. Staging approval, backup/restore drill, hard-crash caveat, crossrealm STOP gate, and explicit production permission remain mandatory.
+
 ## 2. Separate continuing workstream: NT1 Alt Bot talent imports — PR #18
 
 - [DRAFT PR #18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/18), branch `research/nt1-offhand-preservation-review`.
