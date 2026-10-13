@@ -72,6 +72,14 @@ The pinned AzerothCore `OutdoorPvP::SetMapFromZone` creates map 0 on EP handler 
 - [PR #21 file isolation audit](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/21/files) verified 11 changed paths exclusively in `Mod-Naxxramas-Core`; **zero** changed original AzerothCore or other-module files. Do not promote superseded PR #20.
 - Next: confirm the exact gameplay C++ full-link success; compare owner's **actual** installed core/source SHAs with the pinned stack; only after **owner-authorised isolated staging** and full verified backups use the detailed [staging acceptance checklist](EP-TOWER-STAGING-ACCEPTANCE-CHECKLIST.md). Do not conflate graceful restarts with crash durability or crossrealm DB persistence. PR remains draft.
 
+### EP additional gameplay fix — Northpass late-spawn shrine faction
+
+- [`0e7516a`](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/commit/0e7516a1b1ca8e7c032d1249ab92bdd2aa0693e0) adds a **module-only** `OutdoorPvP::OnGameObjectCreate` forwarder to the Naxxramas-owned Eastern Plaguelands handler. When a Northpass shrine **spawn ID** appears after an unloaded-grid restart, the handler restores the **original** `GAMEOBJECT_FACTION` (Alliance=84/Horde=83) *for that shrine alone*. During neutral ownership it does nothing; the original neutral state still removes the shrine.
+- The pinned core route was audited: `GameObject::Create` calls `SetZoneScript()`, `WorldObject::SetZoneScript` resolves the registered OutdoorPvP handler for EP, and `GameObject::AddToWorld` dispatches `OnGameObjectCreate`. Additional source-contract assertions lock down that routing alongside stock Northpass `SummonGO` faction values.
+- [Source compile run 38445137876](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38445137876) and [full Worldserver link run 38445137510](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38445137510) for the gameplay fix had **started but not passed** at this checkpoint. Do not declare the newest code validated until those checks and the subsequent exact-head source test succeed.
+- The older late-grid **flag artkit** fix build [38438203265](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38438203265) is separate; the Northpass shrine fix needs its **own** link to verify.
+- The updated [staging checklist](EP-TOWER-STAGING-ACCEPTANCE-CHECKLIST.md) explicitly tests delayed Northpass shrine spawning for both factions. Runtime tests remain **blocked pending explicit owner approval, full backups/restore checks and confirmation of the owner's installed AzerothCore fork**. No production operations took place.
+
 ## 2. Separate continuing workstream: NT1 Alt Bot talent imports — PR #18
 
 - [DRAFT PR #18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/18), branch `research/nt1-offhand-preservation-review`.

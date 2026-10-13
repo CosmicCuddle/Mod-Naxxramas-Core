@@ -145,10 +145,19 @@ class ModuleOnlySourceContract(unittest.TestCase):
         core = ROOT.parents[1]
         go_path = core / "src/server/game/Entities/GameObject/GameObject.cpp"
         ep_path = core / "src/server/scripts/OutdoorPvP/OutdoorPvPEP.cpp"
-        if not (go_path.is_file() and ep_path.is_file()):
+        obj_path = core / "src/server/game/Entities/Object/Object.cpp"
+        if not (go_path.is_file() and ep_path.is_file() and
+                obj_path.is_file()):
             self.skipTest("Pinned AzerothCore source not checked out beside module")
         go = go_path.read_text()
         ep = ep_path.read_text()
+        obj = obj_path.read_text()
+        # GameObject::Create binds its zone script, AddToWorld dispatches it,
+        # and WorldObject routes EP's zone to its registered OutdoorPvP.
+        self.assertIn("SetZoneScript();", go)
+        self.assertIn(
+            "m_zoneScript = sOutdoorPvPMgr->GetZoneScript(zoneId);", obj
+        )
         self.assertIn("m_zoneScript->OnGameObjectCreate(this);", go)
         npt = ep.split("void OPvPCapturePointEP_NPT::SummonGO", 1)[1].split(
             "// CGT", 1
