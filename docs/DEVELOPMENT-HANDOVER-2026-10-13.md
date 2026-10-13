@@ -64,6 +64,14 @@ The pinned AzerothCore `OutdoorPvP::SetMapFromZone` creates map 0 on EP handler 
 
 **Latest active PR #21 commit at this checkpoint:** `5cc3a11efc7410e7eb0a8759f5ac268ebd0a5256`. Recheck GitHub for newer commits and CI outcomes before planning installation. Staging approval, backup/restore drill, hard-crash caveat, crossrealm STOP gate, and explicit production permission remain mandatory.
 
+### EP next-session checkpoint — packed-state boundary tests
+
+- Source/CI contract [`4bf1617`](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/commit/4bf1617b253c781a0fe35488fcbcd3e41d12897c) confirmed pinned startup ordering, normal async DB pool shutdown and late-grid artkit source interfaces, then **PASSED** ([source check 38439517849](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38439517849)). This is **not** runtime restart proof.
+- [`407b952`](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/commit/407b9520c786b0e5cd3bc92ddd7fe7bacdd843e8) added two pure synthetic tests for unsigned packed lock expiry max/overflow and invalid factions/epochs; **23 tests in suite**. Pinned [source check 38442334898](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38442334898) was **in progress** when recorded. No gameplay C++ changed after the previous `d760d39` artkit fix.
+- The **first build linking the revised artkit C++** is [full Worldserver run 38438203265](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38438203265), **still running** at last observation. Earlier full links passed, including [38433275612](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38433275612), but predate the artkit change. Recheck actual outcome before declaring linked-code success.
+- [PR #21 file isolation audit](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/21/files) verified 11 changed paths exclusively in `Mod-Naxxramas-Core`; **zero** changed original AzerothCore or other-module files. Do not promote superseded PR #20.
+- Next: confirm the exact gameplay C++ full-link success; compare owner's **actual** installed core/source SHAs with the pinned stack; only after **owner-authorised isolated staging** and full verified backups use the detailed [staging acceptance checklist](EP-TOWER-STAGING-ACCEPTANCE-CHECKLIST.md). Do not conflate graceful restarts with crash durability or crossrealm DB persistence. PR remains draft.
+
 ## 2. Separate continuing workstream: NT1 Alt Bot talent imports — PR #18
 
 - [DRAFT PR #18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/18), branch `research/nt1-offhand-preservation-review`.
