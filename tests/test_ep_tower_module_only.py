@@ -51,9 +51,14 @@ class SimTower:
         return False
 
     def pack(self):
-        if not self.expiry:
+        # Mirrors the production PackLock guard: only Alliance/Horde and
+        # an expiry representable in the high 31 unsigned bits may persist.
+        if not self.expiry or self.owner not in ("alliance", "horde"):
             return 0
-        return ((self.expiry - EPOCH) << 1) | int(self.owner == "horde")
+        shifted = self.expiry - EPOCH
+        if shifted <= 0 or shifted > ((1 << 31) - 1):
+            return 0
+        return (shifted << 1) | int(self.owner == "horde")
 
     @staticmethod
     def restore(packed, now):
@@ -268,6 +273,36 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertIn("EP_NPT_FLAGS", ep)
         self.assertIn("EP_PWT_FLAGS", ep)
         self.assertIn("EP_CGT_FLAGS", ep)
+
+    def test_unsigned_32bit_last_valid_expiry_and_faction_bit(self):
+        limit = (1 << 31) - 1
+        for side, bit in (("alliance", 0), ("horde", 1)):
+            with self.subTest(owner=side):
+                end = EPOCH + limit
+                tower = SimTower(side, 1.0 if bit == 0 else -1.0, end)
+                packed = tower.pack()
+                self.assertEqual(packed, (0xfffffffe | bit))
+                self.assertLessEqual(packed, 0xffffffff)
+                restored = SimTower.restore(packed, end - DURATION)
+                self.assertEqual(restored.owner, side)
+                self.assertEqual(restored.expiry, end)
+                tower.expiry = end + 1
+                self.assertEqual(tower.pack(), 0)
+
+    def test_invalid_expiry_or_neutral_faction_never_persists(self):
+        for invalid_expiry in (EPOCH - 1, EPOCH, EPOCH + (1 << 31)):
+            with self.subTest(expiry=invalid_expiry):
+                self.assertEqual(SimTower("alliance", 1.0,
+                                          invalid_expiry).pack(), 0)
+                self.assertEqual(SimTower("horde", -1.0,
+                                          invalid_expiry).pack(), 0)
+        self.assertEqual(SimTower("neutral", 0.0,
+                                  EPOCH + DURATION).pack(), 0)
+        self.assertEqual(SimTower("alliance", 1.0, 0).pack(), 0)
+        # This is a source contract, not a binary/runtime data-write proof.
+        self.assertIn("std::numeric_limits<uint32>::max() >> 1", CPP)
+        self.assertIn("team != TEAM_ALLIANCE && team != TEAM_HORDE", CPP)
+        self.assertIn("return packed != 0", CPP)
 
     def test_endpoint_sign_matches_capturing_faction(self):
         for side, partial, wrong, full in (
