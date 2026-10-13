@@ -355,6 +355,37 @@ class ModuleOnlySourceContract(unittest.TestCase):
                 self.assertNotIn("synchronize]", workflow)
                 self.assertIn("  workflow_dispatch:", workflow)
 
+    def test_pinned_outdoor_pvp_handler_is_selected_only_by_world_db(self):
+        # Registering our unique script in the module cannot by itself
+        # override the stock EP handler. The pinned manager uses the
+        # EXACT ScriptName stored in outdoorpvp_template for TypeId 6.
+        core = ROOT.parents[1]
+        manager = core / "src/server/game/OutdoorPvP/OutdoorPvPMgr.cpp"
+        if not manager.is_file():
+            self.skipTest("Pinned AzerothCore PvP manager source not checked out")
+        source = manager.read_text()
+        init = source.split("void OutdoorPvPMgr::InitOutdoorPvP()", 1)[1].split(
+            "void OutdoorPvPMgr::AddZone", 1
+        )[0]
+        self.assertIn(
+            'WorldDatabase.Query("SELECT TypeId, ScriptName FROM outdoorpvp_template")',
+            init
+        )
+        self.assertIn(
+            'data->ScriptId = sObjectMgr->GetScriptId(fields[1].Get<std::string>());',
+            init
+        )
+        self.assertIn("sScriptMgr->CreateOutdoorPvP(iter->second.get())", init)
+        self.assertNotIn("outdoorpvp_naxxramas_ep_lock", init)
+        self.assertIn(
+            'OutdoorPvPScript("outdoorpvp_naxxramas_ep_lock")', CPP
+        )
+        # No auto-applicable EP binding must exist in module data/sql.
+        self.assertTrue((ROOT / "docs/install/"
+            "2026_10_13_00_ep_tower_lock_module_bind.sql").is_file())
+        self.assertFalse((ROOT / "data/sql/db-world/"
+            "2026_10_13_00_ep_tower_lock_module_bind.sql").exists())
+
     def test_pinned_tower_timer_updates_without_nearby_players_or_loaded_grid(self):
         # In the pinned core World::Update drives OutdoorPvPMgr regardless
         # of players in the zone; that manager visits every outdoor PvP

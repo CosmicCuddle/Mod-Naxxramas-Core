@@ -70,6 +70,12 @@ The pinned character table stores `value` as `INT UNSIGNED`; the packed expiry +
 | Plaguewood | `EP_PWT = 2` | `93420022` | Flight master |
 | Crown Guard | `EP_CGT = 3` | `93420023` | Graveyard link; restore stock neutral baseline |
 
+### Required default-off verification on isolated staging
+
+After owner-authorised backups and before executing the **manual** binding SQL, confirm that installing/building the module alone has **not** changed `acore_world.outdoorpvp_template.TypeId=6` away from `outdoorpvp_ep`. The pinned AzerothCore `OutdoorPvPMgr::InitOutdoorPvP` reads the exact `ScriptName` from this table and chooses that script; registering the new module handler alone must not activate it. This is a critical negative test of our optional-feature boundary.
+
+If the script name changes automatically, **STOP**. Do not proceed to manual migration or assume it is already safe. Identify the source of the unexpected update; preserve database and binary evidence. A stock-binding check does not replace the separately authorised gameplay acceptance tests or the proof that the owner's fork matches pinned CI.
+
 ## 2. Isolated staging activation (requires separate permission)
 
 1. Stop **staging** Worldserver. Retain pre-migration backup snapshots.

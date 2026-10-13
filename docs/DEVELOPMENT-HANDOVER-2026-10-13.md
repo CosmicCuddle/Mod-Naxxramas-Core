@@ -111,6 +111,13 @@ A source review of the pinned AzerothCore `src/server/database/Updater/UpdateFet
 - Owner's actual installed fork commit and running binary are **not yet independently verified**; do not claim deployment readiness or assume the owner's checkout matches CI.
 - Most recent completed gameplay-code full build [38445137510](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38445137510) **PASSED**. The full pinned build for manual SQL relocation [38454791617](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38454791617) was still running at this prior checkpoint; recheck GitHub before promoting the branch. PR #21 remains draft, module-only and uninstalled.
 
+### EP default-off guarantee and manager binding contract
+
+- A new pinned-core source-contract test checks `OutdoorPvPMgr::InitOutdoorPvP` reads `TypeId, ScriptName` from `outdoorpvp_template` and instantiates exactly the selected script. Merely compiling and registering the unique Naxxramas handler **must not replace** `outdoorpvp_ep` until the owner intentionally applies `docs/install/` SQL.
+- The staging checklist now requires a **default-off verification**: on separately owner-authorised isolated staging, after backup and before applying the optional SQL, check that TypeId 6 still selects stock `outdoorpvp_ep`. Unexpected changes are STOP, not an instruction to re-run migrations.
+- The earlier empty-zone expiry test at [`cb2f2ee`](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/commit/cb2f2ee3e5bda54451cef3207f7b608228f1204a) was **source/test only**, and [CI 38456387483](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38456387483) **passed 30 tests** and actual pinned EP source compile. No module gameplay C++ or database contents changed in the default-off test/documentation update.
+- Latest status of [Worldserver link 38454791617](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38454791617) for C++-equivalent `388eea9` was still **in progress** at last observation. Confirm it independently before stating full link of optional-SQL relocation.
+
 ## 2. Separate continuing workstream: NT1 Alt Bot talent imports — PR #18
 
 - [DRAFT PR #18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/18), branch `research/nt1-offhand-preservation-review`.
