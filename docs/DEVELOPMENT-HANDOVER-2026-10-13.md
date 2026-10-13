@@ -5,6 +5,16 @@
 **Purpose:** authoritative continuity for the next development session. This file is a checkpoint, not a production release declaration.
 **Principle:** preserve backups and reversibility; never merge, deploy, mutate live databases, change characters/items, or run talent Apply without the owner's specific, separate approval.
 
+## Current verified PR #21 checkpoint (read before historical notes)
+
+- **Branch and status:** `feature/ep-tower-lock-module-only`, **DRAFT / OPEN / UNMERGED**, latest gameplay C++ commit `0e7516a1b1ca8e7c032d1249ab92bdd2aa0693e0`; subsequent changes concern only test/CI, SQL relocation and docs.
+- **Automated tests and real pinned C++ source compilation:** **31/31 PASS** at [workflow 38457600069](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38457600069) (branch commit `30197fdbe95e073676af1478c57f6f1ffbecdeb4`). This includes the **default-off** handler-selection contract, empty-zone timer expiry contract and the exclusion of manual world SQL from AzerothCore's automatic updater.
+- **Full Worldserver game-code build:** **PASS** at [workflow 38445137510](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38445137510) (latest gameplay C++ `0e7516a` and unique handler string).
+- **Full link for the later optional-SQL installation-safety change:** **IN PROGRESS, NOT YET CONFIRMED** at [workflow 38454791617](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/38454791617) (commit `388eea9`); gameplay C++ is unchanged from the previously linked build. Check its actual completion status before claiming all gates passed.
+- **Optional SQL MUST be manually opted into:** `docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql` is **outside** the auto-updater's `data/sql` tree. Merely loading the module leaves stock `outdoorpvp_ep` selected until the exact-match world database binding is separately authorised on staging. Rollback remains `docs/rollback/`.
+- **HARD STOP before any installation/merge:** obtain actual installed-source SHAs; confirm no cross-realm; test backups and restore off-server; obtain owner's explicit authorisation for isolated staging, manual SQL and runtime verification; verify all four independent towers, both factions, NPC/shrine/graveyard/buff/UI side effects, restarts, downtime, rollback and other zones. The 31 source/synthetic tests are **not** in-game evidence, and sudden crash durability remains unproven.
+- **Historical sections below** describe intermediate commits and may quote older CI statuses/heads. Prefer this checkpoint and recheck GitHub for the current source of truth. No production source files, databases, binaries or characters were modified.
+
 ## 1. Immediate priority: Eastern Plaguelands per-tower locks — MODULE ONLY
 
 - **Approved issue:** [#19](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/19).
