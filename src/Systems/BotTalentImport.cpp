@@ -1915,15 +1915,24 @@ namespace NaxxramasBotTalentImport
         }
 
         std::unordered_map<uint32, uint8> expected;
+        uint32 expectedPoints = 0;
         for (TalentSelection const& choice : requested.Ordered)
         {
             if (!choice.Talent || choice.Id != choice.Talent->TalentID ||
                 !choice.Rank || choice.Rank > MAX_TALENT_RANK ||
+                !choice.Talent->RankID[choice.Rank - 1] ||
+                !sSpellMgr->GetSpellInfo(choice.Talent->RankID[choice.Rank - 1]) ||
                 !expected.emplace(choice.Id, choice.Rank).second)
             {
                 report.Reason = "invalid or duplicate requested talent record";
                 return report;
             }
+            expectedPoints += choice.Rank;
+        }
+        if (expectedPoints != requested.Spent)
+        {
+            report.Reason = "proposed ranks and declared point total disagree";
+            return report;
         }
 
         uint8 const spec = bot->GetActiveSpec();

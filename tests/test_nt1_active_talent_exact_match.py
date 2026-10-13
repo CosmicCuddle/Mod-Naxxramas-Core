@@ -153,6 +153,8 @@ class ActiveTalentMatchSourceTests(unittest.TestCase):
         self.assertIn("expected.emplace(choice.Id, choice.Rank)", CHECK)
         self.assertIn("!currentClass || requested.Class != currentClass", CHECK)
         self.assertIn("requested.Available != bot->CalculateTalentsPoints()", CHECK)
+        self.assertIn("expectedPoints != requested.Spent", CHECK)
+        self.assertIn("choice.Talent->RankID[choice.Rank - 1]", CHECK)
 
     def test_reads_only_active_spec_mask(self):
         self.assertIn("bot->GetTalentMap()", CHECK)

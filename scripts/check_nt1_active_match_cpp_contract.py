@@ -272,7 +272,20 @@ int main()
     Expect(ActiveTalentMatchStatus::Indeterminate,
         InspectActiveTalentMatch(&badSpec, Plan()), "invalid active spec");
 
-    std::cout << "NT1 isolated C++ exact-function contract: 13 cases passed\n";
+    ValidatedBuild stalePointPlan = Plan();
+    stalePointPlan.Spent = 4;
+    Expect(ActiveTalentMatchStatus::Indeterminate,
+        InspectActiveTalentMatch(&exact, stalePointPlan),
+        "mismatched proposed rank sum");
+
+    ValidatedBuild staleDbcPlan = Plan();
+    sTalentStore.rows.at(100).RankID[4] = 0;
+    Expect(ActiveTalentMatchStatus::Indeterminate,
+        InspectActiveTalentMatch(&exact, staleDbcPlan),
+        "missing planned DBC rank");
+    sTalentStore.rows.at(100).RankID[4] = 5005;
+
+    std::cout << "NT1 isolated C++ exact-function contract: 15 cases passed\n";
 }
 """
 
