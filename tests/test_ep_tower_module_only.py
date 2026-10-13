@@ -355,6 +355,39 @@ class ModuleOnlySourceContract(unittest.TestCase):
                 self.assertNotIn("synchronize]", workflow)
                 self.assertIn("  workflow_dispatch:", workflow)
 
+    def test_pinned_tower_timer_updates_without_nearby_players_or_loaded_grid(self):
+        # In the pinned core World::Update drives OutdoorPvPMgr regardless
+        # of players in the zone; that manager visits every outdoor PvP
+        # handler, not just ones with active capture-point GOs. Our module
+        # handles wall-clock lock expiry BEFORE OPvPCapturePoint::Update(0),
+        # which may itself return false if the grid is not loaded.
+        core = ROOT.parents[1]
+        world_file = core / "src/server/game/World/World.cpp"
+        mgr_file = core / "src/server/game/OutdoorPvP/OutdoorPvPMgr.cpp"
+        base_file = core / "src/server/game/OutdoorPvP/OutdoorPvP.cpp"
+        if not all(p.is_file() for p in
+                   (world_file, mgr_file, base_file)):
+            self.skipTest("Pinned AzerothCore source not checked out beside module")
+        world = world_file.read_text()
+        mgr = mgr_file.read_text()
+        base = base_file.read_text()
+        self.assertIn("sOutdoorPvPMgr->Update(diff);", world)
+        updater = mgr.split("void OutdoorPvPMgr::Update(uint32 diff)", 1)[1].split(
+            "bool OutdoorPvPMgr::HandleCustomSpell", 1
+        )[0]
+        self.assertIn("for (auto const& itr : m_OutdoorPvPSet)", updater)
+        self.assertIn("itr->Update(m_UpdateTimer);", updater)
+        self.assertNotIn("HasPlayer(", updater)
+        self.assertIn("if (!_capturePoint)\\n        return false;", base)
+        tower = CPP.split("bool Update(uint32 diff) override", 1)[1].split(
+            "void CorrectLateNorthpassShrine", 1
+        )[0]
+        self.assertLess(tower.index("if (_expiresAt)"),
+                        tower.index("OPvPCapturePoint::Update(diff)"))
+        self.assertLess(tower.index("if (now >= _expiresAt)"),
+                        tower.index("OPvPCapturePoint::Update(0)"))
+        self.assertIn("ResetToNeutral();", tower)
+
     def test_pinned_real_core_restart_order_and_graceful_db_drain(self):
         # This is source integration: GitHub Actions checks out the exact
         # pinned core beside modules/mod-naxxramas-core. A standalone module
