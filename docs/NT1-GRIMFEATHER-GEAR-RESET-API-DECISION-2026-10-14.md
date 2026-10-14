@@ -30,6 +30,17 @@ Compared the existing draft importer to the owner's reported compatible AzerothC
 
 **Feasibility result:** A complete replacement of an already-spent 51-point active-spec build (such as Arndor's requested Holy Priest rebuild) is **not currently demonstrated safe using the reviewed public module-accessible APIs**. An **add-only** operation might be possible in narrower situations with unspent points, but it is neither a full respec nor proven equipment/pet-safe or transaction-safe. Do not expose such a partial Apply under a full NT1 import command without separate design, precise messages, and failure safety proof. The owner's required full Alt Bot talent-only change remains a separate **unsolved** engineering problem under the nonnegotiable module-only restriction.
 
+## Read-only differential diagnostic (new draft-only milestone)
+
+`.naxxbot talents preview <bot> <NT1>` and `repairpreview` already perform a strict **active-spec read-only talent comparison**. In this draft, when a requested build is **DIFFERENT**, the same verified rank maps now calculate and report the count of **rank points to add** and **rank points to remove**, without executing any changes. For example, a requested five-rank talent instead of an existing four-rank one reports `+1, -0`; swapping two different fully spent five-point talents reports `+5, -5`.
+
+- Only compute counts after valid DBC/rank mapping, spec masks, player/class/level, and spent/free-point consistency checks. Malformed/corrupt ranks remain **CANNOT VERIFY**, without a misleading plan.
+- An addition-only count is **NOT** permission to learn ranks or an assertion that scripts/pet/gear side effects are safe. It simply shows which part of a future implementation would not require deleting a rank.
+- Any **negative** rank delta necessarily requires decreasing/removing some existing active talent ranks. A fully spent build differing from another equally fully spent build necessarily requires removals; `LearnTalent` cannot by itself perform that replacement.
+- Neither the validator, `CheckApplyReadiness`, nor `ApplyValidated` uses these displayed counts to bypass the current universal Alt Bot changed-build refusal.
+- The draft retains the approved zero-equipment-mutation rule, existing Random Bot behaviour and unchanged upstream sources.
+- CI checks include real extracted C++ comparator cases for exact, additions-only, reduction of an existing rank and a full-budget rank swap. These compile/run tests do not prove worldserver runtime mutation safety.
+
 ## Narrow, safe progression
 
 1. Preserve the **currently installed** read-only diagnostics and conservative offhand/pet block. In **draft PR #18 only**, `CheckApplyReadiness` now also refuses **all different/indeterminate Alt Bot builds** before any `ImportScope`, reset, talent learning, persistence or equipment action, even with an empty offhand and no active pet. A **second independent rejection in `ApplyValidated`**, after the authorized EXACT-build no-op and before `ImportScope`, also stops every nonrandom bot if that preflight is ever relaxed by mistake; the existing two-reset path can now be reached only by Random Bots. Authorized **EXACT** build no-op remains eligible; Random Playerbot reset/recovery remains unchanged. This is intentionally safer but stricter than the prior ordinary Alt Bot Apply path, and is **not** the desired completed talent-changing feature. Do not retest on Arndor or Rakari with `Apply`.
