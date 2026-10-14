@@ -1788,6 +1788,19 @@ namespace NaxxramasBotTalentImport
         }
 
         bool const randomBot = sRandomPlayerbotMgr.IsRandomBot(bot);
+        // Independent second safety gate: even if a future refactor
+        // accidentally weakens CheckApplyReadiness, this function must not
+        // let an Alt Bot reach AzerothCore's equipment-moving reset.
+        // Verified exact Alt Bot builds have already returned unchanged.
+        // Only Random Playerbots retain the legacy reset/recovery path.
+        if (!randomBot)
+        {
+            error = "Alt Bot NT1 changed-build Apply blocked: no module-only "
+                    "gear-inert talent reset is verified. "
+                    "No talents or equipment changed.";
+            return false;
+        }
+
         uint8 const spec = bot->GetActiveSpec();
         ImportScope const scope(bot);
         bot->resetTalents(true);
