@@ -37,6 +37,7 @@ Compared the existing draft importer to the owner's reported compatible AzerothC
 - Only compute counts after valid DBC/rank mapping, spec masks, player/class/level, and spent/free-point consistency checks. Malformed/corrupt ranks remain **CANNOT VERIFY**, without a misleading plan.
 - An addition-only count is **NOT** permission to learn ranks or an assertion that scripts/pet/gear side effects are safe. It simply shows which part of a future implementation would not require deleting a rank.
 - Any **negative** rank delta necessarily requires decreasing/removing some existing active talent ranks. A fully spent build differing from another equally fully spent build necessarily requires removals; `LearnTalent` cannot by itself perform that replacement.
+- When at least one rank must be removed, `preview` / `repairpreview` now say **EXISTING RANKS MUST BE REMOVED**; when the change is purely additive they say **ADDITIONS ONLY**. Both explicitly state that **Alt Bot Apply remains BLOCKED**. Unverifiable talent maps never claim a safe change type.
 - Neither the validator, `CheckApplyReadiness`, nor `ApplyValidated` uses these displayed counts to bypass the current universal Alt Bot changed-build refusal.
 - The draft retains the approved zero-equipment-mutation rule, existing Random Bot behaviour and unchanged upstream sources.
 - CI checks include real extracted C++ comparator cases for exact, additions-only, reduction of an existing rank and a full-budget rank swap. These compile/run tests do not prove worldserver runtime mutation safety.
