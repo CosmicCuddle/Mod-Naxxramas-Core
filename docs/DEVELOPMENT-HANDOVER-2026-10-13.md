@@ -1,3 +1,5 @@
+> **CURRENT CONTINUATION:** See [Development Handover — 14 October 2026](DEVELOPMENT-HANDOVER-2026-10-14.md) for post-merge status, successful owner `git pull`, ALE update blocker, backups and outstanding compile/runtime actions. The notes below are a historical 13 October checkpoint; references to PR #21 being draft/unmerged are no longer current.
+
 # Naxxramas Core — Development Handover
 
 **Checkpoint:** 13 October 2026
