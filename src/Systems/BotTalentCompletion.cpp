@@ -18,6 +18,7 @@
 #include "Log.h"
 #include "Player.h"
 #include "PlayerbotAIConfig.h"
+#include "PlayerbotTalentExpansionCompat.h"
 #include "PlayerbotMgr.h"
 #include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
@@ -91,7 +92,7 @@ namespace NaxxramasBotTalentCompletion
         return player &&
             player->GetLevel() >= 10 &&
             player->GetLevel() <= 70 &&
-            sPlayerbotAIConfig.limitTalentsExpansion &&
+            NaxxramasPlayerbotCompat::LimitTalentsExpansionEnabled(sPlayerbotAIConfig) &&
             PlayerbotsMgr::instance().GetPlayerbotAI(player);
     }
 

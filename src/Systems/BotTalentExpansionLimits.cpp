@@ -12,6 +12,7 @@
 
 #include "Player.h"
 #include "PlayerbotAIConfig.h"
+#include "PlayerbotTalentExpansionCompat.h"
 #include "PlayerbotMgr.h"
 #include "ScriptMgr.h"
 
@@ -63,7 +64,7 @@ public:
     {
         if (!player ||
             !talent ||
-            !sPlayerbotAIConfig.limitTalentsExpansion)
+            !NaxxramasPlayerbotCompat::LimitTalentsExpansionEnabled(sPlayerbotAIConfig))
         {
             return true;
         }
