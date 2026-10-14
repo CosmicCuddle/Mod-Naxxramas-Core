@@ -1,8 +1,8 @@
 # NT1 Alt Bot — Zero Gear Mutation Contract
 
-**Status: OWNER-PROPOSED SAFETY REQUIREMENT; NOT YET IMPLEMENTED OR RUNTIME-VERIFIED.**
+**Status: OWNER-APPROVED SAFETY REQUIREMENT (14 October 2026); NOT YET IMPLEMENTED FOR DIFFERENT-BUILD APPLY OR RUNTIME-VERIFIED.**
 
-This is the required safety rule for future Alt Bot talent-import development. It is not a statement that PR #18 already makes changing an equipped Alt Bot's talents safe. The current **offhand/pet Apply blocks remain active**.
+The owner explicitly confirmed this non-negotiable rule on 14 October 2026: an Alt Bot's NT1 talent import changes **talents only** and never its equipment, including when switching class role. This is **design approval only**, not permission to merge, install, change production configuration or invoke Apply. It is not a statement that PR #18 already makes changing an equipped Alt Bot's talents safe. The current **offhand/pet Apply blocks remain active**.
 
 ## Non-negotiable behaviour
 
@@ -57,7 +57,7 @@ Review pinned core, Playerbots and other installed module sources; include injec
 
 ## Release and MultiBot contract
 
-- PR #18 remains **draft and unmerged**; its existing read-only talent match, tests and documentation do not satisfy the new different-build mutation invariant.
+- PR #18 remains **draft and unmerged**; its proposed exact-match no-op, read-only talent match, tests and documentation do not satisfy the approved different-build mutation invariant.
 - Do not replace the universal offhand guard with item-type exceptions.
 - Do not introduce automatic equipment handling to MultiBot. The server alone decides if a talent change can occur, and should report **BLOCKED** if gear safety is unproven.
 - On completion, give the owner the **mandatory copy-and-paste-ready final Naxxramas Core → N-MultiBot-Chatless handover**, with actual verified server behaviour, updated messages and any necessary addon UI changes.
