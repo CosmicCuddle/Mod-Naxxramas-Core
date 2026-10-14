@@ -55,6 +55,36 @@ class AltBotEquipmentBoundaryTests(unittest.TestCase):
                         APPLY.index("bot->resetTalents(true)"))
         self.assertEqual(APPLY.count("bot->resetTalents(true)"), 2)
 
+    def test_every_changed_alt_build_rejects_before_any_core_reset(self):
+        # No special exemption for Priest caster offhands, empty offhand,
+        # class/role change, higher GM privilege or a missing active pet.
+        guard = READINESS.split("if (!randomBot && !verifiedNoOp)", 1)[1].split(
+            "// Both mode 3", 1
+        )[0]
+        self.assertIn("EQUIPMENT_SLOT_OFFHAND", guard)
+        self.assertIn("bot->GetPet() != nullptr", guard)
+        self.assertIn("Alt Bot NT1 different-build Apply blocked:", guard)
+        self.assertIn("cannot guarantee zero equipment", guard)
+        self.assertIn("No talents or equipment changed.", guard)
+        self.assertGreaterEqual(guard.count("return false;"), 3)
+        self.assertNotIn("bot->resetTalents(", guard)
+        self.assertNotIn("bot->LearnTalent(", guard)
+        self.assertNotIn("CharacterDatabase.", guard)
+        self.assertNotIn("ImportScope", without_comments(guard))
+        self.assertLess(READINESS.index("Alt Bot NT1 different-build Apply blocked:"),
+                        READINESS.index("// Both mode 3"))
+        self.assertLess(APPLY.index("CheckApplyReadiness("),
+                        APPLY.index("ImportScope const scope(bot)"))
+
+    def test_random_bot_preserves_original_different_build_path(self):
+        # The new preflight stop is nested under !randomBot. A random
+        # Playerbot still uses its existing ordinary reset/recovery branch.
+        self.assertIn("if (!randomBot && !verifiedNoOp)", READINESS)
+        self.assertIn("bool const randomBot = sRandomPlayerbotMgr.IsRandomBot(bot);",
+                      APPLY)
+        self.assertEqual(APPLY.count("bot->resetTalents(true)"), 2)
+        self.assertIn("if (!randomBot)", APPLY)
+
     def test_existing_completion_hook_does_not_regear(self):
         hook = COMPLETION.split("    void OnPlayerTalentsReset(", 1)[1].split(
             "    void OnPlayerLearnTalents(", 1
