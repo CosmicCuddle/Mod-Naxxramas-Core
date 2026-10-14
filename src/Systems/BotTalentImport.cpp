@@ -1945,6 +1945,10 @@ namespace NaxxramasBotTalentImport
         uint32 ObservedTalents = 0;
         uint32 ExpectedTalents = 0;
         uint32 DifferentTalents = 0;
+        // Read-only deltas against the requested full active-spec rank set.
+        // These counts are NOT permission to learn, remove or reset talents.
+        uint32 PointsToAdd = 0;
+        uint32 PointsToRemove = 0;
         std::string Reason;
     };
 
@@ -2068,12 +2072,23 @@ namespace NaxxramasBotTalentImport
         for (auto const& [id, rank] : expected)
         {
             auto const existing = observed.find(id);
-            if (existing == observed.end() || existing->second != rank)
+            uint32 const current = existing == observed.end() ? 0 :
+                existing->second;
+            if (current != rank)
+            {
                 ++report.DifferentTalents;
+                if (rank > current)
+                    report.PointsToAdd += rank - current;
+                else
+                    report.PointsToRemove += current - rank;
+            }
         }
         for (auto const& [id, rank] : observed)
             if (expected.find(id) == expected.end())
+            {
                 ++report.DifferentTalents;
+                report.PointsToRemove += rank;
+            }
 
         report.Status = report.DifferentTalents ?
             ActiveTalentMatchStatus::Different : ActiveTalentMatchStatus::Exact;
@@ -2109,6 +2124,10 @@ namespace NaxxramasBotTalentImport
                     "Read-only; equipment/pet guards still apply.",
                     report.ExpectedTalents, report.ObservedTalents,
                     report.DifferentTalents);
+                handler->PSendSysMessage(
+                    "NT1 TALENT CHANGE REQUIRED: +{} rank points, -{} rank "
+                    "points. READ ONLY: no talent reset or change approved.",
+                    report.PointsToAdd, report.PointsToRemove);
                 break;
             case ActiveTalentMatchStatus::Indeterminate:
                 handler->PSendSysMessage(
