@@ -1,6 +1,6 @@
 # NT1 Alt Bots — Safe Talent-Change Implementation Plan
 
-**Development date:** 13 October 2026  
+**Development date:** 13 October 2026; **owner explicitly ratified the zero-gear rule on 14 October 2026**  
 **Owner decision:** Keep `NaxxramasCore.BotTalentImport.AltBotAllowedPlayers` (human-character authorisation) and enforce the universal Alt Bot [zero gear mutation contract](NT1-ALT-BOT-ZERO-GEAR-MUTATION-CONTRACT.md) **without a disabling configuration setting**.  
 **Status:** Source review, regression protections and an **unreleased draft early-return for a proven exact-match Alt Bot**. **No different-build Apply/gear functionality implemented**, no in-game tests. PR #18 remains draft, unmerged, and uninstalled.
 
@@ -51,7 +51,7 @@ This limited improvement does **not** enable switching a bot whose talents diffe
 
 Before implementing or enabling a different-build Apply path:
 1. Audit **all** linked `OnPlayerTalentsReset`, `OnPlayerCanLearnTalent`, equipment/inventory hooks and asynchronous Playerbots actions for the exact owner's installed source tree, not only the pinned example.
-2. Determine whether a **core-level, expressly gear-inert talent-change primitive/patch** is required. If it is, isolate the change in a separately reviewed AzerothCore fork/patch; do not silently mutate a production core or make an undocumented dependency.
+2. First investigate a safe implementation **confined to mod-naxxramas-core**. Determine whether the upstream core lacks the necessary gear-inert talent-change primitive. If a core-level patch is truly required, **STOP** and explain that dependency to the owner for a separate decision; do not silently modify, patch, or replace AzerothCore or another module to make this work.
 3. Define the transaction/failure model for talent ranks, dependent spells, auras, action bars, dual wield/Titan's Grip, glyphs, pet state, queued actions and persistence. **No equipment move is ever permitted**, even temporarily or in a rollback attempt.
 4. Prefer **fail before any mutation** where the entire path cannot be demonstrated safe. No "unequip before reset, put it back later"; no GUID recreation.
 5. Identify races with other Playerbots equipment automation: a source-verified exclusion mechanism or safe rejection is needed if NT1 would cause a queued action. Do not claim control of unrelated player-initiated equipment actions.
@@ -62,7 +62,8 @@ Before implementing or enabling a different-build Apply path:
 
 ## Release gates and communication
 
-- PR #18 is **draft**. No merging or installation until owner approval, source compatibility review and backups.
+- The zero-gear requirement itself was approved by the owner on 14 October 2026, **not** any destructive implementation or deployment.
+- PR #18 is **draft**. No merging or installation until specific owner approval, source compatibility review and backups.
 - A CI PASS for the current read-only diagnostics is **not** approval to lift the offhand restriction.
 - `AltBotAllowedPlayers` is retained and **does not provide a bypass** around equipment safety.
 - No gear safety override/config flag will be introduced.
