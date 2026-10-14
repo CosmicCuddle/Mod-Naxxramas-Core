@@ -183,8 +183,10 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertIn("expiresAt <= now || expiresAt > now + TowerLockSeconds", CPP)
         self.assertIn("CurrentUnixSeconds()", CPP)
 
-    def test_no_extra_ui_messages_timer_or_config(self):
-        self.assertNotIn("SendZoneText(", CPP)
+    def test_no_extra_ui_timer_or_config(self):
+        # Exactly one newly approved zone notice: full-capture lock start.
+        # The dedicated announcement contracts verify its precise placement.
+        self.assertEqual(CPP.count("SendZoneText("), 1)
         self.assertNotIn("sConfigMgr", CPP)
         self.assertNotIn("ChatHandler", CPP)
         self.assertNotIn("GameObjectScript", CPP)
