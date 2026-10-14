@@ -50,6 +50,16 @@ The harness deliberately makes the **first** readiness preflight incorrectly ret
 
 **Limit:** mocked interfaces cannot prove real AzerothCore or Playerbots hooks, mail, item legality, Worldserver runtime, transactionality or delayed bot activity. The harness **does not change real characters or make full different-build Alt Bot respec possible.** Keep PR #18 draft and the different-build Alt Bot refusal enabled until a fully module-only method is source-proven and independently validated.
 
+## Last published in-place talent API candidate — reviewed (14 October)
+
+**`Player::addTalent(uint32 spellId, uint8 addSpecMask, uint8 oldTalentRank)` is publicly declared**, unlike the protected `m_usedTalentCount`. Its implementation in Grimfeather `Player.cpp` ~3000–3065 can replace an **existing rank of the SAME talent** (if passed the real old rank), update its auras/spells and adjust `m_usedTalentCount` by the rank difference. This explains why some down-rank or add-only operations might be possible without calling `resetTalents`.
+
+**It is not a complete full-respec API:** it cannot remove a talent's **last rank** while also decrementing the protected used-points counter. `_removeTalent` on its own clears a map entry but does not debit that counter. `SetFreeTalentPoints` only changes the publicly visible free-point field, **not** `m_usedTalentCount`. `InitTalentForLevel` derives free points from that counter and can invoke the unsafe `resetTalents(true)` when overspent. Faking an `oldTalentRank`, using a dummy rank to alter the counter, casting away const from `GetTalentMap`, or tweaking bonus point counts would be **unapproved integrity bypasses**.
+
+Also ruled out the pinned Playerbots public factory helpers: `PlayerbotFactory::InitTalentsBySpecNo`, `InitTalentsByParsedSpecLink`, and `InitTalentsTree` call the unsafe `bot->resetTalents(true)` when `reset` is true. With `reset=false`, they learn additional ranks or templates; they do not remove an unrelated, already allocated talent. `TalentSpec::ApplyTalents` likewise only invokes `bot->LearnTalent`.
+
+**Result:** Even after inspecting the less obvious published APIs, no safe, public, module-callable operation has been found that removes **all** old ranks, reconciles real used/free point accounting, keeps spells and dependent effects consistent, and guarantees **zero equipment movement** in success and failure. Do not implement a narrower downgrading experiment as if it were a full Alt Bot NT1 respec. The existing double changed-build rejection stays in place. See [Grimfeather `Player.cpp`](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Entities/Player/Player.cpp#L3000-L3065) and [pinned Playerbots factory](https://github.com/mod-playerbots/mod-playerbots/blob/037c01418b5d01506917a3db9b44fd56ac5f965c/src/Bot/Factory/PlayerbotFactory.cpp#L1707-L1895).
+
 ## Offline database swap — examined and REJECTED (14 October)
 
 A suggested way to avoid `resetTalents(true)` is to change `character_talent` rows while a bot is offline and reload it. **Do not implement this shortcut for NT1.** It is not a demonstrated gear-inert or transaction-safe full respec:
