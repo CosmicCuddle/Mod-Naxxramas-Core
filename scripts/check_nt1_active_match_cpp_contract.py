@@ -145,7 +145,8 @@ struct Player
 };
 struct ChatHandler
 {
-    void SendSysMessage(char const*) const {}
+    mutable std::vector<std::string> emitted;
+    void SendSysMessage(char const* line) const { emitted.emplace_back(line); }
     template <class... A>
     void PSendSysMessage(char const*, A&&...) const {}
 };
@@ -162,6 +163,17 @@ void Expect(ActiveTalentMatchStatus expected, ActiveTalentMatch actual,
     }
 }
 
+void ExpectMessage(ChatHandler& handler, std::string const& needle,
+    char const* label)
+{
+    bool found = false;
+    for (auto const& msg : handler.emitted)
+        if (msg.find(needle) != std::string::npos)
+            found = true;
+    if (!found)
+        throw std::runtime_error(label);
+    handler.emitted.clear();
+}
 void ExpectDelta(ActiveTalentMatch const& actual, uint32 add, uint32 remove,
     char const* label)
 {
@@ -221,6 +233,8 @@ int main()
     Expect(ActiveTalentMatchStatus::Exact,
         InspectActiveTalentMatch(&exact, Plan()), "exact rank five");
     PrintActiveTalentMatch(&handler, &exact, Plan());
+    ExpectMessage(handler, "EXACT active-spec talent ranks",
+        "exact remains diagnostic only");
     {
         auto const result = InspectActiveTalentMatch(&exact, Plan());
         if (result.PointsToAdd || result.PointsToRemove)
@@ -234,6 +248,9 @@ int main()
         InspectActiveTalentMatch(&wrongRank, Plan()), "valid different rank");
     ExpectDelta(InspectActiveTalentMatch(&wrongRank, Plan()), 1, 0,
         "one point needed to finish existing rank");
+    PrintActiveTalentMatch(&handler, &wrongRank, Plan());
+    ExpectMessage(handler, "ADDITIONS ONLY",
+        "read-only additions only classification");
 
     Player empty;
     empty.freePoints = 5;
@@ -244,6 +261,9 @@ int main()
     downgrade.Add(5005, 100);
     ExpectDelta(InspectActiveTalentMatch(&downgrade, Plan(4)), 0, 1,
         "same talent reduced by one rank");
+    PrintActiveTalentMatch(&handler, &downgrade, Plan(4));
+    ExpectMessage(handler, "EXISTING RANKS MUST BE REMOVED",
+        "read-only downgrade classification");
 
     Player fullSwap;
     fullSwap.Add(5005, 100);
@@ -254,6 +274,9 @@ int main()
     swapTarget.Spent = 5;
     ExpectDelta(InspectActiveTalentMatch(&fullSwap, swapTarget), 5, 5,
         "full-budget respec requires both additions and removals");
+    PrintActiveTalentMatch(&handler, &fullSwap, swapTarget);
+    ExpectMessage(handler, "EXISTING RANKS MUST BE REMOVED",
+        "read-only full respec classification");
 
     Player extra;
     extra.Add(5005, 100);
@@ -267,6 +290,9 @@ int main()
     orphan.freePoints = 0;
     Expect(ActiveTalentMatchStatus::Indeterminate,
         InspectActiveTalentMatch(&orphan, Plan()), "unknown DBC talent");
+    PrintActiveTalentMatch(&handler, &orphan, Plan());
+    ExpectMessage(handler, "CANNOT VERIFY",
+        "corrupt existing ranks never report safe classification");
 
     Player wrongClass;
     wrongClass.cls = 6;
