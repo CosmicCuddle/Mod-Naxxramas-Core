@@ -46,6 +46,7 @@ void AddBotTalentExpansionLimitsScripts();
 void AddBotTalentCompletionScripts();
 void AddMeetingStoneProgressionScripts();
 void AddBattlemasterQueueProgressionScripts();
+void AddNaxxramasEasternPlaguelandsTowerLockScripts();
 
 void Addmod_naxxramas_coreScripts()
 {
@@ -90,4 +91,5 @@ void Addmod_naxxramas_coreScripts()
     AddBotTalentCompletionScripts();
     AddMeetingStoneProgressionScripts();
     AddBattlemasterQueueProgressionScripts();
+    AddNaxxramasEasternPlaguelandsTowerLockScripts();
 }
