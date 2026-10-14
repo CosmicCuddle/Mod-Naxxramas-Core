@@ -4,6 +4,10 @@
 
 The owner explicitly confirmed this non-negotiable rule on 14 October 2026: an Alt Bot's NT1 talent import changes **talents only** and never its equipment, including when switching class role. This is **design approval only**, not permission to merge, install, change production configuration or invoke Apply. It is not a statement that PR #18 already makes changing an equipped Alt Bot's talents safe. The current **offhand/pet Apply blocks remain active**.
 
+## Non-negotiable module-only implementation boundary
+
+The owner has explicitly ruled out **all** source edits to AzerothCore, Playerbots, Individual Progression and ALE. This applies even to proposed compatibility helpers, optional upstream patches, and separate fork changes. NT1 implementation, configuration, tests and documentation belong in **`mod-naxxramas-core`** only. Existing external APIs may be used **read-only/as published**, never replaced. **If a gear-inert different-build talent operation cannot be implemented through those interfaces, safely refuse it before any mutation.** Do not ask to bypass this architectural rule as a workaround.
+
 ## Non-negotiable behaviour
 
 **An NT1 talent-change operation on an Alt Bot must not manipulate any item of equipment. No exceptions.**
@@ -59,5 +63,6 @@ Review pinned core, Playerbots and other installed module sources; include injec
 
 - PR #18 remains **draft and unmerged**; its proposed exact-match no-op, read-only talent match, tests and documentation do not satisfy the approved different-build mutation invariant.
 - Do not replace the universal offhand guard with item-type exceptions.
+- Never propose or require an AzerothCore, Playerbots, Individual Progression or ALE source patch to solve this. Use the module's existing safe extension points or report that the operation cannot be supported safely.
 - Do not introduce automatic equipment handling to MultiBot. The server alone decides if a talent change can occur, and should report **BLOCKED** if gear safety is unproven.
 - On completion, give the owner the **mandatory copy-and-paste-ready final Naxxramas Core → N-MultiBot-Chatless handover**, with actual verified server behaviour, updated messages and any necessary addon UI changes.
