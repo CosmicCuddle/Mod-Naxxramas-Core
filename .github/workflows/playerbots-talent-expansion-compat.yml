@@ -1,4 +1,4 @@
-name: Playerbots talent expansion config compatibility
+name: Playerbots talent config member compatibility
 
 on:
   pull_request:
@@ -25,29 +25,78 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Compile and test both Playerbots config versions
+      - name: Compile and test both Playerbots config APIs, including array references
         shell: bash
         run: |
           set -euo pipefail
           cat > /tmp/test_playerbots_config.cpp <<'CPP'
           #include "PlayerbotTalentExpansionCompat.h"
-          struct OlderPlayerbots { bool limitTalentsExpansion; };
-          struct NewerPlayerbots { bool LimitTalentsExpansion; };
-          struct BothForPriority { bool limitTalentsExpansion; bool LimitTalentsExpansion; };
-          int main()
-          {
-              using NaxxramasPlayerbotCompat::LimitTalentsExpansionEnabled;
-              if (!LimitTalentsExpansionEnabled(OlderPlayerbots{true})) return 1;
-              if (LimitTalentsExpansionEnabled(OlderPlayerbots{false})) return 2;
-              if (!LimitTalentsExpansionEnabled(NewerPlayerbots{true})) return 3;
-              if (LimitTalentsExpansionEnabled(NewerPlayerbots{false})) return 4;
-              if (!LimitTalentsExpansionEnabled(BothForPriority{false, true})) return 5;
+          #include <string>
+          #include <vector>
+
+          struct LegacyPlayerbots {
+              bool limitTalentsExpansion = true;
+              std::string commandPrefix = "!";
+              std::string commandSeparator = ";";
+              std::string premadeSpecName[2][2] = {{"legacy-spec"}};
+              std::vector<std::vector<unsigned>> parsedSpecLinkOrder[2][2][2];
+          };
+          struct CurrentPlayerbots {
+              bool LimitTalentsExpansion = true;
+              std::string CommandPrefix = ".";
+              std::string CommandSeparator = "|";
+              std::string PremadeSpecName[2][2] = {{"current-spec"}};
+              std::vector<std::vector<unsigned>> ParsedSpecLinkOrder[2][2][2];
+          };
+          struct BothForPriority {
+              bool limitTalentsExpansion = false;
+              bool LimitTalentsExpansion = true;
+          };
+          template <typename Config>
+          bool Validate(Config const& config, std::string const& prefix,
+                        std::string const& separator, std::string const& name) {
+              namespace C = NaxxramasPlayerbotCompat;
+              return C::LimitTalentsExpansionEnabled(config) &&
+                  C::CommandPrefix(config) == prefix &&
+                  C::CommandSeparator(config) == separator &&
+                  C::PremadeSpecName(config)[0][0] == name &&
+                  &C::ParsedSpecLinkOrder(config) == &(
+                    C::ParsedSpecLinkOrder(config)) &&
+                  C::ParsedSpecLinkOrder(config)[0][0][0].empty();
+          }
+          int main() {
+              namespace C = NaxxramasPlayerbotCompat;
+              LegacyPlayerbots old;
+              CurrentPlayerbots modern;
+              if (!Validate(old, "!", ";", "legacy-spec")) return 1;
+              if (!Validate(modern, ".", "|", "current-spec")) return 2;
+              if (&C::PremadeSpecName(old) != &old.premadeSpecName ||
+                  &C::ParsedSpecLinkOrder(old) != &old.parsedSpecLinkOrder ||
+                  &C::CommandPrefix(old) != &old.commandPrefix ||
+                  &C::CommandSeparator(old) != &old.commandSeparator) return 3;
+              if (&C::PremadeSpecName(modern) != &modern.PremadeSpecName ||
+                  &C::ParsedSpecLinkOrder(modern) != &modern.ParsedSpecLinkOrder ||
+                  &C::CommandPrefix(modern) != &modern.CommandPrefix ||
+                  &C::CommandSeparator(modern) != &modern.CommandSeparator) return 4;
+              old.limitTalentsExpansion = false;
+              modern.LimitTalentsExpansion = false;
+              if (C::LimitTalentsExpansionEnabled(old) ||
+                  C::LimitTalentsExpansionEnabled(modern)) return 5;
+              if (!C::LimitTalentsExpansionEnabled(BothForPriority{})) return 6;
               return 0;
           }
           CPP
           g++ -std=c++17 -Wall -Wextra -Werror \
             -Isrc/Systems /tmp/test_playerbots_config.cpp -o /tmp/test_playerbots_config
           /tmp/test_playerbots_config
-          grep -q 'LimitTalentsExpansionEnabled(sPlayerbotAIConfig)' src/Systems/BotTalentCompletion.cpp
-          grep -q 'LimitTalentsExpansionEnabled(sPlayerbotAIConfig)' src/Systems/BotTalentExpansionLimits.cpp
-          echo "PASS: both historical and current Playerbots config member spellings."
+          for accessor in CommandPrefix CommandSeparator PremadeSpecName ParsedSpecLinkOrder; do
+            grep -q "NaxxramasPlayerbotCompat::${accessor}(sPlayerbotAIConfig)" \
+              src/Systems/BotTalentCompletion.cpp
+          done
+          ! grep -Eq 'sPlayerbotAIConfig\.(commandPrefix|commandSeparator|premadeSpecName|parsedSpecLinkOrder)' \
+            src/Systems/BotTalentCompletion.cpp
+          grep -q 'LimitTalentsExpansionEnabled(sPlayerbotAIConfig)' \
+            src/Systems/BotTalentCompletion.cpp
+          grep -q 'LimitTalentsExpansionEnabled(sPlayerbotAIConfig)' \
+            src/Systems/BotTalentExpansionLimits.cpp
+          echo "PASS: old and new Playerbots config spellings, array references and source usage"

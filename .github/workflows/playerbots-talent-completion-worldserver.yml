@@ -1,0 +1,90 @@
+name: Playerbots talent compatibility full Worldserver build
+
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/BotTalentCompletion.cpp'
+      - 'src/Systems/BotTalentExpansionLimits.cpp'
+      - 'src/Systems/PlayerbotTalentExpansionCompat.h'
+      - '.github/workflows/playerbots-talent-completion-worldserver.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-link-worldserver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 105
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - playerbots: older-lowercase-config
+            commit: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          - playerbots: newer-uppercase-config
+            commit: 79bd428115c8f33b74b13de23b133d49c3f75c60
+    name: Worldserver / ${{ matrix.playerbots }}
+    steps:
+      - name: Checkout owner's pinned Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: acore
+          persist-credentials: false
+      - name: Checkout selected Playerbots revision
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: ${{ matrix.commit }}
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout owner's pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact proposed Naxxramas Core
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify checkout revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "${{ matrix.commit }}"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure full Worldserver build
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile and link Worldserver
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Confirm linked binary (never start or install)
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="$(find acore-build -type f -name worldserver -print -quit)"
+          test -n "$binary"
+          test -s "$binary"
+          test -x "$binary"
+          file "$binary"
+          sha256sum "$binary"
+          echo "PASS: linked for Playerbots ${{ matrix.playerbots }}"
+          echo "No production filesystem, game server, database or activation modified."

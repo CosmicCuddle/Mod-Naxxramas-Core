@@ -189,7 +189,7 @@ namespace NaxxramasBotTalentCompletion
 
         // Playerbots supports multiple chat commands in one message. Keep
         // the same order, as each command will perform its own respec.
-        std::string const& separator = sPlayerbotAIConfig.commandSeparator;
+        std::string const& separator = NaxxramasPlayerbotCompat::CommandSeparator(sPlayerbotAIConfig);
         if (!separator.empty() && msg.find(separator) != std::string::npos)
         {
             bool any = false;
@@ -209,7 +209,7 @@ namespace NaxxramasBotTalentCompletion
         }
 
         std::string command = msg;
-        std::string const& prefix = sPlayerbotAIConfig.commandPrefix;
+        std::string const& prefix = NaxxramasPlayerbotCompat::CommandPrefix(sPlayerbotAIConfig);
         if (!prefix.empty())
         {
             if (command.compare(0, prefix.size(), prefix) != 0)
@@ -236,7 +236,7 @@ namespace NaxxramasBotTalentCompletion
 
             for (uint32 specNo = 0; specNo < MAX_SPECNO; ++specNo)
             {
-                if (sPlayerbotAIConfig.premadeSpecName[cls][specNo] != name)
+                if (NaxxramasPlayerbotCompat::PremadeSpecName(sPlayerbotAIConfig)[cls][specNo] != name)
                     continue;
 
                 // Use the latest configured plan no higher than this level.
@@ -246,12 +246,12 @@ namespace NaxxramasBotTalentCompletion
                 for (uint32 level = 1;
                     level <= bot->GetLevel() && level < MAX_LEVEL; ++level)
                 {
-                    if (!sPlayerbotAIConfig.parsedSpecLinkOrder[cls][specNo][level].empty())
+                    if (!NaxxramasPlayerbotCompat::ParsedSpecLinkOrder(sPlayerbotAIConfig)[cls][specNo][level].empty())
                         selectedLevel = level;
                 }
 
                 if (selectedLevel)
-                    planned = &sPlayerbotAIConfig.parsedSpecLinkOrder[cls][specNo][selectedLevel];
+                    planned = &NaxxramasPlayerbotCompat::ParsedSpecLinkOrder(sPlayerbotAIConfig)[cls][specNo][selectedLevel];
 
                 break;
             }
@@ -331,7 +331,7 @@ namespace NaxxramasBotTalentCompletion
 
         for (uint32 specNo = 0; specNo < MAX_SPECNO; ++specNo)
         {
-            if (sPlayerbotAIConfig.premadeSpecName[cls][specNo].empty())
+            if (NaxxramasPlayerbotCompat::PremadeSpecName(sPlayerbotAIConfig)[cls][specNo].empty())
                 continue;
 
             // Pick the closest configured plan to the bot's actual level.
@@ -346,7 +346,7 @@ namespace NaxxramasBotTalentCompletion
             for (uint32 level = 10; level <= 80 && level < MAX_LEVEL; ++level)
             {
                 auto const& candidate =
-                    sPlayerbotAIConfig.parsedSpecLinkOrder[cls][specNo][level];
+                    NaxxramasPlayerbotCompat::ParsedSpecLinkOrder(sPlayerbotAIConfig)[cls][specNo][level];
                 if (candidate.empty())
                     continue;
 
