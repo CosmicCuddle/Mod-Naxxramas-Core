@@ -63,7 +63,7 @@ public:
     {
         if (!player ||
             !talent ||
-            !sPlayerbotAIConfig.limitTalentsExpansion)
+            !sPlayerbotAIConfig.LimitTalentsExpansion)
         {
             return true;
         }
