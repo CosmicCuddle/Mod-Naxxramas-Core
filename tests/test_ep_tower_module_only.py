@@ -339,6 +339,29 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertEqual(t.owner, "neutral")
 
 
+    def test_full_link_runs_same_commit_regressions_and_records_binary_hash(self):
+        workflow = (ROOT / ".github/workflows/"
+            "ep-module-pinned-worldserver-link.yml").read_text()
+        pinned = workflow.index("Confirm source SHAs before build")
+        regressions = workflow.index(
+            "Run exact-commit EP regression tests and confirm manual-only SQL"
+        )
+        linker = workflow.index("Build and LINK Worldserver (never start it)")
+        self.assertLess(pinned, regressions)
+        self.assertLess(regressions, linker)
+        self.assertIn(
+            "python3 -m unittest discover -s \"$module/tests\"", workflow
+        )
+        self.assertIn(
+            'test ! -e "$module/data/sql/db-world/'
+            '2026_10_13_00_ep_tower_lock_module_bind.sql"', workflow
+        )
+        self.assertIn('sha256sum "$binary"', workflow)
+        self.assertIn(
+            "git -C acore/modules/mod-naxxramas-core rev-parse HEAD",
+            workflow
+        )
+
     def test_pinned_ep_ci_uses_feature_push_without_duplicate_pr_synchronizes(self):
         # GitHub PR path filters compare against the whole PR diff, not the
         # most recent commit. Push path filters catch feature-code changes;

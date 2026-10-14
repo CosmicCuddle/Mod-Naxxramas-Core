@@ -61,6 +61,13 @@ jobs:
           test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
           test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "283abe12774801e5671da746ea8bf535cc0252e0"
           test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Run exact-commit EP regression tests and confirm manual-only SQL
+        run: |
+          set -euo pipefail
+          module=acore/modules/mod-naxxramas-core
+          test -f "$module/docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql"
+          test ! -e "$module/data/sql/db-world/2026_10_13_00_ep_tower_lock_module_bind.sql"
+          python3 -m unittest discover -s "$module/tests" -p 'test_ep_tower_module_only.py' -v
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
@@ -85,5 +92,9 @@ jobs:
           test -x "$binary"
           grep -aFq "outdoorpvp_naxxramas_ep_lock" "$binary"
           file "$binary"
+          echo "Linked Worldserver SHA-256:"
+          sha256sum "$binary"
+          echo "Exact module source commit:"
+          git -C acore/modules/mod-naxxramas-core rev-parse HEAD
           echo "PASS: module's unique Eastern Plaguelands handler was included in linked Worldserver."
           echo "No DB migration, server startup, timed gameplay, or production changes."
