@@ -2,7 +2,7 @@
 
 **Status: OWNER-APPROVED SAFETY REQUIREMENT (14 October 2026); NOT YET IMPLEMENTED FOR DIFFERENT-BUILD APPLY OR RUNTIME-VERIFIED.**
 
-The owner explicitly confirmed this non-negotiable rule on 14 October 2026: an Alt Bot's NT1 talent import changes **talents only** and never its equipment, including when switching class role. This is **design approval only**, not permission to merge, install, change production configuration or invoke Apply. It is not a statement that PR #18 already makes changing an equipped Alt Bot's talents safe. The current **offhand/pet Apply blocks remain active**.
+The owner explicitly confirmed this non-negotiable rule on 14 October 2026: an Alt Bot's NT1 talent import changes **talents only** and never its equipment, including when switching class role. This is **design approval only**, not permission to merge, install, change production configuration or invoke Apply. It is not a statement that PR #18 already makes changing an equipped Alt Bot's talents safe. The current **offhand/pet Apply blocks remain active**. The newer PR #18 branch now also fails closed for any **DIFFERENT/CANNOT VERIFY** Alt Bot request, including empty-offhand cases. This is unreleased and will not change different-build talents.
 
 ## Non-negotiable module-only implementation boundary
 
@@ -61,7 +61,7 @@ Review pinned core, Playerbots and other installed module sources; include injec
 
 ## Release and MultiBot contract
 
-- PR #18 remains **draft and unmerged**; its proposed exact-match no-op, read-only talent match, tests and documentation do not satisfy the approved different-build mutation invariant.
+- PR #18 remains **draft and unmerged**; its proposed exact-match no-op, read-only talent match, and new reject-before-reset gate **prevent unverified changed-build Alt Bot Apply** but do **not** provide a completed gear-inert different-build operation.
 - Do not replace the universal offhand guard with item-type exceptions.
 - Never propose or require an AzerothCore, Playerbots, Individual Progression or ALE source patch to solve this. Use the module's existing safe extension points or report that the operation cannot be supported safely.
 - Do not introduce automatic equipment handling to MultiBot. The server alone decides if a talent change can occur, and should report **BLOCKED** if gear safety is unproven.
