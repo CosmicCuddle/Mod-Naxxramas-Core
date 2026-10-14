@@ -238,7 +238,7 @@ int main()
     Require(randomSpecChanged.resets == 1 &&
             randomSpecChanged.saves == 0 && learnCalls == 0,
         "unexpected spec switch no longer stops apply");
-    std::cout << "PASS: 7 source-extracted NT1 Apply guard scenarios; "
+    std::cout << "PASS: 8 source-extracted NT1 Apply guard scenarios; "
                  "no true AzerothCore reset, inventory, or DB access\n";
 }
 """
