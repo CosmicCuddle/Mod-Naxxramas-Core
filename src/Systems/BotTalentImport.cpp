@@ -1719,6 +1719,20 @@ namespace NaxxramasBotTalentImport
                         "No talents or equipment changed.";
                 return false;
             }
+
+            // Module-only safety boundary: Player::resetTalents(true) may
+            // move equipment (including mail fallback) without any
+            // Playerbots AutoGear call. An empty offhand only eliminates
+            // one observed hazard; other equipment hooks and delayed
+            // actions are not proven inert. Until a complete, gear-inert
+            // different-build path exists INSIDE THIS MODULE, stop before
+            // ImportScope, either reset, LearnTalent, or DB writes.
+            // Keep Random Playerbots' existing reset behavior unchanged.
+            error = "Alt Bot NT1 different-build Apply blocked: the existing "
+                    "AzerothCore talent reset cannot guarantee zero equipment "
+                    "changes through module-only interfaces. "
+                    "No talents or equipment changed.";
+            return false;
         }
 
         // Both mode 3 (GM-only) and mode 4 (authorised normal players)
