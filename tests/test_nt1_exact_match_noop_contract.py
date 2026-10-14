@@ -123,7 +123,12 @@ class ExactAltBotNoOpContract(unittest.TestCase):
             APPLY.index("if (IsReadOnlyAccessMode())"),
         )
 
-    def test_different_build_still_uses_original_reset_failure_path(self):
+    def test_random_bot_retains_original_reset_failure_path(self):
+        # A DIFFERENT Alt Bot is stopped twice before this legacy branch.
+        classification = APPLY.index("bool const randomBot = sRandomPlayerbotMgr.IsRandomBot(bot);")
+        gate = APPLY.index("if (!randomBot)", classification)
+        self.assertLess(gate, APPLY.index("ImportScope const scope(bot)"))
+        self.assertIn("return false;", APPLY[gate:APPLY.index("ImportScope const scope(bot)")])
         self.assertEqual(APPLY.count("bot->resetTalents(true);"), 2)
         self.assertIn("if (LearnValidated(bot, requested, error))", APPLY)
         self.assertIn("ROLLBACK FAILED:", APPLY)
