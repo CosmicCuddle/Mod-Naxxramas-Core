@@ -118,7 +118,7 @@ class ZeroGearMutationPolicyGuardrails(unittest.TestCase):
             )
         self.assertIn("No exceptions", POLICY)
         self.assertIn("without a disabling configuration setting", PLAN)
-        self.assertIn("no different-build apply/gear functionality implemented", PLAN.lower())
+        self.assertIn("no functioning gear-inert different-build talent-changing implementation exists", PLAN.lower())
 
 
 if __name__ == "__main__":
