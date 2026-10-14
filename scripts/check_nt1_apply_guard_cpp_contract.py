@@ -39,11 +39,20 @@ struct Player
 {
     bool random = false;
     bool mutateSpecOnReset = false;
+    // Deliberately worst-case fake core: EVERY ordinary reset with an
+    // occupied offhand relocates it. This is not a claim that real
+    // caster offhands always move.
+    bool offhandEquipped = true;
     uint8 spec = 0;
-    int resets = 0, saves = 0, packets = 0;
+    int resets = 0, saves = 0, packets = 0, offhandMoves = 0;
     bool resetTalents(bool)
     {
         ++resets;
+        if (offhandEquipped)
+        {
+            ++offhandMoves;
+            offhandEquipped = false;
+        }
         if (mutateSpecOnReset)
             spec = 1;
         return true;
@@ -125,6 +134,8 @@ void ResetFakes()
 void MustHaveNoEffects(Player const& bot)
 {
     Require(bot.resets == 0, "Alt Bot reset was reached");
+    Require(bot.offhandMoves == 0, "Alt Bot gear was moved");
+    Require(bot.offhandEquipped, "Alt Bot offhand is no longer equipped");
     Require(bot.saves == 0, "Alt Bot was saved");
     Require(bot.packets == 0, "Alt Bot received modified talent packets");
     Require(learnCalls == 0, "Alt Bot learned talents");
@@ -162,6 +173,23 @@ int main()
         "changed Alt Bot was not correctly refused");
     MustHaveNoEffects(altDifferent);
 
+    // An equally different Alt Bot without an offhand remains blocked:
+    // the absence of an immediate relocation condition is not enough.
+    ResetFakes();
+    Player altEmptyOffhand;
+    altEmptyOffhand.offhandEquipped = false;
+    unchanged = true;
+    error.clear();
+    Require(!ApplyValidated(&issuer, &altEmptyOffhand, "NT1:example", plan,
+                            error, &unchanged), "offhand-free Alt Bot accepted");
+    Require(!unchanged, "offhand-free Alt Bot misreported no-op");
+    Require(altEmptyOffhand.resets == 0 &&
+            altEmptyOffhand.offhandMoves == 0 &&
+            altEmptyOffhand.saves == 0 &&
+            learnCalls == 0 &&
+            CharacterDatabase.writes == 0 && enterScope == 0,
+        "offhand-free Alt Bot reached a mutation path");
+
     // An authorized, exact active build is a true no-op.
     ResetFakes();
     exact = true;
@@ -196,6 +224,7 @@ int main()
                            error, &unchanged), "Random Bot apply rejected");
     Require(!unchanged && randomSuccess.resets == 1 &&
             randomSuccess.saves == 1 && randomSuccess.packets == 1 &&
+            randomSuccess.offhandMoves == 1 &&
             learnCalls == 1 && CharacterDatabase.writes == 0 &&
             enterScope == 1 && leaveScope == 1,
         "Random Bot ordinary apply was changed");
@@ -238,7 +267,7 @@ int main()
     Require(randomSpecChanged.resets == 1 &&
             randomSpecChanged.saves == 0 && learnCalls == 0,
         "unexpected spec switch no longer stops apply");
-    std::cout << "PASS: 8 source-extracted NT1 Apply guard scenarios; "
+    std::cout << "PASS: 9 source-extracted NT1 Apply guard scenarios; "
                  "no true AzerothCore reset, inventory, or DB access\n";
 }
 """
