@@ -6,6 +6,8 @@
 
 **Critical installation safeguard:** The optional forward binding lives under `docs/install/`, not `data/sql/db-world/`. The pinned AzerothCore updater scans module `data/sql/db-world` automatically; do **not** move the optional binding there. Merely compiling/loading the module must not change the world handler. Explicitly apply the binding **only on isolated staging after owner approval, preflight and verified backups**, and confirm it was not already applied before any manual SQL. Keep the rollback under `docs/rollback/`. No original AzerothCore C++ modifications. Do not deploy the superseded core-patch PR #20.
 
+**Owner source check (14 October 2026):** Git checkout heads supplied through MobaXterm: AzerothCore `Grimfeather@a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7`, Playerbots `mod-playerbots@037c01418b5d01506917a3db9b44fd56ac5f965c`, Individual Progression `Grimfeather@4ff4b5fcc1480348f058c632573143e62d4e3a41`, and installed Naxxramas Core `69a91be2ded62f6cdccf7ca6e7119ebdcc45e81b` (existing main, **not** the PR feature). Playerbots exactly matches existing pinned CI. An exact owner-fork compile/link CI workflow [`ep-module-grimfeather-worldserver-link.yml`](../.github/workflows/ep-module-grimfeather-worldserver-link.yml) checks the *candidate* against the owner-supplied three upstream revisions; its run outcome must be checked independently. These SHA observations do **not** establish a clean working tree or which binary is running. **No server files were changed during identification.**
+
 ## 1. Gates before any staging work
 
 - [ ] Obtain explicit owner approval for *staging* installation and tests.

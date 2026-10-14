@@ -339,6 +339,42 @@ class ModuleOnlySourceContract(unittest.TestCase):
         self.assertEqual(t.owner, "neutral")
 
 
+    def test_grimfeather_build_uses_exact_owner_shas_and_stays_isolated(self):
+        workflow = (ROOT / ".github/workflows/"
+            "ep-module-grimfeather-worldserver-link.yml").read_text()
+        expected = (
+            ("Grimfeather/azerothcore-wotlk",
+             "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"),
+            ("mod-playerbots/mod-playerbots",
+             "037c01418b5d01506917a3db9b44fd56ac5f965c"),
+            ("Grimfeather/mod-individual-progression",
+             "4ff4b5fcc1480348f058c632573143e62d4e3a41"),
+        )
+        for repository, revision in expected:
+            with self.subTest(repository=repository):
+                self.assertIn("repository: " + repository, workflow)
+                self.assertIn("ref: " + revision, workflow)
+                self.assertIn('= "' + revision + '"', workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+        self.assertIn("types: [opened, reopened]", workflow)
+        self.assertIn("branches: [feature/ep-tower-lock-module-only]", workflow)
+        self.assertIn(
+            "Run exact-commit EP regression tests and confirm manual-only SQL",
+            workflow
+        )
+        self.assertLess(
+            workflow.index("Run exact-commit EP regression tests"),
+            workflow.index("Build and LINK Worldserver (never start it)"),
+        )
+        self.assertIn(
+            'test ! -e "$module/data/sql/db-world/'
+            '2026_10_13_00_ep_tower_lock_module_bind.sql"', workflow
+        )
+        self.assertIn('sha256sum "$binary"', workflow)
+        self.assertIn('grep -aFq "outdoorpvp_naxxramas_ep_lock"', workflow)
+        self.assertNotIn("repository: ZhengPeiRu21/", workflow)
+        self.assertNotIn("repository: mod-playerbots/azerothcore-wotlk", workflow)
+
     def test_full_link_runs_same_commit_regressions_and_records_binary_hash(self):
         workflow = (ROOT / ".github/workflows/"
             "ep-module-pinned-worldserver-link.yml").read_text()
