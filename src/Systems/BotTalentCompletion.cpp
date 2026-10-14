@@ -91,7 +91,7 @@ namespace NaxxramasBotTalentCompletion
         return player &&
             player->GetLevel() >= 10 &&
             player->GetLevel() <= 70 &&
-            sPlayerbotAIConfig.limitTalentsExpansion &&
+            sPlayerbotAIConfig.LimitTalentsExpansion &&
             PlayerbotsMgr::instance().GetPlayerbotAI(player);
     }
 
