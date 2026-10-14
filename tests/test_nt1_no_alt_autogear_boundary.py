@@ -85,6 +85,39 @@ class AltBotEquipmentBoundaryTests(unittest.TestCase):
         self.assertEqual(APPLY.count("bot->resetTalents(true)"), 2)
         self.assertIn("if (!randomBot)", APPLY)
 
+    def test_apply_has_independent_altbot_reset_kill_switch(self):
+        # The preflight check alone is not sufficient if future code
+        # inadvertently adds a different path through ApplyValidated.
+        no_op_end = APPLY.index("if (verifiedNoOp)")
+        classification = APPLY.index(
+            "bool const randomBot = sRandomPlayerbotMgr.IsRandomBot(bot);")
+        gate_start = APPLY.index("if (!randomBot)", classification)
+        gate_end = APPLY.index("return false;", gate_start)
+        scope = APPLY.index("ImportScope const scope(bot)")
+        first_reset = APPLY.index("bot->resetTalents(true)")
+        self.assertLess(no_op_end, classification)
+        self.assertLess(classification, gate_start)
+        self.assertLess(gate_start, gate_end)
+        self.assertLess(gate_end, scope)
+        self.assertLess(gate_end, first_reset)
+        gate = without_comments(APPLY[gate_start:gate_end + len("return false;")])
+        self.assertIn("Alt Bot NT1 changed-build Apply blocked:", gate)
+        self.assertIn("No talents or equipment changed.", gate)
+        for forbidden in ("resetTalents(", "LearnTalent(", "SaveToDB(",
+                          "ImportScope", "EquipItem(", "StoreItem(",
+                          "AutoGear(", "CharacterDatabase."):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, gate)
+
+    def test_random_bot_resets_are_after_the_independent_gate(self):
+        # Keep the same two existing reset paths for Random Bots.
+        # This contract is source-level; gameplay still needs testing.
+        classification = APPLY.index("bool const randomBot =")
+        self.assertLess(APPLY.index("if (!randomBot)", classification),
+                        APPLY.index("bot->resetTalents(true)"))
+        self.assertEqual(APPLY.count("bot->resetTalents(true)"), 2)
+        self.assertIn("if (!randomBot)", APPLY)
+
     def test_existing_completion_hook_does_not_regear(self):
         hook = COMPLETION.split("    void OnPlayerTalentsReset(", 1)[1].split(
             "    void OnPlayerLearnTalents(", 1
