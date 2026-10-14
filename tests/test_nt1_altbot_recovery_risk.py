@@ -46,7 +46,7 @@ class RecoveryWarningsSafetyTests(unittest.TestCase):
 
     def test_existing_altbot_allowlist_and_preflight_retained(self):
         self.assertIn("CanApplyToAltBot(issuer, error)", CPP)
-        self.assertIn("CheckApplyReadiness(issuer, bot, proposed, reason)", PRINTER)
+        self.assertIn("CheckApplyReadiness(issuer, bot, proposed, reason, nullptr,", PRINTER)
         self.assertIn("NT1 ALT REPAIR DISABLED", PRINTER)
 
     def test_no_individual_progression_header_conflict(self):
@@ -56,7 +56,7 @@ class RecoveryWarningsSafetyTests(unittest.TestCase):
         shared = CPP.split("    bool CheckApplyReadiness(", 1)[1].split(
             "    bool ApplyValidated(", 1
         )[0]
-        self.assertIn("if (!randomBot)", shared)
+        self.assertIn("if (!randomBot && !verifiedNoOp)", shared)
         self.assertIn("EQUIPMENT_SLOT_OFFHAND", shared)
         self.assertIn("bot->GetPet() != nullptr", shared)
 
@@ -64,12 +64,12 @@ class RecoveryWarningsSafetyTests(unittest.TestCase):
         shared = CPP.split("    bool CheckApplyReadiness(", 1)[1].split(
             "    bool ApplyValidated(", 1
         )[0]
-        self.assertLess(shared.rfind("if (!randomBot)"), shared.rfind("return true;"))
+        self.assertLess(shared.rfind("if (!randomBot && !verifiedNoOp)"), shared.rfind("return true;"))
         apply_code = CPP.split("    bool ApplyValidated(", 1)[1].split(
             "    bool ReadArguments(", 1
         )[0]
         self.assertLess(
-            apply_code.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot)"),
+            apply_code.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot,"),
             apply_code.index("bot->resetTalents(true)"),
         )
 
@@ -102,7 +102,7 @@ class RecoveryWarningsSafetyTests(unittest.TestCase):
         self.assertIn("CanApplyToGroupedRandomBot(issuer, bot, error)", shared)
         self.assertLess(
             shared.index("CanApplyToAltBot(issuer, error)"),
-            shared.rfind("if (!randomBot)"),
+            shared.rfind("if (!randomBot && !verifiedNoOp)"),
         )
 
 

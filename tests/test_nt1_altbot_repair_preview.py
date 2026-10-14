@@ -109,7 +109,7 @@ class RepairPreviewSourceSafetyTests(unittest.TestCase):
 
     def test_preflight_is_read_only_and_not_replaced(self):
         d = section("    void PrintAltBotRepairPreview(", "    void PrintPreview(")
-        self.assertIn("CheckApplyReadiness(issuer, bot, proposed, reason)", d)
+        self.assertIn("CheckApplyReadiness(issuer, bot, proposed, reason, nullptr,", d)
         self.assertIn("NT1 ALT REPAIR DIAGNOSTIC BLOCKED", d)
         self.assertIn("NT1 ALT REPAIR DISABLED", d)
         self.assertIn("READ ONLY:", d)
