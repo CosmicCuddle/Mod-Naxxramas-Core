@@ -190,6 +190,25 @@ class ActiveTalentMatchSourceTests(unittest.TestCase):
                 self.assertIn(token, PRINT)
         self.assertIn("Inactive spec, glyphs, pets", PRINT)
 
+    def test_read_only_rank_delta_counts_after_integrity_checks(self):
+        # No delta classification from malformed talent maps or mismatched
+        # spent/free point totals. This is NOT a path to call Apply.
+        self.assertIn("uint32 PointsToAdd = 0;", SOURCE)
+        self.assertIn("uint32 PointsToRemove = 0;", SOURCE)
+        integrity = CHECK.index("observedPoints + bot->GetFreeTalentPoints()")
+        additions = CHECK.index("report.PointsToAdd += rank - current")
+        removals = CHECK.index("report.PointsToRemove += current - rank")
+        missing = CHECK.index("report.PointsToRemove += rank")
+        self.assertLess(integrity, additions)
+        self.assertLess(integrity, removals)
+        self.assertLess(integrity, missing)
+        self.assertIn("report.PointsToAdd, report.PointsToRemove", PRINT)
+        self.assertIn("READ ONLY: no talent reset or change approved", PRINT)
+        self.assertNotIn("PointsToAdd", APPLY)
+        self.assertNotIn("PointsToRemove", APPLY)
+        self.assertNotIn("PointsToAdd", READINESS)
+        self.assertNotIn("PointsToRemove", READINESS)
+
     def test_read_only_diagnostics_never_mutate(self):
         diagnostics = CHECK + "\n" + PRINT
         diagnostics = re.sub(r"//[^\n]*", "", diagnostics)
