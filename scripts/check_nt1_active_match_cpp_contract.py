@@ -161,6 +161,20 @@ void Expect(ActiveTalentMatchStatus expected, ActiveTalentMatch actual,
         throw std::runtime_error(label);
     }
 }
+
+void ExpectDelta(ActiveTalentMatch const& actual, uint32 add, uint32 remove,
+    char const* label)
+{
+    if (actual.Status != ActiveTalentMatchStatus::Different ||
+        actual.PointsToAdd != add || actual.PointsToRemove != remove)
+    {
+        std::cerr << "FAIL " << label << " incorrect read-only talent delta"
+                  << " status=" << static_cast<int>(actual.Status)
+                  << " add=" << actual.PointsToAdd
+                  << " remove=" << actual.PointsToRemove << "\n";
+        throw std::runtime_error(label);
+    }
+}
 ValidatedBuild Plan(uint8 rank = 5)
 {
     ValidatedBuild result;
@@ -187,6 +201,15 @@ void RegisterTalent()
         fakeSpellMgr.spells.insert(t.RankID[i]);
     }
     sTalentStore.rows.emplace(100, t);
+    // Another legal priest talent to test a same-budget full tree swap.
+    TalentEntry second = t;
+    second.TalentID = 101;
+    for (uint32 i = 0; i < MAX_TALENT_RANK; ++i)
+    {
+        second.RankID[i] = 6001 + i;
+        fakeSpellMgr.spells.insert(second.RankID[i]);
+    }
+    sTalentStore.rows.emplace(101, second);
     sTalentTabStore.rows.emplace(200, TalentTabEntry{1u << 4, 0});
 }
 int main()
@@ -198,12 +221,39 @@ int main()
     Expect(ActiveTalentMatchStatus::Exact,
         InspectActiveTalentMatch(&exact, Plan()), "exact rank five");
     PrintActiveTalentMatch(&handler, &exact, Plan());
+    {
+        auto const result = InspectActiveTalentMatch(&exact, Plan());
+        if (result.PointsToAdd || result.PointsToRemove)
+            throw std::runtime_error("exact build reported a nonzero delta");
+    }
 
     Player wrongRank;
     wrongRank.Add(5004, 100);
     wrongRank.freePoints = 1;
     Expect(ActiveTalentMatchStatus::Different,
         InspectActiveTalentMatch(&wrongRank, Plan()), "valid different rank");
+    ExpectDelta(InspectActiveTalentMatch(&wrongRank, Plan()), 1, 0,
+        "one point needed to finish existing rank");
+
+    Player empty;
+    empty.freePoints = 5;
+    ExpectDelta(InspectActiveTalentMatch(&empty, Plan()), 5, 0,
+        "five-point additions only");
+
+    Player downgrade;
+    downgrade.Add(5005, 100);
+    ExpectDelta(InspectActiveTalentMatch(&downgrade, Plan(4)), 0, 1,
+        "same talent reduced by one rank");
+
+    Player fullSwap;
+    fullSwap.Add(5005, 100);
+    ValidatedBuild swapTarget;
+    auto const& second = sTalentStore.rows.at(101);
+    swapTarget.Ordered.push_back({101, 5, &second,
+        sTalentTabStore.LookupEntry(second.TalentTab)});
+    swapTarget.Spent = 5;
+    ExpectDelta(InspectActiveTalentMatch(&fullSwap, swapTarget), 5, 5,
+        "full-budget respec requires both additions and removals");
 
     Player extra;
     extra.Add(5005, 100);
@@ -285,7 +335,7 @@ int main()
         "missing planned DBC rank");
     sTalentStore.rows.at(100).RankID[4] = 5005;
 
-    std::cout << "NT1 isolated C++ exact-function contract: 15 cases passed\n";
+    std::cout << "NT1 isolated C++ exact-function contract: 18 cases and 5 delta assertions passed\n";
 }
 """
 
