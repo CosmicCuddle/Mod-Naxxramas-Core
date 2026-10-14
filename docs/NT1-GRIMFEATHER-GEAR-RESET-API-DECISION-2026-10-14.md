@@ -1,0 +1,34 @@
+# NT1 Alt Bot Equipment Preservation — Grimfeather Source Decision (14 Oct 2026)
+
+**Scope:** read-only source investigation for draft [PR #18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/18). **No production code change, no server deployment, no approval to run `Apply` on real characters.** This follows the owner's express decision that Alt Bot NT1 must change talents **without any equipment mutation**. Random Bot behavior must be retained.
+
+## Verified exact sources
+
+Compared the existing draft importer to the owner's reported compatible AzerothCore fork at `Grimfeather/azerothcore-wotlk@a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7`, to the pinned `mod-playerbots/azerothcore-wotlk@b7f06a16ac7120b5abc2e8d3f96a94265a363224`, and to `mod-playerbots/mod-playerbots@037c01418b5d01506917a3db9b44fd56ac5f965c`. These are *source review checkpoints*, **not** evidence of the running binary's exact sources.
+
+### What is and is not causing the current block
+
+1. In `src/Systems/BotTalentImport.cpp::ApplyValidated`, the actual **different-build** code invokes `bot->resetTalents(true)` and potentially invokes it **again** for best-effort rollback. It does **not** call `PlayerbotFactory::AutoGear`, `InitEquipment` or `Refresh`.
+2. Playerbots' `PlayerbotFactory::Randomize` **does** combine talent selection and `InitEquipment` for bot generation. `PlayerbotFactory::Refresh` currently has the `InitEquipment` call commented out. This distinction is important, but neither fact eliminates the core reset risk. Do **not** disable Random Bot factory gear routines to fix an Alt Bot NT1 operation.
+3. Grimfeather `Player.cpp::resetTalents` calls `sScriptMgr->OnPlayerTalentsReset`, may dismiss a pet, clears Titan's Grip/Dual Wield capability, and **unconditionally reaches `AutoUnequipOffhandIfNeed()`** on the nonempty reset path. Even a zero-point reset invokes the reset hook.
+4. `AutoUnequipOffhandIfNeed()` **directly** calls `RemoveItem` + `StoreItem`, or `MoveItemFromInventory` and mails the item if bag storage fails. The body contains no `OnPlayerCanUnequipItem` precheck to let a module cancel this automatic move. The publicly available `OnPlayerUnequip` hook returns `void` and cannot veto the change.
+5. The public `Player::_removeTalent` and `_removeTalentAurasAndSpells` methods are **not** a drop-in replacement for `resetTalents`. In the reviewed core, `_removeTalent` changes the map but does **not** decrement `m_usedTalentCount`; that counter is a protected implementation detail, and `InitTalentForLevel` uses it to recalculate free points. Calling these primitives from the module could corrupt accounting, miss hooks or bypass proper spell/action/auras cleanup. **Do not implement a partial reset by manipulating const-returned talent maps or using unsafe casts.**
+6. Changing active specialization as a workaround does not help: `Player::ActivateSpec` calls `AutoUnequipOffhandIfNeed()`, handles glyphs/action bars and pets and is expressly out of scope.
+
+**Conclusion:** Simply suppressing Playerbots gear refresh or removing the occupied-offhand guard is **not sufficient** to guarantee the owner's no-equipment-mutation rule. Neither of the inspected public core interfaces provides a demonstrably gear-inert, complete different-build talent reset. This is a **verified API/path limitation**, not proof that *all conceivable* module-only solutions are impossible.
+
+## Narrow, safe progression
+
+1. Preserve the current installed/default behavior (read-only safety diagnostics and fail-closed offhand/pet denial). Do not retest on Arndor or Rakari with `Apply`.
+2. Keep PR #18's **exact-match no-op** isolated: after full authorization and legal-build/old-state checks, a provably identical active build can return without reset, learning, AI factory, equipment, mail, spec switch or persistence. That narrow candidate needs owner-approved disposable-bot validation; it does *not* perform a different-build change.
+3. Finish searching installed module and core hooks for a truly module-owned **atomic, gear-inert** different-build operation. Any proposal must reconcile `m_usedTalentCount`, both talent/spell maps, prerequisite rank order, dependent auras and abilities, dual wield/Titan's Grip, pet preservation, rollback and delayed Playerbots actions.
+4. **If no compatible public module-only primitive exists, stop and ask for a separate owner decision** before drafting any minimal optional Grimfeather core patch/primitive. A proposal for such an API must preserve old calls and Random Bot behavior by default, and still require independent opt-in for Alt Bots; merely skipping `AutoUnequipOffhandIfNeed` without preserving item legality and talent/ability side effects is not sufficient.
+5. Before enabling changed-build Apply, run compiled and isolated fault-injection tests using **disposable** Alt Bots and a tested restoration procedure: occupied focus/shield/weapon, staff/polearm, Titan's Grip/Dual Wield, no offhand, both specs, pets, full bags/mail, every class, failed talent learning, rollback failure, delayed AI maintenance, save/logout/restart. Confirm original item-instance GUIDs and slots (and absence of new mail or replacement items) on each path.
+
+## Source anchors
+
+- [Grimfeather Player.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Entities/Player/Player.cpp): `resetTalents` ~3884, `_removeTalent` ~3068, `AutoUnequipOffhandIfNeed` ~12756, `ActivateSpec` ~15513
+- [Grimfeather Player.h](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Entities/Player/Player.h): published talent helpers ~1740–1775, protected talent counter ~2956
+- [Grimfeather ScriptMgr.h](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Scripting/ScriptMgr.h): `OnPlayerCanUnequipItem` and `OnPlayerUnequip`, neither called as a veto from the automatic-offhand helper
+- [Pinned Playerbots factory](https://github.com/mod-playerbots/mod-playerbots/blob/037c01418b5d01506917a3db9b44fd56ac5f965c/src/Bot/Factory/PlayerbotFactory.cpp): `Randomize` ~829/956, `Refresh` ~1088, `AutoGear` ~3960
+- [Existing safe design and acceptance matrix](NT1-ALT-BOT-ZERO-GEAR-MUTATION-CONTRACT.md)
