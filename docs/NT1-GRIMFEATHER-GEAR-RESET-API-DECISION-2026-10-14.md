@@ -42,6 +42,14 @@ Compared the existing draft importer to the owner's reported compatible AzerothC
 - The draft retains the approved zero-equipment-mutation rule, existing Random Bot behaviour and unchanged upstream sources.
 - CI checks include real extracted C++ comparator cases for exact, additions-only, reduction of an existing rank and a full-budget rank swap. These compile/run tests do not prove worldserver runtime mutation safety.
 
+## Executable fail-closed safety harness (draft, 14 October)
+
+Added [`scripts/check_nt1_apply_guard_cpp_contract.py`](../scripts/check_nt1_apply_guard_cpp_contract.py) and [`tests/test_nt1_apply_guard_cpp_contract.py`](../tests/test_nt1_apply_guard_cpp_contract.py) to the existing read-only integration checks. They compile **the actual `ApplyValidated` C++ function** (source extracted without rewriting its body) against deterministic mutation-counting fake interfaces.
+
+The test deliberately makes the **first** readiness preflight incorrectly return READY for a **DIFFERENT** Alt Bot, then proves the **independent second guard** still blocks before `resetTalents`, `LearnValidated`, `SaveToDB`, database writes or `ImportScope`. It also covers blocked preflight, authorized exact-match no-op, read-only access mode, Random Bot normal success, Random Bot successful rollback, Random Bot failed rollback, and unexpected spec switch. This tests control flow and no-change decisions more strongly than matching source text.
+
+**Limit:** mocked interfaces cannot prove real AzerothCore or Playerbots hooks, mail, item legality, Worldserver runtime, transactionality or delayed bot activity. The harness **does not change real characters or make full different-build Alt Bot respec possible.** Keep PR #18 draft and the different-build Alt Bot refusal enabled until a fully module-only method is source-proven and independently validated.
+
 ## Narrow, safe progression
 
 1. Preserve the **currently installed** read-only diagnostics and conservative offhand/pet block. In **draft PR #18 only**, `CheckApplyReadiness` now also refuses **all different/indeterminate Alt Bot builds** before any `ImportScope`, reset, talent learning, persistence or equipment action, even with an empty offhand and no active pet. A **second independent rejection in `ApplyValidated`**, after the authorized EXACT-build no-op and before `ImportScope`, also stops every nonrandom bot if that preflight is ever relaxed by mistake; the existing two-reset path can now be reached only by Random Bots. Authorized **EXACT** build no-op remains eligible; Random Playerbot reset/recovery remains unchanged. This is intentionally safer but stricter than the prior ordinary Alt Bot Apply path, and is **not** the desired completed talent-changing feature. Do not retest on Arndor or Rakari with `Apply`.
