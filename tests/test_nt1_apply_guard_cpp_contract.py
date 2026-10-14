@@ -23,7 +23,7 @@ class Nt1ApplyGuardCppContract(unittest.TestCase):
             result.returncode, 0,
             f"Extracted C++ test failed:\n{result.stdout}\n{result.stderr}",
         )
-        self.assertIn("PASS: 8 source-extracted NT1 Apply guard scenarios",
+        self.assertIn("PASS: 9 source-extracted NT1 Apply guard scenarios",
                       result.stdout)
         self.assertIn("NOT a live Apply or full respec", result.stdout)
 
