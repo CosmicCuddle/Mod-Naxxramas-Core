@@ -148,7 +148,12 @@ struct ChatHandler
     mutable std::vector<std::string> emitted;
     void SendSysMessage(char const* line) const { emitted.emplace_back(line); }
     template <class... A>
-    void PSendSysMessage(char const*, A&&...) const {}
+    void PSendSysMessage(char const* format, A&&...) const
+    {
+        // Capture the format string. We only test classification text,
+        // not ChatHandler/fmt formatting semantics in this mock harness.
+        emitted.emplace_back(format);
+    }
 };
 """
 SUFFIX = r"""
