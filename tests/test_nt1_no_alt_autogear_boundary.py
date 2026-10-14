@@ -74,7 +74,27 @@ class AltBotEquipmentBoundaryTests(unittest.TestCase):
         self.assertIn("not sufficient", BOUNDARY)
         self.assertIn("m_usedTalentCount", BOUNDARY)
         self.assertIn("cannot veto the change", BOUNDARY)
-        self.assertIn("stop and ask for a separate owner decision", BOUNDARY)
+        self.assertIn("keep different-build Apply blocked before mutation", BOUNDARY)
+        self.assertIn("all implementation changes MUST stay inside", BOUNDARY)
+        self.assertIn("never modify AzerothCore", BOUNDARY)
+        # No proposed upstream/core patch fallback may be a release option.
+        self.assertNotIn("before drafting any minimal optional Grimfeather core patch",
+                         BOUNDARY)
+
+    def test_published_contract_has_absolute_module_only_rule(self):
+        policy = (ROOT / "docs/NT1-ALT-BOT-ZERO-GEAR-MUTATION-CONTRACT.md"
+                  ).read_text("utf-8")
+        plan = (ROOT / "docs/NT1-ZERO-GEAR-MUTATION-IMPLEMENTATION-PLAN-2026-10-13.md"
+                ).read_text("utf-8")
+        roadmap = (ROOT / "ROADMAP.md").read_text("utf-8")
+        for document in (policy, plan, roadmap):
+            with self.subTest(doc=document[:60]):
+                self.assertIn("mod-naxxramas-core", document)
+                self.assertIn("Playerbots", document)
+                self.assertIn("AzerothCore", document)
+        self.assertIn("safely refuse it before any mutation", policy)
+        self.assertIn("no future AzerothCore/core fork patch", plan)
+        self.assertIn("Never modify AzerothCore", roadmap)
 
 
 if __name__ == "__main__":
