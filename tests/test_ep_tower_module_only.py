@@ -676,5 +676,69 @@ class ModuleOnlySourceContract(unittest.TestCase):
             list(updater.rglob("*ep_tower_lock*unbind*.sql")), []
         )
 
+
+class FullCaptureAnnouncementContract(unittest.TestCase):
+    """Source-level checks only; zone visibility still needs in-game proof."""
+
+    def test_full_capture_announces_to_correct_zone_once(self):
+        update = CPP.split("bool Update(uint32 diff) override", 1)[1].split(
+            "void CorrectLateNorthpassShrine", 1)[0]
+        self.assertIn("if (_expiresAt)", update)
+        self.assertIn("OPvPCapturePoint::Update(0);", update)
+        self.assertIn("if (PackLock(this->_team, expiresAt, packed))", update)
+        packed_branch = update.split(
+            "if (PackLock(this->_team, expiresAt, packed))", 1)[1]
+        self.assertIn("sWorldState->setWorldState(TowerStateBase + Index, packed);",
+                      packed_branch)
+        self.assertLess(packed_branch.index("sWorldState->setWorldState("),
+                        packed_branch.index("map->SendZoneText("))
+        self.assertEqual(update.count("map->SendZoneText("), 1)
+        self.assertIn("map->SendZoneText(EP_GraveyardZone, message.c_str());",
+                      packed_branch)
+        self.assertNotIn("SendZoneText(", update.split(
+            "if (_expiresAt)", 1)[1].split(
+            "bool const changed = OPvPCapturePoint::Update(diff);", 1)[0])
+
+    def test_both_factions_and_all_four_tower_names(self):
+        for name in ("Eastwall Tower", "Northpass Tower",
+                     "Plaguewood Tower", "Crown Guard Tower"):
+            with self.subTest(tower=name):
+                self.assertIn('"' + name + '"', CPP)
+        self.assertIn('"Horde" : "Alliance"', CPP)
+        self.assertIn('message += " has secured ";', CPP)
+        self.assertIn('message += "!";', CPP)
+        self.assertIn("char const* const TowerNames[EP_TOWER_NUM]", CPP)
+        self.assertIn('#include "Map.h"', CPP)
+
+    def test_no_replay_on_restart_or_timeout(self):
+        restore = CPP.split("void RestoreFromPersistentState()", 1)[1].split(
+            "private:", 1)[0]
+        reset = CPP.split("void ResetToNeutral()", 1)[1].split(
+            "uint64 _expiresAt", 1)[0]
+        self.assertNotIn("SendZoneText(", restore)
+        self.assertNotIn("SendZoneText(", reset)
+        self.assertNotIn("SendZoneText(", CPP.split(
+            "void ChangeState() override", 1)[1].split(
+            "void RestoreFromPersistentState()", 1)[0])
+        self.assertIn("this->_oldState = this->_state;", restore)
+        self.assertIn("this->_oldState = OBJECTIVESTATE_NEUTRAL", reset)
+
+    def test_capture_models_lock_edge_without_repeated_notifications(self):
+        # Each tower independently allows only one full-capture event
+        # before expiry, regardless of attempts by the controlling team.
+        for owner, value in (("alliance", 1.0), ("horde", -1.0)):
+            for tower_name in ("Eastwall", "Northpass", "Plaguewood",
+                               "Crown Guard"):
+                with self.subTest(team=owner, tower=tower_name):
+                    tower = SimTower()
+                    self.assertFalse(tower.capture(owner, value * 0.8, 100))
+                    self.assertTrue(tower.capture(owner, value, 200))
+                    self.assertFalse(tower.capture(owner, value, 201))
+                    self.assertFalse(tower.capture(owner, value, 300))
+                    self.assertFalse(tower.update(200 + DURATION - 1))
+                    self.assertTrue(tower.update(200 + DURATION))
+                    self.assertTrue(tower.capture(owner, value,
+                                                  200 + DURATION + 1))
+
 if __name__ == "__main__":
     unittest.main()
