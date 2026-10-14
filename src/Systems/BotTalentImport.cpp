@@ -2128,6 +2128,20 @@ namespace NaxxramasBotTalentImport
                     "NT1 TALENT CHANGE REQUIRED: +{} rank points, -{} rank "
                     "points. READ ONLY: no talent reset or change approved.",
                     report.PointsToAdd, report.PointsToRemove);
+                if (report.PointsToRemove)
+                    handler->SendSysMessage(
+                        "NT1 CHANGE TYPE: EXISTING RANKS MUST BE REMOVED. "
+                        "A complete Alt Bot respec remains BLOCKED until "
+                        "a module-only, zero-gear-mutation path is proven.");
+                else if (report.PointsToAdd)
+                    handler->SendSysMessage(
+                        "NT1 CHANGE TYPE: ADDITIONS ONLY. This report is "
+                        "READ ONLY; an Alt Bot talent change remains BLOCKED "
+                        "until the full hook and gear path is proven safe.");
+                else
+                    handler->SendSysMessage(
+                        "NT1 CHANGE TYPE: CANNOT VERIFY a safe talent change. "
+                        "No Apply permission granted.");
                 break;
             case ActiveTalentMatchStatus::Indeterminate:
                 handler->PSendSysMessage(
