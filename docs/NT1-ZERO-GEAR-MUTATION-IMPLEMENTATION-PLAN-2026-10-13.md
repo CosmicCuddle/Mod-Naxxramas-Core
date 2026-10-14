@@ -2,7 +2,7 @@
 
 **Development date:** 13 October 2026; **owner explicitly ratified the zero-gear rule on 14 October 2026**  
 **Owner decision:** Keep `NaxxramasCore.BotTalentImport.AltBotAllowedPlayers` (human-character authorisation) and enforce the universal Alt Bot [zero gear mutation contract](NT1-ALT-BOT-ZERO-GEAR-MUTATION-CONTRACT.md) **without a disabling configuration setting**. All implementation must stay within **`mod-naxxramas-core`**: the owner expressly prohibits editing or patching AzerothCore, Playerbots, Individual Progression or ALE source under any circumstances.  
-**Status:** Source review, regression protections and an **unreleased draft early-return for a proven exact-match Alt Bot**. **No different-build Apply/gear functionality implemented**, no in-game tests. PR #18 remains draft, unmerged, and uninstalled.
+**Status:** Source review, regression protections, an **unreleased exact-match Alt Bot no-op** and an **unreleased fail-closed gate for ALL different-build Alt Bot Apply requests**. **No functioning gear-inert different-build talent-changing implementation exists**, and there have been no in-game tests of the draft. PR #18 remains draft, unmerged, and uninstalled.
 
 ## Exact source evidence (pinned public stack)
 
@@ -28,7 +28,7 @@ Source SHAs:
 ## Phase 1 — Lock in the agreed policy (this draft work)
 
 - Preserve `AccessMode`, the **human-character** `AltBotAllowedPlayers` security allowlist and current IP-era/ownership preflight.
-- Preserve the existing occupied offhand **and** active pet block until replaced by source-proven protections. Current C++ still has two resets; do not claim it is zero-gear-mutation compliant.
+- Preserve the existing occupied offhand **and** active pet block until replaced by source-proven protections. **In draft PR #18, all other different-build Alt Bot requests now also fail closed before any reset**, including empty-offhand/no-pet cases. The existing two-reset path remains for Random Bots only when their ordinary preflights pass. The earlier installed main revision does not contain this stronger draft guard.
 - Add a CI regression test that fails if the allowlist, conservative guard or no-gear-command discipline is casually removed.
 - Keep equipment/role changes out of MultiBot talent actions, including Shadow-to-Holy or DPS-to-Tank transitions.
 
@@ -47,7 +47,7 @@ This limited improvement does **not** enable switching a bot whose talents diffe
 
 ## Phase 3 — Different-build engine: no gear side effects, including failure
 
-**Engineering decision gate**: Directly invoking the pinned `Player::resetTalents(true)` cannot be presented as a universal no-gear-mutation guarantee, because it invokes the reset hook and offhand relocation. Adding a configuration switch, a post-hoc gear snapshot or a Priest/held-in-offhand exception does not solve this.
+**Engineering decision gate**: Directly invoking the pinned `Player::resetTalents(true)` cannot be presented as a universal no-gear-mutation guarantee, because it invokes the reset hook and offhand relocation. The draft importer has an explicit **different-build Alt Bot reject-before-reset** gate pending a verified module-only replacement. Adding a configuration switch, a post-hoc gear snapshot or a Priest/held-in-offhand exception does not solve this.
 
 Before implementing or enabling a different-build Apply path:
 1. Audit **all** linked `OnPlayerTalentsReset`, `OnPlayerCanLearnTalent`, equipment/inventory hooks and asynchronous Playerbots actions for the exact owner's installed source tree, not only the pinned example.
@@ -64,6 +64,7 @@ Before implementing or enabling a different-build Apply path:
 
 - The zero-gear requirement itself was approved by the owner on 14 October 2026, **not** any destructive implementation or deployment.
 - PR #18 is **draft**. No merging or installation until specific owner approval, source compatibility review and backups.
+- The new draft guard intentionally removes different-build Alt Bot Apply capability until a complete module-only solution has passed all gates; **it does not fulfil the owner's goal of successfully changing different builds**.
 - A CI PASS for the current read-only diagnostics is **not** approval to lift the offhand restriction.
 - **Architectural hard stop:** no future AzerothCore/core fork patch, Playerbots patch, Individual Progression patch or ALE patch is permitted in this workstream. Module-only or safely reject.
 - `AltBotAllowedPlayers` is retained and **does not provide a bypass** around equipment safety.
