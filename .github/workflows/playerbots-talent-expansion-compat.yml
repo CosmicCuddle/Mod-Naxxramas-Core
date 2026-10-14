@@ -1,0 +1,53 @@
+name: Playerbots talent expansion config compatibility
+
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/BotTalentCompletion.cpp'
+      - 'src/Systems/BotTalentExpansionLimits.cpp'
+      - 'src/Systems/PlayerbotTalentExpansionCompat.h'
+      - '.github/workflows/playerbots-talent-expansion-compat.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/Systems/BotTalentCompletion.cpp'
+      - 'src/Systems/BotTalentExpansionLimits.cpp'
+      - 'src/Systems/PlayerbotTalentExpansionCompat.h'
+      - '.github/workflows/playerbots-talent-expansion-compat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-config-member-compat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and test both Playerbots config versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/test_playerbots_config.cpp <<'CPP'
+          #include "PlayerbotTalentExpansionCompat.h"
+          struct OlderPlayerbots { bool limitTalentsExpansion; };
+          struct NewerPlayerbots { bool LimitTalentsExpansion; };
+          struct BothForPriority { bool limitTalentsExpansion; bool LimitTalentsExpansion; };
+          int main()
+          {
+              using NaxxramasPlayerbotCompat::LimitTalentsExpansionEnabled;
+              if (!LimitTalentsExpansionEnabled(OlderPlayerbots{true})) return 1;
+              if (LimitTalentsExpansionEnabled(OlderPlayerbots{false})) return 2;
+              if (!LimitTalentsExpansionEnabled(NewerPlayerbots{true})) return 3;
+              if (LimitTalentsExpansionEnabled(NewerPlayerbots{false})) return 4;
+              if (!LimitTalentsExpansionEnabled(BothForPriority{false, true})) return 5;
+              return 0;
+          }
+          CPP
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            -Isrc/Systems /tmp/test_playerbots_config.cpp -o /tmp/test_playerbots_config
+          /tmp/test_playerbots_config
+          grep -q 'LimitTalentsExpansionEnabled(sPlayerbotAIConfig)' src/Systems/BotTalentCompletion.cpp
+          grep -q 'LimitTalentsExpansionEnabled(sPlayerbotAIConfig)' src/Systems/BotTalentExpansionLimits.cpp
+          echo "PASS: both historical and current Playerbots config member spellings."
