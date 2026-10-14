@@ -17,6 +17,19 @@ Compared the existing draft importer to the owner's reported compatible AzerothC
 
 **Conclusion:** Simply suppressing Playerbots gear refresh or removing the occupied-offhand guard is **not sufficient** to guarantee the owner's no-equipment-mutation rule. Neither of the inspected public core interfaces provides a demonstrably gear-inert, complete different-build talent reset. This is a **verified API/path limitation**, not proof that *all conceivable* module-only solutions are impossible.
 
+## Module-only API alternatives reviewed
+
+| Published core API | What it can do | Constraint for Alt Bot NT1 |
+|---|---|---|
+| `Player::resetTalents(true)` | Clear active spec and recalculate normal spent/free points | Calls `OnPlayerTalentsReset` and `AutoUnequipOffhandIfNeed()`; may unequip/mail offhand, violating the absolute equipment rule |
+| `Player::LearnTalent(id, rank)` | Add/increase a legal rank with core prerequisites and point accounting | Cannot **remove** an old rank; by itself does not make a different fully spent 51-point build possible. Talent-spell/hook side effects and atomic failure handling still need proof before even considering an additive-only enhancement |
+| `Player::_removeTalent` and `_removeTalentAurasAndSpells` | Update talent-map records and remove spell/aura effects | Do **not** provide a whole-reset transaction or correct protected `m_usedTalentCount` bookkeeping. Not an acceptable module-only full-respec substitute |
+| `Player::ActivateSpec` | Change active spec and manage glyphs/action bars | Calls `AutoUnequipOffhandIfNeed()` and affects pets/actions; explicitly not a workaround |
+| `OnPlayerCanUnequipItem` / `OnPlayerUnequip` | Gate some ordinary equips or report an unequip | The core's automatic offhand path directly calls storage/removal functions; it does **not** consult a cancelable before-unequip hook on that route |
+| `PlayerbotFactory::AutoGear` | Bot equipment generation/replacement | Not called by NT1 Apply. Skipping it has no effect on the direct core reset's offhand path |
+
+**Feasibility result:** A complete replacement of an already-spent 51-point active-spec build (such as Arndor's requested Holy Priest rebuild) is **not currently demonstrated safe using the reviewed public module-accessible APIs**. An **add-only** operation might be possible in narrower situations with unspent points, but it is neither a full respec nor proven equipment/pet-safe or transaction-safe. Do not expose such a partial Apply under a full NT1 import command without separate design, precise messages, and failure safety proof. The owner's required full Alt Bot talent-only change remains a separate **unsolved** engineering problem under the nonnegotiable module-only restriction.
+
 ## Narrow, safe progression
 
 1. Preserve the **currently installed** read-only diagnostics and conservative offhand/pet block. In **draft PR #18 only**, `CheckApplyReadiness` now also refuses **all different/indeterminate Alt Bot builds** before any `ImportScope`, reset, talent learning, persistence or equipment action, even with an empty offhand and no active pet. A **second independent rejection in `ApplyValidated`**, after the authorized EXACT-build no-op and before `ImportScope`, also stops every nonrandom bot if that preflight is ever relaxed by mistake; the existing two-reset path can now be reached only by Random Bots. Authorized **EXACT** build no-op remains eligible; Random Playerbot reset/recovery remains unchanged. This is intentionally safer but stricter than the prior ordinary Alt Bot Apply path, and is **not** the desired completed talent-changing feature. Do not retest on Arndor or Rakari with `Apply`.
