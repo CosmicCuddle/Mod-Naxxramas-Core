@@ -1,0 +1,94 @@
+name: Quest Loot Protection pinned Grimfeather module checks
+on:
+  pull_request:
+    # Always validate the exact latest draft PR head, not just its opening.
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/QuestLootProtection.cpp'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'docs/QUEST-LOOT-PROTECTION.md'
+      - 'tests/test_quest_loot_protection.py'
+      - 'scripts/check_quest_loot_pinned_compile.py'
+      - '.github/workflows/quest-loot-protection-pinned.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-and-link:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 105
+    steps:
+      - name: Checkout exact owner Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: acore
+          persist-credentials: false
+      - name: Checkout compatible pinned Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout pinned Grimfeather Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact Naxxramas Core draft branch head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify all four source revisions
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Run offline source and model tests
+        run: |
+          python3 -m unittest discover -s acore/modules/mod-naxxramas-core/tests -p 'test_quest_loot_protection.py' -v
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure full pinned scripts and module build
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile real Quest Loot Protection translation unit
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_quest_loot_pinned_compile.py \
+            --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Link Worldserver without launching it
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Confirm linked module registration
+        run: |
+          set -euo pipefail
+          binary="$(find acore-build -type f -name worldserver -print -quit)"
+          test -n "$binary"
+          test -s "$binary"
+          grep -aFq "NaxxramasQuestLootProtection" "$binary"
+          echo "PASS: module registration found in linked Worldserver."
+          echo "No owner VM, database, in-game loot test, merge or deployment."
+      - name: State remaining limitations
+        if: always()
+        run: |
+          echo "Source/model tests and isolated CI compile/link do NOT establish actual loot behaviour."
+          echo "Playerbots headless sessions and any direct StoreLootItem callers need separate gameplay verification."
