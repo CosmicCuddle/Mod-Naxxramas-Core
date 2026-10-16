@@ -29,6 +29,15 @@ namespace
 {
     constexpr char const* AUDIT_KEY = "NaxxramasCore.HunterPetAutocast.PendingChoice";
     constexpr char const* PHASE_KEY = "NaxxramasCore.HunterPetAutocast.LifecycleProbe";
+    constexpr char const* LEARN_KEY = "NaxxramasCore.HunterPetAutocast.LearnPacketProbe";
+
+    // A packet is observable even for a headless bot session on the
+    // pinned WorldSession::SendPacket path, but that does NOT prove the
+    // Playerbot runtime sent it in an actual scenario.
+    struct LearnPacketProbe final : DataMap::Base
+    {
+        uint32 pendingSpell = 0;
+    };
 
     bool AuditEnabled();
 
@@ -197,6 +206,57 @@ namespace
         return (active != pet->m_autospells.end()) == enabled;
     }
 
+    // Pet::learnSpell emits SMSG_PET_LEARNED_SPELL when not loading,
+    // including during IP's successful re-learn of a legal Hunter rank.
+    // This observes evidence of a re-learn; it cannot identify IP as
+    // the sender or assert that the whole IP reconciliation has ended.
+    class HunterPetAutocastLearnPacketObserver final : public ServerScript
+    {
+    public:
+        HunterPetAutocastLearnPacketObserver()
+            : ServerScript("NaxxramasHunterPetAutocastLearnPacketObserver",
+                {SERVERHOOK_ON_PACKET_SENT}) { }
+
+        void OnPacketSent(WorldSession* session,
+            WorldPacket const& packet) override
+        {
+            if (packet.GetOpcode() != SMSG_PET_LEARNED_SPELL ||
+                !AuditEnabled() || !session || packet.size() != 4)
+                return;
+
+            Player* owner = session->GetPlayer();
+            if (!owner || owner->getClass() != CLASS_HUNTER)
+                return;
+
+            WorldPacket copy(packet);
+            copy.rpos(0);
+            uint32 spellId = 0;
+            copy >> spellId;
+
+            // Pilot ranks only; a future generic implementation will
+            // use validated rank chains and individual IP eligibility.
+            if (spellId != 25011 && spellId != 25012)
+                return;
+
+            Pet* pet = owner->GetPet();
+            if (!pet || pet->getPetType() != HUNTER_PET ||
+                pet->isBeingLoaded() || !pet->HasSpell(spellId))
+                return;
+
+            LearnPacketProbe* sample =
+                pet->CustomData.GetDefault<LearnPacketProbe>(LEARN_KEY);
+            sample->pendingSpell = spellId;
+
+            LOG_INFO("module",
+                "HunterPetAutocast LEARN-PACKET audit: owner={} "
+                "petnumber={} learnedSpell={} observed; "
+                "origin may be IP or another legal learn path",
+                owner->GetGUID().GetCounter(),
+                pet->GetCharmInfo() ? pet->GetCharmInfo()->GetPetNumber() : 0,
+                spellId);
+        }
+    };
+
     // This callback is invoked before the core receives the command, so
     // simply seeing a packet must NOT be counted as a confirmed choice.
     class HunterPetAutocastPacketObserver final : public ServerScript
@@ -272,6 +332,26 @@ namespace
 
             ObserveLifecycle(owner, diff);
 
+            // Inspect the same pet's still-known rank during a subsequent
+            // update, without executing any action. A packet alone does
+            // not prove completion of IP's delayed reconciliation.
+            if (Pet* pet = owner->GetPet())
+            {
+                LearnPacketProbe* learned =
+                    pet->CustomData.Get<LearnPacketProbe>(LEARN_KEY);
+                if (learned && learned->pendingSpell != 0)
+                {
+                    uint32 const spellId = learned->pendingSpell;
+                    learned->pendingSpell = 0;
+                    LOG_INFO("module",
+                        "HunterPetAutocast LEARN-PACKET audit: "
+                        "next-update owner={} spell={} stillKnown={} "
+                        "loading={}; no autocast restoration",
+                        owner->GetGUID().GetCounter(), spellId,
+                        pet->HasSpell(spellId), pet->isBeingLoaded());
+                }
+            }
+
             PendingChoice* choice =
                 owner->CustomData.Get<PendingChoice>(AUDIT_KEY);
             if (!choice || !choice->pending)
@@ -307,6 +387,7 @@ namespace
 void AddHunterPetAutocastAuditScripts()
 {
     new HunterPetAutocastPacketObserver();
+    new HunterPetAutocastLearnPacketObserver();
     new HunterPetAutocastLifecycleObserver();
     new HunterPetAutocastUpdateObserver();
 }
