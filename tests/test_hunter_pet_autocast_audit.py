@@ -47,6 +47,19 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('pet->getPetType() != HUNTER_PET', SOURCE)
         self.assertIn('info->IsAutocastable()', SOURCE)
 
+    def test_lifecycle_probe_is_finite_and_nonmutating(self):
+        self.assertIn('PETHOOK_ON_PET_ADD_TO_WORLD', SOURCE)
+        self.assertIn('class HunterPetAutocastLifecycleObserver', SOURCE)
+        self.assertIn('pet->CustomData.GetDefault<LifecycleProbe>', SOURCE)
+        self.assertIn('pet->isBeingLoaded()', SOURCE)
+        self.assertIn('sample->initialBarSpell', SOURCE)
+        self.assertIn('ObserveLightningBreathBar', SOURCE)
+        self.assertIn('sample->elapsedMs < 3000', SOURCE)
+        self.assertIn('sample->elapsedMs < 10000', SOURCE)
+        self.assertIn('sample->reported = true;', SOURCE)
+        self.assertIn('NOT proof IP reconciliation has run', SOURCE)
+        self.assertIn('NO IP completion asserted; no change applied', SOURCE)
+
     def test_no_mutation_or_persistence(self):
         for forbidden in (
             'pet->ToggleAutocast(',
