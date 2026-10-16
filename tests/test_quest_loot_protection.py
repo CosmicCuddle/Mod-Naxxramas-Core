@@ -4,6 +4,7 @@ Mocks are not actual Grimfeather/Playerbots runtime. Full pinned compilation
 and owner-approved in-game tests are needed before activating the feature.
 """
 from pathlib import Path
+import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -97,13 +98,14 @@ class QuestLootProtectionContract(unittest.TestCase):
 
     def test_no_round_robin_mutation_or_item_award(self):
         for forbidden in (
-            "roundRobinPlayer.Clear(", "roundRobinPlayer =",
+            "roundRobinPlayer.Clear(",
             "LootItemInSlot(", "StoreLootItem(", "StoreNewItem(",
             "NotifyQuestItemRemoved(", "SendNotifyLootItemRemoved(",
             "SetLootGUID(", "item.is_looted =",
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, CPP)
+        self.assertNotRegex(CPP, r"roundRobinPlayer\\s*=(?!=)")
         self.assertIn("owner->HasQuestForItem(item.itemid)", CPP)
         self.assertIn("item.AllowedForPlayer(owner", CPP)
         self.assertIn("player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED)", CPP)
