@@ -4,7 +4,6 @@ Mocks are not actual Grimfeather/Playerbots runtime. Full pinned compilation
 and owner-approved in-game tests are needed before activating the feature.
 """
 from pathlib import Path
-import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,7 +62,8 @@ class QuestLootProtectionContract(unittest.TestCase):
         self.assertIn("ServerScript", CPP)
         self.assertIn("SERVERHOOK_CAN_PACKET_RECEIVE", CPP)
         self.assertIn("CMSG_AUTOSTORE_LOOT_ITEM", CPP)
-        self.assertIn("packet.size() != 1", CPP)
+        self.assertIn("packet.size() < 1", CPP)
+        self.assertNotIn("packet.size() != 1", CPP)
         self.assertIn("WorldPacket copy(packet)", CPP)
         self.assertIn("copy.rpos(0)", CPP)
         self.assertIn("copy >> requestedSlot", CPP)
