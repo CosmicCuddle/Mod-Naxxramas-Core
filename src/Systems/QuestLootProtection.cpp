@@ -150,11 +150,14 @@ public:
         // packets before any ConfigMgr lookup or WorldSession inspection.
         if (packet.GetOpcode() != CMSG_AUTOSTORE_LOOT_ITEM ||
             !NaxxramasQuestLootProtection::Enabled() ||
-            !session || !session->GetPlayer() || packet.size() != 1)
+            !session || !session->GetPlayer() || packet.size() < 1)
             return true;
 
         // WorldPacket(copy) preserves the caller's original read cursor.
-        // The native 3.3.5a opcode payload is one uint8 item slot.
+        // Native Grimfeather autostore reads a single uint8 slot and does
+        // not reject extra trailing bytes. Checking size == 1 here would
+        // create a bypass: inspect the first byte if at least one exists.
+        // Empty packets remain the core's responsibility.
         WorldPacket copy(packet);
         copy.rpos(0);
         uint8 requestedSlot = 0;
