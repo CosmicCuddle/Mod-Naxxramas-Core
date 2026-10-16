@@ -324,6 +324,14 @@ namespace
         {
             probe->initialized = true;
             probe->lastAlive = alive;
+            // The first audit tick can find a pet already dead. Preserve
+            // that observation so its next visible revival is not missed.
+            if (!alive)
+            {
+                probe->sawDeath = true;
+                ++probe->revivalSequence;
+                probe->beforeRevive = DescribeHunterPetAutocast(pet);
+            }
             return;
         }
 

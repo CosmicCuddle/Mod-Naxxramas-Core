@@ -49,6 +49,7 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-40 | Pet dies again, is dismissed or replaced before delayed revival snapshot | Old per-pet event cannot apply to another pet or report obsolete revival sequence, including after the four-sample cap; no gameplay writes |
 | AC-41 | Revive happens entirely between two Player updates | Document and verify the limitation: missed transition must NOT be treated as proof that IP reconciliation was bypassed or completed |
 | AC-42 | Offline candidate planner handles multiple abilities and rank upgrades | Confirm independent explicit ON/OFF, stage legality, no unknown/duplicate ranks, no pet inheritance and no bot default; model-only tests never treated as runtime proof |
+| AC-43 | Enable read-only audit when active Hunter pet is already dead, then revive it | Initial dead state is retained and next observed revival is logged; no user-intent or IP-ready inference |
 
 ## Evidence required before any rollout
 
@@ -62,5 +63,5 @@ For each case, keep a staging record with:
 - **HPA-G1 (source + model):** Confirm hook/API signatures, native accepted-intent capture, first-rank chain and missing-hook limitations. No code in other repositories.
 - **HPA-G2 (read-only prototype):** Feature code only in Mod-Naxxramas-Core, all config OFF, no SQL, compile against pinned Grimfeather + IP + Playerbots; instrumentation proves timing with no mutation.
 - **HPA-G3 (durable preference state):** Pet identity lifecycle verified, approve module-owned persistence schema and rollback, staging character DB backup/restoration.
-- **HPA-G4 (functional staging):** Execute AC-00…AC-42 and independently verify IP progression, original spell-learning messages and Altbot paths.
+- **HPA-G4 (functional staging):** Execute AC-00…AC-43 and independently verify IP progression, original spell-learning messages and Altbot paths.
 - **HPA-G5 (production):** Separate explicit owner approval to merge/install/enable; staged opt-in; rollback ready.

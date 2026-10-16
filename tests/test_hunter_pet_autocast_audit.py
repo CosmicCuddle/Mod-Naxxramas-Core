@@ -125,6 +125,12 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('void ObserveRevival(Player* owner)', SOURCE)
         self.assertIn('ObserveRevival(owner);', SOURCE)
         self.assertIn('probe->lastAlive == alive', SOURCE)
+        self.assertIn('if (!probe->initialized)', SOURCE)
+        self.assertIn('probe->sawDeath = true;', SOURCE)
+        revive_body = SOURCE.split('void ObserveRevival(Player* owner)', 1)[1].split('struct PendingChoice final', 1)[0]
+        initialization = revive_body.split('if (!probe->initialized)', 1)[1].split('if (probe->lastAlive == alive)', 1)[0]
+        self.assertIn('if (!alive)', initialization)
+        self.assertIn('probe->beforeRevive = DescribeHunterPetAutocast(pet);', initialization)
         self.assertIn('probe->sawDeath = true;', SOURCE)
         self.assertIn('probe->observations >= 4', SOURCE)
         self.assertIn('probe->revivalSequence', SOURCE)
