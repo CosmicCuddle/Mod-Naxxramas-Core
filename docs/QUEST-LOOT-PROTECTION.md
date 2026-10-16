@@ -13,7 +13,7 @@ Source reviewed: `Grimfeather/azerothcore-wotlk@a66f1bede6f5d905d9ab815715b4e2ee
 
 ## Implementation
 
-New `src/Systems/QuestLootProtection.cpp` registers `ServerScript::CanPacketReceive`. Only exact one-byte `CMSG_AUTOSTORE_LOOT_ITEM` packets are considered. A copied packet is read with an independent cursor; all other/malformed packets are left to native validation.
+New `src/Systems/QuestLootProtection.cpp` registers `ServerScript::CanPacketReceive`. Only `CMSG_AUTOSTORE_LOOT_ITEM` packets containing at least the first loot-slot byte are considered. A copied packet is read with an independent cursor, so the native handler receives its original data untouched. **Do not require exactly one byte:** the pinned core handler reads only the first `uint8` slot and logs, rather than rejects, trailing bytes. Padding a pickup packet must not bypass ownership protection. Empty or unrelated packets remain subject to native validation.
 
 The decision is **read-only** and computed from the active creature corpse, current group, loot round-robin owner and the **viewer-specific** `PlayerQuestItems` mapping. No cached owner, no shared loot mutation, no SQL and no changes to the client loot-window serialization. Denials occur before item storage; the player gets `LOOT_ERROR_LOCKED` and optional debug logging.
 
