@@ -85,8 +85,8 @@ jobs:
           binary="$(find acore-build -type f -name worldserver -print -quit)"
           test -n "$binary"
           test -s "$binary"
-          grep -aFq "NaxxramasHunterPetAutocastAudit" "$binary"
-          echo "PASS: module registration found in linked Worldserver."
+          grep -aFq "NaxxramasHunterPetAutocastPacketObserver" "$binary"
+          echo "PASS: read-only observer registration found in linked Worldserver."
           echo "No owner VM, SQL, in-game autocast test, merge or deployment."
       - name: State remaining limitations
         if: always()
