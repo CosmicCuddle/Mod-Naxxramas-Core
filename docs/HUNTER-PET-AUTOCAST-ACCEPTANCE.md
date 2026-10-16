@@ -13,7 +13,7 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-04 | Wind Serpent after legitimately unlocking ZG R6 | Preference follows *legal ability family* from R5 to R6 if policy approved; no invented ranks; confirm native IP behaviour |
 | AC-05 | Bite R8 and Dive (ON/OFF separately) | Both retain intended state; Lightning Breath restoration cannot affect other ranks |
 | AC-06 | Normal Hunter voluntarily toggles R5 ON then OFF using standard pet spell toggle packet | Persist **two different confirmed user intents**; last validated state wins |
-| AC-07 | Normal Hunter changes pet actionbar using `CMSG_PET_SET_ACTION` | Only actual native accepted ON/OFF actions captured, no false intent from move/reject |
+| AC-07 | Normal Hunter changes existing pet actionbar spell autocast using single-slot `CMSG_PET_SET_ACTION` | Read-only audit confirms eligible same-slot ON/OFF and matching native/bar state; ignores two-slot move/reject; no persistence yet |
 | AC-08 | Crafted invalid packet, foreign pet GUID, unknown spell or unlearned spell | Reject as preference evidence; never touch pet or DB |
 | AC-09 | IP removes and relearns an ability; automatic re-learn leaves native autocast OFF | **Do not misclassify automatic OFF as explicit user OFF**; restore explicit stored ON only after IP settled |
 | AC-10 | IP reconcile delayed while native pet loading / callback reordered | Restoration never wins a race or toggles the wrong rank; bounded skip on uncertainty |

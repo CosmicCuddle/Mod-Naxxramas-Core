@@ -4,6 +4,7 @@
  * READ-ONLY DIAGNOSTIC. This file intentionally contains NO:
  *   ToggleAutocast / learnSpell / actionbar mutation / CharacterDatabase writes.
  *
+ * Both observed CMSG packet types are only candidate player commands.
  * CanPacketReceive fires BEFORE PetHandler performs ownership, legality and
  * autocast checks. We record a requested transition only when the native
  * state was initially different; the next Player update checks whether the
@@ -179,6 +180,8 @@ namespace
         uint32 spellId = 0;
         bool requestedEnabled = false;
         bool pending = false;
+        uint8 barSlot = MAX_UNIT_ACTION_BAR_INDEX; // only for SET_ACTION
+        char const* origin = "CMSG_PET_SPELL_AUTOCAST";
     };
 
     bool AuditEnabled()
@@ -311,9 +314,90 @@ namespace
             pending->petNumber = pet->GetCharmInfo()->GetPetNumber();
             pending->spellId = spellId;
             pending->requestedEnabled = enabledByte != 0;
+            pending->barSlot = MAX_UNIT_ACTION_BAR_INDEX;
+            pending->origin = "CMSG_PET_SPELL_AUTOCAST";
             pending->pending = true;
 
             return true; // never intercept or modify client's packet
+        }
+    };
+
+
+    // The pinned native handler interprets 16 bytes as a single slot update
+    // and 24 bytes as a two-slot command/move. Ignore two-slot/move packets.
+    // Only a same-slot, same-spell enabled/disabled transition is a candidate;
+    // moving or adding a spell is NOT evidence of explicit autocast intent.
+    class HunterPetAutocastActionBarObserver final : public ServerScript
+    {
+    public:
+        HunterPetAutocastActionBarObserver()
+            : ServerScript("NaxxramasHunterPetAutocastActionBarObserver",
+                {SERVERHOOK_CAN_PACKET_RECEIVE}) { }
+
+        bool CanPacketReceive(WorldSession* session,
+            WorldPacket const& packet) override
+        {
+            if (packet.GetOpcode() != CMSG_PET_SET_ACTION ||
+                !AuditEnabled() || !session || packet.size() != 16)
+                return true;
+
+            Player* owner = session->GetPlayer();
+            if (!owner || owner->getClass() != CLASS_HUNTER ||
+                !owner->IsInWorld())
+                return true;
+
+            WorldPacket copy(packet);
+            copy.rpos(0);
+            ObjectGuid petGuid;
+            uint32 position = 0;
+            uint32 packedData = 0;
+            copy >> petGuid >> position >> packedData;
+
+            // Refuse command/reaction slots and two-slot rearrangements.
+            if (position < ACTION_BAR_INDEX_PET_SPELL_START ||
+                position >= ACTION_BAR_INDEX_PET_SPELL_END)
+                return true;
+
+            uint32 const spellId = UNIT_ACTION_BUTTON_ACTION(packedData);
+            uint8 const requestedType = UNIT_ACTION_BUTTON_TYPE(packedData);
+            if (requestedType != ACT_ENABLED && requestedType != ACT_DISABLED)
+                return true;
+            bool const requestedEnabled = requestedType == ACT_ENABLED;
+
+            Pet* pet = owner->GetPet();
+            if (!pet || pet->getPetType() != HUNTER_PET ||
+                pet->GetGUID() != petGuid || pet->isBeingLoaded() ||
+                !pet->GetCharmInfo())
+                return true;
+
+            UnitActionBarEntry const* beforeBar =
+                pet->GetCharmInfo()->GetActionBarEntry(uint8(position));
+            if (!beforeBar || !beforeBar->IsActionBarForSpell() ||
+                beforeBar->GetAction() != spellId)
+                return true;
+
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+            if (!info || !info->IsAutocastable())
+                return true;
+
+            bool beforeEnabled = false;
+            if (!NativeState(pet, spellId, beforeEnabled) ||
+                beforeEnabled == requestedEnabled ||
+                beforeBar->GetType() !=
+                    (beforeEnabled ? ACT_ENABLED : ACT_DISABLED))
+                return true;
+
+            PendingChoice* pending =
+                owner->CustomData.GetDefault<PendingChoice>(AUDIT_KEY);
+            pending->petGuid = petGuid;
+            pending->petNumber = pet->GetCharmInfo()->GetPetNumber();
+            pending->spellId = spellId;
+            pending->requestedEnabled = requestedEnabled;
+            pending->barSlot = uint8(position);
+            pending->origin = "CMSG_PET_SET_ACTION";
+            pending->pending = true;
+
+            return true; // read-only; native handler owns all validation
         }
     };
 
@@ -372,14 +456,26 @@ namespace
                 confirmedEnabled != choice->requestedEnabled)
                 return;
 
+            if (choice->barSlot < MAX_UNIT_ACTION_BAR_INDEX)
+            {
+                UnitActionBarEntry const* bar =
+                    pet->GetCharmInfo()->GetActionBarEntry(choice->barSlot);
+                if (!bar || !bar->IsActionBarForSpell() ||
+                    bar->GetAction() != choice->spellId ||
+                    bar->GetType() !=
+                        (choice->requestedEnabled ? ACT_ENABLED : ACT_DISABLED))
+                    return;
+            }
+
             // A confirmed *transition*, not merely a received packet.
             // Do not record/save the user's preference yet: staging must
             // establish safe persistent pet identity and IP timing first.
             LOG_INFO("module",
                 "HunterPetAutocast AUDIT ONLY: owner={} petnumber={} "
-                "spell={} requested={} native=confirmed; no mutation",
+                "spell={} requested={} source={} native=confirmed; no mutation",
                 owner->GetGUID().GetCounter(), choice->petNumber,
-                choice->spellId, choice->requestedEnabled ? "ON" : "OFF");
+                choice->spellId, choice->requestedEnabled ? "ON" : "OFF",
+                choice->origin);
         }
     };
 }
@@ -387,6 +483,7 @@ namespace
 void AddHunterPetAutocastAuditScripts()
 {
     new HunterPetAutocastPacketObserver();
+    new HunterPetAutocastActionBarObserver();
     new HunterPetAutocastLearnPacketObserver();
     new HunterPetAutocastLifecycleObserver();
     new HunterPetAutocastUpdateObserver();

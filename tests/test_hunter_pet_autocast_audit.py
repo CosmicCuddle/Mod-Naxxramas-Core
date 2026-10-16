@@ -32,6 +32,31 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         )[0]
         self.assertNotIn('return false;', packet_hook)
 
+
+    def test_action_bar_packet_requires_same_slot_spell_and_native_result(self):
+        action = SOURCE.split(
+            'class HunterPetAutocastActionBarObserver', 1
+        )[1].split('class HunterPetAutocastUpdateObserver', 1)[0]
+        for expected in (
+            'CMSG_PET_SET_ACTION',
+            'packet.size() != 16',
+            'ACTION_BAR_INDEX_PET_SPELL_START',
+            'ACTION_BAR_INDEX_PET_SPELL_END',
+            'UNIT_ACTION_BUTTON_ACTION',
+            'UNIT_ACTION_BUTTON_TYPE',
+            'beforeBar->GetAction() != spellId',
+            'beforeBar->GetType()',
+            'beforeEnabled == requestedEnabled',
+            'pending->barSlot = uint8(position)',
+            'return true; // read-only',
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, action)
+        self.assertNotIn('return false;', action)
+        self.assertIn('bar->GetAction() != choice->spellId', SOURCE)
+        self.assertIn('bar->GetType() !=', SOURCE)
+        self.assertIn('new HunterPetAutocastActionBarObserver();', SOURCE)
+
     def test_native_intent_is_verified_later(self):
         self.assertIn('PLAYERHOOK_ON_AFTER_UPDATE', SOURCE)
         self.assertIn('pending->pending = true;', SOURCE)

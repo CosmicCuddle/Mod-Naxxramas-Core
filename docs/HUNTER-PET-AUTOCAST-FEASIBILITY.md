@@ -46,11 +46,12 @@ A cached copy of the native actionbar **does not** by itself solve relog/restart
 ## 1A. Read-only prototype now committed to this isolated draft
 
 - `src/Systems/HunterPetAutocastAudit.cpp`: enabled only when `NaxxramasCore.HunterPetAutocast.AuditEnabled = 1`; its default is 0.
-- It watches **only** `CMSG_PET_SPELL_AUTOCAST` (13-byte native layout), comparing the pre-handler spell state with the next Player update. It logs a **confirmed transition** only when the spell is still the same known Hunter pet spell and core native active + autocast-list state changed as requested.
+- It watches `CMSG_PET_SPELL_AUTOCAST` (13-byte native layout), comparing the pre-handler spell state with the next Player update. It logs a **confirmed transition** only when the spell is still the same known Hunter pet spell and core native active + autocast-list state changed as requested.
 - It also logs finite read-only pet-load/actionbar timeline samples to test the missing post-IP completion signal. These are **observations** and do not establish that the IP callback has finished.
 - It also observes `SMSG_PET_LEARNED_SPELL` (only pilot R5/R6) and checks knowledge again at the next update, without suppressing or changing the packet. Source attribution to IP is **not** claimed.
 - It does **not** intercept core packets, change autocast, change action bars, teach/unlearn ranks, persist preferences, add SQL, show chat messages, reconcile IP or perform a delayed restoration.
-- **Not yet covered:** the separate `CMSG_PET_SET_ACTION` input and direct Playerbot calls. `OnPlayerAfterUpdate` callback order and actual connected/Altbot packet handling require in-game staging evidence.
+- **Added narrow read-only `CMSG_PET_SET_ACTION` observation:** inspect only 16-byte single-slot updates at spell-bar positions 3–6 where the same spell already occupies the same position, initial actionbar/autocast states agree, and the client requests the opposite enabled/disabled state. Next Player update must confirm both the native autocast-list/spell state **and** that exact bar slot. Ignore 24-byte two-slot moves, reorders, new spells, unchanged states and malformed inputs. This is evidence of native acceptance, not permanent proof of human intent.
+- **Not yet covered:** direct Playerbot calls, some ambiguous action-bar command forms and real connected/Altbot packet behaviour. `OnPlayerAfterUpdate` callback order needs staging verification; a different automatic actor could still change the state before the deferred confirmation.
 - `tests/test_hunter_pet_autocast_audit.py` tests source safety contracts only; pinned GitHub CI is configured to compile and link the exact translation unit. At this revision, a CI result must be checked before claiming compilation passed.
 
 ## 2. Required behaviour
