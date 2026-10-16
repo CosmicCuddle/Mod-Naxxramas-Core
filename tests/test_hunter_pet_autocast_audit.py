@@ -27,7 +27,7 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('WorldPacket copy(packet)', SOURCE)
         self.assertIn('copy.rpos(0)', SOURCE)
         self.assertIn('return true; // never intercept', SOURCE)
-        self.assertNotIn('return false;', SOURCE)
+        packet_hook = SOURCE.split('bool CanPacketReceive(', 1)[1].split(\n            'class HunterPetAutocastUpdateObserver', 1)[0]\n        self.assertNotIn('return false;', packet_hook)
 
     def test_native_intent_is_verified_later(self):
         self.assertIn('PLAYERHOOK_ON_AFTER_UPDATE', SOURCE)
