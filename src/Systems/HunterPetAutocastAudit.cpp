@@ -48,7 +48,7 @@ namespace
     // Read the first Lightning Breath rank 5/6 actionbar entry for the
     // narrow Wind Serpent pilot. This is observation only, not a rank
     // entitlement check or a final hardcoded restoration algorithm.
-    void ObserveLightningBreathBar(Pet const* pet, uint32& spell,
+    void ObserveLightningBreathBar(Pet* pet, uint32& spell,
         ActiveStates& state)
     {
         spell = 0;
