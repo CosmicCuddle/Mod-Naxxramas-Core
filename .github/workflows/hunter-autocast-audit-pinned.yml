@@ -19,6 +19,12 @@ on:
 permissions:
   contents: read
 
+# Only the newest head of this draft PR needs a full pinned Worldserver link.
+# Workflow-dispatch runs use the ref as fallback; no other CI is affected.
+concurrency:
+  group: hunter-pet-autocast-pinned-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   compile-and-link:
     runs-on: ubuntu-24.04
