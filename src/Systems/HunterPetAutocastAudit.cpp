@@ -28,6 +28,140 @@
 namespace
 {
     constexpr char const* AUDIT_KEY = "NaxxramasCore.HunterPetAutocast.PendingChoice";
+    constexpr char const* PHASE_KEY = "NaxxramasCore.HunterPetAutocast.LifecycleProbe";
+
+    bool AuditEnabled();
+
+    // Runtime-only per-Pet sample; attached to a Pet object so it cannot
+    // outlive that instance or accidentally address a new pet with the
+    // same persistent PetNumber.
+    struct LifecycleProbe final : DataMap::Base
+    {
+        uint32 elapsedMs = 0;
+        uint32 initialBarSpell = 0;
+        ActiveStates initialBarState = ACT_PASSIVE;
+        bool initialLoading = false;
+        bool loadFinishedObserved = false;
+        bool reported = false;
+    };
+
+    // Read the first Lightning Breath rank 5/6 actionbar entry for the
+    // narrow Wind Serpent pilot. This is observation only, not a rank
+    // entitlement check or a final hardcoded restoration algorithm.
+    void ObserveLightningBreathBar(Pet const* pet, uint32& spell,
+        ActiveStates& state)
+    {
+        spell = 0;
+        state = ACT_PASSIVE;
+        CharmInfo* bar = pet ? pet->GetCharmInfo() : nullptr;
+        if (!bar)
+            return;
+
+        for (uint8 slot = 0; slot < MAX_UNIT_ACTION_BAR_INDEX; ++slot)
+        {
+            UnitActionBarEntry const* entry = bar->GetActionBarEntry(slot);
+            if (!entry || !entry->IsActionBarForSpell())
+                continue;
+
+            uint32 const candidate = entry->GetAction();
+            if (candidate != 25011 && candidate != 25012)
+                continue;
+
+            spell = candidate;
+            state = entry->GetType();
+            break;
+        }
+    }
+
+    class HunterPetAutocastLifecycleObserver final : public PetScript
+    {
+    public:
+        HunterPetAutocastLifecycleObserver()
+            : PetScript("NaxxramasHunterPetAutocastLifecycleObserver",
+                {PETHOOK_ON_PET_ADD_TO_WORLD}) { }
+
+        void OnPetAddToWorld(Pet* pet) override
+        {
+            if (!AuditEnabled() || !pet || pet->getPetType() != HUNTER_PET)
+                return;
+
+            Player* owner = pet->GetOwner();
+            if (!owner || owner->getClass() != CLASS_HUNTER)
+                return;
+
+            LifecycleProbe* sample = pet->CustomData.GetDefault<LifecycleProbe>(
+                PHASE_KEY);
+            sample->elapsedMs = 0;
+            sample->loadFinishedObserved = false;
+            sample->reported = false;
+            sample->initialLoading = pet->isBeingLoaded();
+            ObserveLightningBreathBar(pet, sample->initialBarSpell,
+                sample->initialBarState);
+
+            LOG_INFO("module",
+                "HunterPetAutocast LIFECYCLE audit: on-add owner={} petnumber={} "
+                "loading={} barLB={} barState={} knownR5={} knownR6={}",
+                owner->GetGUID().GetCounter(),
+                pet->GetCharmInfo() ? pet->GetCharmInfo()->GetPetNumber() : 0,
+                sample->initialLoading, sample->initialBarSpell,
+                uint32(sample->initialBarState),
+                pet->HasSpell(25011), pet->HasSpell(25012));
+        }
+    };
+
+    // This function is called only while AuditEnabled=1 and the owner has
+    // a pending, finite-lifetime probe; it NEVER signals IP completion.
+    void ObserveLifecycle(Player* owner, uint32 diff)
+    {
+        Pet* pet = owner->GetPet();
+        if (!pet || pet->getPetType() != HUNTER_PET)
+            return;
+
+        LifecycleProbe* sample = pet->CustomData.Get<LifecycleProbe>(PHASE_KEY);
+        if (!sample || sample->reported)
+            return;
+
+        sample->elapsedMs += std::min(diff, uint32(10000));
+
+        if (!sample->loadFinishedObserved && !pet->isBeingLoaded())
+        {
+            sample->loadFinishedObserved = true;
+            LOG_INFO("module",
+                "HunterPetAutocast LIFECYCLE audit: native-load-flag-cleared "
+                "owner={} petnumber={} atMs={} knownR5={} knownR6={}; "
+                "NOT proof IP reconciliation has run",
+                owner->GetGUID().GetCounter(),
+                pet->GetCharmInfo() ? pet->GetCharmInfo()->GetPetNumber() : 0,
+                sample->elapsedMs, pet->HasSpell(25011), pet->HasSpell(25012));
+        }
+
+        // Take one finite post-load snapshot, rather than scan forever.
+        // Time elapsed is evidence for staging, NOT a readiness guarantee.
+        if (sample->elapsedMs < 3000 ||
+            (pet->isBeingLoaded() && sample->elapsedMs < 10000))
+            return;
+
+        uint32 laterSpell = 0;
+        ActiveStates laterState = ACT_PASSIVE;
+        ObserveLightningBreathBar(pet, laterSpell, laterState);
+        sample->reported = true;
+        LOG_INFO("module",
+            "HunterPetAutocast LIFECYCLE audit: snapshot owner={} "
+            "petnumber={} atMs={} loading={} onAddBarLB={} "
+            "onAddBarState={} nowBarLB={} nowBarState={} "
+            "knownR5={} knownR6={} r5Autocast={} r6Autocast={}; "
+            "NO IP completion asserted; no change applied",
+            owner->GetGUID().GetCounter(),
+            pet->GetCharmInfo() ? pet->GetCharmInfo()->GetPetNumber() : 0,
+            sample->elapsedMs, pet->isBeingLoaded(),
+            sample->initialBarSpell, uint32(sample->initialBarState),
+            laterSpell, uint32(laterState),
+            pet->HasSpell(25011), pet->HasSpell(25012),
+            std::find(pet->m_autospells.begin(), pet->m_autospells.end(),
+                25011) != pet->m_autospells.end(),
+            std::find(pet->m_autospells.begin(), pet->m_autospells.end(),
+                25012) != pet->m_autospells.end());
+    }
 
     struct PendingChoice final : DataMap::Base
     {
@@ -130,11 +264,13 @@ namespace
             : PlayerScript("NaxxramasHunterPetAutocastUpdateObserver",
                 {PLAYERHOOK_ON_AFTER_UPDATE}) { }
 
-        void OnPlayerAfterUpdate(Player* owner, uint32 /*diff*/) override
+        void OnPlayerAfterUpdate(Player* owner, uint32 diff) override
         {
             if (!AuditEnabled() || !owner ||
                 owner->getClass() != CLASS_HUNTER)
                 return;
+
+            ObserveLifecycle(owner, diff);
 
             PendingChoice* choice =
                 owner->CustomData.Get<PendingChoice>(AUDIT_KEY);
@@ -171,5 +307,6 @@ namespace
 void AddHunterPetAutocastAuditScripts()
 {
     new HunterPetAutocastPacketObserver();
+    new HunterPetAutocastLifecycleObserver();
     new HunterPetAutocastUpdateObserver();
 }
