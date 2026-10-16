@@ -47,6 +47,10 @@ The pinned [IP `DelayedPetSpellCheck`](https://github.com/Grimfeather/mod-indivi
 
 Therefore, a fixed 3-second timer, the first observed `isBeingLoaded()==false`, or a single learned-spell packet **must not** enable writes/restoration. A source-proven ordering contract or controlled staging evidence must resolve summon, loading race, revive and stable scenarios independently. The read-only audit's timed sample is a diagnostic, not a readiness flag.
 
+**Additional source-pinned IP handoff finding:** The [pinned IndividualProgressionSpells.cpp](https://github.com/Grimfeather/mod-individual-progression/blob/4ff4b5fcc1480348f058c632573143e62d4e3a41/src/IndividualProgressionSpells.cpp) sets the private pending-check marker to false **before** it invokes `checkHunterPetSpells(player)`. Accordingly, a false private marker would only show that the event passed its initial guard, NOT that any remove/relearn operations have finished. Reading, modifying or polling that private key is not an approved module interface. The delayed event is queued from both `OnInitStatsForLevel` and `OnPetAddToWorld`, with deduplication and bounded loading retries. `m_loading == false`, a timer expiry and a learn-packet notification are likewise not completion events.
+
+The [new source-only IP ordering check](../scripts/check_hunter_pet_ip_readiness_pinned.py) is run on the pinned core + IP CI checkouts and deliberately reports this as a **BLOCKED** gate. It checks ordering and callback assumptions, not actual execution timings, and never proves a sufficiently late restoration point. Do not infer that a later callback from another script runs after IP's code, or that a fixed delay is always safe.
+
 ## User intent and Altbot policy gate
 
 - Accept neither a raw `CMSG_PET_SPELL_AUTOCAST` nor a `CMSG_PET_SET_ACTION` packet as durable preference by itself. Both run through pre-handler packet hooks; even a matching next-update state does not prove which actor caused the transition.
