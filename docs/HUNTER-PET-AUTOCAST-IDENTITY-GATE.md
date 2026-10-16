@@ -18,6 +18,14 @@ A lookup by `(owner GUID, PetNumber, spell family)` is not an immutable incarnat
 
 **Consequence:** a sidecar table keyed by pet number (even paired with owner and species), a startup-only snapshot, or action-bar data alone cannot be claimed safe. Do not insert or restore persistent preferences until a non-reusable incarnation proof exists. Unknown/ambiguous identity = leave native ON/OFF untouched.
 
+## Native pet database / stable source audit
+
+The [pinned native character_pet schema](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/data/sql/base/db_characters/character_pet.sql) has a PetNumber primary key, owner, creature entry, name, level, experience, save timestamp and actionbar, but no proven non-reusable pet-birth or incarnation token. Names, levels, stable slots, timestamps and actionbars can change legitimately, so neither an exact nor a fuzzy attribute fingerprint is an authoritative pet identity.
+
+The [pinned PetStable::PetInfo](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Entities/Pet/PetDefines.h) likewise includes PetNumber, CreatureId, Name, ActionBar, Experience and LastSaveTime, but no source-verified never-reused incarnation marker. Native taming calls GeneratePetNumber. Native ordinary saves delete/replace the same row, which makes simple deletion/insertion triggers non-authoritative.
+
+The new [source check](../scripts/check_hunter_pet_identity_pinned.py) runs against the exact upstream checkout in CI to detect changes in these assumptions. A passing result means the BLOCKER is corroborated; it does not authorize persistence or constitute a live-schema or runtime test.
+
 ## Candidate designs (NONE implemented)
 
 | Candidate | Advantage | Unresolved hazard | Gate |
