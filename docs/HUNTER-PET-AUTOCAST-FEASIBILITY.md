@@ -25,10 +25,25 @@ The source pins below are **GitHub CI baselines**, not independently verified as
 
 **Evidence boundary:** Code proves the hooks/methods exist, not that the owner's *current installed* Playerbots emits the relevant packets, that the IP event always beats a module timer, or that a native pet number cannot be reused.
 
+## 1B. Native actionbar persistence and post-IP observability
+
+The pinned `Pet.cpp::SavePetToDB` saves `pet_spell.active` and serializes the current pet action bar into `character_pet.abdata` during native pet saves. On existing-pet load, the saved action bar is restored **before** `OnPetAddToWorld` and **before** async `_LoadSpells`. Thus **the earliest on-add actionbar state may preserve a last user-selected autocast setting**, even when IP's later cleanup removes the ability from the action bar. This is a hypothesis requiring staging observations, not proof every saved pet bar contains a faithful preference.
+
+The pinned `Pet::removeSpell(spell, false, true)` removes a matching actionbar entry; IP's `checkHunterPetSpells` calls `unlearnSpell(..., false, true)` on all disallowed ranks. Later `Pet::learnSpell` may reconstruct a legal rank with default autocast OFF. These paths explain how a saved ON preference **could be lost** even when native saving previously worked. Neither path guarantees a stable persisted preference after an IP reconciliation cycle.
+
+**Added read-only diagnostic:** A `PetScript::OnPetAddToWorld` observer records the original Lightning Breath R5/R6 actionbar ID and ON/OFF state, and a bounded `PlayerScript::OnPlayerAfterUpdate` probe records when `pet->isBeingLoaded()` becomes false and takes a single later snapshot (normally at ≥3 seconds; stops by 10 seconds even if loading persists). The observer exists only under the explicit `AuditEnabled` setting, default `0`. It never toggles, teaches, writes or claims IP completion. A staging capture must establish whether these snapshots bracket the real IP event and whether the earlier actionbar stores a reliable explicit choice.
+
+**Current limitation:** this pilot directly observes spell IDs 25011 and 25012 for source validation only; the eventual *generalized* preference mechanism must use validated spell-rank families and effective IP stages, not hardcode Lightning Breath.
+
+### Research-only pet identity option
+
+A cached copy of the native actionbar **does not** by itself solve relog/restart persistence after IP has removed the entry, and even a sidecar table keyed by `owner GUID + PetNumber` could apply old settings if a PetNumber is recycled. An eventual module-owned persistent record must either prove an independent per-pet lifecycle identity or fail closed on ambiguity. No table, migration or actual restoration has been created yet.
+
 ## 1A. Read-only prototype now committed to this isolated draft
 
 - `src/Systems/HunterPetAutocastAudit.cpp`: enabled only when `NaxxramasCore.HunterPetAutocast.AuditEnabled = 1`; its default is 0.
 - It watches **only** `CMSG_PET_SPELL_AUTOCAST` (13-byte native layout), comparing the pre-handler spell state with the next Player update. It logs a **confirmed transition** only when the spell is still the same known Hunter pet spell and core native active + autocast-list state changed as requested.
+- It also logs finite read-only pet-load/actionbar timeline samples to test the missing post-IP completion signal. These are **observations** and do not establish that the IP callback has finished.
 - It does **not** intercept core packets, change autocast, change action bars, teach/unlearn ranks, persist preferences, add SQL, show chat messages, reconcile IP or perform a delayed restoration.
 - **Not yet covered:** the separate `CMSG_PET_SET_ACTION` input and direct Playerbot calls. `OnPlayerAfterUpdate` callback order and actual connected/Altbot packet handling require in-game staging evidence.
 - `tests/test_hunter_pet_autocast_audit.py` tests source safety contracts only; pinned GitHub CI is configured to compile and link the exact translation unit. At this revision, a CI result must be checked before claiming compilation passed.
