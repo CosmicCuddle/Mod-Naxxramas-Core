@@ -2,7 +2,7 @@
 
 **State (16 October 2026): RESEARCH + DISABLED READ-ONLY AUDIT PROTOTYPE. The prototype ONLY observes confirmed autocast-toggle transitions; no restoration, persistence, SQL, live gameplay test, merge or deployment.**
 **Destination:** `CosmicCuddle/Mod-Naxxramas-Core` exclusively. `Mod-Naxxramas-Hunter-Pets` is a read-only research reference, **not** the runtime destination.
-**Owner request:** Restore the previously chosen autocast ON/OFF status of a *legitimately known* Hunter pet ability after IP has finished its normal remove/relearn sequence. **Do not** change IP's rank restoration or suppress its normal learned-spell notifications.
+**Owner request:** Restore the last explicit ON/OFF autocast choice for **every legitimately known, autocast-capable Hunter pet ability**, independently for every pet and rank family, after IP finishes its normal remove/relearn process. Lightning Breath is a pilot, not a restriction. Non-autocastable abilities have no autocast setting to preserve. **Do not** change IP's rank restoration or suppress its normal learned-spell notifications.
 
 ## 1. Exact source evidence (read only)
 
@@ -39,7 +39,7 @@ The pinned `Pet::removeSpell(spell, false, true)` removes a matching actionbar e
 
 **Further timing evidence:** a single +2500ms **pet-owned event-clock sample** accompanies the existing bounded Player-update snapshot. Pinned Pet/Creature/Unit/WorldObject update and EventProcessor sources show why the pet clock matters, but IP can reschedule from current event time after a long tick; it is **not** a post-IP ready signal. See the linked HPA-G3 identity/readiness gate.
 
-**Current limitation:** this pilot directly observes spell IDs 25011 and 25012 for source validation only; the eventual *generalized* preference mechanism must use validated spell-rank families and effective IP stages, not hardcode Lightning Breath.
+**New generic read-only snapshots:** on-add, one-shot pet-clock and finite later probes capture all native autocast-capable Hunter pet abilities (bounded to 64 learned spells per sample), plus autocast-capable actionbar entries even before native loading finishes. Each learned record shows spell ID, a SpellMgr rank-family candidate, native enabled/disabled value and membership in m_autospells. **This is not proof of IP legality, explicit intent or post-IP readiness.** Lightning Breath remains the extra R5/R6 pilot. The learned-spell packet diagnostic is still R5/R6-only; extend it separately without confusing a packet with IP completion.
 
 ### Research-only pet identity option
 

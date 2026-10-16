@@ -26,6 +26,8 @@
 #include "WorldSession.h"
 
 #include <algorithm>
+#include <string>
+#include <vector>
 
 namespace
 {
@@ -51,6 +53,7 @@ namespace
         uint32 elapsedMs = 0;
         uint32 initialBarSpell = 0;
         ActiveStates initialBarState = ACT_PASSIVE;
+        std::string initialGenericAutocast;
         bool initialLoading = false;
         bool loadFinishedObserved = false;
         bool reported = false;
@@ -85,6 +88,63 @@ namespace
         }
     }
 
+
+    // Compact, bounded observation of ALL native autocast-capable Hunter
+    // pet spells, not a list of spells the module may legally restore.
+    std::string DescribeHunterPetAutocast(Pet* pet)
+    {
+        if (!pet)
+            return "no-pet";
+        auto familyOf = [](uint32 id)
+        {
+            uint32 const first = sSpellMgr->GetFirstSpellInChain(id);
+            return first ? first : id;
+        };
+        std::string out = "bar[";
+        if (CharmInfo* charm = pet->GetCharmInfo())
+        {
+            for (uint8 slot = ACTION_BAR_INDEX_PET_SPELL_START;
+                 slot < ACTION_BAR_INDEX_PET_SPELL_END; ++slot)
+            {
+                UnitActionBarEntry const* entry = charm->GetActionBarEntry(slot);
+                if (!entry || !entry->IsActionBarForSpell() || !entry->GetAction())
+                    continue;
+                uint32 const id = entry->GetAction();
+                SpellInfo const* info = sSpellMgr->GetSpellInfo(id);
+                if (!info || !info->IsAutocastable())
+                    continue;
+                out += std::to_string(slot) + ":" + std::to_string(id) + "/" +
+                    std::to_string(familyOf(id)) + "/" +
+                    std::to_string(uint32(entry->GetType())) + ",";
+            }
+        }
+        out += "] known[";
+        std::vector<uint32> known;
+        for (auto const& spell : pet->m_spells)
+        {
+            uint32 const id = spell.first;
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(id);
+            if (pet->HasSpell(id) && info && info->IsAutocastable())
+                known.push_back(id);
+        }
+        std::sort(known.begin(), known.end());
+        size_t const maxEntries = std::min(known.size(), size_t(64));
+        for (size_t i = 0; i < maxEntries; ++i)
+        {
+            uint32 const id = known[i];
+            auto const spell = pet->m_spells.find(id);
+            bool const listed = std::find(pet->m_autospells.begin(),
+                pet->m_autospells.end(), id) != pet->m_autospells.end();
+            out += std::to_string(id) + "/" + std::to_string(familyOf(id)) +
+                "/" + std::to_string(uint32(spell->second.active)) + "/" +
+                (listed ? "1" : "0") + ",";
+        }
+        if (known.size() > maxEntries)
+            out += "truncated,";
+        out += "]";
+        return out;
+    }
+
     class HunterPetAutocastLifecycleObserver final : public PetScript
     {
     public:
@@ -109,6 +169,7 @@ namespace
             sample->initialLoading = pet->isBeingLoaded();
             ObserveLightningBreathBar(pet, sample->initialBarSpell,
                 sample->initialBarState);
+            sample->initialGenericAutocast = DescribeHunterPetAutocast(pet);
 
             LOG_INFO("module",
                 "HunterPetAutocast LIFECYCLE audit: on-add owner={} petnumber={} "
@@ -118,6 +179,13 @@ namespace
                 sample->initialLoading, sample->initialBarSpell,
                 uint32(sample->initialBarState),
                 pet->HasSpell(25011), pet->HasSpell(25012));
+
+            LOG_INFO("module",
+                "HunterPetAutocast GENERIC audit: on-add owner={} petnumber={} "
+                "autocast={} (read only; not IP eligibility)",
+                owner->GetGUID().GetCounter(),
+                pet->GetCharmInfo() ? pet->GetCharmInfo()->GetPetNumber() : 0,
+                sample->initialGenericAutocast);
 
             // The pinned IP delay and this audit marker share the PET's
             // event clock, not the player's update clock. It is ONE
@@ -155,6 +223,11 @@ namespace
                         probe->initialBarSpell, uint32(probe->initialBarState),
                         nowBarSpell, uint32(nowBarState),
                         pet->HasSpell(25011), pet->HasSpell(25012));
+                    LOG_INFO("module",
+                        "HunterPetAutocast GENERIC audit: pet-clock owner={} "
+                        "autocast={} (not IP completion)",
+                        currentOwner->GetGUID().GetCounter(),
+                        DescribeHunterPetAutocast(pet));
                 }, Milliseconds(2500));
             }
         }
@@ -212,6 +285,12 @@ namespace
                 25011) != pet->m_autospells.end(),
             std::find(pet->m_autospells.begin(), pet->m_autospells.end(),
                 25012) != pet->m_autospells.end());
+        LOG_INFO("module",
+            "HunterPetAutocast GENERIC audit: later owner={} "
+            "before={} after={} (not IP completion)",
+            owner->GetGUID().GetCounter(),
+            sample->initialGenericAutocast,
+            DescribeHunterPetAutocast(pet));
     }
 
     struct PendingChoice final : DataMap::Base

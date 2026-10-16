@@ -77,6 +77,17 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('pet->GetGUID() != choice->petGuid', SOURCE)
         self.assertIn('GetPetNumber() != choice->petNumber', SOURCE)
 
+    def test_generic_autocast_snapshot_bounded_and_never_mutates(self):
+        self.assertIn('DescribeHunterPetAutocast(Pet* pet)', SOURCE)
+        self.assertIn('GetFirstSpellInChain(id)', SOURCE)
+        self.assertIn('info->IsAutocastable()', SOURCE)
+        self.assertIn('std::sort(known.begin(), known.end())', SOURCE)
+        self.assertIn('size_t(64)', SOURCE)
+        self.assertIn('sample->initialGenericAutocast', SOURCE)
+        self.assertIn('GENERIC audit: pet-clock', SOURCE)
+        self.assertIn('GENERIC audit: later', SOURCE)
+        self.assertIn('ObserveLightningBreathBar', SOURCE)
+
     def test_class_and_pet_scope(self):
         self.assertIn('owner->getClass() != CLASS_HUNTER', SOURCE)
         self.assertIn('pet->getPetType() != HUNTER_PET', SOURCE)
