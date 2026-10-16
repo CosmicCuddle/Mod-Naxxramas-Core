@@ -1,17 +1,8 @@
 name: Quest Loot Protection pinned Grimfeather module checks
 on:
   pull_request:
-    types: [opened, reopened]
-    paths:
-      - 'src/Systems/QuestLootProtection.cpp'
-      - 'src/NaxxramasCore_loader.cpp'
-      - 'conf/mod_naxxramas_core.conf.dist'
-      - 'docs/QUEST-LOOT-PROTECTION.md'
-      - 'tests/test_quest_loot_protection.py'
-      - 'scripts/check_quest_loot_pinned_compile.py'
-      - '.github/workflows/quest-loot-protection-pinned.yml'
-  push:
-    branches: [feature/quest-loot-protection-module-only]
+    # Always validate the exact latest draft PR head, not just its opening.
+    types: [opened, reopened, synchronize]
     paths:
       - 'src/Systems/QuestLootProtection.cpp'
       - 'src/NaxxramasCore_loader.cpp'
