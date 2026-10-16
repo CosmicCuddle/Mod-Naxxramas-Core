@@ -37,6 +37,8 @@ The pinned `Pet::removeSpell(spell, false, true)` removes a matching actionbar e
 
 **Added read-only diagnostic:** A `PetScript::OnPetAddToWorld` observer records the original Lightning Breath R5/R6 actionbar ID and ON/OFF state, and a bounded `PlayerScript::OnPlayerAfterUpdate` probe records when `pet->isBeingLoaded()` becomes false and takes a single later snapshot (normally at ≥3 seconds; stops by 10 seconds even if loading persists). The observer exists only under the explicit `AuditEnabled` setting, default `0`. It never toggles, teaches, writes or claims IP completion. A staging capture must establish whether these snapshots bracket the real IP event and whether the earlier actionbar stores a reliable explicit choice.
 
+**Further timing evidence:** a single +2500ms **pet-owned event-clock sample** accompanies the existing bounded Player-update snapshot. Pinned Pet/Creature/Unit/WorldObject update and EventProcessor sources show why the pet clock matters, but IP can reschedule from current event time after a long tick; it is **not** a post-IP ready signal. See the linked HPA-G3 identity/readiness gate.
+
 **Current limitation:** this pilot directly observes spell IDs 25011 and 25012 for source validation only; the eventual *generalized* preference mechanism must use validated spell-rank families and effective IP stages, not hardcode Lightning Breath.
 
 ### Research-only pet identity option

@@ -57,6 +57,16 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('bar->GetType() !=', SOURCE)
         self.assertIn('new HunterPetAutocastActionBarObserver();', SOURCE)
 
+    def test_pet_clock_observation_is_one_shot_not_restoration(self):
+        self.assertIn('#include "Duration.h"', SOURCE)
+        self.assertIn('eventClockProbeScheduled', SOURCE)
+        self.assertIn('pet->m_Events.AddEventAtOffset([pet]()', SOURCE)
+        self.assertIn('Milliseconds(2500)', SOURCE)
+        self.assertIn('PET-EVENT-CLOCK audit', SOURCE)
+        self.assertIn('NOT proof IP completed', SOURCE)
+        # The marker must not mutate spells or set a successful-ready flag.
+        self.assertNotIn('probe->ready = true', SOURCE)
+
     def test_native_intent_is_verified_later(self):
         self.assertIn('PLAYERHOOK_ON_AFTER_UPDATE', SOURCE)
         self.assertIn('pending->pending = true;', SOURCE)

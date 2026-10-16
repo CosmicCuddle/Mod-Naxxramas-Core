@@ -37,6 +37,8 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-28 | Repeated unchanged state | Zero redundant `ToggleAutocast`, client refresh packets, database writes or continuous updates |
 | AC-29 | Highest retired native PetNumber is reused after deletion + restart | Old record is never treated as a verified incarnation; do not restore on merely equal owner/pet number/family |
 | AC-30 | Module absent during abandon/retame, then enabled again | New pet with same owner/number/entry cannot inherit a stale choice; unsupported identification must fail closed |
+| AC-31 | Read-only pet event-clock sample at +2500ms | Observe actual queue order after native loading, without declaring IP completion, teaching a spell or toggling autocast |
+| AC-32 | Event queue delayed/retry rescheduled after large tick | Marker alone never authorizes restoration; absence of post-IP proof means skip |
 
 ## Evidence required before any rollout
 

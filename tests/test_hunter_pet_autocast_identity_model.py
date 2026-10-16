@@ -92,5 +92,32 @@ class PetAutocastIdentityCounterexamples(unittest.TestCase):
                 self.assertIn(phrase, GATE)
 
 
+
+class EventQueueTimingCounterexample(unittest.TestCase):
+    def test_absolute_marker_can_precede_deferred_ip_retry(self):
+        # EventProcessor::Update adds the whole tick to m_time before
+        # executing the queue; IP requeues from the NEW m_time + 200.
+        # This is a timing counterexample, not an asserted normal pet
+        # loading path (Pet::Update ordinarily pauses during m_loading).
+        now = 0
+        ip_due = 200
+        marker_due = 2500
+        now += 2500  # hypothetical long tick
+        self.assertLessEqual(ip_due, now)
+        retry_due = now + 200
+        self.assertLessEqual(marker_due, now)
+        self.assertLess(marker_due, retry_due)
+
+    def test_normal_pet_tick_skips_while_loading(self):
+        # Pet::Update early returns during loading, preventing the
+        # ordinary Creature -> Unit -> WorldObject event clock advance.
+        loading = True
+        event_clock = 0
+        diff = 3000
+        if not loading:
+            event_clock += diff
+        self.assertEqual(event_clock, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

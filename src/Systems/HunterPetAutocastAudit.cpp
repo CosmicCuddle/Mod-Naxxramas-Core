@@ -16,6 +16,7 @@
 
 #include "CharmInfo.h"
 #include "Config.h"
+#include "Duration.h"
 #include "Log.h"
 #include "Pet.h"
 #include "Player.h"
@@ -53,6 +54,7 @@ namespace
         bool initialLoading = false;
         bool loadFinishedObserved = false;
         bool reported = false;
+        bool eventClockProbeScheduled = false;
     };
 
     // Read the first Lightning Breath rank 5/6 actionbar entry for the
@@ -116,6 +118,45 @@ namespace
                 sample->initialLoading, sample->initialBarSpell,
                 uint32(sample->initialBarState),
                 pet->HasSpell(25011), pet->HasSpell(25012));
+
+            // The pinned IP delay and this audit marker share the PET's
+            // event clock, not the player's update clock. It is ONE
+            // diagnostic sample per Pet object, never a readiness token.
+            // The lambda lives in the pet-owned event queue and dies with it.
+            if (!sample->eventClockProbeScheduled)
+            {
+                sample->eventClockProbeScheduled = true;
+                pet->m_Events.AddEventAtOffset([pet]()
+                {
+                    if (!AuditEnabled() || !pet->IsInWorld() ||
+                        pet->getPetType() != HUNTER_PET)
+                        return;
+
+                    Player* currentOwner = pet->GetOwner();
+                    LifecycleProbe* probe =
+                        pet->CustomData.Get<LifecycleProbe>(PHASE_KEY);
+                    if (!currentOwner ||
+                        currentOwner->getClass() != CLASS_HUNTER || !probe)
+                        return;
+
+                    uint32 nowBarSpell = 0;
+                    ActiveStates nowBarState = ACT_PASSIVE;
+                    ObserveLightningBreathBar(pet, nowBarSpell, nowBarState);
+                    LOG_INFO("module",
+                        "HunterPetAutocast PET-EVENT-CLOCK audit: "
+                        "owner={} petnumber={} loading={} "
+                        "onAddBarLB={} onAddBarState={} "
+                        "clockBarLB={} clockBarState={} knownR5={} knownR6={}; "
+                        "one-shot pet queue sample; NOT proof IP completed",
+                        currentOwner->GetGUID().GetCounter(),
+                        pet->GetCharmInfo() ?
+                            pet->GetCharmInfo()->GetPetNumber() : 0,
+                        pet->isBeingLoaded(),
+                        probe->initialBarSpell, uint32(probe->initialBarState),
+                        nowBarSpell, uint32(nowBarState),
+                        pet->HasSpell(25011), pet->HasSpell(25012));
+                }, Milliseconds(2500));
+            }
         }
     };
 
