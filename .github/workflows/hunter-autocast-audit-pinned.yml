@@ -9,6 +9,8 @@ on:
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'docs/HUNTER-PET-AUTOCAST-FEASIBILITY.md'
       - 'docs/HUNTER-PET-AUTOCAST-ACCEPTANCE.md'
+      - 'docs/HUNTER-PET-AUTOCAST-IDENTITY-GATE.md'
+      - 'tests/test_hunter_pet_autocast_identity_model.py'
       - 'tests/test_hunter_pet_autocast_audit.py'
       - 'scripts/check_hunter_pet_autocast_pinned_compile.py'
       - '.github/workflows/hunter-autocast-audit-pinned.yml'
@@ -58,7 +60,7 @@ jobs:
           test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Run offline source and model tests
         run: |
-          python3 -m unittest discover -s acore/modules/mod-naxxramas-core/tests -p 'test_hunter_pet_autocast_audit.py' -v
+          python3 -m unittest discover -s acore/modules/mod-naxxramas-core/tests -p 'test_hunter_pet_autocast_*.py' -v
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -92,4 +94,4 @@ jobs:
         if: always()
         run: |
           echo "Source tests and isolated CI compile/link do NOT establish IP readiness or pet autocast persistence."
-          echo "Only CMSG_PET_SPELL_AUTOCAST transitions are observed; actionbar opcode, Altbots and async IP handoff still need proof."
+          echo "Only narrow CMSG_PET_SPELL_AUTOCAST and CMSG_PET_SET_ACTION candidates are observed; Altbot direct toggles, durable identity and post-IP handoff still need proof."

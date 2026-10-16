@@ -41,6 +41,9 @@ The pinned `Pet::removeSpell(spell, false, true)` removes a matching actionbar e
 
 ### Research-only pet identity option
 
+**New HPA-G3 source/model gate:** [HUNTER-PET-AUTOCAST-IDENTITY-GATE.md](HUNTER-PET-AUTOCAST-IDENTITY-GATE.md) demonstrates actual native pet-number reuse after deletion + restart, why normal pet saving makes row triggers difficult, and why no sidecar/SQL design is safe to approve yet. Offline counterexamples run in pinned CI; they are not gameplay proof.
+
+
 A cached copy of the native actionbar **does not** by itself solve relog/restart persistence after IP has removed the entry, and even a sidecar table keyed by `owner GUID + PetNumber` could apply old settings if a PetNumber is recycled. An eventual module-owned persistent record must either prove an independent per-pet lifecycle identity or fail closed on ambiguity. No table, migration or actual restoration has been created yet.
 
 ## 1A. Read-only prototype now committed to this isolated draft

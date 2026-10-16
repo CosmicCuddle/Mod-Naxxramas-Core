@@ -472,7 +472,7 @@ namespace
             // establish safe persistent pet identity and IP timing first.
             LOG_INFO("module",
                 "HunterPetAutocast AUDIT ONLY: owner={} petnumber={} "
-                "spell={} requested={} source={} native=confirmed; no mutation",
+                "spell={} requested={} source={} native=matching-state-only; actor not attributable; no mutation",
                 owner->GetGUID().GetCounter(), choice->petNumber,
                 choice->spellId, choice->requestedEnabled ? "ON" : "OFF",
                 choice->origin);

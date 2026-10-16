@@ -35,6 +35,8 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-26 | Database unavailable or migration not installed | Fail closed; preserve native behaviour and player pets; do not repeatedly spam logs or DB |
 | AC-27 | Config Debug=0 | No new player chat or repetitive log noise; no DB writes except approved confirmed preference changes |
 | AC-28 | Repeated unchanged state | Zero redundant `ToggleAutocast`, client refresh packets, database writes or continuous updates |
+| AC-29 | Highest retired native PetNumber is reused after deletion + restart | Old record is never treated as a verified incarnation; do not restore on merely equal owner/pet number/family |
+| AC-30 | Module absent during abandon/retame, then enabled again | New pet with same owner/number/entry cannot inherit a stale choice; unsupported identification must fail closed |
 
 ## Evidence required before any rollout
 
