@@ -144,8 +144,10 @@ public:
     bool CanPacketReceive(WorldSession* session,
         WorldPacket const& packet) override
     {
-        if (!NaxxramasQuestLootProtection::Enabled() ||
-            packet.GetOpcode() != CMSG_AUTOSTORE_LOOT_ITEM ||
+        // The hook runs for every incoming opcode. Fast-exit unrelated
+        // packets before any ConfigMgr lookup or WorldSession inspection.
+        if (packet.GetOpcode() != CMSG_AUTOSTORE_LOOT_ITEM ||
+            !NaxxramasQuestLootProtection::Enabled() ||
             !session || !session->GetPlayer() || packet.size() != 1)
             return true;
 
