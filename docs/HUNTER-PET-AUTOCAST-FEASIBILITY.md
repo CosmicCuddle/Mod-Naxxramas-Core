@@ -1,0 +1,90 @@
+# Hunter pet autocast persistence — Naxxramas Core feasibility gate
+
+**State (16 October 2026): RESEARCH / PROPOSAL ONLY. No implementation, config change, SQL, gameplay test, merge or deployment.**
+**Destination:** `CosmicCuddle/Mod-Naxxramas-Core` exclusively. `Mod-Naxxramas-Hunter-Pets` is a read-only research reference, **not** the runtime destination.
+**Owner request:** Restore the previously chosen autocast ON/OFF status of a *legitimately known* Hunter pet ability after IP has finished its normal remove/relearn sequence. **Do not** change IP's rank restoration or suppress its normal learned-spell notifications.
+
+## 1. Exact source evidence (read only)
+
+The source pins below are **GitHub CI baselines**, not independently verified as the running worldserver build. Verify the owner's actual deployed commits before running any trial.
+
+| Source | Observation |
+| --- | --- |
+| [Grimfeather AzerothCore Pet.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Entities/Pet/Pet.cpp) lines 216–500 | Existing pets are added to the map **before** the asynchronous DB spell load; `Pet::isBeingLoaded()` becomes false toward callback completion. `OnPetAddToWorld` is NOT a post-load event. |
+| Same Pet.cpp lines 1559–1600, 1766–1918, 2247–2288 | Pet spells hold `PetSpell.active`; `ToggleAutocast(spellInfo, enabled)` affects `m_autospells` and persisted pet spell flags, **does not learn a spell**. `learnSpell` may send `SMSG_PET_LEARNED_SPELL`. |
+| [Grimfeather CharmInfo.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Entities/Unit/CharmInfo.cpp) lines 149–185, 249–300 | Native actionbar supports the first-rank spell chain and `SetSpellAutocast`; restoring server autocast **alone** does not demonstrate that the 3.3.5 client button agrees. |
+| [Grimfeather PetHandler.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Handlers/PetHandler.cpp) lines 696–839 and 955–1007 | **Both** `CMSG_PET_SET_ACTION` and `CMSG_PET_SPELL_AUTOCAST` can express a user's ON/OFF choice. The native handler validates pet ownership, spell knowledge and whether autocast is allowed. |
+| [Grimfeather PetPackets.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Server/Packets/PetPackets.cpp) lines 35–40 | Autocast opcode reads pet GUID, spell ID, and boolean; its packet is not the actionbar opcode. |
+| [Grimfeather ServerScript.h](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Scripting/ScriptDefines/ServerScript.h) | `CanPacketReceive` is available, but runs **before** native handler acceptance; never persist an unverified requested state from this hook. |
+| [Grimfeather IndividualProgressionSpells.cpp](https://github.com/Grimfeather/mod-individual-progression/blob/4ff4b5fcc1480348f058c632573143e62d4e3a41/src/IndividualProgressionSpells.cpp) lines 36–97, 330–341, 1250–1350 | IP picks the highest *legitimately learned* Hunter dummy rank and removes other ranks, then learns the permitted spell if missing. For Wind Serpents, Lightning Breath R5 is 25011 and R6 is 25012. It schedules a 200ms delayed Pet BasicEvent, retries up to 10 times while `isBeingLoaded()`, then runs pet reconciliation. |
+| Same IP source line 41; [IndividualProgression.cpp](https://github.com/Grimfeather/mod-individual-progression/blob/4ff4b5fcc1480348f058c632573143e62d4e3a41/src/IndividualProgression.cpp) lines 351–360 | IP skips Hunter spell reconciliation for accounts matched by its bot-account regex. Do **not** assume a Playerbot Altbot follows the same path as a normal Hunter. |
+| [Hunter Pets source-pinned lifecycle audit](https://github.com/CosmicCuddle/Mod-Naxxramas-Hunter-Pets/blob/main/docs/SOURCE-PINNED-PET-LIFECYCLE-AUDIT.md) | Existing blueprint independently identifies the early `OnPetAddToWorld` and pet-identity/persistence risks. **Reference only.** |
+
+**Evidence boundary:** Code proves the hooks/methods exist, not that the owner's *current installed* Playerbots emits the relevant packets, that the IP event always beats a module timer, or that a native pet number cannot be reused.
+
+## 2. Required behaviour
+
+- Preserve IP's normal re-learn path, correct Vanilla unlocks and legitimate pet spell learning messages.
+- **Never** call `Pet::learnSpell`, `Pet::addSpell`, `unlearnSpell`, `removeSpell`, edit the pet_spell rows, manipulate Spell.dbc, grant Rank 6, or alter IP's dummy Hunter spell ownership.
+- Only call `Pet::ToggleAutocast` on a spell the **current pet already knows**, when it is autocastable and is the vetted rank for the Hunter's effective IP stage. Apply `CharmInfo::SetSpellAutocast` to keep the actionbar consistent. Send the **existing** pet spellbook refresh only if a change was made and the correct load/reconciliation phase is proven.
+- Unknown preference = **do nothing**. A legitimate deliberate OFF selection must stay OFF. Absolutely no `always enable Lightning Breath` shortcut.
+- Per owner + persistent individual pet identity + *canonical spell rank family*, rather than storing preference by current rank spell ID. Do not leak preferences between pets, player accounts, stable slots or reused pet numbers.
+- No global rank/ability rewriting, no Warlock/DK/non-Hunter behaviour changes, no bot equipment/talent modifications.
+- Low-noise: no player chat; no polling every tick for every player; no writes except **confirmed change of explicit preference** (with an eventual approved module-owned persistence store).
+- Disabled-by-default, separate rollout flags for ordinary Hunters and Altbots. Never infer an Altbot's eligibility from its controller's IP era. Unknown/non-Vanilla/no-IP stage must fail closed for this experimental Vanilla-only behaviour.
+
+## 3. Proposed architecture (NOT YET CODE)
+
+### A. Confirm the owner's choice
+
+Observe `CMSG_PET_SPELL_AUTOCAST` and `CMSG_PET_SET_ACTION` **without consuming or mutating them**; use a packet copy and strict bounded validation. Treat this only as **candidate intent**: `CanPacketReceive` executes *before* the core validates the action.
+
+On the **next eligible player update** or safe deferred callback, verify the **same pet instance / owner / spell** still exists and that its native `m_spells[spellId].active`, `m_autospells` and relevant `CharmInfo` entry match the requested action. If the core did not accept the toggle, discard it. Capture both ON and OFF as explicit choices. Avoid capturing a transient state created by IP, and never infer intent from a fresh spell defaulting to OFF.
+
+A Playerbot that changes autocast **directly** rather than using one of these network commands is an OPEN GAP. Require source tracing plus staging evidence; do not invent intent. A tested player- or bot-controlled explicit opt-in command could be a separate, approved alternative.
+
+### B. Resolve a stable individual pet identity
+
+The native `PetNumber` is persisted across dismiss/stable but may be recycled for a different pet (see Hunter Pets persistence research). `CreatureId`/family alone is not enough: a Hunter may have two pets of the same species. Before any durable preference records, prove module-only creation/retirement recognition and an idempotent generation marker bound to (owner, PetNumber). **If recycled identity cannot be proven, fail closed instead of applying somebody else's ON state.**
+
+Native `pet_spell.active` and native actionbar values are useful **observations**, but IP's remove/relearn process means they cannot be the sole authoritative record of a previous explicit choice. A module-owned table (with reversible migration) may ultimately be required for relog and server-restart persistence. No SQL is created or applied in this research PR.
+
+### C. Restore *after* IP has settled
+
+`OnPetAddToWorld` can **schedule** a bounded, pet-scoped one-shot check, but cannot perform restoration. `isBeingLoaded()==false` proves core loading ended, **NOT** that IP's delayed event has run. The inspected IP code schedules 200ms delayed checks and caps its load retry at 10, but event scheduling under all load, revive, stable and bot paths still requires staging proof.
+
+Experimental candidate: wait beyond IP's *source-audited* bounded retry sequence, then check the same pet generation, native loading flag, IP stage, existing learned rank and unchanged spell set over a short settling interval. If IP completion cannot be sufficiently demonstrated, **skip restoration**, record a rate-limited diagnostic only when explicitly enabled, and leave the pet's state unchanged. A naïve permanent 3-second timer is **not** a complete guarantee or general API contract. Do not try to modify IP's internal `ipp_PendingPetSpellCheck` CustomData entry.
+
+Only after a safe readiness proof: load the confirmed stored preference for the currently known **legal** rank family, skip if already equal, otherwise call the public native autocast and charm-actionbar APIs once. No rank/ability mutation. Do not modify ranks merely to make restoration possible.
+
+### D. Safe rollout / rollback proposal
+
+Future configuration, off by default:
+```ini
+NaxxramasCore.HunterPetAutocast.Enabled = 0
+NaxxramasCore.HunterPetAutocast.IncludeAltBots = 0
+NaxxramasCore.HunterPetAutocast.Debug = 0
+```
+
+Stage 1: **read-only audit and offline tests**, no gameplay effects, no DB.
+Stage 2: approved **disabled-by-default** draft proof-of-concept and pinned Grimfeather compilation, still no production rollout.
+Stage 3: isolated test realm with explicitly approved module-owned persistence migration (after characters DB backup and restore check), ordinary Hunter first; Altbots separately.
+Stage 4: controlled production test only after owner approves actual install and config enable. Disable feature and restore snapshot if any rank progression, pet ownership, save or stable issue is observed.
+
+## 4. Hard release blockers
+
+1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.
+2. No demonstrably safe post-IP decision point: no restore attempt. **The core's `m_loading` false flag alone is insufficient**.
+3. Cannot map ability chain to actual installed 3.3.5 spell ranks and confirm the actor's own effective IP Vanilla eligibility: skip.
+4. Cannot distinguish recycled PetNumber or separate same-family stabled pets: do not apply a stored preference.
+5. Bot direct-calls bypass packet capture, or the bot has no authoritative IP state: exclude bot until separate proof.
+6. No staging evidence for persisted ON **and** OFF through summon, revive, stable, relog and process restart: not ready for release.
+7. Any requirement for AzerothCore, IP, Playerbots, Hunter Pets or other repository changes: STOP, report the technical boundary to the owner.
+
+## 5. Next proof steps
+
+- Pin the **actual installed** Grimfeather/IP/Playerbots revisions (read-only) before deploy decisions; GitHub CI pins are not production verification.
+- Implement optional, read-only *packet-intent versus native accepted state* instrumentation in an isolated draft branch, with no persistent writes.
+- Instrument IP load/ready versus its delayed reconciliation for a disposable test pet; validate timing on existing/after-revive/stable/Altbot paths.
+- Determine a safe persistent pet generation identity before proposing SQL; audit CharacterDatabase migration/rollback semantics with real schema.
+- Use [the companion acceptance matrix](HUNTER-PET-AUTOCAST-ACCEPTANCE.md). No live server action without separate owner approval.
