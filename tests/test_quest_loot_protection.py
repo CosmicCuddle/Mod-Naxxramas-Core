@@ -21,7 +21,7 @@ def modeled_pickup(
     needs_quest=True, looted=False, shared=False,
     follow_rules=False, blocked=False, roll_winner=False,
     item_template=True, owner_online=True, owner_in_group=True,
-    owner_needs=True, owner_eligible=True
+    owner_has_slot=True, owner_needs=True, owner_eligible=True
 ):
     """Model conditions in PermitPickup, not independent proof of source."""
     if not enabled or not packet or malformed or not grouped or not corpse:
@@ -41,7 +41,7 @@ def modeled_pickup(
         return True
     if not needs_quest or looted or shared or follow_rules or blocked or roll_winner:
         return True
-    if not item_template or not owner_online or not owner_in_group:
+    if not item_template or not owner_online or not owner_in_group or not owner_has_slot:
         return True
     if not owner_needs or not owner_eligible:
         return True
@@ -107,6 +107,8 @@ class QuestLootProtectionContract(unittest.TestCase):
                 self.assertNotIn(forbidden, CPP)
         self.assertNotRegex(CPP, r"roundRobinPlayer\\s*=(?!=)")
         self.assertIn("owner->HasQuestForItem(item.itemid)", CPP)
+        self.assertIn("personal.find(owner->GetGUID())", CPP)
+        self.assertIn("ownerItem.index == view.index && !ownerItem.is_looted", CPP)
         self.assertIn("item.AllowedForPlayer(owner", CPP)
         self.assertIn("player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED)", CPP)
         self.assertIn("QuestLootProtection.Enabled = 0", DOC)
@@ -124,6 +126,7 @@ class QuestLootProtectionContract(unittest.TestCase):
         self.assertTrue(modeled_pickup(owner_eligible=False))
         self.assertTrue(modeled_pickup(owner_online=False))
         self.assertTrue(modeled_pickup(owner_in_group=False))
+        self.assertTrue(modeled_pickup(owner_has_slot=False))
 
     def test_native_loot_modes(self):
         for method in ("FREE_FOR_ALL", "MASTER_LOOT", "UNKNOWN"):
