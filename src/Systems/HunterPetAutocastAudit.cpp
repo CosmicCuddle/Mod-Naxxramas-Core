@@ -308,6 +308,44 @@ namespace
             DescribeHunterPetAutocast(pet));
     }
 
+    // Source-backed normal death callback. The Player observer remains
+    // fallback for unusual deaths that may bypass UnitScript::OnUnitDeath.
+    void RecordObservedPetDeath(Pet* pet)
+    {
+        ReviveProbe* state = pet->CustomData.GetDefault<ReviveProbe>(REVIVE_KEY);
+        if (state->initialized && !state->lastAlive && state->sawDeath)
+            return; // same death observed twice, do not bump generation
+
+        state->initialized = true;
+        state->lastAlive = false;
+        state->sawDeath = true;
+        ++state->revivalSequence; // invalidates previous pet-clock sample
+        if (state->observations < 4)
+            state->beforeRevive = DescribeHunterPetAutocast(pet);
+    }
+
+    class HunterPetAutocastDeathObserver final : public UnitScript
+    {
+    public:
+        HunterPetAutocastDeathObserver()
+            : UnitScript("NaxxramasHunterPetAutocastDeathObserver", true,
+                {UNITHOOK_ON_UNIT_DEATH}) { }
+
+        void OnUnitDeath(Unit* victim, Unit* /*killer*/) override
+        {
+            if (!AuditEnabled() || !victim)
+                return;
+            Pet* pet = victim->ToPet();
+            if (!pet || pet->getPetType() != HUNTER_PET)
+                return;
+            Player* owner = pet->GetOwner();
+            if (!owner || owner->getClass() != CLASS_HUNTER ||
+                owner->GetPet() != pet)
+                return;
+            RecordObservedPetDeath(pet);
+        }
+    };
+
     // Read-only. Some Hunter pets revive without OnPetAddToWorld. This
     // samples only an existing, actively owned Pet from PlayerAfterUpdate;
     // a death/revive fully between updates may be missed. NOT a restore hook.
@@ -327,11 +365,7 @@ namespace
             // The first audit tick can find a pet already dead. Preserve
             // that observation so its next visible revival is not missed.
             if (!alive)
-            {
-                probe->sawDeath = true;
-                ++probe->revivalSequence;
-                probe->beforeRevive = DescribeHunterPetAutocast(pet);
-            }
+                RecordObservedPetDeath(pet);
             return;
         }
 
@@ -341,12 +375,7 @@ namespace
         probe->lastAlive = alive;
         if (!alive)
         {
-            probe->sawDeath = true;
-            // Invalidate any pending event from an earlier revival,
-            // including after the four-sample logging cap is reached.
-            ++probe->revivalSequence;
-            if (probe->observations < 4)
-                probe->beforeRevive = DescribeHunterPetAutocast(pet);
+            RecordObservedPetDeath(pet);
             return;
         }
 
@@ -714,5 +743,6 @@ void AddHunterPetAutocastAuditScripts()
     new HunterPetAutocastActionBarObserver();
     new HunterPetAutocastLearnPacketObserver();
     new HunterPetAutocastLifecycleObserver();
+    new HunterPetAutocastDeathObserver();
     new HunterPetAutocastUpdateObserver();
 }

@@ -126,24 +126,31 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('ObserveRevival(owner);', SOURCE)
         self.assertIn('probe->lastAlive == alive', SOURCE)
         self.assertIn('if (!probe->initialized)', SOURCE)
-        self.assertIn('probe->sawDeath = true;', SOURCE)
-        revive_body = SOURCE.split('void ObserveRevival(Player* owner)', 1)[1].split('struct PendingChoice final', 1)[0]
-        initialization = revive_body.split('if (!probe->initialized)', 1)[1].split('if (probe->lastAlive == alive)', 1)[0]
-        self.assertIn('if (!alive)', initialization)
-        self.assertIn('probe->beforeRevive = DescribeHunterPetAutocast(pet);', initialization)
-        self.assertIn('probe->sawDeath = true;', SOURCE)
+        self.assertIn('RecordObservedPetDeath(pet);', SOURCE)
         self.assertIn('probe->observations >= 4', SOURCE)
         self.assertIn('probe->revivalSequence', SOURCE)
-        revive = SOURCE.split('void ObserveRevival(Player* owner)', 1)[1].split(
-            'struct PendingChoice final', 1)[0]
-        # Death invalidates a previous queued sample even after log cap.
-        self.assertIn('++probe->revivalSequence;', revive)
-        self.assertIn('uint32 const sequence = probe->revivalSequence;', revive)
-        self.assertNotIn('uint32 const sequence = ++probe->revivalSequence;', revive)
+        self.assertIn('++state->revivalSequence;', SOURCE)
+        self.assertIn('uint32 const sequence = probe->revivalSequence;', SOURCE)
         self.assertIn('pet->m_Events.AddEventAtOffset([pet, sequence]()', SOURCE)
         self.assertIn('currentOwner->GetPet() != pet', SOURCE)
         self.assertIn('REVIVE audit: pet-clock', SOURCE)
         self.assertIn('NOT proof IP completed; no autocast change', SOURCE)
+
+    def test_lethal_death_hook_avoids_missing_between_player_updates(self):
+        self.assertIn('UNITHOOK_ON_UNIT_DEATH', SOURCE)
+        self.assertIn('class HunterPetAutocastDeathObserver final : public UnitScript',
+                      SOURCE)
+        self.assertIn('void OnUnitDeath(Unit* victim, Unit* /*killer*/) override',
+                      SOURCE)
+        self.assertIn('Pet* pet = victim->ToPet();', SOURCE)
+        self.assertIn('owner->GetPet() != pet', SOURCE)
+        self.assertIn('RecordObservedPetDeath(pet);', SOURCE)
+        self.assertIn('new HunterPetAutocastDeathObserver();', SOURCE)
+        self.assertIn('state->initialized && !state->lastAlive && state->sawDeath',
+                      SOURCE)
+        self.assertIn('state->beforeRevive = DescribeHunterPetAutocast(pet);',
+                      SOURCE)
+        self.assertIn('++state->revivalSequence;', SOURCE)
 
     def test_no_mutation_or_persistence(self):
         for forbidden in (
