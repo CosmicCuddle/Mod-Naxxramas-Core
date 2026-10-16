@@ -121,8 +121,10 @@ namespace NaxxramasQuestLootProtection
 
         // Reject BEFORE Player::StoreLootItem modifies inventory or loot.
         // This does not alter the original packet or shared loot state.
+        // Debug flag is the explicit logging gate; INFO avoids requiring
+        // an unrelated global logger-level change to see denied pickups.
         if (Debug())
-            LOG_DEBUG("module",
+            LOG_INFO("module",
                 "QuestLootProtection: blocked player {} creature entry {} guid {} "
                 "item {} slot {} owner {} reason=active_owner_still_eligible",
                 player->GetGUID().GetCounter(), creature->GetEntry(),
