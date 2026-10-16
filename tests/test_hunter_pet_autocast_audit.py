@@ -128,6 +128,12 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('probe->sawDeath = true;', SOURCE)
         self.assertIn('probe->observations >= 4', SOURCE)
         self.assertIn('probe->revivalSequence', SOURCE)
+        revive = SOURCE.split('void ObserveRevival(Player* owner)', 1)[1].split(
+            'struct PendingChoice final', 1)[0]
+        # Death invalidates a previous queued sample even after log cap.
+        self.assertIn('++probe->revivalSequence;', revive)
+        self.assertIn('uint32 const sequence = probe->revivalSequence;', revive)
+        self.assertNotIn('uint32 const sequence = ++probe->revivalSequence;', revive)
         self.assertIn('pet->m_Events.AddEventAtOffset([pet, sequence]()', SOURCE)
         self.assertIn('currentOwner->GetPet() != pet', SOURCE)
         self.assertIn('REVIVE audit: pet-clock', SOURCE)

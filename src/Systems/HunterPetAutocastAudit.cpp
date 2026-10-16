@@ -334,6 +334,9 @@ namespace
         if (!alive)
         {
             probe->sawDeath = true;
+            // Invalidate any pending event from an earlier revival,
+            // including after the four-sample logging cap is reached.
+            ++probe->revivalSequence;
             if (probe->observations < 4)
                 probe->beforeRevive = DescribeHunterPetAutocast(pet);
             return;
@@ -347,7 +350,7 @@ namespace
         if (probe->observations >= 4)
             return;
         ++probe->observations;
-        uint32 const sequence = ++probe->revivalSequence;
+        uint32 const sequence = probe->revivalSequence;
         LOG_INFO("module",
             "HunterPetAutocast REVIVE audit: owner={} petnumber={} "
             "observedRevive={} loading={} deadSnapshot={} aliveSnapshot={}; "

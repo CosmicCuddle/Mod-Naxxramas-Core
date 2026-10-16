@@ -46,7 +46,7 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-37 | Pet legitimately upgrades an ability through IP | The remembered rank-family choice may apply only to the current known IP-legal rank, never to unknown/locked ranks |
 | AC-38 | IP or another legal system relearns several autocast-capable Hunter abilities before next Player update | Bounded read-only learned-spell audit preserves up to 32 distinct pending IDs, never changes packets, abilities or actionbar |
 | AC-39 | Hunter pet dies and is revived in-world without another OnPetAddToWorld callback | Bounded read-only Player-update transition probe logs before/after generic autocast; no implied IP readiness or change |
-| AC-40 | Pet dies again, is dismissed or replaced before delayed revival snapshot | Old per-pet event cannot apply to another pet or report obsolete revival sequence; no gameplay writes |
+| AC-40 | Pet dies again, is dismissed or replaced before delayed revival snapshot | Old per-pet event cannot apply to another pet or report obsolete revival sequence, including after the four-sample cap; no gameplay writes |
 | AC-41 | Revive happens entirely between two Player updates | Document and verify the limitation: missed transition must NOT be treated as proof that IP reconciliation was bypassed or completed |
 | AC-42 | Offline candidate planner handles multiple abilities and rank upgrades | Confirm independent explicit ON/OFF, stage legality, no unknown/duplicate ranks, no pet inheritance and no bot default; model-only tests never treated as runtime proof |
 
