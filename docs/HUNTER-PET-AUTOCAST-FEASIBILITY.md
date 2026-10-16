@@ -1,6 +1,6 @@
 # Hunter pet autocast persistence — Naxxramas Core feasibility gate
 
-**State (16 October 2026): RESEARCH / PROPOSAL ONLY. No implementation, config change, SQL, gameplay test, merge or deployment.**
+**State (16 October 2026): RESEARCH + DISABLED READ-ONLY AUDIT PROTOTYPE. The prototype ONLY observes confirmed autocast-toggle transitions; no restoration, persistence, SQL, live gameplay test, merge or deployment.**
 **Destination:** `CosmicCuddle/Mod-Naxxramas-Core` exclusively. `Mod-Naxxramas-Hunter-Pets` is a read-only research reference, **not** the runtime destination.
 **Owner request:** Restore the previously chosen autocast ON/OFF status of a *legitimately known* Hunter pet ability after IP has finished its normal remove/relearn sequence. **Do not** change IP's rank restoration or suppress its normal learned-spell notifications.
 
@@ -21,6 +21,14 @@ The source pins below are **GitHub CI baselines**, not independently verified as
 | [Hunter Pets source-pinned lifecycle audit](https://github.com/CosmicCuddle/Mod-Naxxramas-Hunter-Pets/blob/main/docs/SOURCE-PINNED-PET-LIFECYCLE-AUDIT.md) | Existing blueprint independently identifies the early `OnPetAddToWorld` and pet-identity/persistence risks. **Reference only.** |
 
 **Evidence boundary:** Code proves the hooks/methods exist, not that the owner's *current installed* Playerbots emits the relevant packets, that the IP event always beats a module timer, or that a native pet number cannot be reused.
+
+## 1A. Read-only prototype now committed to this isolated draft
+
+- `src/Systems/HunterPetAutocastAudit.cpp`: enabled only when `NaxxramasCore.HunterPetAutocast.AuditEnabled = 1`; its default is 0.
+- It watches **only** `CMSG_PET_SPELL_AUTOCAST` (13-byte native layout), comparing the pre-handler spell state with the next Player update. It logs a **confirmed transition** only when the spell is still the same known Hunter pet spell and core native active + autocast-list state changed as requested.
+- It does **not** intercept core packets, change autocast, change action bars, teach/unlearn ranks, persist preferences, add SQL, show chat messages, reconcile IP or perform a delayed restoration.
+- **Not yet covered:** the separate `CMSG_PET_SET_ACTION` input and direct Playerbot calls. `OnPlayerAfterUpdate` callback order and actual connected/Altbot packet handling require in-game staging evidence.
+- `tests/test_hunter_pet_autocast_audit.py` tests source safety contracts only; pinned GitHub CI is configured to compile and link the exact translation unit. At this revision, a CI result must be checked before claiming compilation passed.
 
 ## 2. Required behaviour
 
@@ -66,7 +74,7 @@ NaxxramasCore.HunterPetAutocast.IncludeAltBots = 0
 NaxxramasCore.HunterPetAutocast.Debug = 0
 ```
 
-Stage 1: **read-only audit and offline tests**, no gameplay effects, no DB.
+Stage 1: **read-only observer and offline tests**, no gameplay effects, no DB. Prototype currently supplies the separate `AuditEnabled=0` flag, not the future feature flags below.
 Stage 2: approved **disabled-by-default** draft proof-of-concept and pinned Grimfeather compilation, still no production rollout.
 Stage 3: isolated test realm with explicitly approved module-owned persistence migration (after characters DB backup and restore check), ordinary Hunter first; Altbots separately.
 Stage 4: controlled production test only after owner approves actual install and config enable. Disable feature and restore snapshot if any rank progression, pet ownership, save or stable issue is observed.
