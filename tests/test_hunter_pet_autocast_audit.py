@@ -120,6 +120,19 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('NOT proof IP reconciliation has run', SOURCE)
         self.assertIn('NO IP completion asserted; no change applied', SOURCE)
 
+    def test_revive_path_without_new_pet_add_is_bounded_and_read_only(self):
+        self.assertIn('struct ReviveProbe final : DataMap::Base', SOURCE)
+        self.assertIn('void ObserveRevival(Player* owner)', SOURCE)
+        self.assertIn('ObserveRevival(owner);', SOURCE)
+        self.assertIn('probe->lastAlive == alive', SOURCE)
+        self.assertIn('probe->sawDeath = true;', SOURCE)
+        self.assertIn('probe->observations >= 4', SOURCE)
+        self.assertIn('probe->revivalSequence', SOURCE)
+        self.assertIn('pet->m_Events.AddEventAtOffset([pet, sequence]()', SOURCE)
+        self.assertIn('currentOwner->GetPet() != pet', SOURCE)
+        self.assertIn('REVIVE audit: pet-clock', SOURCE)
+        self.assertIn('NOT proof IP completed; no autocast change', SOURCE)
+
     def test_no_mutation_or_persistence(self):
         for forbidden in (
             'pet->ToggleAutocast(',

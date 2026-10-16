@@ -34,6 +34,7 @@ namespace
     constexpr char const* AUDIT_KEY = "NaxxramasCore.HunterPetAutocast.PendingChoice";
     constexpr char const* PHASE_KEY = "NaxxramasCore.HunterPetAutocast.LifecycleProbe";
     constexpr char const* LEARN_KEY = "NaxxramasCore.HunterPetAutocast.LearnPacketProbe";
+    constexpr char const* REVIVE_KEY = "NaxxramasCore.HunterPetAutocast.ReviveProbe";
 
     // A packet is observable even for a headless bot session on the
     // pinned WorldSession::SendPacket path, but that does NOT prove the
@@ -60,6 +61,18 @@ namespace
         bool loadFinishedObserved = false;
         bool reported = false;
         bool eventClockProbeScheduled = false;
+    };
+
+    // Only a bounded number of death -> revive transitions are reported per
+    // actual pet object. No Playerbot or IP-ready inference is made.
+    struct ReviveProbe final : DataMap::Base
+    {
+        bool initialized = false;
+        bool lastAlive = false;
+        bool sawDeath = false;
+        uint8 observations = 0;
+        uint32 revivalSequence = 0;
+        std::string beforeRevive;
     };
 
     // Read the first Lightning Breath rank 5/6 actionbar entry for the
@@ -293,6 +306,77 @@ namespace
             owner->GetGUID().GetCounter(),
             sample->initialGenericAutocast,
             DescribeHunterPetAutocast(pet));
+    }
+
+    // Read-only. Some Hunter pets revive without OnPetAddToWorld. This
+    // samples only an existing, actively owned Pet from PlayerAfterUpdate;
+    // a death/revive fully between updates may be missed. NOT a restore hook.
+    void ObserveRevival(Player* owner)
+    {
+        Pet* pet = owner->GetPet();
+        if (!pet || pet->getPetType() != HUNTER_PET ||
+            pet->isBeingLoaded())
+            return;
+
+        ReviveProbe* probe = pet->CustomData.GetDefault<ReviveProbe>(REVIVE_KEY);
+        bool const alive = pet->IsAlive();
+        if (!probe->initialized)
+        {
+            probe->initialized = true;
+            probe->lastAlive = alive;
+            return;
+        }
+
+        if (probe->lastAlive == alive)
+            return;
+
+        probe->lastAlive = alive;
+        if (!alive)
+        {
+            probe->sawDeath = true;
+            if (probe->observations < 4)
+                probe->beforeRevive = DescribeHunterPetAutocast(pet);
+            return;
+        }
+
+        if (!probe->sawDeath)
+            return;
+        probe->sawDeath = false;
+
+        // No repeated log or event scheduling after four observed revivals.
+        if (probe->observations >= 4)
+            return;
+        ++probe->observations;
+        uint32 const sequence = ++probe->revivalSequence;
+        LOG_INFO("module",
+            "HunterPetAutocast REVIVE audit: owner={} petnumber={} "
+            "observedRevive={} loading={} deadSnapshot={} aliveSnapshot={}; "
+            "NOT proof IP completed; no autocast change",
+            owner->GetGUID().GetCounter(),
+            pet->GetCharmInfo() ? pet->GetCharmInfo()->GetPetNumber() : 0,
+            uint32(probe->observations), pet->isBeingLoaded(),
+            probe->beforeRevive, DescribeHunterPetAutocast(pet));
+
+        // The event belongs to THIS Pet and cannot follow a new tame.
+        // A new death/revive invalidates any older deferred observation.
+        pet->m_Events.AddEventAtOffset([pet, sequence]()
+        {
+            if (!AuditEnabled() || !pet->IsInWorld() ||
+                pet->getPetType() != HUNTER_PET || !pet->IsAlive())
+                return;
+            ReviveProbe* state = pet->CustomData.Get<ReviveProbe>(REVIVE_KEY);
+            Player* currentOwner = pet->GetOwner();
+            if (!state || state->revivalSequence != sequence ||
+                !currentOwner || currentOwner->GetPet() != pet)
+                return;
+
+            LOG_INFO("module",
+                "HunterPetAutocast REVIVE audit: pet-clock owner={} "
+                "reviveSeq={} loading={} allAuto={}; "
+                "NOT proof IP completed; no autocast change",
+                currentOwner->GetGUID().GetCounter(), sequence,
+                pet->isBeingLoaded(), DescribeHunterPetAutocast(pet));
+        }, Milliseconds(2500));
     }
 
     struct PendingChoice final : DataMap::Base
@@ -545,6 +629,7 @@ namespace
                 return;
 
             ObserveLifecycle(owner, diff);
+            ObserveRevival(owner);
 
             // Inspect the same pet's still-known rank during a subsequent
             // update, without executing any action. A packet alone does
