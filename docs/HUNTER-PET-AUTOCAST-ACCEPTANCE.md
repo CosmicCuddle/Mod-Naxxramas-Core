@@ -54,6 +54,7 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-45 | Same death observed by both unit-death hook and player fallback | Single death record and revival sequence; no duplicated generation bump or stale deferred observation |
 | AC-46 | Source-pinned PetNumber allocator, pet SQL schema and normal save | CI demonstrates no proven durable incarnation token, possible number reuse and save delete/replace, blocking any preference table pending new proof |
 | AC-47 | Exact pinned IP pet delayed check, core Pet::Update and PetScript source | Verify private pending flag resets BEFORE checkHunterPetSpells, native load flag is separate, and no verified public post-IP completion signal exists; no restore |
+| AC-48 | Pinned IP family/rank reconciliation source inventory | Verify 26 family branches and 89 active calls: 52 with dummy candidates and 37 removal-only, excluding commented-out calls; no rank/autocast permission inferred |
 
 ## Evidence required before any rollout
 
@@ -67,5 +68,5 @@ For each case, keep a staging record with:
 - **HPA-G1 (source + model):** Confirm hook/API signatures, native accepted-intent capture, first-rank chain and missing-hook limitations. No code in other repositories.
 - **HPA-G2 (read-only prototype):** Feature code only in Mod-Naxxramas-Core, all config OFF, no SQL, compile against pinned Grimfeather + IP + Playerbots; instrumentation proves timing with no mutation.
 - **HPA-G3 (durable preference state):** Pet identity lifecycle verified, approve module-owned persistence schema and rollback, staging character DB backup/restoration.
-- **HPA-G4 (functional staging):** Execute AC-00…AC-47 and independently verify IP progression, original spell-learning messages and Altbot paths.
+- **HPA-G4 (functional staging):** Execute AC-00…AC-48 and independently verify IP progression, original spell-learning messages and Altbot paths.
 - **HPA-G5 (production):** Separate explicit owner approval to merge/install/enable; staged opt-in; rollback ready.

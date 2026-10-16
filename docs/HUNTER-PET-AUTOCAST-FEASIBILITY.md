@@ -112,6 +112,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Generic preference resolution proof (offline only):** [`test_hunter_pet_autocast_generic_model.py`](../tests/test_hunter_pet_autocast_generic_model.py) models independent ON/OFF preferences for multiple autocastable ability families and rejects illegal/unknown ranks, ambiguous duplicate ranks, unverifiable pet incarnation and Playerbot AI cases. All spell IDs in those tests are **synthetic**; the test does not create a pet, validate a real DBC/spell-chain mapping or implement C++ restoration. The required durable identity and post-IP completion contracts remain blocked.
 
+**IP source coverage matrix:** [HUNTER-PET-IP-ABILITY-SCOPE.md](HUNTER-PET-IP-ABILITY-SCOPE.md) distinguishes 26 IP pet-family branches and 89 active reconciliation calls (52 with dummy candidates; 37 removal-only). This is not a complete native autocast catalog and does not authorize any rank or setting change.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.

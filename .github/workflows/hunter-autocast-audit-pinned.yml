@@ -16,6 +16,8 @@ on:
       - 'scripts/check_hunter_pet_autocast_pinned_compile.py'
       - 'scripts/check_hunter_pet_identity_pinned.py'
       - 'scripts/check_hunter_pet_ip_readiness_pinned.py'
+      - 'scripts/check_hunter_pet_ip_ability_scope_pinned.py'
+      - 'docs/HUNTER-PET-IP-ABILITY-SCOPE.md'
       - '.github/workflows/hunter-autocast-audit-pinned.yml'
   workflow_dispatch:
 
@@ -76,6 +78,10 @@ jobs:
         run: |
           python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_ip_readiness_pinned.py \
             --core acore --ip acore/modules/mod-individual-progression
+      - name: Verify pinned IP family-reconciliation source scope
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_ip_ability_scope_pinned.py \
+            --ip acore/modules/mod-individual-progression
       - name: Install build dependencies
         run: |
           sudo apt-get update
