@@ -24,7 +24,7 @@ To deny, ALL must be true:
 3. `roundRobinPlayer` is nonempty and not the requesting player.
 4. The packet slot is a **player-visible quest slot** (not a normal loot slot), and its per-player mapping and underlying `quest_items` index are valid and not yet looted.
 5. Item is one-copy `needs_quest` loot with `count == 1`, not `freeforall`/`ITEM_FLAG_MULTI_DROP`, not `follow_loot_rules`, and not a blocked/roll-winner item.
-6. The current owner is online, in the same group, and still eligible for the quest item. If the owner no longer needs it or cannot receive it under native eligibility checks, defer to the core's existing fallback.
+6. The current owner is online, in the same group, **has an unlooted player-specific quest-item slot for the same underlying corpse item**, and still needs/is eligible for it. If the owner was outside reward range, lacks a mapped slot, has already taken their copy, no longer needs the item, or fails native eligibility, defer to the core's existing fallback.
 
 All other cases return TRUE and let AzerothCore process the packet unmodified. Importantly, the original owner releasing the corpse clears `roundRobinPlayer` in `LootHandler.cpp::DoLootRelease`, so a later pickup is automatically no longer blocked. No new permanent lock/cached ownership.
 
@@ -43,7 +43,7 @@ Rollback: set `Enabled = 0` in the active config and restart the Worldserver (af
 
 ## Validation checklist (required before merge/production use)
 
-- Automated source/synthetic regression checks: correct slot translation, malformed/invalid player slot, native methods untouched, shared items and roll winners excluded, released owner, owner no longer eligible, guarded group methods, config off. All use mocks/models, not the actual loot manager.
+- Automated source/synthetic regression checks: correct slot translation, malformed/invalid player slot, padded packet cannot bypass the guard, native methods untouched, shared items and roll winners excluded, released owner, missing owner quest slot, owner no longer eligible, guarded group methods, config off. All use mocks/models, not the actual loot manager.
 - Pinned source compile/link: this branch must compile and link against the **exact Grimfeather core SHA** and pinned Playerbots / Individual Progression stack on an isolated GitHub runner; this is not gameplay proof.
 - **Unperformed gameplay tests**: two real group members need the same single-copy quest item, verify non-owner first pickup denied, owner collects, owner no longer needs item, owner releases then other player collects; FFA/shared/multi-drop and special `follow_loot_rules`; rolls, Master Loot, Round Robin, Need Before Greed, corpse lifetime/disconnect; 3.3.5a visual state and bot packet processing. Check no duplicated/deleted/vanished loot, no unlootable corpse, and no crash.
 - **Bot coverage limitation**: ordinary `LootAction` uses `QueuePacket` on pinned Playerbots, but paths calling `StoreLootItem` or other direct inventory APIs bypass `CanPacketReceive`. Don't assert that **all** bot pickup mechanisms are protected.
