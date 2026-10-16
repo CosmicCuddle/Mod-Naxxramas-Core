@@ -47,6 +47,17 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('pet->getPetType() != HUNTER_PET', SOURCE)
         self.assertIn('info->IsAutocastable()', SOURCE)
 
+    def test_learn_packet_is_read_only_and_checked_again(self):
+        self.assertIn('SERVERHOOK_ON_PACKET_SENT', SOURCE)
+        self.assertIn('SMSG_PET_LEARNED_SPELL', SOURCE)
+        self.assertIn('class HunterPetAutocastLearnPacketObserver', SOURCE)
+        self.assertIn('WorldPacket copy(packet)', SOURCE)
+        self.assertIn('packet.size() != 4', SOURCE)
+        self.assertIn('spellId != 25011 && spellId != 25012', SOURCE)
+        self.assertIn('pet->HasSpell(spellId)', SOURCE)
+        self.assertIn('learned->pendingSpell = 0;', SOURCE)
+        self.assertIn('no autocast restoration', SOURCE)
+
     def test_lifecycle_probe_is_finite_and_nonmutating(self):
         self.assertIn('PETHOOK_ON_PET_ADD_TO_WORLD', SOURCE)
         self.assertIn('class HunterPetAutocastLifecycleObserver', SOURCE)
