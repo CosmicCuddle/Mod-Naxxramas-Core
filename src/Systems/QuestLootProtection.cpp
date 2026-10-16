@@ -113,6 +113,27 @@ namespace NaxxramasQuestLootProtection
         if (!owner || owner->GetGroup() != group)
             return true;
 
+        // Only protect an owner who was actually given an unlooted
+        // player-specific quest slot for this corpse. FillLoot populates
+        // those views only for eligible group members in reward range.
+        // A remote, ineligible or already-finished owner must not leave
+        // a quest item unnecessarily locked for a valid group member.
+        auto const ownerView = personal.find(owner->GetGUID());
+        if (ownerView == personal.end() || !ownerView->second)
+            return true;
+
+        bool ownerHasUnlootedSlot = false;
+        for (QuestItem const& ownerItem : *ownerView->second)
+        {
+            if (ownerItem.index == view.index && !ownerItem.is_looted)
+            {
+                ownerHasUnlootedSlot = true;
+                break;
+            }
+        }
+        if (!ownerHasUnlootedSlot)
+            return true;
+
         // Do not strand a quest drop if the owner no longer needs it or
         // fails native item eligibility. Let AzerothCore decide fallback.
         if (!owner->HasQuestForItem(item.itemid) ||
