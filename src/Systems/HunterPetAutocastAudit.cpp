@@ -38,9 +38,11 @@ namespace
     // A packet is observable even for a headless bot session on the
     // pinned WorldSession::SendPacket path, but that does NOT prove the
     // Playerbot runtime sent it in an actual scenario.
+    constexpr size_t MAX_LEARNED_AUDIT_QUEUE = 32;
+
     struct LearnPacketProbe final : DataMap::Base
     {
-        uint32 pendingSpell = 0;
+        std::vector<uint32> pendingSpells;
     };
 
     bool AuditEnabled();
@@ -356,9 +358,10 @@ namespace
             uint32 spellId = 0;
             copy >> spellId;
 
-            // Pilot ranks only; a future generic implementation will
-            // use validated rank chains and individual IP eligibility.
-            if (spellId != 25011 && spellId != 25012)
+            // Audit all native autocastable abilities; no rank eligibility
+            // or post-IP completion can be inferred from these packets.
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+            if (!info || !info->IsAutocastable())
                 return;
 
             Pet* pet = owner->GetPet();
@@ -368,7 +371,14 @@ namespace
 
             LearnPacketProbe* sample =
                 pet->CustomData.GetDefault<LearnPacketProbe>(LEARN_KEY);
-            sample->pendingSpell = spellId;
+            // Coalesce and cap this pet's pending learn notifications.
+            // Another learned spell in the same tick must not erase one.
+            if (std::find(sample->pendingSpells.begin(),
+                sample->pendingSpells.end(), spellId) !=
+                sample->pendingSpells.end() ||
+                sample->pendingSpells.size() >= MAX_LEARNED_AUDIT_QUEUE)
+                return;
+            sample->pendingSpells.push_back(spellId);
 
             LOG_INFO("module",
                 "HunterPetAutocast LEARN-PACKET audit: owner={} "
@@ -543,16 +553,18 @@ namespace
             {
                 LearnPacketProbe* learned =
                     pet->CustomData.Get<LearnPacketProbe>(LEARN_KEY);
-                if (learned && learned->pendingSpell != 0)
+                if (learned && !learned->pendingSpells.empty())
                 {
-                    uint32 const spellId = learned->pendingSpell;
-                    learned->pendingSpell = 0;
-                    LOG_INFO("module",
-                        "HunterPetAutocast LEARN-PACKET audit: "
-                        "next-update owner={} spell={} stillKnown={} "
-                        "loading={}; no autocast restoration",
-                        owner->GetGUID().GetCounter(), spellId,
-                        pet->HasSpell(spellId), pet->isBeingLoaded());
+                    for (uint32 const spellId : learned->pendingSpells)
+                    {
+                        LOG_INFO("module",
+                            "HunterPetAutocast LEARN-PACKET audit: "
+                            "next-update owner={} spell={} stillKnown={} "
+                            "loading={}; no autocast restoration",
+                            owner->GetGUID().GetCounter(), spellId,
+                            pet->HasSpell(spellId), pet->isBeingLoaded());
+                    }
+                    learned->pendingSpells.clear();
                 }
             }
 

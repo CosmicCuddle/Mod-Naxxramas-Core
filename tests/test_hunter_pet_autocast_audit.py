@@ -99,9 +99,12 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('class HunterPetAutocastLearnPacketObserver', SOURCE)
         self.assertIn('WorldPacket copy(packet)', SOURCE)
         self.assertIn('packet.size() != 4', SOURCE)
-        self.assertIn('spellId != 25011 && spellId != 25012', SOURCE)
+        self.assertNotIn('spellId != 25011 && spellId != 25012', SOURCE)
+        self.assertIn('MAX_LEARNED_AUDIT_QUEUE = 32', SOURCE)
+        self.assertIn('sample->pendingSpells.push_back(spellId)', SOURCE)
         self.assertIn('pet->HasSpell(spellId)', SOURCE)
-        self.assertIn('learned->pendingSpell = 0;', SOURCE)
+        self.assertIn('learned->pendingSpells.clear();', SOURCE)
+        self.assertIn('for (uint32 const spellId : learned->pendingSpells)', SOURCE)
         self.assertIn('no autocast restoration', SOURCE)
 
     def test_lifecycle_probe_is_finite_and_nonmutating(self):
