@@ -115,6 +115,13 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-106 | Hypothetically authenticated master ON/OFF differs from bot policy default | Review flags coordination conflict, not permission to call ToggleAutocast or fight repeating AI |
 | AC-107 | Later native ON/OFF no longer equals authenticated master's requested state | Review skips; a prior applied command cannot prove the requested preference survived subsequent AI action |
 | AC-108 | IP-legal rank, pet identity, native autocastability, bot classification, or authoritative IP completion unknown | All advisory master/default paths skip; no spell learning, persistence or restoration |
+| AC-109 | Chat source hook observes an apparent master command before Playerbots security | No human-intent persistence; input can be rejected by Playerbots later |
+| AC-110 | Playerbots accepts and queues a command but the trigger/action has not executed | No native acceptance claim based on queued command alone |
+| AC-111 | Playerbot action invokes HandleCommand with bot as sender or re-queues itself | Bot-generated command is not a new human preference; skip |
+| AC-112 | Command executes but Pet spell state was not changed or later overwritten | Reject intended ON/OFF state until exact native-applied and later-current proofs exist |
+| AC-113 | Sender/bot/pet identity changes while a command is queued | Reject stale command; no false master or pet incarnation reuse |
+| AC-114 | Hypothetical authenticated master command conflicts with bot default | Require separate AI-policy coordination; no repeated re-toggle loop or automatic restoration |
+| AC-115 | Pinned Playerbots chat/AI ingress source changes upstream | CI source-contract checker fails or is reviewed; passing only demonstrates source paths, not real master command provenance |
 
 ## Evidence required before any rollout
 
@@ -128,5 +135,5 @@ For each case, keep a staging record with:
 - **HPA-G1 (source + model):** Confirm hook/API signatures, native accepted-intent capture, first-rank chain and missing-hook limitations. No code in other repositories.
 - **HPA-G2 (read-only prototype):** Feature code only in Mod-Naxxramas-Core, all config OFF, no SQL, compile against pinned Grimfeather + IP + Playerbots; instrumentation proves timing with no mutation.
 - **HPA-G3 (durable preference state):** Pet identity lifecycle verified, approve module-owned persistence schema and rollback, staging character DB backup/restoration.
-- **HPA-G4 (functional staging):** Execute AC-00…AC-108 and independently verify IP progression, original spell-learning messages and Altbot paths.
+- **HPA-G4 (functional staging):** Execute AC-00…AC-115 and independently verify IP progression, original spell-learning messages and Altbot paths.
 - **HPA-G5 (production):** Separate explicit owner approval to merge/install/enable; staged opt-in; rollback ready.

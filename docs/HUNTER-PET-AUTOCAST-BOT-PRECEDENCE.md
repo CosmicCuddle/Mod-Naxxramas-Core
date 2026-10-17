@@ -25,6 +25,8 @@
 
 Five [synthetic timeline tests](../tests/test_hunter_pet_autocast_bot_precedence_timeline.py) cover legal IP re-learn resetting autocast OFF before a later bot action, master OFF for Bite subsequently undone by bot default ON, master ON for Cower subsequently undone by bot default OFF, unknown AI trigger cadence, and missing-rank non-entitlement. The [C++20 gate tests](../tests/hunter_pet_autocast_bot_precedence.cpp) reject illegality, changed native state and unverified master provenance.
 
+**Master ingress traced:** The pinned Playerbots [chat-to-AI pipeline](HUNTER-PET-AUTOCAST-BOT-MASTER-INGRESS.md) passes a sender into `HandleCommand`, which can reject input or queue it for a later AI trigger. Internal bot code can also issue commands. The native-on/off result has no authenticated module-only link back to the original human sender. Source guard and synthetic end-to-end tests keep this an explicit blocker.
+
 ## What is still needed
 
 An authenticated bot-master command source, demonstrated native command application, verified per-pet lifecycle identity, an authoritative post-IP return, and a safe Playerbots policy precedence/override mechanism (if conflicting master instructions should win) are still missing. These may need separately approved cross-repository work. No alternative that repeatedly re-enables/re-disables spells from a Naxx timer is permitted.

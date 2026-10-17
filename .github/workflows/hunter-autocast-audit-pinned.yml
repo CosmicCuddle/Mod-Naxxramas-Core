@@ -23,6 +23,9 @@ on:
       - 'tests/hunter_pet_autocast_bot_precedence.cpp'
       - 'tests/test_hunter_pet_autocast_bot_precedence_timeline.py'
       - 'docs/HUNTER-PET-AUTOCAST-BOT-PRECEDENCE.md'
+      - 'scripts/check_hunter_pet_bot_master_ingress_pinned.py'
+      - 'tests/test_hunter_pet_autocast_bot_master_ingress_model.py'
+      - 'docs/HUNTER-PET-AUTOCAST-BOT-MASTER-INGRESS.md'
       - 'docs/HUNTER-PET-AUTOCAST-PLAYERBOT-POLICY.md'
       - 'docs/HUNTER-PET-AUTOCAST-DECISION-GATE.md'
       - 'src/NaxxramasCore_loader.cpp'
@@ -145,6 +148,10 @@ jobs:
       - name: Verify pinned Playerbots direct native autocast policy
         run: |
           python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_playerbot_autocast_pinned.py \
+            --playerbots acore/modules/mod-playerbots
+      - name: Verify pinned bot master chat command ingress boundary
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_bot_master_ingress_pinned.py \
             --playerbots acore/modules/mod-playerbots
       - name: Install build dependencies
         run: |

@@ -144,6 +144,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Default Hunter bot strategy verified and standalone precedence model:** Pinned `AiFactory::AddDefaultNonCombatStrategies` adds `pet` by default for Hunters, and pinned `HasPetTrigger` checks for an unmounted bot with a pet target. Configured strategy changes can later alter this. The [unregistered C++20 precedence model](HUNTER-PET-AUTOCAST-BOT-PRECEDENCE.md) and synthetic timeline tests distinguish observed bot defaults from hypothetical authenticated master commands, reject mismatched native state, and flag conflicts needing bot-policy coordination. None of these synthetic proof flags has an authoritative runtime producer, no autocast is toggled, and all previous blockers remain.
 
+**Bot-master command path traced:** [HUNTER-PET-AUTOCAST-BOT-MASTER-INGRESS.md](HUNTER-PET-AUTOCAST-BOT-MASTER-INGRESS.md) now identifies pinned Playerbots `OnPlayerCanUseChat` → sender-aware `PlayerbotAI::HandleCommand` security/prefix handling → deferred `ChatCommandHolder` → external trigger dispatch, with separate native autocast action not accessible as an authenticated post-execution callback to Naxx. Internal AI can also queue commands with a bot sender. Source-pinned tests and synthetic input/provenance failure cases prevent a chat observation or queued command from being mistaken for a persisted human master choice.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.
