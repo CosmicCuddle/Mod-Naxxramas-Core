@@ -99,6 +99,8 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('void ObserveAbilityStability(Player* owner, uint32 diff)', SOURCE)
         self.assertIn('ObserveAbilityStability(owner, diff);', SOURCE)
         self.assertIn('CaptureAbilityFamilyStates(pet, current)', SOURCE)
+        self.assertIn('std::sort(knownSpells.begin(), knownSpells.end())', SOURCE)
+        self.assertIn('knownSpells.size() >= MAX_STABILITY_SPELLS', SOURCE)
         self.assertIn('GetFirstSpellInChain(id)', SOURCE)
         self.assertIn('sample->lastFamilyStates == current', SOURCE)
         self.assertIn('std::map<uint32, std::string> changes', SOURCE)

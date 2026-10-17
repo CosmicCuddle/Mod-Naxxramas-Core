@@ -187,17 +187,25 @@ namespace
         if (!pet || !pet->GetCharmInfo())
             return false;
 
-        size_t seen = 0;
+        // PetSpellMap is std::unordered_map in pinned AzerothCore.
+        // Canonical spell-ID ordering prevents spurious family diffs after
+        // hash table iteration/reallocation while the actual state agrees.
+        std::vector<uint32> knownSpells;
         for (auto const& entry : pet->m_spells)
         {
             uint32 const id = entry.first;
             SpellInfo const* info = sSpellMgr->GetSpellInfo(id);
             if (!pet->HasSpell(id) || !info || !info->IsAutocastable())
                 continue;
-
-            if (++seen > MAX_STABILITY_SPELLS)
+            if (knownSpells.size() >= MAX_STABILITY_SPELLS)
                 return false;
+            knownSpells.push_back(id);
+        }
+        std::sort(knownSpells.begin(), knownSpells.end());
 
+        for (uint32 const id : knownSpells)
+        {
+            auto const spell = pet->m_spells.find(id);
             uint32 const firstRank = sSpellMgr->GetFirstSpellInChain(id);
             uint32 const family = firstRank ? firstRank : id;
             bool const listed = std::find(pet->m_autospells.begin(),
@@ -218,7 +226,7 @@ namespace
                 }
             }
             states[family] += std::to_string(id) + "/" +
-                std::to_string(uint32(entry.second.active)) + "/" +
+                std::to_string(uint32(spell->second.active)) + "/" +
                 (listed ? "1" : "0") + "/" + std::to_string(slot) + "/" +
                 std::to_string(type) + ",";
         }
