@@ -25,6 +25,7 @@ def check(root):
     botai = read(root, "src/Bot/PlayerbotAI.cpp")
     tame = read(root, "src/Ai/Base/Actions/TameAction.cpp")
     factory = read(root, "src/Bot/Factory/PlayerbotFactory.cpp")
+    hunter_strategy = read(root, "src/Ai/Class/Hunter/Strategy/GenericHunterNonCombatStrategy.cpp")
 
     action = between(pets, "bool TogglePetSpellAutoCastAction::Execute(",
                      "bool PetAttackAction::Execute(")
@@ -53,8 +54,14 @@ def check(root):
     assert "pet->ToggleAutocast(spellInfo, true);" in tame
     assert "pet->ToggleAutocast(spellInfo, true);" in factory
 
+    hunter_triggers = between(hunter_strategy,
+                              "void HunterPetStrategy::InitTriggers(", "\n}")
+    assert 'new TriggerNode("has pet", { NextAction("toggle pet spell", 60.0f) })' in hunter_triggers
+    assert 'new TriggerNode("no pet", { NextAction("call pet", 60.0f) })' in hunter_triggers
+
     print("PASS: pinned bot action reasserts ON except its disabledPetSpells.")
     print("PASS: bot command, tame and factory paths call native ToggleAutocast directly.")
+    print("PASS: Hunter non-combat strategy schedules toggle pet spell on has pet.")
     print("BLOCKED: native/packet state cannot attribute AI versus human master intent.")
     print("Bot preference policy must be separate, with no automatic override of bot AI.")
     print("No Playerbots source edits, pet changes, config enable or SQL.")

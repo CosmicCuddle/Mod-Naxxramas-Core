@@ -107,6 +107,8 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-98 | A bot-master explicitly toggles a pet spell via AI command | Packet hook alone cannot authenticate master intent, and subsequent bot automation may override; future separate source/precedence contract needed |
 | AC-99 | Removed or non-autocastable spells encountered by pinned Playerbot policy | Action skips them; never treat bot policy as permission to teach/enable illegal rank |
 | AC-100 | IP re-learn defaults known native ability OFF, then bot pet-policy action runs | Bot may select its native ON/OFF default independently, without becoming human preference or IP-ready proof |
+| AC-101 | Pinned Hunter non-combat strategy has-pet trigger is active | Source checker confirms `NextAction("toggle pet spell", 60.0f)` can schedule bot's own direct autocast policy; no packet provenance inferred |
+| AC-102 | Master gives OFF request, later has-pet action runs again | Synthetic bot policy may reenable an eligible spell; source alone cannot establish actual trigger frequency or precedence on live bots |
 
 ## Evidence required before any rollout
 
@@ -120,5 +122,5 @@ For each case, keep a staging record with:
 - **HPA-G1 (source + model):** Confirm hook/API signatures, native accepted-intent capture, first-rank chain and missing-hook limitations. No code in other repositories.
 - **HPA-G2 (read-only prototype):** Feature code only in Mod-Naxxramas-Core, all config OFF, no SQL, compile against pinned Grimfeather + IP + Playerbots; instrumentation proves timing with no mutation.
 - **HPA-G3 (durable preference state):** Pet identity lifecycle verified, approve module-owned persistence schema and rollback, staging character DB backup/restoration.
-- **HPA-G4 (functional staging):** Execute AC-00…AC-100 and independently verify IP progression, original spell-learning messages and Altbot paths.
+- **HPA-G4 (functional staging):** Execute AC-00…AC-102 and independently verify IP progression, original spell-learning messages and Altbot paths.
 - **HPA-G5 (production):** Separate explicit owner approval to merge/install/enable; staged opt-in; rollback ready.

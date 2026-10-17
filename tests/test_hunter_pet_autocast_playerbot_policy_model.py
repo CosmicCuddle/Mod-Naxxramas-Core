@@ -75,6 +75,17 @@ class PinnedPlayerbotPolicyCounterexamples(unittest.TestCase):
         self.assertEqual(after, frozenset({BITE, COWER}))
         self.assertEqual(changes, ())
 
+    def test_repeated_has_pet_policy_trigger_can_undo_user_override(self):
+        # The pinned noncombat HunterPetStrategy can schedule the
+        # policy action whenever its "has pet" trigger is active.
+        known = [Spell(BITE)]
+        master_wants_off = set()
+        after_first, _ = bot_policy_run(known, master_wants_off)
+        self.assertEqual(after_first, frozenset({BITE}))
+        # A human/chat override of OFF can be undone on a later run.
+        after_second, _ = bot_policy_run(known, master_wants_off)
+        self.assertEqual(after_second, frozenset({BITE}))
+
     def test_idempotent_bot_policy_is_not_stable_human_intent(self):
         _, first = bot_policy_run([Spell(BITE)], set())
         _, second = bot_policy_run([Spell(BITE)], {BITE})
