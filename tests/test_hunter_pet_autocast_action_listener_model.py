@@ -57,8 +57,15 @@ class ListenerFalsePositiveTests(unittest.TestCase):
             (17261, 14916), {17261, 14916}, {17261: False, 14916: False})
         self.assertTrue(one)
         self.assertTrue(two)
-        self.assertNotEqual(first, {17261: True, 14916: False})
-        self.assertNotEqual(second, first)
+        # Both finished spellbooks are the SAME; the per-ability
+        # history differs and cannot be recovered from action bool.
+        self.assertEqual(first, second)
+        only_growl_was_off = {17261: True, 14916: False}
+        both_were_off = {17261: False, 14916: False}
+        self.assertEqual(sum(only_growl_was_off[k] != first[k]
+                             for k in first), 1)
+        self.assertEqual(sum(both_were_off[k] != second[k]
+                             for k in second), 2)
 
     def test_action_returns_false_when_no_policy_change_needed(self):
         changed, state = aggregate_pet_action((17261,), {17261}, {17261: True})
