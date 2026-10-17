@@ -10,6 +10,10 @@
 
 **Hunter strategy trigger:** The pinned [`GenericHunterNonCombatStrategy.cpp`](https://github.com/mod-playerbots/mod-playerbots/blob/037c01418b5d01506917a3db9b44fd56ac5f965c/src/Ai/Class/Hunter/Strategy/GenericHunterNonCombatStrategy.cpp) schedules `NextAction("toggle pet spell", 60.0f)` for the `"has pet"` trigger under `HunterPetStrategy::InitTriggers`. This connects the direct policy action to ordinary Hunter non-combat AI, not only factory/taming. It does **not** by itself prove whether that strategy is active on a particular bot, the trigger cadence or the exact time relative to IP reconciliation; those need staging evidence.
 
+**Default activation source:** The pinned `src/Bot/Factory/AiFactory.cpp` directly calls `nonCombatEngine->addStrategiesNoInit("bdps", "dps assist", "pet", nullptr)` for a Hunter, and `createNonCombatEngine` installs these before initialising the engine. The `HunterAiObjectContext` maps `pet` to `HunterPetStrategy`; `HasPetTrigger::IsActive` checks the pet target is present and the bot is not mounted. Configured `ChangeStrategy` calls may alter the active strategies afterward, so the source proves default setup but not the exact action timing or strategy state for a given character.
+
+The [standalone bot-precedence model](HUNTER-PET-AUTOCAST-BOT-PRECEDENCE.md) documents how to treat native defaults and hypothetical explicit master instructions without fighting AI. It returns advisory outcomes only and is not part of the Worldserver binary.
+
 ## Why this changes the design
 
 An external restoration of ON or OFF could be overwritten by the next `TogglePetSpellAutoCastAction`. Conversely, storing the AI's batch changes as a human preference would accidentally treat its default ON or excluded OFF as a deliberate player choice. The bot's active policy and the IP legal-rank rules must be respected independently.

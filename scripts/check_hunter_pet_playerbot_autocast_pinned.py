@@ -26,6 +26,9 @@ def check(root):
     tame = read(root, "src/Ai/Base/Actions/TameAction.cpp")
     factory = read(root, "src/Bot/Factory/PlayerbotFactory.cpp")
     hunter_strategy = read(root, "src/Ai/Class/Hunter/Strategy/GenericHunterNonCombatStrategy.cpp")
+    factory_ai = read(root, "src/Bot/Factory/AiFactory.cpp")
+    hunter_context = read(root, "src/Ai/Class/Hunter/HunterAiObjectContext.cpp")
+    native_trigger = read(root, "src/Ai/Base/Trigger/GenericTriggers.cpp")
 
     action = between(pets, "bool TogglePetSpellAutoCastAction::Execute(",
                      "bool PetAttackAction::Execute(")
@@ -59,6 +62,20 @@ def check(root):
     assert 'new TriggerNode("has pet", { NextAction("toggle pet spell", 60.0f) })' in hunter_triggers
     assert 'new TriggerNode("no pet", { NextAction("call pet", 60.0f) })' in hunter_triggers
 
+    # The strategy is part of default Hunter noncombat factory setup,
+    # not merely registered for someone to enable manually. Configuration
+    # can subsequently change active strategies.
+    assert 'nonCombatEngine->addStrategiesNoInit("bdps", "dps assist", "pet", nullptr);' in factory_ai
+    assert 'AddDefaultNonCombatStrategies(player, facade, nonCombatEngine);' in factory_ai
+    assert 'nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.nonCombatStrategies);' in factory_ai
+    assert 'creators["pet"] = &HunterStrategyFactoryInternal::pet;' in hunter_context
+    assert 'return new HunterPetStrategy(botAI);' in hunter_context
+    trigger = between(native_trigger, "bool HasPetTrigger::IsActive()", "\\n}")
+    assert 'AI_VALUE(Unit*, "pet target")' in trigger
+    assert '!AI_VALUE2(bool, "mounted", "self target")' in trigger
+
+    print("PASS: pinned Hunter noncombat default factory includes pet strategy.")
+    print("PASS: HasPetTrigger requires pet target and not mounted.")
     print("PASS: pinned bot action reasserts ON except its disabledPetSpells.")
     print("PASS: bot command, tame and factory paths call native ToggleAutocast directly.")
     print("PASS: Hunter non-combat strategy schedules toggle pet spell on has pet.")
