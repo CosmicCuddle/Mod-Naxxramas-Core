@@ -6,6 +6,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <initializer_list>
 
 using namespace NaxxramasCore::HunterAutocastDecision;
 
