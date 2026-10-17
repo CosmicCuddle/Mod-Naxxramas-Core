@@ -16,6 +16,9 @@ on:
       - 'tests/test_hunter_pet_autocast_identity_model.py'
       - 'tests/test_hunter_pet_autocast_generic_model.py'
       - 'tests/test_hunter_pet_autocast_stability_model.py'
+      - 'tests/test_hunter_pet_autocast_ip_fixed_point_model.py'
+      - 'scripts/check_hunter_pet_ip_fixed_point_pinned.py'
+      - 'docs/HUNTER-PET-AUTOCAST-IP-FIXED-POINT.md'
       - 'tests/test_hunter_pet_autocast_audit.py'
       - 'scripts/check_hunter_pet_autocast_pinned_compile.py'
       - 'scripts/check_hunter_pet_identity_pinned.py'
@@ -92,6 +95,10 @@ jobs:
         run: |
           python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_native_spell_state_pinned.py \
             --core acore --ip acore/modules/mod-individual-progression
+      - name: Verify pinned IP Hunter pet fixed-point source conditions
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_ip_fixed_point_pinned.py \
+            --ip acore/modules/mod-individual-progression
       - name: Install build dependencies
         run: |
           sudo apt-get update

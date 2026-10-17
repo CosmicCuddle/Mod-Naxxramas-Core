@@ -126,6 +126,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Bounded per-family read-only stability probe:** The pinned `PetSpellMap` is an unordered map; this probe sorts spell IDs before building the per-family snapshots so iteration order cannot manufacture a change.  A pet-scoped, max-10-sample observer compares each known native-autocastable ability family's spell ID, active flag, autocast-list membership and actionbar state (max 64 spells, then aborts). It reports only family-specific changes and a final unchanged-run count. Ten identical samples still DO NOT prove IP completed; IP may have scheduled a later event, and the observer never toggles/saves anything. [Offline timing counterexamples](../tests/test_hunter_pet_autocast_stability_model.py) demonstrate why an unchanged window is not readiness.
 
+**Source-proven conditional no-op direction (research only):** [HUNTER-PET-AUTOCAST-IP-FIXED-POINT.md](HUNTER-PET-AUTOCAST-IP-FIXED-POINT.md) and its offline model show that IP does not remove/relearn an already-known selected rank with no extra disallowed ranks **if** the Hunter's dummy spells, effective progression, pet family and complete applicable reconciler calls remain unchanged. This is an idempotence precondition, NOT confirmation that IP has executed or will not execute later. Missing durable pet identity and human intent still block restoration. A new pinned CI guard detects upstream changes in these IP rules.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.

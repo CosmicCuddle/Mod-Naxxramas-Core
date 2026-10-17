@@ -68,6 +68,11 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-59 | Bounded per-pet sampling of Bite, Growl and other autocast family states | Logs changed rank/native active/list membership/actionbar by family independently; max 10 samples and 64 native autocastable spells; no pet mutation |
 | AC-60 | Identical ability-family snapshots precede a delayed IP event | Even repeated matching snapshots and known native loading false NEVER assert IP completion; later source changes are diagnostics only |
 | AC-61 | More than 64 native autocastable spells or no valid actionbar at sampling time | Stop the sample, log unavailable/truncated and fail closed without inferring stable rank, player choice or IP readiness |
+| AC-62 | Pinned IP known legal rank is already sole known rank in its family | Pure model proves a future rank reconcile has zero learn/unlearn operations only when all relevant inputs and conditional calls remain unchanged; no runtime readiness inferred |
+| AC-63 | Pet has extra disallowed rank or lacks legal selected rank | Model detects native remove and/or relearn, rejects per-family no-op; no autocast mutation |
+| AC-64 | Hunter unlocks new dummy rank or crosses conditional progression branch | Previous per-family no-op classification is invalidated; reject stale rank legality and preferences |
+| AC-65 | Removal-only call, or two conflicting calls remove and relearn same rank | Zero mutation is not inferred from unchanged final spellbook, empty dummy list or apparent stable native OFF |
+| AC-66 | Source-pinned no-op precondition audit checks exact IP lambda ordering | Fail on changed source semantics; a passing result is theoretical input-specific idempotence, not an IP completion callback |
 
 ## Evidence required before any rollout
 
@@ -81,5 +86,5 @@ For each case, keep a staging record with:
 - **HPA-G1 (source + model):** Confirm hook/API signatures, native accepted-intent capture, first-rank chain and missing-hook limitations. No code in other repositories.
 - **HPA-G2 (read-only prototype):** Feature code only in Mod-Naxxramas-Core, all config OFF, no SQL, compile against pinned Grimfeather + IP + Playerbots; instrumentation proves timing with no mutation.
 - **HPA-G3 (durable preference state):** Pet identity lifecycle verified, approve module-owned persistence schema and rollback, staging character DB backup/restoration.
-- **HPA-G4 (functional staging):** Execute AC-00…AC-61 and independently verify IP progression, original spell-learning messages and Altbot paths.
+- **HPA-G4 (functional staging):** Execute AC-00…AC-66 and independently verify IP progression, original spell-learning messages and Altbot paths.
 - **HPA-G5 (production):** Separate explicit owner approval to merge/install/enable; staged opt-in; rollback ready.
