@@ -17,6 +17,7 @@ constexpr Evidence HypotheticalProvenCase()
     e.intent = HumanIntentProof::VerifiedExplicitHuman;
     e.identity = PetIdentityProof::VerifiedDurableIncarnation;
     e.ipCompletion = IpCompletionProof::VerifiedPostReconciliation;
+    e.rankProvenance = RankEligibilityProvenance::VerifiedOwnerSpecificIPRules;
     e.scope = LifetimeScope::AcrossWorldserverRestart;
     e.ownerIsHunter = true;
     e.petIsHunterPet = true;
@@ -60,6 +61,17 @@ int main()
         assert(Evaluate(e) == Verdict::Skip);
     }
     e.ipCompletion = IpCompletionProof::VerifiedPostReconciliation;
+
+    // A character quest alone cannot prove the currently IP-legal rank.
+    for (RankEligibilityProvenance insufficient : {
+        RankEligibilityProvenance::Unknown,
+        RankEligibilityProvenance::AccountProgressionOnly,
+        RankEligibilityProvenance::CharacterQuestStageOnly})
+    {
+        e.rankProvenance = insufficient;
+        assert(Evaluate(e) == Verdict::Skip);
+    }
+    e.rankProvenance = RankEligibilityProvenance::VerifiedOwnerSpecificIPRules;
 
     // Runtime Pet identity cannot survive dismissal/resummon/restart.
     e.identity = PetIdentityProof::RuntimePetObject;

@@ -128,6 +128,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Source-proven conditional no-op direction (research only):** [HUNTER-PET-AUTOCAST-IP-FIXED-POINT.md](HUNTER-PET-AUTOCAST-IP-FIXED-POINT.md) and its offline model show that IP does not remove/relearn an already-known selected rank with no extra disallowed ranks **if** the Hunter's dummy spells, effective progression, pet family and complete applicable reconciler calls remain unchanged. This is an idempotence precondition, NOT confirmation that IP has executed or will not execute later. Missing durable pet identity and human intent still block restoration. A new pinned CI guard detects upstream changes in these IP rules.
 
+**Per-Hunter progression gate research:** [HUNTER-PET-AUTOCAST-IP-CHARACTER-STAGE.md](HUNTER-PET-AUTOCAST-IP-CHARACTER-STAGE.md) documents IP's stage derived from the Hunter's own rewarded hidden quests 66001–66018 (not an account-wide maximum), its per-milestone progression-limit guard, bot and `VanillaHunterPets` conditions, and learned dummy selection. A pinned source checker + synthetic model enforce these assumptions. The standalone C++ `CandidateOnly` policy now explicitly rejects account-tier-only and quest-stage-only eligibility evidence in favor of a hypothetical independently verified *owner-specific applicable IP rule*. This does not inspect a real Hunter or solve post-IP readiness, and never toggles any autocast.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.

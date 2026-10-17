@@ -73,6 +73,12 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-64 | Hunter unlocks new dummy rank or crosses conditional progression branch | Previous per-family no-op classification is invalidated; reject stale rank legality and preferences |
 | AC-65 | Removal-only call, or two conflicting calls remove and relearn same rank | Zero mutation is not inferred from unchanged final spellbook, empty dummy list or apparent stable native OFF |
 | AC-66 | Source-pinned no-op precondition audit checks exact IP lambda ordering | Fail on changed source semantics; a passing result is theoretical input-specific idempotence, not an IP completion callback |
+| AC-67 | Two Hunter characters share an account but have different rewarded hidden progression quests | The per-character model uses owner quest stage, never the account-wide highest tier; no rank granted or toggled |
+| AC-68 | Unrewarded quests, stage zero and highest rewarded hidden quest | Source/model correctly distinguish no stage and highest rewarded quest in 66001…66018 |
+| AC-69 | Configured nonzero progression cap below a milestone despite higher rewarded quest | Model matches pinned `hasPassedProgression` milestone guard and does not substitute account tier or a `min(stage, cap)` shortcut |
+| AC-70 | Individual Hunter's known dummy list changes to a higher ranked dummy | Pinned reverse-order rule changes selected rank; stale rank is rejected even when still known |
+| AC-71 | Unknown IP configuration, bot account classification, or missing in-world character stage | Fail closed, skip candidate; never turn unknown data into permission |
+| AC-72 | Pure decision-gate supplied account-tier or quest-stage-only rank evidence | Skip; `CandidateOnly` requires separately verified owner-specific applicable IP rules, known legal autocastable spell and all existing identity/intent/readiness proofs |
 
 ## Evidence required before any rollout
 
@@ -86,5 +92,5 @@ For each case, keep a staging record with:
 - **HPA-G1 (source + model):** Confirm hook/API signatures, native accepted-intent capture, first-rank chain and missing-hook limitations. No code in other repositories.
 - **HPA-G2 (read-only prototype):** Feature code only in Mod-Naxxramas-Core, all config OFF, no SQL, compile against pinned Grimfeather + IP + Playerbots; instrumentation proves timing with no mutation.
 - **HPA-G3 (durable preference state):** Pet identity lifecycle verified, approve module-owned persistence schema and rollback, staging character DB backup/restoration.
-- **HPA-G4 (functional staging):** Execute AC-00…AC-66 and independently verify IP progression, original spell-learning messages and Altbot paths.
+- **HPA-G4 (functional staging):** Execute AC-00…AC-72 and independently verify IP progression, original spell-learning messages and Altbot paths.
 - **HPA-G5 (production):** Separate explicit owner approval to merge/install/enable; staged opt-in; rollback ready.

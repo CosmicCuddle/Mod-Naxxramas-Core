@@ -51,6 +51,14 @@ namespace NaxxramasCore::HunterAutocastDecision
         AcrossWorldserverRestart
     };
 
+    enum class RankEligibilityProvenance : std::uint8_t
+    {
+        Unknown,
+        AccountProgressionOnly,
+        CharacterQuestStageOnly,
+        VerifiedOwnerSpecificIPRules
+    };
+
     enum class Verdict : std::uint8_t
     {
         Skip,
@@ -63,6 +71,8 @@ namespace NaxxramasCore::HunterAutocastDecision
         HumanIntentProof intent = HumanIntentProof::Unknown;
         PetIdentityProof identity = PetIdentityProof::Unknown;
         IpCompletionProof ipCompletion = IpCompletionProof::Unknown;
+        RankEligibilityProvenance rankProvenance =
+            RankEligibilityProvenance::Unknown;
         LifetimeScope scope = LifetimeScope::AcrossWorldserverRestart;
         // Volatile observations have NO validity across Worldserver restarts.
         bool volatileChoiceCapturedThisProcess = false;
@@ -86,6 +96,8 @@ namespace NaxxramasCore::HunterAutocastDecision
         if (evidence.choice == ExplicitChoice::Unknown ||
             evidence.intent != HumanIntentProof::VerifiedExplicitHuman ||
             evidence.ipCompletion != IpCompletionProof::VerifiedPostReconciliation ||
+            evidence.rankProvenance !=
+                RankEligibilityProvenance::VerifiedOwnerSpecificIPRules ||
             !evidence.ownerIsHunter || !evidence.petIsHunterPet ||
             evidence.isPlayerbot || !evidence.sameOwner ||
             !evidence.stillKnowsSpell || !evidence.spellAutocastable ||

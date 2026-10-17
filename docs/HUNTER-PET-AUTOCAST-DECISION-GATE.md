@@ -17,6 +17,7 @@ The [`HunterPetAutocastDecisionGate.h`](../src/Systems/HunterPetAutocastDecision
 - For a new Pet object after dismiss/resummon **within the same Worldserver process**, a possible *module-owned RAM-only* cache could use its observed unique PetNumber if the preference was captured during THIS process and the native allocator demonstrably did not reset or wrap. The existing code does not validate either proof, and no cache has been implemented.
 - Across **Worldserver restart**, a source-verified never-reused durable incarnation would still be required. Native PetNumber is not durable; no such incarnation proof has been established.
 - The owner must be the intended Hunter, the active Pet must be a Hunter pet, its current rank must actually be known, truly autocastable and **legal for that Hunter's current progression**, with exactly one nonambiguous active rank in its canonical family.
+- `RankEligibilityProvenance::VerifiedOwnerSpecificIPRules` requires a future source-verified application of the Hunter's **own** rewarded hidden quests, IP configuration, applicable family/dummy reconciliation rules and eligibility. Account-wide maximum or quest stage alone is insufficient. This enum is a hypothetical proof category; the current audit has no producer for it.
 
 ## Scopes and blocking outcomes
 
