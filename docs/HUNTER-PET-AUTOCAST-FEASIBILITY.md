@@ -132,6 +132,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Read-only owner progression evidence in the audit:** the existing disabled-on-default runtime observer now logs the Hunter's raw highest rewarded hidden quest tier at pet add and at its later bounded lifecycle sample. When owner/world state is unavailable it logs `unavailable`, not tier zero. This supplies useful independent staging observations only, not IP's effective cap/account/bot/dummy context, human intent or after-reconciliation evidence. The [character-stage investigation](HUNTER-PET-AUTOCAST-IP-CHARACTER-STAGE.md) records limits.
 
+**Pinned negative completion proof:** [HUNTER-PET-AUTOCAST-IP-COMPLETION-BOUNDARY.md](HUNTER-PET-AUTOCAST-IP-COMPLETION-BOUNDARY.md) documents how native unlearn notifications are commented out, learn notifications are suppressed while pet loading (or no-op learning), and IP may run after its bounded loading retry cap. Two distinct rank histories can therefore have indistinguishable spellbook/packet observations. Offline counterexamples and a pinned native source CI guard confirm **no module-only public IP completion proof has been established**. Do not treat packet presence/absence or unchanged family snapshots as after-IP handoff.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.

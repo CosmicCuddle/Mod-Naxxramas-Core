@@ -29,6 +29,8 @@ This is a **fixed-point property of one hypothetical set of inputs**, not proof 
 | Pre-TBC Boar Gore removal-only call | No permitted rank can be inferred from an empty dummy list |
 | Conflicting calls remove then relearn the same rank | Final spellbook may match but spell active state can be reset; NOT a no-op |
 
+**Observability caveat:** Native `Pet::unlearnSpell` does not emit its commented-out unlearn notification, `learnSpell` suppresses packets while loading, and IP may reach its retry cap while loading continues. Thus identical before/after snapshots, even with no learned-spell packet, cannot prove no remove/relearn occurred. See [IP completion boundary](HUNTER-PET-AUTOCAST-IP-COMPLETION-BOUNDARY.md).
+
 ## Limits
 
 The [synthetic model](../tests/test_hunter_pet_autocast_ip_fixed_point_model.py) is not coupled to any live pet or client. [CI's pinned-source contract](../scripts/check_hunter_pet_ip_fixed_point_pinned.py) verifies that this interpretation matches the checked-out IP code. Passing either test does **not** supply the unimplemented VerifiedPostReconciliation contract, permit toggling autocast or establish that another module cannot mutate the pet.

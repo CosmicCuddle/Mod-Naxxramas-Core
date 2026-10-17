@@ -81,6 +81,11 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-72 | Pure decision-gate supplied account-tier or quest-stage-only rank evidence | Skip; `CandidateOnly` requires separately verified owner-specific applicable IP rules, known legal autocastable spell and all existing identity/intent/readiness proofs |
 | AC-73 | Optional diagnostic on-add and later sample for same actual Hunter pet | Log only that Hunter's rewarded quest tier via native `GetQuestStatus` for 66001…66018, no SQL/quest edits, no account-wide substitution, and no entitlement inference |
 | AC-74 | Owner is unavailable or hidden rewarded quest tier changes between samples | Report `unavailable` explicitly instead of stage 0 and show before/after raw tier; never mark IP ready or restore autocast |
+| AC-75 | IP removes and relearns an autocast-capable rank while native pet loading remains true | Pinned source/model show no mandatory unlearn or learn packet; identical snapshots are not a completion signal |
+| AC-76 | Legal known spell remains unchanged, versus unlearn/relearn same spell between observer samples | Distinct histories yield identical known-spell/state/packet observations; no preference write or restoration authorized |
+| AC-77 | Learned-spell packet may arise from IP or another native source | A packet cannot identify IP as actor nor mark entire delayed reconciliation complete; human provenance remains unknown |
+| AC-78 | IP delayed event exhausts its ten loading retries | IP may run reconciliation while native loading remains true; no loading-flag, timer or missing packet used as readiness proof |
+| AC-79 | Native PetScript contains no learn/unlearn completion hook | Pinned-source CI fails if hook/source contract changes; no claim that Naxx Core already has a reliable post-IP hook |
 
 ## Evidence required before any rollout
 
@@ -94,5 +99,5 @@ For each case, keep a staging record with:
 - **HPA-G1 (source + model):** Confirm hook/API signatures, native accepted-intent capture, first-rank chain and missing-hook limitations. No code in other repositories.
 - **HPA-G2 (read-only prototype):** Feature code only in Mod-Naxxramas-Core, all config OFF, no SQL, compile against pinned Grimfeather + IP + Playerbots; instrumentation proves timing with no mutation.
 - **HPA-G3 (durable preference state):** Pet identity lifecycle verified, approve module-owned persistence schema and rollback, staging character DB backup/restoration.
-- **HPA-G4 (functional staging):** Execute AC-00…AC-74 and independently verify IP progression, original spell-learning messages and Altbot paths.
+- **HPA-G4 (functional staging):** Execute AC-00…AC-79 and independently verify IP progression, original spell-learning messages and Altbot paths.
 - **HPA-G5 (production):** Separate explicit owner approval to merge/install/enable; staged opt-in; rollback ready.

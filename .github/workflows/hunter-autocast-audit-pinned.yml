@@ -18,6 +18,9 @@ on:
       - 'tests/test_hunter_pet_autocast_stability_model.py'
       - 'tests/test_hunter_pet_autocast_ip_fixed_point_model.py'
       - 'tests/test_hunter_pet_autocast_ip_character_stage_model.py'
+      - 'tests/test_hunter_pet_autocast_unlearn_observability_model.py'
+      - 'scripts/check_hunter_pet_unlearn_observability_pinned.py'
+      - 'docs/HUNTER-PET-AUTOCAST-IP-COMPLETION-BOUNDARY.md'
       - 'scripts/check_hunter_pet_ip_character_stage_pinned.py'
       - 'docs/HUNTER-PET-AUTOCAST-IP-CHARACTER-STAGE.md'
       - 'scripts/check_hunter_pet_ip_fixed_point_pinned.py'
@@ -106,6 +109,10 @@ jobs:
         run: |
           python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_ip_character_stage_pinned.py \
             --ip acore/modules/mod-individual-progression
+      - name: Verify pinned pet spell event observability limits
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_unlearn_observability_pinned.py \
+            --core acore --ip acore/modules/mod-individual-progression
       - name: Install build dependencies
         run: |
           sudo apt-get update
