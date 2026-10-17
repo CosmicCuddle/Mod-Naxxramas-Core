@@ -118,6 +118,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Native root-cause evidence:** [HUNTER-PET-AUTOCAST-STATE-LIFECYCLE.md](HUNTER-PET-AUTOCAST-STATE-LIFECYCLE.md) documents how core normally saves autocast active values, but a genuinely removed/relearned spell can default to OFF during IP reconciliation. It distinguishes this from core's high-rank inheritance and explicitly forbids treating default OFF as player intent. Pinned CI checks the exact source assumptions without modifying spells.
 
+**Standalone fail-closed C++ candidate gate (not registered):** [HUNTER-PET-AUTOCAST-DECISION-GATE.md](HUNTER-PET-AUTOCAST-DECISION-GATE.md) and [HunterPetAutocastDecisionGate.h](../src/Systems/HunterPetAutocastDecisionGate.h) encode the hypothetical minimum proofs for both ON/OFF, separate same-object from across-load identity, and reject missing human/IP/rank proofs. CI compiles and runs the pure C++ test without touching pets, SQL or the runtime observer. This is a *no-write policy specification*, not a persistence solution or permission to restore.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.

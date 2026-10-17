@@ -5,6 +5,9 @@ on:
     types: [opened, reopened, synchronize]
     paths:
       - 'src/Systems/HunterPetAutocastAudit.cpp'
+      - 'src/Systems/HunterPetAutocastDecisionGate.h'
+      - 'tests/hunter_pet_autocast_decision_gate.cpp'
+      - 'docs/HUNTER-PET-AUTOCAST-DECISION-GATE.md'
       - 'src/NaxxramasCore_loader.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'docs/HUNTER-PET-AUTOCAST-FEASIBILITY.md'
@@ -95,6 +98,12 @@ jobs:
             git cmake ninja-build g++ make pkg-config file \
             libmysqlclient-dev libssl-dev libbz2-dev \
             libreadline-dev libncurses-dev libboost-all-dev
+      - name: Compile and execute standalone fail-closed decision gate model
+        run: |
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            acore/modules/mod-naxxramas-core/tests/hunter_pet_autocast_decision_gate.cpp \
+            -o /tmp/hunter_pet_autocast_decision_gate
+          /tmp/hunter_pet_autocast_decision_gate
       - name: Configure full pinned scripts and module build
         run: |
           cmake -S acore -B acore-build -G Ninja \
