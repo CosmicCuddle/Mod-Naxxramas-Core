@@ -26,6 +26,9 @@ on:
       - 'scripts/check_hunter_pet_bot_master_ingress_pinned.py'
       - 'tests/test_hunter_pet_autocast_bot_master_ingress_model.py'
       - 'docs/HUNTER-PET-AUTOCAST-BOT-MASTER-INGRESS.md'
+      - 'scripts/check_hunter_pet_playerbot_action_listener_pinned.py'
+      - 'tests/test_hunter_pet_autocast_action_listener_model.py'
+      - 'docs/HUNTER-PET-AUTOCAST-BOT-ACTION-LISTENER.md'
       - 'docs/HUNTER-PET-AUTOCAST-PLAYERBOT-POLICY.md'
       - 'docs/HUNTER-PET-AUTOCAST-DECISION-GATE.md'
       - 'src/NaxxramasCore_loader.cpp'
@@ -152,6 +155,10 @@ jobs:
       - name: Verify pinned bot master chat command ingress boundary
         run: |
           python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_bot_master_ingress_pinned.py \
+            --playerbots acore/modules/mod-playerbots
+      - name: Verify pinned Playerbot action listener limits and ownership
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_playerbot_action_listener_pinned.py \
             --playerbots acore/modules/mod-playerbots
       - name: Install build dependencies
         run: |

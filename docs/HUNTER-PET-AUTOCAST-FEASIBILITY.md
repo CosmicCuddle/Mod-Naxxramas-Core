@@ -146,6 +146,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Bot-master command path traced:** [HUNTER-PET-AUTOCAST-BOT-MASTER-INGRESS.md](HUNTER-PET-AUTOCAST-BOT-MASTER-INGRESS.md) now identifies pinned Playerbots `OnPlayerCanUseChat` → sender-aware `PlayerbotAI::HandleCommand` security/prefix handling → deferred `ChatCommandHolder` → external trigger dispatch, with separate native autocast action not accessible as an authenticated post-execution callback to Naxx. Internal AI can also queue commands with a bot sender. Source-pinned tests and synthetic input/provenance failure cases prevent a chat observation or queued command from being mistaken for a persisted human master choice.
 
+**Playerbots internal listener surface inspected:** [HUNTER-PET-AUTOCAST-BOT-ACTION-LISTENER.md](HUNTER-PET-AUTOCAST-BOT-ACTION-LISTENER.md) documents a real `Engine::ActionExecutionListener`, but `PlayerbotAI`'s current engine pointers are protected with no verified registration accessor; `AllowExecution` veto produces a default `true` result without action execution, `OverrideResult` can alter the boolean, and the pet autocast action returns only a batch changed flag. The Engine destructor owns/deletes attached listeners. The new pinned source guard and synthetic tests enforce that this cannot be promoted to a per-spell native application or explicit human/master intent proof.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.

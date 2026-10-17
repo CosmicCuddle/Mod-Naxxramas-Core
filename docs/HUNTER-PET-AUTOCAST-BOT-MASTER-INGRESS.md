@@ -14,6 +14,8 @@ Any future consumer must verify: human-origin sender and current master for the 
 
 The [source guard](../scripts/check_hunter_pet_bot_master_ingress_pinned.py) freezes the observed routing and queued-command contracts against the pinned Playerbots repository. The [offline counterexamples](../tests/test_hunter_pet_autocast_bot_master_ingress_model.py) show why earlier partial observations cannot safely become stored preference evidence. Even synthetic end-to-end success yields only `CANDIDATE_ONLY` for human review, **not a native ToggleAutocast operation or preference storage authorisation**.
 
+**Action-listener surface review:** [HUNTER-PET-AUTOCAST-BOT-ACTION-LISTENER.md](HUNTER-PET-AUTOCAST-BOT-ACTION-LISTENER.md) confirms Playerbots has internal before/after action callbacks, but no verified public existing-bot engine accessor, an `After(true)` result can arise without an `Execute` call, and native `toggle pet spell` returns only one aggregate changed bit. Listener memory is owned by the Engine. Thus this does not yet supply an authenticated after-applied master/spell completion signal to Naxx.
+
 ## Next integration decision
 
 No public post-Playerbot-command-applied signal has been demonstrated on the existing module-only script surface, and no IP post-reconcile callback or durable pet incarnation guarantee exists. An authoritative bot-master override could require separately approved changes inside Playerbots and a coordinated policy exemption or priority rule. Do not implement a Naxx side re-toggle timer; it could fight AI indefinitely.
