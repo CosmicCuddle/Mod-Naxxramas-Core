@@ -70,7 +70,7 @@ def check(root):
     assert 'nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.nonCombatStrategies);' in factory_ai
     assert 'creators["pet"] = &HunterStrategyFactoryInternal::pet;' in hunter_context
     assert 'return new HunterPetStrategy(botAI);' in hunter_context
-    trigger = between(native_trigger, "bool HasPetTrigger::IsActive()", "\\n}")
+    trigger = between(native_trigger, "bool HasPetTrigger::IsActive()", "\n}")
     assert 'AI_VALUE(Unit*, "pet target")' in trigger
     assert '!AI_VALUE2(bool, "mounted", "self target")' in trigger
 
