@@ -15,6 +15,7 @@ constexpr Evidence HypotheticalProvenCase()
     Evidence e;
     e.choice = ExplicitChoice::On;
     e.intent = HumanIntentProof::VerifiedExplicitHuman;
+    e.nativeAcceptance = NativeAcceptanceProof::VerifiedNativeHandlerChange;
     e.identity = PetIdentityProof::VerifiedDurableIncarnation;
     e.ipCompletion = IpCompletionProof::VerifiedPostReconciliation;
     e.rankProvenance = RankEligibilityProvenance::VerifiedOwnerSpecificIPRules;
@@ -48,6 +49,23 @@ int main()
     // A packet observed before native acceptance is never an intent proof.
     e.intent = HumanIntentProof::PacketObserved;
     assert(Evaluate(e) == Verdict::Skip);
+    e.intent = HumanIntentProof::Unknown;
+    assert(Evaluate(e) == Verdict::Skip);
+    e.intent = HumanIntentProof::VerifiedExplicitHuman;
+
+    // Accepted native change proof is distinct from BOTH packet
+    // observation and a later matching Pet::m_spells state.
+    for (NativeAcceptanceProof insufficient : {
+        NativeAcceptanceProof::Unknown,
+        NativeAcceptanceProof::PreHandlerPacketObserved,
+        NativeAcceptanceProof::PostUpdateMatchingState})
+    {
+        e.nativeAcceptance = insufficient;
+        assert(Evaluate(e) == Verdict::Skip);
+    }
+    e.nativeAcceptance = NativeAcceptanceProof::VerifiedNativeHandlerChange;
+
+    // Even a verified native change alone cannot prove HUMAN intent.
     e.intent = HumanIntentProof::Unknown;
     assert(Evaluate(e) == Verdict::Skip);
     e.intent = HumanIntentProof::VerifiedExplicitHuman;

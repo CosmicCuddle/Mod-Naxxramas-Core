@@ -138,6 +138,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Read-only module-only post-event probe:** pinned AzerothCore does have a [WorldObjectScript post-event-queue hook](HUNTER-PET-AUTOCAST-POST-EVENT-OBSERVATION.md). A bounded per-Pet diagnostic now records native queue emptiness after up to four actual Pet update ticks (when the audit is explicitly enabled). It does **not** identify an IP event. Because events are popped before execution and other events may remain queued, neither `HasEvents()==false` nor `true` proves IP completion. The pinned ordering checker and offline counterexamples guard against promoting this useful observation into a restoration trigger.
 
+**Native acceptance vs human provenance separated:** pinned [packet/handler source investigation](HUNTER-PET-AUTOCAST-INTENT-PROVENANCE.md) confirms public `CanPacketReceive` fires BEFORE native pet-command validation, and no public post-handler accepted-toggle script hook is exposed. A matching state afterward can instead result from another actor's direct `Pet::ToggleAutocast`; native acceptance alone would not prove a HUMAN actor either. The standalone C++ policy now requires separately verified native handler application and explicit human attribution. Offline counterexamples and a new pinned CI guard reject these ambiguous histories; no preference storage or gameplay mutation was added.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.

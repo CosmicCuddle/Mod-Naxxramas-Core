@@ -12,6 +12,7 @@ The [`HunterPetAutocastDecisionGate.h`](../src/Systems/HunterPetAutocastDecision
 
 - An explicitly chosen `On` or `Off`. `Unknown` always skips. The current native default `ACT_DISABLED` does not prove OFF.
 - A separately **verified human** source. The two packet hooks run before native validation. A matching later native state is useful evidence, not definitive human attribution. Playerbot direct toggles are ineligible.
+- A **separately verified native handler-applied change** for the exact choice and pet. `PreHandlerPacketObserved` or `PostUpdateMatchingState` is insufficient, even alongside hypothetical human intent. The current audit cannot produce `VerifiedNativeHandlerChange`. See [provenance investigation](HUNTER-PET-AUTOCAST-INTENT-PROVENANCE.md).
 - A verified after-IP completion point, not `isBeingLoaded()==false`, elapsed milliseconds, IP's private pending flag, or an SMSG learned-spell packet. **No such verified module-only signal has been established.**
 - For a continuous live Pet object, exact runtime-object identity can support a hypothetical candidate.
 - For a new Pet object after dismiss/resummon **within the same Worldserver process**, a possible *module-owned RAM-only* cache could use its observed unique PetNumber if the preference was captured during THIS process and the native allocator demonstrably did not reset or wrap. The existing code does not validate either proof, and no cache has been implemented.

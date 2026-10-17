@@ -27,6 +27,16 @@ namespace NaxxramasCore::HunterAutocastDecision
         VerifiedExplicitHuman
     };
 
+    // Packet observed and later native state matching are INSUFFICIENT.
+    // Even a handler applying a state cannot attribute the human actor.
+    enum class NativeAcceptanceProof : std::uint8_t
+    {
+        Unknown,
+        PreHandlerPacketObserved,
+        PostUpdateMatchingState,
+        VerifiedNativeHandlerChange
+    };
+
     enum class PetIdentityProof : std::uint8_t
     {
         Unknown,
@@ -69,6 +79,8 @@ namespace NaxxramasCore::HunterAutocastDecision
     {
         ExplicitChoice choice = ExplicitChoice::Unknown;
         HumanIntentProof intent = HumanIntentProof::Unknown;
+        NativeAcceptanceProof nativeAcceptance =
+            NativeAcceptanceProof::Unknown;
         PetIdentityProof identity = PetIdentityProof::Unknown;
         IpCompletionProof ipCompletion = IpCompletionProof::Unknown;
         RankEligibilityProvenance rankProvenance =
@@ -87,7 +99,8 @@ namespace NaxxramasCore::HunterAutocastDecision
         bool exactlyOneKnownRankInFamily = false;
     };
 
-    // The read-only audit cannot supply VerifiedExplicitHuman,
+    // The read-only audit cannot supply VerifiedNativeHandlerChange,
+    // VerifiedExplicitHuman,
     // VerifiedDurableIncarnation or VerifiedPostReconciliation. Process-local
     // identity requires separate in-process capture AND counter continuity
     // evidence. Do not synthesize proof from packets, native flags or time.
@@ -95,6 +108,8 @@ namespace NaxxramasCore::HunterAutocastDecision
     {
         if (evidence.choice == ExplicitChoice::Unknown ||
             evidence.intent != HumanIntentProof::VerifiedExplicitHuman ||
+            evidence.nativeAcceptance !=
+                NativeAcceptanceProof::VerifiedNativeHandlerChange ||
             evidence.ipCompletion != IpCompletionProof::VerifiedPostReconciliation ||
             evidence.rankProvenance !=
                 RankEligibilityProvenance::VerifiedOwnerSpecificIPRules ||
