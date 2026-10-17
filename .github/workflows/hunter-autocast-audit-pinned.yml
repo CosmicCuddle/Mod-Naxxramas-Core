@@ -15,6 +15,7 @@ on:
       - 'docs/HUNTER-PET-AUTOCAST-IDENTITY-GATE.md'
       - 'tests/test_hunter_pet_autocast_identity_model.py'
       - 'tests/test_hunter_pet_autocast_generic_model.py'
+      - 'tests/test_hunter_pet_autocast_stability_model.py'
       - 'tests/test_hunter_pet_autocast_audit.py'
       - 'scripts/check_hunter_pet_autocast_pinned_compile.py'
       - 'scripts/check_hunter_pet_identity_pinned.py'
