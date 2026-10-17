@@ -17,6 +17,9 @@ on:
       - 'scripts/check_hunter_pet_intent_provenance_pinned.py'
       - 'tests/test_hunter_pet_autocast_intent_provenance_model.py'
       - 'docs/HUNTER-PET-AUTOCAST-INTENT-PROVENANCE.md'
+      - 'scripts/check_hunter_pet_playerbot_autocast_pinned.py'
+      - 'tests/test_hunter_pet_autocast_playerbot_policy_model.py'
+      - 'docs/HUNTER-PET-AUTOCAST-PLAYERBOT-POLICY.md'
       - 'docs/HUNTER-PET-AUTOCAST-DECISION-GATE.md'
       - 'src/NaxxramasCore_loader.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
@@ -135,6 +138,10 @@ jobs:
         run: |
           python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_intent_provenance_pinned.py \
             --core acore
+      - name: Verify pinned Playerbots direct native autocast policy
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_playerbot_autocast_pinned.py \
+            --playerbots acore/modules/mod-playerbots
       - name: Install build dependencies
         run: |
           sudo apt-get update

@@ -10,6 +10,8 @@ The existing read-only audit compares a prior candidate with a *later native sta
 
 Even if a packet was accepted by its handler, a packet-format command and session alone cannot identify whether it originated from a real human, automation, or a bot; authoritative client/actor attribution would need independent proof. Bot direct `ToggleAutocast` paths require separate analysis and must never become user preferences.
 
+**Pinned Playerbot confirmation:** The [bot-policy investigation](HUNTER-PET-AUTOCAST-PLAYERBOT-POLICY.md) proves that actual bot actions can call `Pet::ToggleAutocast` directly and independently reassert default ON/OFF settings. A bot command can be master-issued but remains unidentifiable through the client pet-packet hook. Do not silently store it as a verified human preference, and do not treat the current explicit `isPlayerbot` veto as a complete solution for Hunter Playerbots.
+
 ## Necessary evidence (still not available)
 
 1. A **verified native handler-applied change** for this exact owner, Pet instance, spell, state and command operation, rather than an observed receive packet or matching state afterward.
