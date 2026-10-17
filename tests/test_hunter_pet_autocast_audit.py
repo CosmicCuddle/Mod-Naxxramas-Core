@@ -47,15 +47,29 @@ class HunterAutocastAuditSafety(unittest.TestCase):
             'beforeBar->GetAction() != spellId',
             'beforeBar->GetType()',
             'beforeEnabled == requestedEnabled',
-            'pending->barSlot = uint8(position)',
+            'QueuePendingChoice(owner, pet, spellId, requestedEnabled,',
             'return true; // read-only',
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, action)
         self.assertNotIn('return false;', action)
-        self.assertIn('bar->GetAction() != choice->spellId', SOURCE)
+        self.assertIn('bar->GetAction() != choice.spellId', SOURCE)
         self.assertIn('bar->GetType() !=', SOURCE)
         self.assertIn('new HunterPetAutocastActionBarObserver();', SOURCE)
+
+    def test_multiple_independent_toggle_candidates_are_not_overwritten(self):
+        self.assertIn('struct PendingChoiceQueue final : DataMap::Base', SOURCE)
+        self.assertIn('std::vector<PendingChoice> choices;', SOURCE)
+        self.assertIn('MAX_TOGGLE_AUDIT_QUEUE = 32', SOURCE)
+        self.assertIn('queue->choices.push_back(item);', SOURCE)
+        self.assertIn('candidate.spellId == item.spellId', SOURCE)
+        self.assertIn('candidate.requestedEnabled == item.requestedEnabled', SOURCE)
+        self.assertIn('observations.swap(queue->choices);', SOURCE)
+        self.assertIn('for (PendingChoice const& choice : observations)', SOURCE)
+        self.assertIn('queue->overflowed = true;', SOURCE)
+        self.assertIn('queue->overflowed = false;', SOURCE)
+        self.assertIn('actor not attributable; no mutation', SOURCE)
+        self.assertNotIn('PendingChoice* pending', SOURCE)
 
     def test_pet_clock_observation_is_one_shot_not_restoration(self):
         self.assertIn('#include "Duration.h"', SOURCE)
@@ -69,13 +83,14 @@ class HunterAutocastAuditSafety(unittest.TestCase):
 
     def test_native_intent_is_verified_later(self):
         self.assertIn('PLAYERHOOK_ON_AFTER_UPDATE', SOURCE)
-        self.assertIn('pending->pending = true;', SOURCE)
-        self.assertIn('choice->pending = false;', SOURCE)
+        self.assertIn('MAX_TOGGLE_AUDIT_QUEUE = 32', SOURCE)
+        self.assertIn('observations.swap(queue->choices);', SOURCE)
+        self.assertIn('for (PendingChoice const& choice : observations)', SOURCE)
         self.assertIn('beforeEnabled == (enabledByte != 0)', SOURCE)
-        self.assertIn('confirmedEnabled != choice->requestedEnabled', SOURCE)
+        self.assertIn('confirmedEnabled != choice.requestedEnabled', SOURCE)
         self.assertIn('pet->isBeingLoaded()', SOURCE)
-        self.assertIn('pet->GetGUID() != choice->petGuid', SOURCE)
-        self.assertIn('GetPetNumber() != choice->petNumber', SOURCE)
+        self.assertIn('pet->GetGUID() != choice.petGuid', SOURCE)
+        self.assertIn('GetPetNumber() != choice.petNumber', SOURCE)
 
     def test_generic_autocast_snapshot_bounded_and_never_mutates(self):
         self.assertIn('DescribeHunterPetAutocast(Pet* pet)', SOURCE)

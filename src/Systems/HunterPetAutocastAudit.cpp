@@ -40,6 +40,7 @@ namespace
     // pinned WorldSession::SendPacket path, but that does NOT prove the
     // Playerbot runtime sent it in an actual scenario.
     constexpr size_t MAX_LEARNED_AUDIT_QUEUE = 32;
+    constexpr size_t MAX_TOGGLE_AUDIT_QUEUE = 32;
 
     struct LearnPacketProbe final : DataMap::Base
     {
@@ -419,16 +420,59 @@ namespace
         }, Milliseconds(2500));
     }
 
-    struct PendingChoice final : DataMap::Base
+    // Multiple abilities may be toggled before the next Player update.
+    // This is a bounded read-only observation queue, NOT saved preferences.
+    struct PendingChoice
     {
         ObjectGuid petGuid;
         uint32 petNumber = 0;
         uint32 spellId = 0;
         bool requestedEnabled = false;
-        bool pending = false;
         uint8 barSlot = MAX_UNIT_ACTION_BAR_INDEX; // only for SET_ACTION
         char const* origin = "CMSG_PET_SPELL_AUTOCAST";
     };
+
+    struct PendingChoiceQueue final : DataMap::Base
+    {
+        std::vector<PendingChoice> choices;
+        bool overflowed = false;
+    };
+
+    void QueuePendingChoice(Player* owner, Pet* pet, uint32 spellId,
+        bool requestedEnabled, uint8 barSlot, char const* origin)
+    {
+        PendingChoiceQueue* queue =
+            owner->CustomData.GetDefault<PendingChoiceQueue>(AUDIT_KEY);
+
+        PendingChoice item;
+        item.petGuid = pet->GetGUID();
+        item.petNumber = pet->GetCharmInfo()->GetPetNumber();
+        item.spellId = spellId;
+        item.requestedEnabled = requestedEnabled;
+        item.barSlot = barSlot;
+        item.origin = origin;
+
+        // Repeated identical packets are not independent evidence.
+        // Distinct spells and opposite ON/OFF choices must not overwrite.
+        auto duplicate = std::find_if(queue->choices.begin(),
+            queue->choices.end(), [&item](PendingChoice const& candidate)
+            {
+                return candidate.petGuid == item.petGuid &&
+                    candidate.spellId == item.spellId &&
+                    candidate.requestedEnabled == item.requestedEnabled &&
+                    candidate.barSlot == item.barSlot;
+            });
+        if (duplicate != queue->choices.end())
+            return;
+
+        if (queue->choices.size() >= MAX_TOGGLE_AUDIT_QUEUE)
+        {
+            queue->overflowed = true;
+            return;
+        }
+
+        queue->choices.push_back(item);
+    }
 
     bool AuditEnabled()
     {
@@ -562,15 +606,8 @@ namespace
                 beforeEnabled == (enabledByte != 0))
                 return true; // unchanged state does not prove acceptance
 
-            PendingChoice* pending =
-                owner->CustomData.GetDefault<PendingChoice>(AUDIT_KEY);
-            pending->petGuid = petGuid;
-            pending->petNumber = pet->GetCharmInfo()->GetPetNumber();
-            pending->spellId = spellId;
-            pending->requestedEnabled = enabledByte != 0;
-            pending->barSlot = MAX_UNIT_ACTION_BAR_INDEX;
-            pending->origin = "CMSG_PET_SPELL_AUTOCAST";
-            pending->pending = true;
+            QueuePendingChoice(owner, pet, spellId, enabledByte != 0,
+                MAX_UNIT_ACTION_BAR_INDEX, "CMSG_PET_SPELL_AUTOCAST");
 
             return true; // never intercept or modify client's packet
         }
@@ -641,15 +678,8 @@ namespace
                     (beforeEnabled ? ACT_ENABLED : ACT_DISABLED))
                 return true;
 
-            PendingChoice* pending =
-                owner->CustomData.GetDefault<PendingChoice>(AUDIT_KEY);
-            pending->petGuid = petGuid;
-            pending->petNumber = pet->GetCharmInfo()->GetPetNumber();
-            pending->spellId = spellId;
-            pending->requestedEnabled = requestedEnabled;
-            pending->barSlot = uint8(position);
-            pending->origin = "CMSG_PET_SET_ACTION";
-            pending->pending = true;
+            QueuePendingChoice(owner, pet, spellId, requestedEnabled,
+                uint8(position), "CMSG_PET_SET_ACTION");
 
             return true; // read-only; native handler owns all validation
         }
@@ -693,46 +723,60 @@ namespace
                 }
             }
 
-            PendingChoice* choice =
-                owner->CustomData.Get<PendingChoice>(AUDIT_KEY);
-            if (!choice || !choice->pending)
+            PendingChoiceQueue* queue =
+                owner->CustomData.Get<PendingChoiceQueue>(AUDIT_KEY);
+            if (!queue || (queue->choices.empty() && !queue->overflowed))
                 return;
 
-            // One-shot; do not persist stale candidates across load/relog.
-            choice->pending = false;
-
-            Pet* pet = owner->GetPet();
-            if (!pet || pet->getPetType() != HUNTER_PET ||
-                pet->GetGUID() != choice->petGuid ||
-                pet->isBeingLoaded() || !pet->GetCharmInfo() ||
-                pet->GetCharmInfo()->GetPetNumber() != choice->petNumber)
-                return;
-
-            bool confirmedEnabled = false;
-            if (!NativeState(pet, choice->spellId, confirmedEnabled) ||
-                confirmedEnabled != choice->requestedEnabled)
-                return;
-
-            if (choice->barSlot < MAX_UNIT_ACTION_BAR_INDEX)
+            // Atomically drain observations on this Player update. Never
+            // retain a candidate across relogs or defer native mutation.
+            std::vector<PendingChoice> observations;
+            observations.swap(queue->choices);
+            if (queue->overflowed)
             {
-                UnitActionBarEntry const* bar =
-                    pet->GetCharmInfo()->GetActionBarEntry(choice->barSlot);
-                if (!bar || !bar->IsActionBarForSpell() ||
-                    bar->GetAction() != choice->spellId ||
-                    bar->GetType() !=
-                        (choice->requestedEnabled ? ACT_ENABLED : ACT_DISABLED))
-                    return;
+                LOG_INFO("module",
+                    "HunterPetAutocast AUDIT ONLY: owner={} at least one "
+                    "toggle candidate omitted by bounded audit queue; "
+                    "not proof of acceptance or user intent",
+                    owner->GetGUID().GetCounter());
+                queue->overflowed = false;
             }
 
-            // A confirmed *transition*, not merely a received packet.
-            // Do not record/save the user's preference yet: staging must
-            // establish safe persistent pet identity and IP timing first.
-            LOG_INFO("module",
-                "HunterPetAutocast AUDIT ONLY: owner={} petnumber={} "
-                "spell={} requested={} source={} native=matching-state-only; actor not attributable; no mutation",
-                owner->GetGUID().GetCounter(), choice->petNumber,
-                choice->spellId, choice->requestedEnabled ? "ON" : "OFF",
-                choice->origin);
+            for (PendingChoice const& choice : observations)
+            {
+                Pet* pet = owner->GetPet();
+                if (!pet || pet->getPetType() != HUNTER_PET ||
+                    pet->GetGUID() != choice.petGuid ||
+                    pet->isBeingLoaded() || !pet->GetCharmInfo() ||
+                    pet->GetCharmInfo()->GetPetNumber() != choice.petNumber)
+                    continue;
+
+                bool confirmedEnabled = false;
+                if (!NativeState(pet, choice.spellId, confirmedEnabled) ||
+                    confirmedEnabled != choice.requestedEnabled)
+                    continue;
+
+                if (choice.barSlot < MAX_UNIT_ACTION_BAR_INDEX)
+                {
+                    UnitActionBarEntry const* bar =
+                        pet->GetCharmInfo()->GetActionBarEntry(choice.barSlot);
+                    if (!bar || !bar->IsActionBarForSpell() ||
+                        bar->GetAction() != choice.spellId ||
+                        bar->GetType() !=
+                            (choice.requestedEnabled ? ACT_ENABLED : ACT_DISABLED))
+                        continue;
+                }
+
+                // A matching later native state is not definitive attribution.
+                // This is NEVER stored as a user preference or replayed.
+                LOG_INFO("module",
+                    "HunterPetAutocast AUDIT ONLY: owner={} petnumber={} "
+                    "spell={} requested={} source={} native=matching-state-only; "
+                    "actor not attributable; no mutation",
+                    owner->GetGUID().GetCounter(), choice.petNumber,
+                    choice.spellId, choice.requestedEnabled ? "ON" : "OFF",
+                    choice.origin);
+            }
         }
     };
 }
