@@ -524,12 +524,15 @@ namespace
 
         void OnWorldObjectUpdate(WorldObject* object, uint32 /*diff*/) override
         {
-            if (!AuditEnabled() || !object)
+            if (!object)
                 return;
 
+            // This hook fires for ALL world objects. Filter cheaply first;
+            // query optional audit config only for actual Hunter pets.
             Unit* unit = object->ToUnit();
             Pet* pet = unit ? unit->ToPet() : nullptr;
-            if (!pet || pet->getPetType() != HUNTER_PET)
+            if (!pet || pet->getPetType() != HUNTER_PET ||
+                !AuditEnabled())
                 return;
 
             Player* owner = pet->GetOwner();
