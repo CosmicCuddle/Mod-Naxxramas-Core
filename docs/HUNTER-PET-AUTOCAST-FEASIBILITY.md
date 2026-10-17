@@ -134,6 +134,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Pinned negative completion proof:** [HUNTER-PET-AUTOCAST-IP-COMPLETION-BOUNDARY.md](HUNTER-PET-AUTOCAST-IP-COMPLETION-BOUNDARY.md) documents how native unlearn notifications are commented out, learn notifications are suppressed while pet loading (or no-op learning), and IP may run after its bounded loading retry cap. Two distinct rank histories can therefore have indistinguishable spellbook/packet observations. Offline counterexamples and a pinned native source CI guard confirm **no module-only public IP completion proof has been established**. Do not treat packet presence/absence or unchanged family snapshots as after-IP handoff.
 
+**Proposed upstream completion handoff, NOT implemented:** [HUNTER-PET-AUTOCAST-TRUSTED-HANDOFF.md](HUNTER-PET-AUTOCAST-TRUSTED-HANDOFF.md) specifies what a trustworthy IP post-reconciliation signal would need to carry: original Pet-object and owner-session identity, event generation/process epoch, eligible-result outcome and *after-return* ordering, plus duplicate/stale-signal rejection. Pinned IP's delayed event only stores owner GUID and attempts and clears its private pending marker before calling the reconciler. A **standalone unregistered C++ model** now tests these failure cases and returns only `CandidateOnly` when every hypothetical proof is supplied. No real IP hook exists or was added, and installing one would need separate owner approval outside the Naxx Core scope.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.

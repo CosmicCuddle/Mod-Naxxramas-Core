@@ -86,6 +86,12 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-77 | Learned-spell packet may arise from IP or another native source | A packet cannot identify IP as actor nor mark entire delayed reconciliation complete; human provenance remains unknown |
 | AC-78 | IP delayed event exhausts its ten loading retries | IP may run reconciliation while native loading remains true; no loading-flag, timer or missing packet used as readiness proof |
 | AC-79 | Native PetScript contains no learn/unlearn completion hook | Pinned-source CI fails if hook/source contract changes; no claim that Naxx Core already has a reliable post-IP hook |
+| AC-80 | Delayed IP event stores only owner GUID while owner has a replacement Pet | Synthetic handoff rejects different Pet-instance tokens and cannot credit one pet's event to another pet |
+| AC-81 | Delayed IP event is queued, retrying, skipped or pending flag was cleared pre-call | Handoff rejects all non-post-return / non-eligible outcomes; no timers/packet events promoted to IP completion |
+| AC-82 | IP callback is replayed, or an old generation/event arrives after relog | One-shot handoff rejects duplicate, stale owner-session, old process and outdated event generation |
+| AC-83 | Different owner GUID, missing session or invalidated Pet | Handoff skips and never passes candidate approval to actual autocast mutation |
+| AC-84 | Complete hypothetical, authenticated after-IP eligible return for same living Pet | Standalone contract yields `CandidateOnly` once; model is not registered and cannot restore spells |
+| AC-85 | Pinned IP delayed checker source is updated or starts providing a new hook | Source guard detects changed owner-only routing, private pre-call marker ordering or missing callback assumptions; cross-repo work still requires approval |
 
 ## Evidence required before any rollout
 
@@ -99,5 +105,5 @@ For each case, keep a staging record with:
 - **HPA-G1 (source + model):** Confirm hook/API signatures, native accepted-intent capture, first-rank chain and missing-hook limitations. No code in other repositories.
 - **HPA-G2 (read-only prototype):** Feature code only in Mod-Naxxramas-Core, all config OFF, no SQL, compile against pinned Grimfeather + IP + Playerbots; instrumentation proves timing with no mutation.
 - **HPA-G3 (durable preference state):** Pet identity lifecycle verified, approve module-owned persistence schema and rollback, staging character DB backup/restoration.
-- **HPA-G4 (functional staging):** Execute AC-00…AC-79 and independently verify IP progression, original spell-learning messages and Altbot paths.
+- **HPA-G4 (functional staging):** Execute AC-00…AC-85 and independently verify IP progression, original spell-learning messages and Altbot paths.
 - **HPA-G5 (production):** Separate explicit owner approval to merge/install/enable; staged opt-in; rollback ready.
