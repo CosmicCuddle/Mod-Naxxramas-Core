@@ -128,6 +128,13 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-119 | Hunter default trigger executes action with Event owner null | No authenticated human actor; classify as AI policy, not an explicit master preference |
 | AC-120 | Naxx observer attempts listener registration against protected PlayerbotAI engines | No verified public engine getter; no private-field access, unsafe subclass or source mutation allowed |
 | AC-121 | External action listener is detached or destroyed while bot Engine owns its callback pointers | Explicit safe single-owner lifetime / registration / cleanup required; not installed based on API alone |
+| AC-122 | Proposed Playerbot notification arrives with wrong contract version or unknown provenance | Consumer returns Skip, never converts an arbitrary struct flag to trusted producer proof |
+| AC-123 | Notification arrives after bot relog, process restart, pet replacement or new event generation | Mismatched source/current identity is rejected, including zero/unknown identity tokens |
+| AC-124 | Duplicate or out-of-order per-spell notification, incorrect spell or rank family | Standalone consumer rejects replay and mismatched exact ability; no memory/DB preference write |
+| AC-125 | Notification is from bot defaults, factory/taming, or other AI | Observation only, never a deliberate human/master ON/OFF preference |
+| AC-126 | Claimed master action never changed native spell state or later actor overwrote it | Consumer rejects missing native-applied proof or requested/current ON/OFF mismatch |
+| AC-127 | Hypothetically authenticated applied master ON/OFF conflicts with bot policy | Consumer returns MasterConflictNeedsBotCoordination until trusted policy coordination exists; no retoggle loop |
+| AC-128 | Complete hypothetical source proof with lawful rank, accepted master command and coordinated policy | Candidate only; one-shot replay guard and invalidation prohibit spontaneous autocast mutation |
 
 ## Evidence required before any rollout
 
@@ -141,5 +148,5 @@ For each case, keep a staging record with:
 - **HPA-G1 (source + model):** Confirm hook/API signatures, native accepted-intent capture, first-rank chain and missing-hook limitations. No code in other repositories.
 - **HPA-G2 (read-only prototype):** Feature code only in Mod-Naxxramas-Core, all config OFF, no SQL, compile against pinned Grimfeather + IP + Playerbots; instrumentation proves timing with no mutation.
 - **HPA-G3 (durable preference state):** Pet identity lifecycle verified, approve module-owned persistence schema and rollback, staging character DB backup/restoration.
-- **HPA-G4 (functional staging):** Execute AC-00…AC-121 and independently verify IP progression, original spell-learning messages and Altbot paths.
+- **HPA-G4 (functional staging):** Execute AC-00…AC-128 and independently verify IP progression, original spell-learning messages and Altbot paths.
 - **HPA-G5 (production):** Separate explicit owner approval to merge/install/enable; staged opt-in; rollback ready.

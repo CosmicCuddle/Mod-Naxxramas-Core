@@ -29,6 +29,9 @@ on:
       - 'scripts/check_hunter_pet_playerbot_action_listener_pinned.py'
       - 'tests/test_hunter_pet_autocast_action_listener_model.py'
       - 'docs/HUNTER-PET-AUTOCAST-BOT-ACTION-LISTENER.md'
+      - 'src/Systems/HunterPetAutocastPlayerbotBridgeContract.h'
+      - 'tests/hunter_pet_autocast_playerbot_bridge.cpp'
+      - 'docs/HUNTER-PET-AUTOCAST-PLAYERBOT-BRIDGE.md'
       - 'docs/HUNTER-PET-AUTOCAST-PLAYERBOT-POLICY.md'
       - 'docs/HUNTER-PET-AUTOCAST-DECISION-GATE.md'
       - 'src/NaxxramasCore_loader.cpp'
@@ -185,6 +188,12 @@ jobs:
             acore/modules/mod-naxxramas-core/tests/hunter_pet_autocast_bot_precedence.cpp \
             -o /tmp/hunter_pet_autocast_bot_precedence
           /tmp/hunter_pet_autocast_bot_precedence
+      - name: Compile standalone Playerbot notification consumer model
+        run: |
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            acore/modules/mod-naxxramas-core/tests/hunter_pet_autocast_playerbot_bridge.cpp \
+            -o /tmp/hunter_pet_autocast_playerbot_bridge
+          /tmp/hunter_pet_autocast_playerbot_bridge
       - name: Configure full pinned scripts and module build
         run: |
           cmake -S acore -B acore-build -G Ninja \

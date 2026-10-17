@@ -148,6 +148,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Playerbots internal listener surface inspected:** [HUNTER-PET-AUTOCAST-BOT-ACTION-LISTENER.md](HUNTER-PET-AUTOCAST-BOT-ACTION-LISTENER.md) documents a real `Engine::ActionExecutionListener`, but `PlayerbotAI`'s current engine pointers are protected with no verified registration accessor; `AllowExecution` veto produces a default `true` result without action execution, `OverrideResult` can alter the boolean, and the pet autocast action returns only a batch changed flag. The Engine destructor owns/deletes attached listeners. The new pinned source guard and synthetic tests enforce that this cannot be promoted to a per-spell native application or explicit human/master intent proof.
 
+**Standalone Playerbots notification consumer contract:** [HUNTER-PET-AUTOCAST-PLAYERBOT-BRIDGE.md](HUNTER-PET-AUTOCAST-PLAYERBOT-BRIDGE.md) specifies a versioned post-native per-spell event, separate AI/master provenance, per-pet/process/session generation checking, replay rejection and bot-policy conflict escalation. Its isolated C++20 model compiles and executes in CI but has no runtime producer or active toggle. The tests reject unknown/stale identities, illegal spells, unverified IP completion, mismatched observed ON/OFF, false master attribution and source-policy conflicts. This is a review blueprint, NOT an installable Playerbots integration or permission to edit upstream repositories.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.
