@@ -158,8 +158,10 @@ class CharacterStageSafety(unittest.TestCase):
         self.assertIsNone(selected_rank((4167,), (), set()))
         self.assertFalse(source_rank_candidate(
             hunter(3), (4167,), (), set(), {4167}, 4167))
+        # A rank-family test must include the COMPLETE applicable wipe
+        # group. A truncated list cannot detect its disallowed older rank.
         self.assertFalse(source_rank_candidate(
-            hunter(3), (17261,), (617261,), {617261},
+            hunter(3), (17260, 17261), (617260, 617261), {617261},
             {17260, 17261}, 17261))
 
 
