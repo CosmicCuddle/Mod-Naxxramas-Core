@@ -21,6 +21,8 @@ The source-only guard [check_hunter_pet_ip_handoff_boundary_pinned.py](../script
 
 [HunterPetAutocastHandoffContract.h](../src/Systems/HunterPetAutocastHandoffContract.h) is **not included anywhere in Worldserver**. [Its synthetic C++20 tests](../tests/hunter_pet_autocast_handoff_contract.cpp) exercise incorrect owner, replaced pet, relogged owner, process restart, old generation, private pre-call state, retry/skip, timers, packets, duplicate/replayed signals and invalidation. In all those cases the contract refuses the handoff. It does not read IP internals or toggle a spell.
 
+**Module-only hook evaluated:** [WorldObjectScript::OnWorldObjectUpdate](HUNTER-PET-AUTOCAST-POST-EVENT-OBSERVATION.md) runs after a Pet's event queue tick when its normal update reaches that point. Its queue status is generic, not tagged to IP, and cannot distinguish an executing callback from an empty queue or an unrelated queued event. It is usable for **read-only staging observation only**, not to authenticate the proposed handoff.
+
 ## Decision needed before functional implementation
 
 No compatible public after-reconcile callback was found on the pinned module-only hook surface. Adding a properly authenticated signal **inside Individual Progression** would be a separately approved cross-repository scope change with its own draft PR, QA, staging backup and rollback. That modification has **not been requested or performed**. Naxx Core remains the only modified repository.

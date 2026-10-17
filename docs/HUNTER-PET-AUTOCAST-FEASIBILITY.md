@@ -136,6 +136,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Proposed upstream completion handoff, NOT implemented:** [HUNTER-PET-AUTOCAST-TRUSTED-HANDOFF.md](HUNTER-PET-AUTOCAST-TRUSTED-HANDOFF.md) specifies what a trustworthy IP post-reconciliation signal would need to carry: original Pet-object and owner-session identity, event generation/process epoch, eligible-result outcome and *after-return* ordering, plus duplicate/stale-signal rejection. Pinned IP's delayed event only stores owner GUID and attempts and clears its private pending marker before calling the reconciler. A **standalone unregistered C++ model** now tests these failure cases and returns only `CandidateOnly` when every hypothetical proof is supplied. No real IP hook exists or was added, and installing one would need separate owner approval outside the Naxx Core scope.
 
+**Read-only module-only post-event probe:** pinned AzerothCore does have a [WorldObjectScript post-event-queue hook](HUNTER-PET-AUTOCAST-POST-EVENT-OBSERVATION.md). A bounded per-Pet diagnostic now records native queue emptiness after up to four actual Pet update ticks (when the audit is explicitly enabled). It does **not** identify an IP event. Because events are popped before execution and other events may remain queued, neither `HasEvents()==false` nor `true` proves IP completion. The pinned ordering checker and offline counterexamples guard against promoting this useful observation into a restoration trigger.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.

@@ -11,6 +11,9 @@ on:
       - 'tests/hunter_pet_autocast_handoff_contract.cpp'
       - 'scripts/check_hunter_pet_ip_handoff_boundary_pinned.py'
       - 'docs/HUNTER-PET-AUTOCAST-TRUSTED-HANDOFF.md'
+      - 'scripts/check_hunter_pet_post_event_surface_pinned.py'
+      - 'tests/test_hunter_pet_autocast_post_event_model.py'
+      - 'docs/HUNTER-PET-AUTOCAST-POST-EVENT-OBSERVATION.md'
       - 'docs/HUNTER-PET-AUTOCAST-DECISION-GATE.md'
       - 'src/NaxxramasCore_loader.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
@@ -121,6 +124,10 @@ jobs:
         run: |
           python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_ip_handoff_boundary_pinned.py \
             --ip acore/modules/mod-individual-progression
+      - name: Verify pinned per-Pet post-event observation boundary
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_post_event_surface_pinned.py \
+            --core acore --ip acore/modules/mod-individual-progression
       - name: Install build dependencies
         run: |
           sudo apt-get update

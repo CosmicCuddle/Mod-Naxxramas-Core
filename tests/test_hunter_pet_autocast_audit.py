@@ -92,6 +92,20 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('pet->GetGUID() != choice.petGuid', SOURCE)
         self.assertIn('GetPetNumber() != choice.petNumber', SOURCE)
 
+    def test_post_pet_event_tick_observer_is_bounded_and_non_authoritative(self):
+        self.assertIn('WORLDOBJECTHOOK_ON_WORLD_OBJECT_UPDATE', SOURCE)
+        self.assertIn('void OnWorldObjectUpdate(WorldObject* object, uint32', SOURCE)
+        self.assertIn('PostEventTickProbe final : DataMap::Base', SOURCE)
+        self.assertIn('pet->CustomData.GetDefault<PostEventTickProbe>(POST_EVENT_KEY)', SOURCE)
+        self.assertIn('if (probe->samples >= 4)', SOURCE)
+        self.assertIn('Unit* unit = object->ToUnit()', SOURCE)
+        self.assertIn('Pet* pet = unit ? unit->ToPet() : nullptr', SOURCE)
+        self.assertIn('owner->GetPet() != pet', SOURCE)
+        self.assertIn('nativeQueueHasEvents=', SOURCE)
+        self.assertIn('queue status is NOT IP', SOURCE)
+        self.assertIn('new HunterPetAutocastPostEventObserver();', SOURCE)
+        self.assertNotIn('PetSpellAutocastReady =', SOURCE)
+
     def test_per_hunter_raw_rewarded_quest_stage_audit_is_read_only(self):
         self.assertIn('DescribeOwnerRawRewardedStage(Player* owner)', SOURCE)
         self.assertIn('if (!owner || !owner->IsInWorld())', SOURCE)

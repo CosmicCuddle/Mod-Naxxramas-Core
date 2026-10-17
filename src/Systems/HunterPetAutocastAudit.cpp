@@ -37,6 +37,7 @@ namespace
     constexpr char const* LEARN_KEY = "NaxxramasCore.HunterPetAutocast.LearnPacketProbe";
     constexpr char const* REVIVE_KEY = "NaxxramasCore.HunterPetAutocast.ReviveProbe";
     constexpr char const* STABILITY_KEY = "NaxxramasCore.HunterPetAutocast.SpellStabilityProbe";
+    constexpr char const* POST_EVENT_KEY = "NaxxramasCore.HunterPetAutocast.PostEventTickProbe";
 
     // A packet is observable even for a headless bot session on the
     // pinned WorldSession::SendPacket path, but that does NOT prove the
@@ -94,6 +95,13 @@ namespace
         uint8 observations = 0;
         uint32 revivalSequence = 0;
         std::string beforeRevive;
+    };
+
+    // Bounded post-WorldObject-event-loop observations for ONE Pet object.
+    // This is a queue scheduling diagnostic, NEVER an IP completion token.
+    struct PostEventTickProbe final : DataMap::Base
+    {
+        uint8 samples = 0;
     };
 
     // Per actual Pet object, finite diagnostic samples of each native
@@ -502,6 +510,50 @@ namespace
         if (state->observations < 4)
             state->beforeRevive = DescribeHunterPetAutocast(pet);
     }
+
+    // Pinned WorldObject::Update runs m_Events.Update BEFORE this script
+    // callback. Pet::Update normally returns while m_loading, so the
+    // callback is absent for those ordinary loading-time Pet::Update calls.
+    // Neither queue emptiness nor reaching here identifies an IP event.
+    class HunterPetAutocastPostEventObserver final : public WorldObjectScript
+    {
+    public:
+        HunterPetAutocastPostEventObserver()
+            : WorldObjectScript("NaxxramasHunterPetAutocastPostEventObserver",
+                {WORLDOBJECTHOOK_ON_WORLD_OBJECT_UPDATE}) { }
+
+        void OnWorldObjectUpdate(WorldObject* object, uint32 /*diff*/) override
+        {
+            if (!AuditEnabled() || !object)
+                return;
+
+            Unit* unit = object->ToUnit();
+            Pet* pet = unit ? unit->ToPet() : nullptr;
+            if (!pet || pet->getPetType() != HUNTER_PET)
+                return;
+
+            Player* owner = pet->GetOwner();
+            if (!owner || owner->getClass() != CLASS_HUNTER ||
+                owner->GetPet() != pet)
+                return;
+
+            PostEventTickProbe* probe =
+                pet->CustomData.GetDefault<PostEventTickProbe>(POST_EVENT_KEY);
+            if (probe->samples >= 4)
+                return;
+
+            ++probe->samples;
+            LOG_INFO("module",
+                "HunterPetAutocast POST-PET-EVENT-TICK audit: owner={} "
+                "petnumber={} sample={} nativeQueueHasEvents={} loading={}; "
+                "AFTER this Pet event tick only; queue status is NOT IP "
+                "completion; no toggle, SQL or actionbar changes",
+                owner->GetGUID().GetCounter(),
+                pet->GetCharmInfo() ? pet->GetCharmInfo()->GetPetNumber() : 0,
+                uint32(probe->samples), pet->m_Events.HasEvents(),
+                pet->isBeingLoaded());
+        }
+    };
 
     class HunterPetAutocastDeathObserver final : public UnitScript
     {
@@ -987,6 +1039,7 @@ void AddHunterPetAutocastAuditScripts()
     new HunterPetAutocastActionBarObserver();
     new HunterPetAutocastLearnPacketObserver();
     new HunterPetAutocastLifecycleObserver();
+    new HunterPetAutocastPostEventObserver();
     new HunterPetAutocastDeathObserver();
     new HunterPetAutocastUpdateObserver();
 }
