@@ -116,6 +116,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **IP source coverage matrix:** [HUNTER-PET-IP-ABILITY-SCOPE.md](HUNTER-PET-IP-ABILITY-SCOPE.md) distinguishes 26 IP pet-family branches and 89 active reconciliation calls (52 with dummy candidates; 37 removal-only). This is not a complete native autocast catalog and does not authorize any rank or setting change.
 
+**Native root-cause evidence:** [HUNTER-PET-AUTOCAST-STATE-LIFECYCLE.md](HUNTER-PET-AUTOCAST-STATE-LIFECYCLE.md) documents how core normally saves autocast active values, but a genuinely removed/relearned spell can default to OFF during IP reconciliation. It distinguishes this from core's high-rank inheritance and explicitly forbids treating default OFF as player intent. Pinned CI checks the exact source assumptions without modifying spells.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.
