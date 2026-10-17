@@ -23,6 +23,14 @@ def check(core):
     assert "SELECT MAX(id) FROM character_pet" in load
     assert "_hiPetNumber = fields[0].Get<uint32>() + 1;" in load
     assert "return ++_hiPetNumber;" in next_id
+    assert "std::lock_guard<std::mutex> guard(_hiPetNumberMutex);" in next_id
+
+    world = read(core, "src/server/game/World/World.cpp")
+    startup = section(world, "void World::SetInitialWorldSettings(",
+                      "void World::") if False else world.split(
+                      "void World::SetInitialWorldSettings(", 1)[1]
+    assert "sObjectMgr->LoadPetNumber();" in startup
+    assert world.count("sObjectMgr->LoadPetNumber();") == 1
 
     pet = read(core, "src/server/game/Entities/Pet/Pet.cpp")
     tame = section(pet, "bool Pet::CreateBaseAtTamed(",
@@ -76,6 +84,7 @@ def check(core):
     assert "OnPetAddToWorld(Pet*" in hooks
     assert not re.search(r"OnPet(Abandon|Retire|Delete|Save|RemoveFromWorld)\s*\(",
                          hooks)
+    print("PASS: native PetNumber increments under mutex; startup seeds from MAX(id)")
     print("PASS: pinned native PetNumber can be recycled after deletion/restart")
     print("PASS: native normal save deletes/replaces pet row")
     print("PASS: pinned pet table and stable metadata lack a proven birth token")

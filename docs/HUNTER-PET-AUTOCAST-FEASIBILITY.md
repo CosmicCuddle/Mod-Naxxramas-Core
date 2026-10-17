@@ -122,6 +122,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Read-only native load-attempt hook:** the Hunter player observer now logs a `PLAYERHOOK_ON_BEFORE_LOAD_PET_FROM_DB` event as evidence that an existing pet's `Pet::LoadPetFromDB` reached its pre-creation hook. Its parameters are never changed, the hook does not guarantee the load succeeded, and its absence is not evidence of a freshly tamed pet. [Identity research](HUNTER-PET-AUTOCAST-IDENTITY-GATE.md) and pinned source checks document those limitations. It does not solve the pet-incarnation blocker.
 
+**Scoped, no-write alternative under research:** the standalone [decision-gate model](HUNTER-PET-AUTOCAST-DECISION-GATE.md) now separates same live Pet object, same Worldserver process after resummon, and across-restart identity. A hypothetical RAM-only cache could recognise pets for one uninterrupted server process if it captured choices during that same process and proved PetNumber allocator continuity. There is NO implemented cache, no source-proof across every external module/overflow path, no permanent persistence, and the independent human-intent/IP-ready blockers still prevent autocast restoration.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.

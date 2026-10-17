@@ -31,6 +31,7 @@ namespace NaxxramasCore::HunterAutocastDecision
     {
         Unknown,
         RuntimePetObject,
+        ProcessLocalPetNumber,
         VerifiedDurableIncarnation
     };
 
@@ -46,7 +47,8 @@ namespace NaxxramasCore::HunterAutocastDecision
     enum class LifetimeScope : std::uint8_t
     {
         SameRuntimePetObject,
-        AcrossPetObjectOrRestart
+        SameProcessAfterResummon,
+        AcrossWorldserverRestart
     };
 
     enum class Verdict : std::uint8_t
@@ -61,7 +63,10 @@ namespace NaxxramasCore::HunterAutocastDecision
         HumanIntentProof intent = HumanIntentProof::Unknown;
         PetIdentityProof identity = PetIdentityProof::Unknown;
         IpCompletionProof ipCompletion = IpCompletionProof::Unknown;
-        LifetimeScope scope = LifetimeScope::AcrossPetObjectOrRestart;
+        LifetimeScope scope = LifetimeScope::AcrossWorldserverRestart;
+        // Volatile observations have NO validity across Worldserver restarts.
+        bool volatileChoiceCapturedThisProcess = false;
+        bool petNumberContinuityVerified = false;
         bool ownerIsHunter = false;
         bool petIsHunterPet = false;
         bool isPlayerbot = false;
@@ -72,9 +77,10 @@ namespace NaxxramasCore::HunterAutocastDecision
         bool exactlyOneKnownRankInFamily = false;
     };
 
-    // The currently available read-only audit cannot supply VerifiedExplicitHuman,
-    // VerifiedDurableIncarnation or VerifiedPostReconciliation. Do not synthesize
-    // those proofs from packets, PetNumber, timeouts or current native flags.
+    // The read-only audit cannot supply VerifiedExplicitHuman,
+    // VerifiedDurableIncarnation or VerifiedPostReconciliation. Process-local
+    // identity requires separate in-process capture AND counter continuity
+    // evidence. Do not synthesize proof from packets, native flags or time.
     [[nodiscard]] constexpr Verdict Evaluate(Evidence const& evidence) noexcept
     {
         if (evidence.choice == ExplicitChoice::Unknown ||
@@ -86,16 +92,29 @@ namespace NaxxramasCore::HunterAutocastDecision
             !evidence.legalUnderCurrentIP || !evidence.exactlyOneKnownRankInFamily)
             return Verdict::Skip;
 
-        // A current object identity is useful within the *same* Pet lifetime,
-        // but proves nothing about a different Pet object after resummon.
-        if (evidence.scope == LifetimeScope::AcrossPetObjectOrRestart)
+        // A volatile PetNumber cannot be trusted after a process restart.
+        if (evidence.scope == LifetimeScope::AcrossWorldserverRestart)
             return evidence.identity == PetIdentityProof::VerifiedDurableIncarnation
                 ? Verdict::CandidateOnly : Verdict::Skip;
 
-        if (evidence.identity == PetIdentityProof::Unknown)
-            return Verdict::Skip;
+        if (evidence.scope == LifetimeScope::SameProcessAfterResummon)
+        {
+            if (evidence.identity == PetIdentityProof::VerifiedDurableIncarnation)
+                return Verdict::CandidateOnly;
 
-        return Verdict::CandidateOnly;
+            // Must be captured *after* process start in module-owned RAM.
+            // A reseeded/wrapped allocator or restored cache is not safe.
+            return evidence.identity == PetIdentityProof::ProcessLocalPetNumber &&
+                evidence.volatileChoiceCapturedThisProcess &&
+                evidence.petNumberContinuityVerified
+                ? Verdict::CandidateOnly : Verdict::Skip;
+        }
+
+        // Only exact object identity works in a continuous live Pet object;
+        // number-only proof cannot substitute for Pet object identity here.
+        return evidence.identity == PetIdentityProof::RuntimePetObject ||
+            evidence.identity == PetIdentityProof::VerifiedDurableIncarnation
+            ? Verdict::CandidateOnly : Verdict::Skip;
     }
 }
 

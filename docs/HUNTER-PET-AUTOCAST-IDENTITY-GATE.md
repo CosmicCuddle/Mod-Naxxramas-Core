@@ -32,6 +32,12 @@ Pinned AzerothCore `Pet::LoadPetFromDB` selects a pet's stable information via `
 
 The fresh-tame path in `Pet::CreateBaseAtTamed` generates a new PetNumber instead and does not call this load hook. **Absence of a load-attempt log is not proof of a new tame**: a disabled observer, failed load before the hook, or other spawn path can produce the same absence. There is no verified post-tame, post-save, or abandon hook exposed by these pinned module interfaces. The pinned identity source check enforces hook ordering and keeps the identity gate blocked.
 
+## Potential volatile identity path (NOT implemented)
+
+The pinned native [ObjectMgr::GeneratePetNumber](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Globals/ObjectMgr.cpp) increments a mutex-protected counter, and [World::SetInitialWorldSettings](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/World/World.cpp) seeds it via `LoadPetNumber()`. Within an **unchanged, continuously running Worldserver process**, this suggests a bounded module-owned **RAM-only** cache captured after process start could recognise a pet across dismiss/resummon without reusing a freshly generated number. Such a cache would discard every preference at module/server restart and could NOT provide permanent persistence. It would have to detect or exclude counter reseeding/wrap and never import saved sidecar entries; unverified continuity means **no action**.
+
+A new **hypothetical C++ decision-gate scope** therefore distinguishes same live Pet object, a different object within the same process, and any process restart. This is *not implemented in gameplay* and is **not proof** that no other core/module path can reseed or alter the counter. It also does not address missing verified human provenance or post-IP completion. Native persistent preference records remain blocked.
+
 ## Candidate designs (NONE implemented)
 
 | Candidate | Advantage | Unresolved hazard | Gate |

@@ -17,7 +17,7 @@ constexpr Evidence HypotheticalProvenCase()
     e.intent = HumanIntentProof::VerifiedExplicitHuman;
     e.identity = PetIdentityProof::VerifiedDurableIncarnation;
     e.ipCompletion = IpCompletionProof::VerifiedPostReconciliation;
-    e.scope = LifetimeScope::AcrossPetObjectOrRestart;
+    e.scope = LifetimeScope::AcrossWorldserverRestart;
     e.ownerIsHunter = true;
     e.petIsHunterPet = true;
     e.isPlayerbot = false;
@@ -69,7 +69,38 @@ int main()
     e.identity = PetIdentityProof::Unknown;
     assert(Evaluate(e) == Verdict::Skip);
     e.identity = PetIdentityProof::VerifiedDurableIncarnation;
-    e.scope = LifetimeScope::AcrossPetObjectOrRestart;
+    e.scope = LifetimeScope::AcrossWorldserverRestart;
+
+    // Hypothetical process-local cache: ONLY valid across resummons when
+    // acquired in memory this process and no allocator reset/wrap occurred.
+    e.scope = LifetimeScope::SameProcessAfterResummon;
+    e.identity = PetIdentityProof::ProcessLocalPetNumber;
+    assert(Evaluate(e) == Verdict::Skip);
+    e.volatileChoiceCapturedThisProcess = true;
+    assert(Evaluate(e) == Verdict::Skip);
+    e.petNumberContinuityVerified = true;
+    assert(Evaluate(e) == Verdict::CandidateOnly);
+    e.volatileChoiceCapturedThisProcess = false;
+    assert(Evaluate(e) == Verdict::Skip);
+    e.volatileChoiceCapturedThisProcess = true;
+    e.petNumberContinuityVerified = false;
+    assert(Evaluate(e) == Verdict::Skip);
+    e.petNumberContinuityVerified = true;
+    e.scope = LifetimeScope::AcrossWorldserverRestart;
+    assert(Evaluate(e) == Verdict::Skip);
+
+    // A runtime Pet object ID alone is invalid across separate summons.
+    e.scope = LifetimeScope::SameProcessAfterResummon;
+    e.identity = PetIdentityProof::RuntimePetObject;
+    assert(Evaluate(e) == Verdict::Skip);
+    e.scope = LifetimeScope::SameRuntimePetObject;
+    assert(Evaluate(e) == Verdict::CandidateOnly);
+    e.identity = PetIdentityProof::ProcessLocalPetNumber;
+    assert(Evaluate(e) == Verdict::Skip);
+
+    e.identity = PetIdentityProof::VerifiedDurableIncarnation;
+    e.scope = LifetimeScope::AcrossWorldserverRestart;
+    assert(Evaluate(e) == Verdict::CandidateOnly);
 
     e.isPlayerbot = true;
     assert(Evaluate(e) == Verdict::Skip);

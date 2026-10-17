@@ -1,6 +1,6 @@
 # Hunter pet autocast persistence — acceptance plan
 
-**Research-only. No tests have been run, no config/SQL has been installed, and no runtime fix has been implemented.**
+**Research-only. CI source/model/build tests run separately, but NO in-game acceptance cases have been executed; no config/SQL has been installed and no runtime fix has been implemented.**
 
 This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASIBILITY.md), not proof of an implementation. Prepare disposable/staging Hunter pets only after separately approved setup and verified characters DB backup.
 
@@ -62,6 +62,9 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-53 | Same active Pet runtime object versus another Pet object after summon, stable or restart | Runtime identity allowed only for same-object hypothetical evaluation; after object replacement require independently verified never-reused incarnation, which is presently unavailable |
 | AC-54 | Native existing Hunter pet load reaches pre-create PlayerScript callback | Audit logs read-only attempted load arguments without modifying refs; abort after hook remains possible and does not imply IP completion or incarnation identity |
 | AC-55 | Fresh tame, or no native load-attempt log observed | Do not treat absence of the pre-create hook as proof of successful new tame; audit disabled/early failure/alternate paths remain ambiguous |
+| AC-56 | Hypothetical RAM-only preference from the same continuously running Worldserver process | Standalone gate permits candidate review ONLY after positive in-process capture and PetNumber continuity proofs, known lawful rank, verified human intent and verified IP completion; no runtime cache or writes |
+| AC-57 | Process restarts or any old cache is reloaded | Volatile PetNumber proof is rejected even if owner/species/number match; only durable incarnation could qualify for hypothetical cross-restart candidate |
+| AC-58 | Counter may reset/wrap or capture predates process | Volatile same-process identity proof must fail closed, and actual runtime monitoring remains unimplemented |
 
 ## Evidence required before any rollout
 
@@ -75,5 +78,5 @@ For each case, keep a staging record with:
 - **HPA-G1 (source + model):** Confirm hook/API signatures, native accepted-intent capture, first-rank chain and missing-hook limitations. No code in other repositories.
 - **HPA-G2 (read-only prototype):** Feature code only in Mod-Naxxramas-Core, all config OFF, no SQL, compile against pinned Grimfeather + IP + Playerbots; instrumentation proves timing with no mutation.
 - **HPA-G3 (durable preference state):** Pet identity lifecycle verified, approve module-owned persistence schema and rollback, staging character DB backup/restoration.
-- **HPA-G4 (functional staging):** Execute AC-00…AC-55 and independently verify IP progression, original spell-learning messages and Altbot paths.
+- **HPA-G4 (functional staging):** Execute AC-00…AC-58 and independently verify IP progression, original spell-learning messages and Altbot paths.
 - **HPA-G5 (production):** Separate explicit owner approval to merge/install/enable; staged opt-in; rollback ready.
