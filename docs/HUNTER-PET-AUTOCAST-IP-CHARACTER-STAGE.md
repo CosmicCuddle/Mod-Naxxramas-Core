@@ -19,6 +19,10 @@ Sources: [IP IndividualProgression.cpp](https://github.com/Grimfeather/mod-indiv
 
 **Trap 2 — progression cap vs progression stage:** A Hunter with a rewarded stage-13 quest and a nonzero `ProgressionLimit=7` has raw character progression 13, but `hasPassedProgression(TBC_TIER_5)` returns **false** because 13 exceeds that cap. Do not replace the source algorithm with a simple `min(characterStage, limit)` model or assume the Hunter pet script skips based on raw tier alone.
 
+## Optional read-only source-compatible diagnostic
+
+The draft Naxx Core audit (disabled by default) now reports the owning Hunter's raw highest rewarded quest tier when the Pet is added and again at a later lifecycle sample. It scans exactly 66001–66018, returns `unavailable` rather than zero when the owner is not in world, and **never** reads or alters the quest log. This is not an IP runtime API, does not validate the configured progression limit, `VanillaHunterPets`, bot account, correct dummy spell or eligibility, and does not establish that IP finished. It is a staging observation only; a changed tier between samples is diagnostic evidence, not a trigger for any action.
+
 ## Safeguards and remaining unknowns
 
 The [pinned source check](../scripts/check_hunter_pet_ip_character_stage_pinned.py) confirms the above against the checked-out IP revisions. The [offline character model](../tests/test_hunter_pet_autocast_ip_character_stage_model.py) exercises independent characters, stage zero, highest rewarded quest, IP disabled/unknown, progression cap, bot classification, Boar Gore and individual dummy-spell selection.

@@ -92,6 +92,19 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('pet->GetGUID() != choice.petGuid', SOURCE)
         self.assertIn('GetPetNumber() != choice.petNumber', SOURCE)
 
+    def test_per_hunter_raw_rewarded_quest_stage_audit_is_read_only(self):
+        self.assertIn('DescribeOwnerRawRewardedStage(Player* owner)', SOURCE)
+        self.assertIn('if (!owner || !owner->IsInWorld())', SOURCE)
+        self.assertIn('for (uint32 tier = 1; tier <= 18; ++tier)', SOURCE)
+        self.assertIn('GetQuestStatus(66000 + tier) == QUEST_STATUS_REWARDED', SOURCE)
+        self.assertIn('rawRewardedStageAtAdd', SOURCE)
+        self.assertIn('onAddRawRewardedTier=', SOURCE)
+        self.assertIn('laterRawRewardedTier=', SOURCE)
+        self.assertIn('not authoritative IP rank eligibility or completion', SOURCE)
+        self.assertNotIn('owner->AddQuest(', SOURCE)
+        self.assertNotIn('owner->RewardQuest(', SOURCE)
+        self.assertNotIn('owner->RemoveRewardedQuest(', SOURCE)
+
     def test_bounded_per_ability_family_stability_is_not_ip_completion(self):
         self.assertIn('struct StabilityProbe final : DataMap::Base', SOURCE)
         self.assertIn('MAX_STABILITY_SPELLS = 64', SOURCE)

@@ -53,6 +53,21 @@ namespace
 
     bool AuditEnabled();
 
+    // Matches the pinned IP GetPlayerProgressionFromQuests scan, but does
+    // NOT read IP config, account classification, dummies or event state.
+    // "unavailable" must never become an assumed stage zero.
+    std::string DescribeOwnerRawRewardedStage(Player* owner)
+    {
+        if (!owner || !owner->IsInWorld())
+            return "unavailable";
+
+        uint8 highest = 0;
+        for (uint32 tier = 1; tier <= 18; ++tier)
+            if (owner->GetQuestStatus(66000 + tier) == QUEST_STATUS_REWARDED)
+                highest = uint8(tier);
+        return std::to_string(highest);
+    }
+
     // Runtime-only per-Pet sample; attached to a Pet object so it cannot
     // outlive that instance or accidentally address a new pet with the
     // same persistent PetNumber.
@@ -63,6 +78,7 @@ namespace
         ActiveStates initialBarState = ACT_PASSIVE;
         std::string initialGenericAutocast;
         bool initialLoading = false;
+        std::string rawRewardedStageAtAdd = "unavailable";
         bool loadFinishedObserved = false;
         bool reported = false;
         bool eventClockProbeScheduled = false;
@@ -331,6 +347,13 @@ namespace
             sample->loadFinishedObserved = false;
             sample->reported = false;
             sample->initialLoading = pet->isBeingLoaded();
+            sample->rawRewardedStageAtAdd = DescribeOwnerRawRewardedStage(owner);
+            LOG_INFO("module",
+                "HunterPetAutocast QUEST-STAGE audit: owner={} "
+                "onAddRawRewardedTier={}; no IP config, dummy, bot "
+                "or completion inference; no changes applied",
+                owner->GetGUID().GetCounter(),
+                sample->rawRewardedStageAtAdd);
             ObserveLightningBreathBar(pet, sample->initialBarSpell,
                 sample->initialBarState);
             sample->initialGenericAutocast = DescribeHunterPetAutocast(pet);
@@ -433,6 +456,13 @@ namespace
         ActiveStates laterState = ACT_PASSIVE;
         ObserveLightningBreathBar(pet, laterSpell, laterState);
         sample->reported = true;
+        LOG_INFO("module",
+            "HunterPetAutocast QUEST-STAGE audit: later owner={} "
+            "onAddRawRewardedTier={} laterRawRewardedTier={}; "
+            "not authoritative IP rank eligibility or completion",
+            owner->GetGUID().GetCounter(),
+            sample->rawRewardedStageAtAdd,
+            DescribeOwnerRawRewardedStage(owner));
         LOG_INFO("module",
             "HunterPetAutocast LIFECYCLE audit: snapshot owner={} "
             "petnumber={} atMs={} loading={} onAddBarLB={} "

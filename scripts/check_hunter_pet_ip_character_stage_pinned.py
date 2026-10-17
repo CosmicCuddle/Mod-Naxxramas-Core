@@ -64,8 +64,7 @@ def check(ip_root):
     assert "if (player->HasSpell(*it))" in check_hunter
     assert "keepId = *it - 600000;" in check_hunter
 
-    conf = between(core, "void AddIndividualProgressionScripts(",
-                   "void ") if False else core
+    conf = core
     assert 'GetOption<bool>("IndividualProgression.VanillaHunterPets", true)' in conf
     assert 'GetOption<uint8>("IndividualProgression.ProgressionLimit", 0)' in conf
 

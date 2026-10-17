@@ -130,6 +130,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Per-Hunter progression gate research:** [HUNTER-PET-AUTOCAST-IP-CHARACTER-STAGE.md](HUNTER-PET-AUTOCAST-IP-CHARACTER-STAGE.md) documents IP's stage derived from the Hunter's own rewarded hidden quests 66001–66018 (not an account-wide maximum), its per-milestone progression-limit guard, bot and `VanillaHunterPets` conditions, and learned dummy selection. A pinned source checker + synthetic model enforce these assumptions. The standalone C++ `CandidateOnly` policy now explicitly rejects account-tier-only and quest-stage-only eligibility evidence in favor of a hypothetical independently verified *owner-specific applicable IP rule*. This does not inspect a real Hunter or solve post-IP readiness, and never toggles any autocast.
 
+**Read-only owner progression evidence in the audit:** the existing disabled-on-default runtime observer now logs the Hunter's raw highest rewarded hidden quest tier at pet add and at its later bounded lifecycle sample. When owner/world state is unavailable it logs `unavailable`, not tier zero. This supplies useful independent staging observations only, not IP's effective cap/account/bot/dummy context, human intent or after-reconciliation evidence. The [character-stage investigation](HUNTER-PET-AUTOCAST-IP-CHARACTER-STAGE.md) records limits.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.
