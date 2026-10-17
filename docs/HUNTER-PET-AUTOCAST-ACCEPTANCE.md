@@ -65,6 +65,9 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-56 | Hypothetical RAM-only preference from the same continuously running Worldserver process | Standalone gate permits candidate review ONLY after positive in-process capture and PetNumber continuity proofs, known lawful rank, verified human intent and verified IP completion; no runtime cache or writes |
 | AC-57 | Process restarts or any old cache is reloaded | Volatile PetNumber proof is rejected even if owner/species/number match; only durable incarnation could qualify for hypothetical cross-restart candidate |
 | AC-58 | Counter may reset/wrap or capture predates process | Volatile same-process identity proof must fail closed, and actual runtime monitoring remains unimplemented |
+| AC-59 | Bounded per-pet sampling of Bite, Growl and other autocast family states | Logs changed rank/native active/list membership/actionbar by family independently; max 10 samples and 64 native autocastable spells; no pet mutation |
+| AC-60 | Identical ability-family snapshots precede a delayed IP event | Even repeated matching snapshots and known native loading false NEVER assert IP completion; later source changes are diagnostics only |
+| AC-61 | More than 64 native autocastable spells or no valid actionbar at sampling time | Stop the sample, log unavailable/truncated and fail closed without inferring stable rank, player choice or IP readiness |
 
 ## Evidence required before any rollout
 
@@ -78,5 +81,5 @@ For each case, keep a staging record with:
 - **HPA-G1 (source + model):** Confirm hook/API signatures, native accepted-intent capture, first-rank chain and missing-hook limitations. No code in other repositories.
 - **HPA-G2 (read-only prototype):** Feature code only in Mod-Naxxramas-Core, all config OFF, no SQL, compile against pinned Grimfeather + IP + Playerbots; instrumentation proves timing with no mutation.
 - **HPA-G3 (durable preference state):** Pet identity lifecycle verified, approve module-owned persistence schema and rollback, staging character DB backup/restoration.
-- **HPA-G4 (functional staging):** Execute AC-00…AC-58 and independently verify IP progression, original spell-learning messages and Altbot paths.
+- **HPA-G4 (functional staging):** Execute AC-00…AC-61 and independently verify IP progression, original spell-learning messages and Altbot paths.
 - **HPA-G5 (production):** Separate explicit owner approval to merge/install/enable; staged opt-in; rollback ready.

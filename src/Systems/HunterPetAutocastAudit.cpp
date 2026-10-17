@@ -26,6 +26,7 @@
 #include "WorldSession.h"
 
 #include <algorithm>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -35,12 +36,15 @@ namespace
     constexpr char const* PHASE_KEY = "NaxxramasCore.HunterPetAutocast.LifecycleProbe";
     constexpr char const* LEARN_KEY = "NaxxramasCore.HunterPetAutocast.LearnPacketProbe";
     constexpr char const* REVIVE_KEY = "NaxxramasCore.HunterPetAutocast.ReviveProbe";
+    constexpr char const* STABILITY_KEY = "NaxxramasCore.HunterPetAutocast.SpellStabilityProbe";
 
     // A packet is observable even for a headless bot session on the
     // pinned WorldSession::SendPacket path, but that does NOT prove the
     // Playerbot runtime sent it in an actual scenario.
     constexpr size_t MAX_LEARNED_AUDIT_QUEUE = 32;
     constexpr size_t MAX_TOGGLE_AUDIT_QUEUE = 32;
+    constexpr size_t MAX_STABILITY_SPELLS = 64;
+    constexpr uint8 MAX_STABILITY_SAMPLES = 10;
 
     struct LearnPacketProbe final : DataMap::Base
     {
@@ -74,6 +78,18 @@ namespace
         uint8 observations = 0;
         uint32 revivalSequence = 0;
         std::string beforeRevive;
+    };
+
+    // Per actual Pet object, finite diagnostic samples of each native
+    // autocast-capable ability family. No preference or readiness state.
+    struct StabilityProbe final : DataMap::Base
+    {
+        uint32 intervalMs = 0;
+        uint8 samples = 0;
+        uint8 unchangedSamples = 0;
+        bool finished = false;
+        bool initialized = false;
+        std::map<uint32, std::string> lastFamilyStates;
     };
 
     // Read the first Lightning Breath rank 5/6 actionbar entry for the
@@ -159,6 +175,130 @@ namespace
             out += "truncated,";
         out += "]";
         return out;
+    }
+
+    // Full state per spell family, including known spell rank, native active
+    // flag, m_autospells and actionbar slot/type. This is not IP entitlement.
+    // Return false when truncated; a partial sample must not look stable.
+    bool CaptureAbilityFamilyStates(Pet* pet,
+        std::map<uint32, std::string>& states)
+    {
+        states.clear();
+        if (!pet || !pet->GetCharmInfo())
+            return false;
+
+        size_t seen = 0;
+        for (auto const& entry : pet->m_spells)
+        {
+            uint32 const id = entry.first;
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(id);
+            if (!pet->HasSpell(id) || !info || !info->IsAutocastable())
+                continue;
+
+            if (++seen > MAX_STABILITY_SPELLS)
+                return false;
+
+            uint32 const firstRank = sSpellMgr->GetFirstSpellInChain(id);
+            uint32 const family = firstRank ? firstRank : id;
+            bool const listed = std::find(pet->m_autospells.begin(),
+                pet->m_autospells.end(), id) != pet->m_autospells.end();
+            uint32 slot = MAX_UNIT_ACTION_BAR_INDEX;
+            uint32 type = ACT_PASSIVE;
+            for (uint8 index = ACTION_BAR_INDEX_PET_SPELL_START;
+                index < ACTION_BAR_INDEX_PET_SPELL_END; ++index)
+            {
+                UnitActionBarEntry const* bar =
+                    pet->GetCharmInfo()->GetActionBarEntry(index);
+                if (bar && bar->IsActionBarForSpell() &&
+                    bar->GetAction() == id)
+                {
+                    slot = index;
+                    type = uint32(bar->GetType());
+                    break;
+                }
+            }
+            states[family] += std::to_string(id) + "/" +
+                std::to_string(uint32(entry.second.active)) + "/" +
+                (listed ? "1" : "0") + "/" + std::to_string(slot) + "/" +
+                std::to_string(type) + ",";
+        }
+        return true;
+    }
+
+    void ObserveAbilityStability(Player* owner, uint32 diff)
+    {
+        Pet* pet = owner->GetPet();
+        if (!pet || pet->getPetType() != HUNTER_PET)
+            return;
+
+        StabilityProbe* sample =
+            pet->CustomData.GetDefault<StabilityProbe>(STABILITY_KEY);
+        if (sample->finished)
+            return;
+
+        // Finite maximum of ten snapshots per actual Pet, one per
+        // 750ms of Player updates. This is NOT the IP event clock.
+        sample->intervalMs += std::min(diff, uint32(10000));
+        if (sample->intervalMs < 750)
+            return;
+        sample->intervalMs = 0;
+
+        std::map<uint32, std::string> current;
+        if (!CaptureAbilityFamilyStates(pet, current))
+        {
+            sample->finished = true;
+            LOG_INFO("module",
+                "HunterPetAutocast STABILITY audit: owner={} "
+                "sample unavailable/truncated; NO IP readiness inferred",
+                owner->GetGUID().GetCounter());
+            return;
+        }
+
+        ++sample->samples;
+        if (sample->initialized)
+        {
+            bool const unchanged = sample->lastFamilyStates == current;
+            sample->unchangedSamples =
+                unchanged ? uint8(sample->unchangedSamples + 1) : 0;
+
+            // Only log changed families to distinguish Bite from Growl.
+            std::map<uint32, std::string> changes = sample->lastFamilyStates;
+            for (auto const& [family, state] : current)
+                changes.emplace(family, state);
+            for (auto const& [family, previous] : changes)
+            {
+                auto before = sample->lastFamilyStates.find(family);
+                auto after = current.find(family);
+                std::string const prior = before == sample->lastFamilyStates.end()
+                    ? "absent" : before->second;
+                std::string const now = after == current.end()
+                    ? "absent" : after->second;
+                if (prior != now)
+                {
+                    LOG_INFO("module",
+                        "HunterPetAutocast STABILITY audit: owner={} "
+                        "family={} before={} after={} loading={}; "
+                        "observed change ONLY; not IP completion",
+                        owner->GetGUID().GetCounter(), family, prior, now,
+                        pet->isBeingLoaded());
+                }
+            }
+        }
+        else
+            sample->initialized = true;
+
+        sample->lastFamilyStates.swap(current);
+        if (sample->samples >= MAX_STABILITY_SAMPLES)
+        {
+            sample->finished = true;
+            LOG_INFO("module",
+                "HunterPetAutocast STABILITY audit: owner={} samples={} "
+                "lastUnchangedRun={} families={} loading={}; "
+                "unchanged state is NOT proof IP completed; NO restore",
+                owner->GetGUID().GetCounter(), uint32(sample->samples),
+                uint32(sample->unchangedSamples),
+                sample->lastFamilyStates.size(), pet->isBeingLoaded());
+        }
     }
 
     class HunterPetAutocastLifecycleObserver final : public PetScript
@@ -721,6 +861,7 @@ namespace
 
             ObserveLifecycle(owner, diff);
             ObserveRevival(owner);
+            ObserveAbilityStability(owner, diff);
 
             // Inspect the same pet's still-known rank during a subsequent
             // update, without executing any action. A packet alone does

@@ -92,6 +92,22 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('pet->GetGUID() != choice.petGuid', SOURCE)
         self.assertIn('GetPetNumber() != choice.petNumber', SOURCE)
 
+    def test_bounded_per_ability_family_stability_is_not_ip_completion(self):
+        self.assertIn('struct StabilityProbe final : DataMap::Base', SOURCE)
+        self.assertIn('MAX_STABILITY_SPELLS = 64', SOURCE)
+        self.assertIn('MAX_STABILITY_SAMPLES = 10', SOURCE)
+        self.assertIn('void ObserveAbilityStability(Player* owner, uint32 diff)', SOURCE)
+        self.assertIn('ObserveAbilityStability(owner, diff);', SOURCE)
+        self.assertIn('CaptureAbilityFamilyStates(pet, current)', SOURCE)
+        self.assertIn('GetFirstSpellInChain(id)', SOURCE)
+        self.assertIn('sample->lastFamilyStates == current', SOURCE)
+        self.assertIn('std::map<uint32, std::string> changes', SOURCE)
+        self.assertIn('if (prior != now)', SOURCE)
+        self.assertIn('lastUnchangedRun=', SOURCE)
+        self.assertIn('unchanged state is NOT proof IP completed; NO restore', SOURCE)
+        self.assertIn('sample unavailable/truncated; NO IP readiness inferred', SOURCE)
+        self.assertNotIn('sample->ready = true', SOURCE)
+
     def test_generic_autocast_snapshot_bounded_and_never_mutates(self):
         self.assertIn('DescribeHunterPetAutocast(Pet* pet)', SOURCE)
         self.assertIn('GetFirstSpellInChain(id)', SOURCE)

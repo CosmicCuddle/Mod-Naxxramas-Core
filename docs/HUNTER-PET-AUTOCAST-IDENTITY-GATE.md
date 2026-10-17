@@ -63,6 +63,12 @@ Therefore, a fixed 3-second timer, the first observed `isBeingLoaded()==false`, 
 
 The [new source-only IP ordering check](../scripts/check_hunter_pet_ip_readiness_pinned.py) is run on the pinned core + IP CI checkouts and deliberately reports this as a **BLOCKED** gate. It checks ordering and callback assumptions, not actual execution timings, and never proves a sufficiently late restoration point. Do not infer that a later callback from another script runs after IP's code, or that a fixed delay is always safe.
 
+## Independent ability stability versus IP completion (read-only)
+
+The optional audit now samples each native-autocast-capable Hunter pet spell family at most ten times after the first Player update (750ms intervals). It compares rank/spell ID, native enabled state, autocast membership and actionbar position/type; when one family changes, it logs that family independently. More than 64 native autocastable spells or a missing pet charm/actionbar truncates and ends the diagnostic rather than assuming a stable picture.
+
+**This is observation only.** Identical snapshots over an interval do not prove IP's 200ms delayed event executed, nor can stability tell whether an unchanged rank is legal for this Hunter's progression. The IP queue can retry or a later lifecycle event can cause another reconciliation. No inferred completion flag, approval, persistent preference or autocast write is produced. The [offline stability counterexample](../tests/test_hunter_pet_autocast_stability_model.py) exercises unchanged snapshots followed by a later family change.
+
 ## User intent and Altbot policy gate
 
 - Accept neither a raw `CMSG_PET_SPELL_AUTOCAST` nor a `CMSG_PET_SET_ACTION` packet as durable preference by itself. Both run through pre-handler packet hooks; even a matching next-update state does not prove which actor caused the transition.

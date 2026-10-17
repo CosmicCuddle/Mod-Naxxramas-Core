@@ -124,6 +124,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Scoped, no-write alternative under research:** the standalone [decision-gate model](HUNTER-PET-AUTOCAST-DECISION-GATE.md) now separates same live Pet object, same Worldserver process after resummon, and across-restart identity. A hypothetical RAM-only cache could recognise pets for one uninterrupted server process if it captured choices during that same process and proved PetNumber allocator continuity. There is NO implemented cache, no source-proof across every external module/overflow path, no permanent persistence, and the independent human-intent/IP-ready blockers still prevent autocast restoration.
 
+**Bounded per-family read-only stability probe:** A pet-scoped, max-10-sample observer compares each known native-autocastable ability family's spell ID, active flag, autocast-list membership and actionbar state (max 64 spells, then aborts). It reports only family-specific changes and a final unchanged-run count. Ten identical samples still DO NOT prove IP completed; IP may have scheduled a later event, and the observer never toggles/saves anything. [Offline timing counterexamples](../tests/test_hunter_pet_autocast_stability_model.py) demonstrate why an unchanged window is not readiness.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.
