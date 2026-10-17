@@ -26,6 +26,12 @@ The [pinned PetStable::PetInfo](https://github.com/Grimfeather/azerothcore-wotlk
 
 The new [source check](../scripts/check_hunter_pet_identity_pinned.py) runs against the exact upstream checkout in CI to detect changes in these assumptions. A passing result means the BLOCKER is corroborated; it does not authorize persistence or constitute a live-schema or runtime test.
 
+## Source-confirmed existing-pet load attempt hook (read only)
+
+Pinned AzerothCore `Pet::LoadPetFromDB` selects a pet's stable information via `GetLoadPetInfo`, then invokes `PlayerScript::OnPlayerBeforeLoadPetFromDB` **before it creates the Pet object**. Naxx Core now observes this callback as a read-only `NATIVE-LOAD-ATTEMPT` log when its diagnostic config is explicitly enabled. The callback parameters may still be changed by other scripts and the load can subsequently abort; this signal is neither proof of successful summon nor a durable identity or proof IP has completed.
+
+The fresh-tame path in `Pet::CreateBaseAtTamed` generates a new PetNumber instead and does not call this load hook. **Absence of a load-attempt log is not proof of a new tame**: a disabled observer, failed load before the hook, or other spawn path can produce the same absence. There is no verified post-tame, post-save, or abandon hook exposed by these pinned module interfaces. The pinned identity source check enforces hook ordering and keeps the identity gate blocked.
+
 ## Candidate designs (NONE implemented)
 
 | Candidate | Advantage | Unresolved hazard | Gate |

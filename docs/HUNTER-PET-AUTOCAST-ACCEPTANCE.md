@@ -60,6 +60,8 @@ This is a focused companion to [the feasibility audit](HUNTER-PET-AUTOCAST-FEASI
 | AC-51 | Pinned core add/remove/native-save and IP rank reconcile loss path | Prove fresh autocastable spells default OFF, native saves active state, normal high-rank inheritance is distinct from IP unlearn/relearn, and OFF alone is never human intent |
 | AC-52 | Standalone pure C++ decision gate evaluates hypothetical ON/OFF candidate | Reject unverified user intent, native load / clock / packet as IP completion, ambiguous rank, illegal or unknown spells, non-Hunter, and bots; no runtime integration or spell writes |
 | AC-53 | Same active Pet runtime object versus another Pet object after summon, stable or restart | Runtime identity allowed only for same-object hypothetical evaluation; after object replacement require independently verified never-reused incarnation, which is presently unavailable |
+| AC-54 | Native existing Hunter pet load reaches pre-create PlayerScript callback | Audit logs read-only attempted load arguments without modifying refs; abort after hook remains possible and does not imply IP completion or incarnation identity |
+| AC-55 | Fresh tame, or no native load-attempt log observed | Do not treat absence of the pre-create hook as proof of successful new tame; audit disabled/early failure/alternate paths remain ambiguous |
 
 ## Evidence required before any rollout
 
@@ -73,5 +75,5 @@ For each case, keep a staging record with:
 - **HPA-G1 (source + model):** Confirm hook/API signatures, native accepted-intent capture, first-rank chain and missing-hook limitations. No code in other repositories.
 - **HPA-G2 (read-only prototype):** Feature code only in Mod-Naxxramas-Core, all config OFF, no SQL, compile against pinned Grimfeather + IP + Playerbots; instrumentation proves timing with no mutation.
 - **HPA-G3 (durable preference state):** Pet identity lifecycle verified, approve module-owned persistence schema and rollback, staging character DB backup/restoration.
-- **HPA-G4 (functional staging):** Execute AC-00…AC-53 and independently verify IP progression, original spell-learning messages and Altbot paths.
+- **HPA-G4 (functional staging):** Execute AC-00…AC-55 and independently verify IP progression, original spell-learning messages and Altbot paths.
 - **HPA-G5 (production):** Separate explicit owner approval to merge/install/enable; staged opt-in; rollback ready.

@@ -690,7 +690,28 @@ namespace
     public:
         HunterPetAutocastUpdateObserver()
             : PlayerScript("NaxxramasHunterPetAutocastUpdateObserver",
-                {PLAYERHOOK_ON_AFTER_UPDATE}) { }
+                {PLAYERHOOK_ON_AFTER_UPDATE,
+                 PLAYERHOOK_ON_BEFORE_LOAD_PET_FROM_DB}) { }
+
+        // Core invokes this after selecting a stable PetInfo but BEFORE
+        // creating/loading the runtime Pet. Seeing it never proves the
+        // load succeeded, that the Pet is ready, or that its ID is durable.
+        void OnPlayerBeforeLoadPetFromDB(Player* owner,
+            uint32& petEntry, uint32& petNumber, bool& current,
+            bool& forceLoadFromDB) override
+        {
+            if (!AuditEnabled() || !owner ||
+                owner->getClass() != CLASS_HUNTER)
+                return;
+
+            LOG_INFO("module",
+                "HunterPetAutocast NATIVE-LOAD-ATTEMPT audit: owner={} "
+                "requestedEntry={} requestedNumber={} current={} "
+                "forceLoadBeforeHook={}; attempt ONLY, not creation "
+                "or completion proof; no arguments changed",
+                owner->GetGUID().GetCounter(), petEntry, petNumber,
+                current, forceLoadFromDB);
+        }
 
         void OnPlayerAfterUpdate(Player* owner, uint32 diff) override
         {

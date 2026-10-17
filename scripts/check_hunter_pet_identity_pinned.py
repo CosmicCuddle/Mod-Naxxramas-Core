@@ -57,6 +57,21 @@ def check(core):
     assert not re.search(r"\b(Incarnation|Generation|BirthGuid|BirthUUID)\b",
                          info)
 
+    # This hook is a *pre-create attempt* for an existing stable PetInfo.
+    # It is not emitted by Pet::CreateBaseAtTamed, and has no post-load
+    # success contract. Its absence cannot prove that a pet was freshly tamed.
+    native_load = section(pet, "bool Pet::LoadPetFromDB(",
+                          "bool Pet::CreateBaseAtTamed(")
+    assert "GetLoadPetInfo(*petStable, petEntry, petnumber, current)" in native_load
+    assert "sScriptMgr->OnPlayerBeforeLoadPetFromDB(" in native_load
+    assert "if (!Create(guid, map" in native_load
+    assert (native_load.index("GetLoadPetInfo(") <
+            native_load.index("sScriptMgr->OnPlayerBeforeLoadPetFromDB(") <
+            native_load.index("if (!Create(guid, map"))
+    player_hooks = read(core, "src/server/game/Scripting/ScriptDefines/PlayerScript.h")
+    assert "PLAYERHOOK_ON_BEFORE_LOAD_PET_FROM_DB" in player_hooks
+    assert "OnPlayerBeforeLoadPetFromDB(Player*" in player_hooks
+
     hooks = read(core, "src/server/game/Scripting/ScriptDefines/PetScript.h")
     assert "OnPetAddToWorld(Pet*" in hooks
     assert not re.search(r"OnPet(Abandon|Retire|Delete|Save|RemoveFromWorld)\s*\(",
@@ -64,6 +79,7 @@ def check(core):
     print("PASS: pinned native PetNumber can be recycled after deletion/restart")
     print("PASS: native normal save deletes/replaces pet row")
     print("PASS: pinned pet table and stable metadata lack a proven birth token")
+    print("PASS: existing-pet load hook is BEFORE Create and does not prove success")
     print("GATE BLOCKED: no durable preference store or autocast restore permitted")
     print("Source-only: does NOT inspect a running core or characters database.")
 

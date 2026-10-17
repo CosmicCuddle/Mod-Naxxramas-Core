@@ -122,6 +122,16 @@ class HunterAutocastAuditSafety(unittest.TestCase):
         self.assertIn('for (uint32 const spellId : learned->pendingSpells)', SOURCE)
         self.assertIn('no autocast restoration', SOURCE)
 
+    def test_native_existing_pet_load_attempt_is_not_birth_or_completion(self):
+        self.assertIn('PLAYERHOOK_ON_BEFORE_LOAD_PET_FROM_DB', SOURCE)
+        self.assertIn('void OnPlayerBeforeLoadPetFromDB(Player* owner,', SOURCE)
+        self.assertIn('uint32& petEntry, uint32& petNumber, bool& current,', SOURCE)
+        self.assertIn('bool& forceLoadFromDB) override', SOURCE)
+        self.assertIn('NATIVE-LOAD-ATTEMPT audit:', SOURCE)
+        self.assertIn('attempt ONLY, not creation', SOURCE)
+        self.assertIn('or completion proof; no arguments changed', SOURCE)
+        self.assertNotIn('forceLoadFromDB =', SOURCE)
+
     def test_lifecycle_probe_is_finite_and_nonmutating(self):
         self.assertIn('PETHOOK_ON_PET_ADD_TO_WORLD', SOURCE)
         self.assertIn('class HunterPetAutocastLifecycleObserver', SOURCE)
