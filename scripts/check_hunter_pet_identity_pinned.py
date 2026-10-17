@@ -26,9 +26,8 @@ def check(core):
     assert "std::lock_guard<std::mutex> guard(_hiPetNumberMutex);" in next_id
 
     world = read(core, "src/server/game/World/World.cpp")
-    startup = section(world, "void World::SetInitialWorldSettings(",
-                      "void World::") if False else world.split(
-                      "void World::SetInitialWorldSettings(", 1)[1]
+    assert world.count("void World::SetInitialWorldSettings(") == 1
+    startup = world.split("void World::SetInitialWorldSettings(", 1)[1]
     assert "sObjectMgr->LoadPetNumber();" in startup
     assert world.count("sObjectMgr->LoadPetNumber();") == 1
 
