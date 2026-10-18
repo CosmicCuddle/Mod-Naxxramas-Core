@@ -75,17 +75,15 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
     def test_transient_target_loss_does_not_rearm_logging_quota(self):
         # The boss lookup is allowed to flicker while the same bot remains
         # in combat. In that case the 24-line quota must NOT be cleared.
-        from re import search
-        match = search(
-            r"Unit\\* boss = found \\? found->Get\\(\\) : nullptr;"
-            r"(?P<body>.*?)// This public branch returns",
-            SOURCE,
-            flags=re.DOTALL,
-        )
-        self.assertIsNotNone(match, "boss lookup block disappeared")
-        self.assertIn("if (!boss || !boss->IsAlive()", match["body"])
-        self.assertNotIn("_samples.erase(guid)", match["body"])
-        self.assertIn("return;", match["body"])
+        self.assertIn("Unit* boss = found ? found->Get() : nullptr;", SOURCE)
+        after_lookup = SOURCE.split(
+            "Unit* boss = found ? found->Get() : nullptr;", 1
+        )[1]
+        self.assertIn("// This public branch returns", after_lookup)
+        boss_block = after_lookup.split("// This public branch returns", 1)[0]
+        self.assertIn("if (!boss || !boss->IsAlive()", boss_block)
+        self.assertNotIn("_samples.erase(guid)", boss_block)
+        self.assertIn("return;", boss_block)
 
     def test_does_not_claim_action_is_causal(self):
         self.assertIn("RECENT action-log tail", SOURCE)
