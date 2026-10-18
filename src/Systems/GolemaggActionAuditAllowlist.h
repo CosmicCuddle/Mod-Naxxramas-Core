@@ -13,11 +13,11 @@ namespace NaxxramasGolemaggActionAudit
     inline bool IsAllowedBotName(std::string const& actual,
                                  std::string const& configured)
     {
-        size_t const first = configured.find_first_not_of(" \t\r\n");
+        std::string::size_type const first = configured.find_first_not_of(" \t\r\n");
         if (first == std::string::npos)
             return false;
 
-        size_t const last = configured.find_last_not_of(" \t\r\n");
+        std::string::size_type const last = configured.find_last_not_of(" \t\r\n");
         std::string const expected = configured.substr(first, last - first + 1);
         if (expected.empty() || expected.size() != actual.size())
             return false;
