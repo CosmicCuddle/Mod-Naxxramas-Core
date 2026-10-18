@@ -1,4 +1,4 @@
-name: Golemagg action audit pinned C++ translation unit
+name: Golemagg action audit pinned full Worldserver link
 
 on:
   pull_request:
@@ -23,7 +23,7 @@ concurrency:
 jobs:
   pinned-cpp-compile:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 110
     steps:
       - name: Checkout exact pinned Grimfeather core
         uses: actions/checkout@v4
@@ -79,9 +79,19 @@ jobs:
         run: |
           python3 acore/modules/mod-naxxramas-core/scripts/check_golemagg_action_audit_pinned_compile.py \
             --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Link full pinned Worldserver without launching it
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Confirm linked Golemagg observer module registration
+        run: |
+          set -euo pipefail
+          binary="$(find acore-build -type f -name worldserver -print -quit)"
+          test -n "$binary"
+          test -s "$binary"
+          grep -aFq "NaxxramasCoreGolemaggActionAudit" "$binary"
+          echo "PASS: read-only Golemagg observer registration found in full linked Worldserver."
       - name: State limits
         if: always()
         run: |
-          echo "Only C++ translation unit syntax/compile and source tests covered."
-          echo "No full Worldserver link, startup, operator installed-source check, gameplay or tracer activation."
+          echo "Pinned source tests + actual C++ unit compile + Worldserver link are build-only validation."
+          echo "No server startup, owner installed-version verification, game test or tracer activation."
           echo "No action veto, no movement fix, no SQL or upstream code mutation."
