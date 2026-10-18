@@ -35,6 +35,8 @@ namespace
         uint32 elapsedMs = 0;
         uint8 samples = 0;
         std::string lastTrace;
+        bool sawGolemaggInThisCombat = false;
+        bool lastLookupPresent = false;
     };
 
     class NaxxramasCoreGolemaggActionAudit final : public PlayerScript
@@ -93,24 +95,37 @@ namespace
             auto* found = context ? context->GetValue<Unit*>(
                 "find target", "golemagg the incinerator") : nullptr;
             Unit* boss = found ? found->Get() : nullptr;
-            if (!boss || !boss->IsAlive() ||
-                boss->GetMapId() != MOLTEN_CORE_MAP)
+
+            // Pinned FindTargetValue only searches this bot's own threat list.
+            // A temporary threat lookup miss can coincide with the suspected
+            // retreat/return movement. Capture the recent action tail in that
+            // case ONLY after this same Player has observed a living Golemagg
+            // during its current eligible combat window. Never retain a
+            // potentially stale Unit* or begin sampling other MC encounters.
+            if (boss && (!boss->IsAlive() ||
+                boss->GetMapId() != MOLTEN_CORE_MAP))
             {
-                // Keep the per-combat sample budget during temporary boss
-                // lookup/target loss. Erasing it here lets the same bot
-                // replenish 24 log lines repeatedly as the context flickers.
-                // Only combat exit, death, map exit, role loss or logout
-                // resets the budget. This performs NO movement mutation.
+                player->CustomData.Erase(AUDIT_STATE_KEY);
                 return;
             }
+
+            bool const lookupPresent = boss != nullptr;
+            if (lookupPresent)
+                state->sawGolemaggInThisCombat = true;
+
+            if (!state->sawGolemaggInThisCombat)
+                return;
 
             // This public branch returns a RECENT action-log tail (not one
             // guaranteed action/event). It does not Execute an AI action.
             std::string trace = ai->HandleRemoteCommand("action");
-            if (trace.empty() || trace == state->lastTrace)
+            if (trace.empty() ||
+                (trace == state->lastTrace &&
+                 lookupPresent == state->lastLookupPresent))
                 return;
 
             state->lastTrace = trace;
+            state->lastLookupPresent = lookupPresent;
             if (trace.size() > MAX_ACTION_TEXT)
                 trace.erase(0, trace.size() - MAX_ACTION_TEXT);
             std::replace(trace.begin(), trace.end(), '\n', ' ');
@@ -130,12 +145,14 @@ namespace
             ++state->samples;
             LOG_INFO("module",
                 "GolemaggActionAudit READ ONLY: bot={} samples={}/{} "
-                "splash_stacks={} splash_remaining_ms={} boss_hp_pct={} "
-                "boss_distance_yards={} current_target={} recent_actions={}",
+                "splash_stacks={} splash_remaining_ms={} boss_lookup_present={} "
+                "boss_hp_pct={} boss_distance_yards={} current_target={} recent_actions={}",
                 player->GetName(), static_cast<uint32>(state->samples),
                 static_cast<uint32>(MAX_SAMPLES_PER_BOT),
-                stacks, remainingMs, boss->GetHealthPct(),
-                player->GetDistance2d(boss), target, trace);
+                stacks, remainingMs, lookupPresent,
+                lookupPresent ? boss->GetHealthPct() : -1.0f,
+                lookupPresent ? player->GetDistance2d(boss) : -1.0f,
+                target, trace);
         }
 
         void OnPlayerLogout(Player* player) override

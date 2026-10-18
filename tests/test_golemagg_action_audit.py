@@ -99,9 +99,27 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
         )[1]
         self.assertIn("// This public branch returns", after_lookup)
         boss_block = after_lookup.split("// This public branch returns", 1)[0]
-        self.assertIn("if (!boss || !boss->IsAlive()", boss_block)
-        self.assertNotIn("CustomData.Erase(AUDIT_STATE_KEY)", boss_block)
+        # Only an actual dead/wrong-map boss clears state; a missing
+        # threat-list lookup is covered using an earlier in-combat sighting.
+        self.assertIn("if (boss && (!boss->IsAlive()", boss_block)
+        self.assertIn("state->sawGolemaggInThisCombat = true;", boss_block)
+        self.assertIn("if (!state->sawGolemaggInThisCombat)", boss_block)
+        self.assertIn("bool const lookupPresent = boss != nullptr", boss_block)
         self.assertIn("return;", boss_block)
+
+    def test_lost_threat_target_reports_status_only_after_prior_sighting(self):
+        self.assertIn("bool sawGolemaggInThisCombat = false;", SOURCE)
+        self.assertIn("bool lastLookupPresent = false;", SOURCE)
+        self.assertIn("if (lookupPresent)", SOURCE)
+        self.assertIn("state->sawGolemaggInThisCombat = true;", SOURCE)
+        self.assertIn("if (!state->sawGolemaggInThisCombat)", SOURCE)
+        self.assertIn("boss_lookup_present={}", SOURCE)
+        self.assertIn("lookupPresent ? boss->GetHealthPct() : -1.0f", SOURCE)
+        self.assertIn("lookupPresent ? player->GetDistance2d(boss) : -1.0f", SOURCE)
+        self.assertIn("lookupPresent == state->lastLookupPresent", SOURCE)
+        # Last looked-up boss is NEVER stored as a pointer across ticks.
+        self.assertNotIn("Unit* lastBoss", SOURCE)
+        self.assertNotIn("ObjectGuid lastBoss", SOURCE)
 
     def test_sample_state_is_per_player_not_global_across_maps(self):
         self.assertIn("struct SampleState final : DataMap::Base", SOURCE)
