@@ -1,6 +1,6 @@
 # Molten Core — Golemagg Melee Altbot Guard: Pinned-Source Feasibility Gate
 
-**Status:** **S1 research only. Module-only runtime listener NOT YET FEASIBLE under the exposed pinned API. No workaround implemented.**  
+**Status:** **S1 pinned feasibility findings plus S2 DRAFT READ-ONLY action observer (default OFF), NOT compiled or runtime-validated.** Module-only action-veto listener remains UNPROVEN under the pinned public API. **No movement fix implemented.**  
 **Project:** [Master checklist #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28) → A01; [tracking issue #27](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/27).  
 **Reference:** Playerbots source commit [`037c01418b5d01506917a3db9b44fd56ac5f965c`](https://github.com/mod-playerbots/mod-playerbots/tree/037c01418b5d01506917a3db9b44fd56ac5f965c). **This is a pinned public source audit, not verification of the operator's currently installed source revision.**  
 **Observed issue:** During Molten Core Golemagg, non-tank melee Altbots repeatedly retreat/return; tank deaths and wipes near half health. These are observations, not proven causality.
@@ -39,7 +39,11 @@
 - A Naxx-only **sampled diagnostic** could, subject to source/build and explicit operator test approval, inspect non-tank melee **Altbots on Molten Core map 409**, Magma Splash stack/duration, bot distance and current target, Golemagg health and the **recent** action-log tail. Rate-limit and bound messages. No motion changes, strategy changes, Engine listener access, AI `DoSpecificAction`, master-command injection, SQL or database writes.
 - Before implementing: pin the operator's actual server revision, determine how the update hook relates to Playerbots AI execution/tick ordering, confirm the read-only getter does not unexpectedly trigger expensive or side-effectful work in that build, design strict `Enabled = 0` default + short sampling window + per-bot cap, and verify safe cleanup on leave/reset/logout. Do **not** auto-enable diagnostic logging or run it across a 40-bot raid by default.
 
-**Important decision:** The above supports a **potential Naxx-only investigation tool**, **not** a fix for Golemagg movement and **not** evidence that a safe module-only action veto is available. It makes it possible to gather stronger evidence before concluding an upstream fix is necessary.
+**S2 draft implementation:** `src/Systems/BotGolemaggActionAudit.cpp`, registered by `src/NaxxramasCore_loader.cpp` behind `NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0` in the distributed config. The new code observes only player-character melee DPS **Altbots** (not tanks or healers) on map 409, in combat, while the named Golemagg target is live. It polls the public `"action"` and `"target"` read-only branches **no more often than every 2.5 seconds**, records at most **24 distinct action-tail samples per bot** per continuous eligible encounter, and clears its in-memory state on logout/encounter exit. It reports real Magma Splash stacks/duration and boss range/HP. It does **not** install a listener, veto an action, modify movement, apply spells or write any database. Code is an **unmerged draft** and has **not passed an exact pinned C++ build or in-game trial**.
+
+**S3 source-contract tests:** `tests/test_golemagg_action_audit.py` and `.github/workflows/golemagg-action-audit-readonly.yml` cover explicit default-OFF, hook registration, Altbot/DPS/map scope, no mutating API calls, rate caps, and limitation wording. A green Python test is **not a C++ compilation result or server gameplay verification**.
+
+**Important decision:** The draft tracer is a **potential Naxx-only investigation tool**, **not** a fix for Golemagg movement and **not** evidence that a safe module-only action veto is available. Owner approval, a matching-worldserver pinned full build, and a strictly controlled test with backup/restart/rollback are mandatory before enabling even this diagnostic.
 
 ## 4. Safe options for the next investigation (not automatically approved)
 
@@ -63,14 +67,15 @@ NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug = 0
 - [x] **S0:** Issue/request scope and raid observation captured in #27.
 - [x] **S1 partial:** Reproduce pinned source/threshold/movement inheritance and **document listener access and veto semantics blockers**.
 - [ ] **S1 complete:** Prove real action target, safe public extension point and listener ownership/engine lifecycle or document that module-only action veto is infeasible.
-- [ ] **S2:** Implementation **only after S1 feasibility** in an isolated Naxx Core draft PR with opt-out/default OFF, no upstream source changes.
-- [ ] **S3–S4:** Exact Worldserver C++ compile/link and disabled-mode regression, AI reset/logout/teardown, no leaks/stale listener pointers.
+- [x] **S2 READ-ONLY DIAGNOSTIC SOURCE:** a default-OFF, rate-limited module tracer has been added to this isolated draft branch; no action guard is implemented or authorized.
+- [ ] **S2 ACTUAL MOVEMENT GUARD:** only after the independent action-veto feasibility proof and actual culprit are established; no upstream source changes without approval.
+- [ ] **S3–S4:** Source-contract CI for latest exact head; separate exact pinned Worldserver C++ compile/link and disabled-mode regression, Altbot hook support, AI reset/logout/teardown, bounded trace accuracy and no stale listener pointers. **None of these prove a movement fix**.
 - [ ] **S5:** Operator-approved backup of module, config, SQL (if ever needed) and Worldserver binary; reversible deployment plan. Previous user PC backups of Playerbots source files are **not** authorisation to edit them.
 - [ ] **S6:** Test normal attacks, 20-stack back-off, stay out until debuff disappears, final <=10% burn, lava avoidance and other survival movement; first Grau then Enhancement/Fury then nine named melee. Regress Garr, Baron Geddon and Ragnaros; retest altbot relog, death, engine reset and restart.
 - [ ] **S7:** Release only after user accepts observed results and a working rollback. **Tank deaths, healing and Core Rager handling remain separate observations.**
 
 ## 6. Immediate next action
 
-**S1 continued:** verify the module-owned **read-only** `HandleRemoteCommand("action")` diagnostic design against the operator's exact fork/update hook, then gather a short **owner-approved** per-bot Golemagg action trace if safe. Independently find a public action-level extension API or document its absence; do not implement an unsafe combat veto. Record real movement executor evidence before attempting a combat-time block. Cross-check this issue and master checklist before any new Golemagg change.
+**S1/S2 next:** confirm current draft tracer's **exact-head Python CI**, perform a pinned *real C++ translation-unit compile and module registration/link* before any in-game use, then verify the operator's installed fork/update hook and gather a short **owner-approved** per-bot action trace only after verified backups and rollback. Independently find a public action-level extension API or document its absence; do not implement an unsafe combat veto. Record real movement executor evidence before attempting a combat-time block. Cross-check this issue and master checklist before any new Golemagg change.
 
 **Nothing in this feasibility report implements a live fix, changes Playerbots/AzerothCore/IP, changes config/SQL, merges, recompiles or restarts Worldserver.**
