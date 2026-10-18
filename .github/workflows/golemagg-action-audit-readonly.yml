@@ -1,0 +1,30 @@
+name: Golemagg read-only action audit source checks
+
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/BotGolemaggActionAudit.cpp'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'docs/PLAYERBOTS-GOLEMAGG-MELEE-GUARD-FEASIBILITY.md'
+      - 'tests/test_golemagg_action_audit.py'
+      - '.github/workflows/golemagg-action-audit-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readonly-source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact draft PR source
+        uses: actions/checkout@v4
+      - name: Run Golemagg read-only/opt-in contract checks
+        run: python3 -m unittest discover -s tests -p 'test_golemagg_action_audit.py' -v
+      - name: State remaining evidence gaps
+        run: |
+          echo "Passing source checks does NOT prove the C++ compiles with the pinned core."
+          echo "This is a disabled-by-default action diagnostic, not a movement fix."
+          echo "No Playerbot runtime or game test, listener registration or installation."
