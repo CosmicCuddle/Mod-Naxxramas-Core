@@ -62,7 +62,8 @@ namespace
 
             PlayerbotAI* ai = PlayerbotsMgr::instance().GetPlayerbotAI(player);
             if (!ai || !ai->IsAltBot() ||
-                PlayerbotAI::IsTank(player) || !PlayerbotAI::IsMelee(player))
+                PlayerbotAI::IsTank(player) || !PlayerbotAI::IsDps(player) ||
+                !PlayerbotAI::IsMelee(player))
             {
                 _samples.erase(guid);
                 return;
