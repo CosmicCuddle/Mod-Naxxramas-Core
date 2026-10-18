@@ -74,7 +74,7 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
     def test_does_not_claim_action_is_causal(self):
         self.assertIn("RECENT action-log tail", SOURCE)
         self.assertIn("not one", SOURCE)
-        self.assertIn("Does not Execute an AI action", SOURCE)
+        self.assertIn("does not Execute an AI action", SOURCE)
 
 
 if __name__ == "__main__":
