@@ -28,7 +28,20 @@
 
 **Decision at this checkpoint:** **Do NOT register an ActionExecutionListener from Naxx Core**, cast around protected `Engine*`, inject into private layouts, take ownership of Playerbots Engine objects or alter upstream files. No module-only veto architecture has passed S1.
 
-## 3. Safe options for the next investigation (not automatically approved)
+## 3. Additional verified module-only **read-only diagnostic** opportunity
+
+**NEW pinned-source finding:** although the module cannot safely reach `Engine::AddActionExecutionListener`, it **can request recent engine action text through an existing public method without touching `Engine*`**:
+
+- Pinned [`PlayerbotAI.h`](https://github.com/mod-playerbots/mod-playerbots/blob/037c01418b5d01506917a3db9b44fd56ac5f965c/src/Bot/PlayerbotAI.h) declares public `std::string const HandleRemoteCommand(std::string const command)` as well as public `IsAltBot()`, `IsMelee(Player*)` and `IsTank(Player*)`.
+- Pinned [`PlayerbotAI.cpp`](https://github.com/mod-playerbots/mod-playerbots/blob/037c01418b5d01506917a3db9b44fd56ac5f965c/src/Bot/PlayerbotAI.cpp) explicitly handles **`HandleRemoteCommand("action")` by returning `currentEngine->GetLastAction()`**. `"state"`, `"target"` and `"position"` are additional read-only branches, but are not necessary for a first tracer.
+- Pinned [`Engine.cpp`](https://github.com/mod-playerbots/mod-playerbots/blob/037c01418b5d01506917a3db9b44fd56ac5f965c/src/Bot/Engine/Engine.cpp) collects action attempts, multiplier refusals, executed and failed results in `lastAction` and **trims it to a bounded recent tail of around 512 characters**. The remote action output is **recent log text, not proof of the exact action responsible for a specific movement**, and is not a stable machine-readable event stream.
+- Existing Naxx Core [`BotRaidConsumables.cpp`](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/blob/main/src/Systems/BotRaidConsumables.cpp) demonstrates a module-owned `PlayerScript` with `PLAYERHOOK_ON_UPDATE` / `OnPlayerUpdate(Player*, uint32)`. The owner's earlier pinned [`PlayerScript.h`](https://github.com/mod-playerbots/azerothcore-wotlk/blob/b7f06a16ac7120b5abc2e8d3f96a94265a363224/src/server/game/Scripting/ScriptDefines/PlayerScript.h) also declares this hook. This is a **candidate read-only sampling surface**, not yet compiled/tested for a new Golemagg tracer or proven invoked for every specific Altbot in that encounter.
+- A Naxx-only **sampled diagnostic** could, subject to source/build and explicit operator test approval, inspect non-tank melee **Altbots on Molten Core map 409**, Magma Splash stack/duration, bot distance and current target, Golemagg health and the **recent** action-log tail. Rate-limit and bound messages. No motion changes, strategy changes, Engine listener access, AI `DoSpecificAction`, master-command injection, SQL or database writes.
+- Before implementing: pin the operator's actual server revision, determine how the update hook relates to Playerbots AI execution/tick ordering, confirm the read-only getter does not unexpectedly trigger expensive or side-effectful work in that build, design strict `Enabled = 0` default + short sampling window + per-bot cap, and verify safe cleanup on leave/reset/logout. Do **not** auto-enable diagnostic logging or run it across a 40-bot raid by default.
+
+**Important decision:** The above supports a **potential Naxx-only investigation tool**, **not** a fix for Golemagg movement and **not** evidence that a safe module-only action veto is available. It makes it possible to gather stronger evidence before concluding an upstream fix is necessary.
+
+## 4. Safe options for the next investigation (not automatically approved)
 
 1. **Verify the operator's exact installed Playerbots SHA and public API.** The public upstream `master` branch can differ from this pin; no conclusion about future builds without repeating the review. Re-check for supported public callbacks and compatible ownership conventions.
 2. **Establish the actual movement executor (read-only first).** Collect a short, per-bot action/trigger trace during a safe future controlled Golemagg attempt (Grau Rogue initially); correlate timestamps, Magma Splash stack and remaining duration, boss health, bot-boss distance, action name and intended target. Check `reach melee`, `set behind`, `rear flank`, `combat formation move`, target changes and generic chase. Do not enable a spammy debug strategy on a busy live 40-bot raid without separate approval.
@@ -36,7 +49,7 @@
 4. If a public module extension proves viable, propose a **minimal default-OFF Golemagg-only guard**; only suppress the specifically proven re-entry action when *its target is the boss*, non-tank melee bot has real >=20 stacks, map is Molten Core (409), encounter is valid and boss health >10%. Preserve survival movement, tanks and Core Ragers. No blanket `MovementAction` denial.
 5. If no supported extension exists, submit a **separate minimal upstream Playerbots API/fix proposal** for owner decision. Do **not** edit upstream code, auto-reapply a patch after updates or present a source patch as installed by Naxx Core.
 
-## 4. Future configuration and acceptance gates
+## 5. Future configuration and acceptance gates
 
 These are **proposed settings**, not implemented configuration:
 
@@ -56,8 +69,8 @@ NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug = 0
 - [ ] **S6:** Test normal attacks, 20-stack back-off, stay out until debuff disappears, final <=10% burn, lava avoidance and other survival movement; first Grau then Enhancement/Fury then nine named melee. Regress Garr, Baron Geddon and Ragnaros; retest altbot relog, death, engine reset and restart.
 - [ ] **S7:** Release only after user accepts observed results and a working rollback. **Tank deaths, healing and Core Rager handling remain separate observations.**
 
-## 5. Immediate next action
+## 6. Immediate next action
 
-**S1 continued:** find a genuinely exposed action-level extension API in the exact operator fork, or prove none exists and present a **non-deployed upstream proposal**. Record real movement executor evidence before implementing a combat-time block. Cross-check this issue and master checklist before any new Golemagg change.
+**S1 continued:** verify the module-owned **read-only** `HandleRemoteCommand("action")` diagnostic design against the operator's exact fork/update hook, then gather a short **owner-approved** per-bot Golemagg action trace if safe. Independently find a public action-level extension API or document its absence; do not implement an unsafe combat veto. Record real movement executor evidence before attempting a combat-time block. Cross-check this issue and master checklist before any new Golemagg change.
 
 **Nothing in this feasibility report implements a live fix, changes Playerbots/AzerothCore/IP, changes config/SQL, merges, recompiles or restarts Worldserver.**
