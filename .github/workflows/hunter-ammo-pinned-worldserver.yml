@@ -92,13 +92,43 @@ jobs:
             --compile-commands acore-build/compile_commands.json --timeout 360
       - name: Link full pinned Worldserver without starting it
         run: cmake --build acore-build --target worldserver --parallel 2
-      - name: Verify Hunter ammo code linked into Worldserver binary
+      - name: Verify actual Hunter ammo function linked into Worldserver binary
         run: |
           set -euo pipefail
-          binary="$(find acore-build -type f -name worldserver -print -quit)"
-          test -n "$binary" && test -s "$binary"
-          grep -aFq 'NaxxramasCore.BotConsumables.HunterAmmo.Enabled' "$binary"
-          echo "PASS: optional Hunter ammo source is present in linked Worldserver."
+          binary="acore-build/src/server/apps/worldserver"
+          archive="acore-build/modules/libmodules.a"
+          test -s "$binary" && test -x "$binary"
+          test -s "$archive"
+
+          # The prior exact-head build linked Worldserver successfully but
+          # failed to find a compiler-optimizable configuration string in it.
+          # Check the defined C++ function symbol instead. Merely compiling
+          # HunterAmmoProvision.cpp or finding it in libmodules.a is NOT
+          # sufficient proof that the live Worldserver binary retains it.
+          symbol='NaxxramasHunterAmmo::TopUpHunterAmmo('
+          nm -C --defined-only "$archive" > /tmp/hunter-ammo-archive-symbols.txt
+          nm -C --defined-only "$binary" > /tmp/hunter-ammo-worldserver-symbols.txt
+          echo "Checking linked Hunter ammunition source..."
+          if ! grep -Fq "$symbol" /tmp/hunter-ammo-archive-symbols.txt; then
+            echo "::error::Hunter ammo function absent from module archive"
+            exit 1
+          fi
+          if ! grep -Fq "$symbol" /tmp/hunter-ammo-worldserver-symbols.txt; then
+            echo "::error::Hunter ammo function NOT retained in linked Worldserver"
+            echo "Archive contains the source, but this does not prove runtime linkage."
+            echo "Inspect script registration and linker dead-stripping before deployment."
+            exit 1
+          fi
+          grep -F "$symbol" /tmp/hunter-ammo-worldserver-symbols.txt | head -n 3
+
+          # Informational only: release optimisation may eliminate/mangle
+          # string literals. Never fail exclusively because a literal changed.
+          if grep -aFq 'NaxxramasCore.BotConsumables.HunterAmmo.Enabled' "$binary"; then
+            echo "Config key also present in Worldserver binary."
+          else
+            echo "Config literal absent; direct defined-function linkage is verified."
+          fi
+          echo "PASS: actual Hunter ammo function retained in linked Worldserver."
       - name: No live inventory test performed
         if: always()
         run: |
