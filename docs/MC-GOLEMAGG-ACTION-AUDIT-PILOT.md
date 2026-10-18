@@ -42,7 +42,8 @@
 
 ### Sampling interpretation and limitations
 
-- The first implementation permits at most **24 changed recent-action tails per bot in one continuous eligible encounter**, with **at least 2.5 seconds between**. In a busy fight that may exhaust its cap in approximately one minute; **an absent log near 50% boss health may simply mean sampling ended**.
+- The **prepared hardening change** retains the 24-sample quota while a bot remains in eligible MC combat even if Golemagg temporarily disappears from its target context; it **does not** reset and refill that quota on transient boss lookup loss. The cap still resets on leaving the eligible encounter, death, map change, incompatible role or logout, as defined in code. This fix is **not yet on PR #30** and needs new exact-head CI after safe promotion.
+- The observer permits at most **24 changed recent-action tails per bot per continuous eligible combat window**, with **at least 2.5 seconds between**. In a busy fight that may exhaust its cap in approximately one minute; **an absent log near 50% boss health may simply mean sampling ended**.
 - If the owner-observed movement occurs later than the sampled window, **do not lengthen or broaden production logging ad hoc**. Record the timing gap and return to separate code review for a more targeted bounded sampler.
 - Playerbots `GetLastAction()` only exposes a recent text tail (about 512 characters upstream); `OnPlayerUpdate` sampling is not a trusted atomic action callback. Matching strings alone cannot prove cause or establish safe veto logic.
 - The audit does not measure raid DPS, healing throughput or Golemagg's Core Rager control. Those remain independent issues.
