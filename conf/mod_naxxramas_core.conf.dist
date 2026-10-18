@@ -280,6 +280,14 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
 # and rollback, exact pinned full link and staged in-game testing.
 NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0
 
+# Independent provenance gate for already-selected quest-exchanged / crafted
+# Thorium Headed Arrows (18042) and Thorium Shells (15997). Merely possessing
+# or selecting them does not grant permission to duplicate earned supplies.
+# With this OFF, selected non-vendor ammo remains untouched and no vendor
+# substitute is silently selected or provided.
+# Default: 0 (OFF)
+NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor = 0
+
 # Target number of matching ammo pieces to keep in a Hunter's BAGS
 # (bank contents excluded). Native AddItem uses bag capacity; any insufficient
 # bag capacity prevents this optional top-up.

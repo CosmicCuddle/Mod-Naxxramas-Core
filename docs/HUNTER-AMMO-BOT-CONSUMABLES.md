@@ -14,6 +14,7 @@ Pinned core facts: `PLAYER_AMMO_ID` stores current ammo selection; `GetWeaponFor
 
 ```ini
 NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0
+NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor = 0
 NaxxramasCore.BotConsumables.HunterAmmo.TargetCount = 600
 ```
 
@@ -24,7 +25,7 @@ The Hunter's real/effective dungeon level is also clamped to Vanilla's level **6
 ## Selection rules (fail closed)
 
 1. If a Hunter **already has an ammo type selected**, that specific ID must be in the small Classic catalog and compatible with its equipped weapon and effective level. If valid, supply the **shortfall of that same exact item ID** without changing selection.
-2. The only selected-only, non-vendor fallbacks are **Thorium Headed Arrow (18042)** and **Thorium Shells (15997)**. These are allowed **only when already selected**, not given to an unselected Hunter as free quest/crafted upgrades. Existing unfamiliar, raid, PvP, reputation or higher-era selections are **never silently substituted or minted**. More source policies need separate approval.
+2. **Thorium Headed Arrow (18042)** comes from a repeatable **quest exchange** and **Thorium Shells (15997)** are engineer-crafted. Simply finding either type selected must **NOT** mean they may be duplicated. Their replenishment requires *both* `Enabled=1` and the independent `AllowSelectedNonVendor=1` operator opt-in, and they must already be selected and native-compatible. Both controls are **OFF by default**. No Thorium fallback for an unselected Hunter. Existing unfamiliar, raid, PvP, reputation or higher-era selections are **never silently substituted or minted**. An exact installed-world/IP policy remains a separate review gate.
 3. If **nothing is selected** (`PLAYER_AMMO_ID = 0`), select a conservative *vendor ammunition item for inventory only*, appropriate to the current bow/crossbow/gun and effective level. The owner/AI must manually select these items later. **No `SetAmmo`, equip or weapon swap.**
 4. If no compatible ranged weapon (including broken, wand or thrown), no item template, the bot is a human/Random Bot, native use check fails or inventory cannot fit the entire top-up, skip rather than mutate unexpected items.
 5. Verify existing bag amount, do **not** count bank stock as available, and add at most `TargetCount - current`; repeated command executions won't keep adding beyond target. No SQL schema changes, but **inventory grants are persistent character DB changes**.
@@ -37,7 +38,7 @@ The Hunter's real/effective dungeon level is also clamped to Vanilla's level **6
 | 10+ | Sharp Arrow **2515** | Heavy Shot **2519** | yes |
 | 25+ | Razor Arrow **3030** | Solid Shot **3033** | yes |
 | 40+ | Jagged Arrow **11285** | Accurate Slugs **11284** | yes |
-| 52+ | Thorium Headed Arrow **18042** | Thorium Shells **15997** | **only if already selected** |
+| 52+ | Thorium Headed Arrow **18042** | Thorium Shells **15997** | **selected AND separately permitted (default deny)** |
 
 The code checks the live database's actual item template against these assumptions. Other notable rarer ammo (Doomshot, AV ammunition, expansion ammunition) is **not** minted by this draft.
 
@@ -47,6 +48,7 @@ The code checks the live database's actual item template against these assumptio
 - [x] Wire `src/Systems/HunterAmmoProvision.cpp` to existing MC/dungeon command and stats; source only, disabled unless config explicit.
 - [x] Maintain class/pet separation: `PrepareHunter` top-up occurs **before** missing-pet early return.
 - [x] Include source-check contract `tests/test_hunter_ammo_consumables.py`.
+- [x] **Prepared separately (NOT current PR #32 head):** added independent `AllowSelectedNonVendor = 0` permission and selected-Thorium default-deny tests. Prepared branch `feature/hunter-ammo-source-safety-prepared-2026-10-18` must receive its own exact-head CI after PR #32's current pinned build completes.
 - [ ] Standalone C++ model test and source checks pass on exact PR revision.
 - [ ] Compile exact new C++ translation unit against pinned core/Playerbots/IP and full Worldserver link; verify module contains new code.
 - [ ] Verify operator's actual installed source and current world `item_template` match the test pin; investigate IP's additional item gating, especially Hunter stage shifts.

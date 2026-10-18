@@ -35,8 +35,9 @@ namespace NaxxramasHunterAmmo
     };
 
     // Conservative Classic catalog, not the entire WotLK item database.
-    // Crafted Thorium ammunition may be topped up ONLY if already selected;
-    // it is never minted as a fallback for an unselected Hunter.
+    // Quest-exchanged / engineered Thorium ammunition is never a vendor
+    // fallback and is only replenished when already selected AND a separate
+    // default-DENY owner configuration explicitly permits duplication.
     constexpr KnownAmmo Catalog[] =
     {
         {2512, 2, 1, true},    // Rough Arrow
@@ -59,7 +60,8 @@ namespace NaxxramasHunterAmmo
 
     inline Selection ChooseAmmo(uint32_t weaponSubclass,
                                 uint32_t selectedAmmoId,
-                                uint32_t effectiveLevel)
+                                uint32_t effectiveLevel,
+                                bool allowSelectedNonVendor = false)
     {
         uint32_t const wanted = ProjectileForWeapon(weaponSubclass);
         if (!wanted)
@@ -77,6 +79,13 @@ namespace NaxxramasHunterAmmo
 
                 if (item.requiredLevel > effectiveLevel)
                     return {0, wanted, Decision::LevelTooLow};
+
+                // Important for Individual Progression: a Hunter could have
+                // acquired a quest-reward or engineered ammo stack legitimately.
+                // Merely selecting it is NOT permission to mint extra copies.
+                // Operator must explicitly allow those inventory top-ups.
+                if (!item.vendorFallback && !allowSelectedNonVendor)
+                    return {0, wanted, Decision::UnsupportedSelectedAmmo};
 
                 return {item.itemId, wanted, Decision::Selected};
             }
