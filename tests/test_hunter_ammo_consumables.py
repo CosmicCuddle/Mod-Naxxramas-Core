@@ -53,6 +53,20 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertIn("UnsupportedSelectedAmmo", POLICY)
         self.assertIn("vendorFallback", POLICY)
 
+    def test_non_vendor_selected_ammo_needs_second_opt_in(self):
+        self.assertIn(
+            "NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor = 0",
+            CONFIG,
+        )
+        self.assertIn(
+            '"NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor", false',
+            PROVISION,
+        )
+        self.assertIn("allowSelectedNonVendor", POLICY)
+        self.assertIn("!item.vendorFallback && !allowSelectedNonVendor", POLICY)
+        self.assertIn("allowSelectedNonVendor);", PROVISION)
+        self.assertIn("UnsupportedSelectedAmmo", POLICY)
+
     def test_bag_preflight_and_real_delta_accounting(self):
         self.assertIn("CanStoreNewItem(", PROVISION)
         self.assertIn("capacity != EQUIP_ERR_OK || noSpace || destination.empty()", PROVISION)
