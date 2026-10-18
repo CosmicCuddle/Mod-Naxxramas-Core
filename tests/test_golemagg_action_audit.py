@@ -37,6 +37,7 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
             "ai->IsAltBot()",
             "PlayerbotAI::IsTank(player)",
             "PlayerbotAI::IsMelee(player)",
+            "PlayerbotAI::IsDps(player)",
             "player->IsInCombat()",
             "boss->IsAlive()",
         ]:
