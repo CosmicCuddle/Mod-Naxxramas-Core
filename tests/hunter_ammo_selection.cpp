@@ -17,8 +17,14 @@ int main()
     assert(ChooseAmmo(2, 11285, 60).itemId == 11285);
     assert(ChooseAmmo(18, 11285, 60).itemId == 11285);
     assert(ChooseAmmo(3, 11284, 60).itemId == 11284);
-    assert(ChooseAmmo(2, 18042, 60).itemId == 18042);
-    assert(ChooseAmmo(3, 15997, 60).itemId == 15997);
+    // Selecting a quest/crafted item is not proof it may be duplicated.
+    assert(ChooseAmmo(2, 18042, 60).itemId == 0);
+    assert(ChooseAmmo(3, 15997, 60).itemId == 0);
+    assert(ChooseAmmo(2, 18042, 60).decision == Decision::UnsupportedSelectedAmmo);
+    assert(ChooseAmmo(3, 15997, 60).decision == Decision::UnsupportedSelectedAmmo);
+    // Separate deliberate enablement is required for this premium source.
+    assert(ChooseAmmo(2, 18042, 60, true).itemId == 18042);
+    assert(ChooseAmmo(3, 15997, 60, true).itemId == 15997);
 
     // Selected ammo is never substituted on a mismatch or unsupported ID.
     assert(ChooseAmmo(3, 11285, 60).decision ==
