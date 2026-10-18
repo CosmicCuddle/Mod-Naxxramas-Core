@@ -1,5 +1,7 @@
 # Naxxramas Core — Project Roadmap & Development Status
 
+> **CURRENT CROSS-PROJECT STATUS:** [Master Development Checklist #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28) is the canonical living stage-by-stage register, including past, active, waiting, future and paused work. This ROADMAP includes older planning snapshots and historical NT1 notes; do not read its dated status as the current position without checking #28. Every newly planned change or milestone must update #28 and its focused issue/draft PR. No automatic GitHub synchronization is implied.
+
 **Project:** [CosmicCuddle / Mod-Naxxramas-Core](https://github.com/CosmicCuddle/Mod-Naxxramas-Core)  
 **Platform:** AzerothCore, World of Warcraft 3.3.5a  
 **Roadmap snapshot:** 11 October 2026  

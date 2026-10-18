@@ -8,6 +8,14 @@ Some features require matching **DBC edits** on both the server and client. Thos
 
 > **Back up your module directory, databases, configuration, and known-working DBC files before updating the module.** Git history makes module-code changes reversible, but database and DBC changes should still be backed up separately.
 
+## Master development checklist
+
+**[OPEN THE LIVE MASTER DEVELOPMENT CHECKLIST — GitHub Issue #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28)**
+
+This is the **single current register for the whole module**: historical completed source work, what is active, what is waiting or paused, planned future work, and the **S0–S7 evidence and release stages** for every feature. Each new proposal and significant code/test checkpoint must update the master issue and its dedicated linked issue/draft PR. The list is a live GitHub issue, not a second conflicting local snapshot; see the issue's **mandatory update routine**.
+
+**Safety:** a checked research/source/merged item is NOT confirmation of compilation, installation, enabled configuration, in-game acceptance or release.
+
 ## Project roadmap
 
 **[View the Naxxramas Core Project Roadmap](ROADMAP.md)** — the central reference for the active **1.0.6.8.5** development work, feature status, implementation milestones, pending tests, release boundaries, rollback considerations and paused projects.
