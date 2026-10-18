@@ -96,7 +96,7 @@ def check(ip, playerbots):
             "at least two direct CastSpell native toggle paths")
 
     handle = unique_scope(
-        bot_ai, "void PlayerbotAI::HandleCommand(uint32 type,",
+        bot_ai, "void PlayerbotAI::HandleCommand(uint32 type, std::string const& text, Player& fromPlayer, const uint32 lang)",
         "void PlayerbotAI::HandleTeleportAck("
     )
     require("chatCommands.push_back(ChatCommandHolder(filtered, &fromPlayer, type));"
