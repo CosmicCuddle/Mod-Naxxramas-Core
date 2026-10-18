@@ -9,7 +9,7 @@
 
 namespace NaxxramasCore::HunterAutocastPlayerbotBridge
 {
-    constexpr std::uint16_t ContractVersion = 2;
+    constexpr std::uint16_t ContractVersion = 3;
 
     enum class Origin : std::uint8_t
     {
@@ -87,6 +87,13 @@ namespace NaxxramasCore::HunterAutocastPlayerbotBridge
         bool stillSameActivePet = false;
         bool ownerSessionActive = false;
         bool nativeOn = false;
+        // A second, CURRENT eligibility snapshot is required. An earlier
+        // event claiming legality cannot certify a spell after IP has
+        // removed, reranked, or started re-reconciling the current pet.
+        // These are hypothetical independently verified producer facts.
+        bool currentPetKnowsLegalRank = false;
+        bool currentNativeAutocastable = false;
+        bool currentIpReconciliationCompleted = false;
     };
 
     class Consumer
@@ -103,6 +110,9 @@ namespace NaxxramasCore::HunterAutocastPlayerbotBridge
                 !SameIdentity(_expected, event.identity) ||
                 !SameIdentity(_expected, now.identity) ||
                 !now.stillSameActivePet || !now.ownerSessionActive ||
+                !now.currentPetKnowsLegalRank ||
+                !now.currentNativeAutocastable ||
+                !now.currentIpReconciliationCompleted ||
                 event.operationSequence == 0 ||
                 event.operationSequence <= _lastAcceptedSequence ||
                 event.spellId == 0 || event.rankFamily == 0 ||
