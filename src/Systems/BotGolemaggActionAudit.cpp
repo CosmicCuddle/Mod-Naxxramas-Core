@@ -15,6 +15,7 @@
 #include "SpellAuras.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -26,6 +27,30 @@ namespace
     constexpr uint32 SAMPLE_INTERVAL_MS = 2500;
     constexpr uint8 MAX_SAMPLES_PER_BOT = 24;
     constexpr size_t MAX_ACTION_TEXT = 320;
+
+    // Require an exact, independently configured bot name. A global
+    // Enabled=1 must NOT silently sample all raid melee Altbots.
+    // ASCII case-insensitivity is sufficient for named one-bot pilots;
+    // never interpret an empty name or "*" as "all".
+    bool IsAllowedBotName(std::string const& actual,
+                          std::string const& configured)
+    {
+        size_t const first = configured.find_first_not_of(" \\t\\r\\n");
+        if (first == std::string::npos)
+            return false;
+
+        size_t const last = configured.find_last_not_of(" \\t\\r\\n");
+        std::string const expected = configured.substr(first, last - first + 1);
+        if (expected.empty() || expected.size() != actual.size())
+            return false;
+
+        return std::equal(expected.begin(), expected.end(), actual.begin(),
+            [](char lhs, char rhs)
+            {
+                return std::tolower(static_cast<unsigned char>(lhs)) ==
+                       std::tolower(static_cast<unsigned char>(rhs));
+            });
+    }
 
     struct SampleState
     {
@@ -50,6 +75,13 @@ namespace
             static bool const enabled = sConfigMgr->GetOption<bool>(
                 "NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled", false);
             if (!enabled || !player)
+                return;
+
+            // SECOND independent opt-in: a single exact Altbot character
+            // name is required even after Enabled has been explicitly set.
+            static std::string const allowedBot = sConfigMgr->GetOption<std::string>(
+                "NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName", "");
+            if (!IsAllowedBotName(player->GetName(), allowedBot))
                 return;
 
             ObjectGuid::LowType const guid = player->GetGUID().GetCounter();
