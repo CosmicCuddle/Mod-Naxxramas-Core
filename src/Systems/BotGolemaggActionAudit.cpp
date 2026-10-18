@@ -87,7 +87,11 @@ namespace
             if (!boss || !boss->IsAlive() ||
                 boss->GetMapId() != MOLTEN_CORE_MAP)
             {
-                _samples.erase(guid);
+                // Keep the per-combat sample budget during temporary boss
+                // lookup/target loss. Erasing it here lets the same bot
+                // replenish 24 log lines repeatedly as the context flickers.
+                // Only combat exit, death, map exit, role loss or logout
+                // resets the budget. This performs NO movement mutation.
                 return;
             }
 
