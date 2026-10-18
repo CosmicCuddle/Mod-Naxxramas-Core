@@ -2,7 +2,7 @@
 
 **Tracked at:** [master #28 (B02a)](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28) · [issue #31](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/31)
 
-**Status:** Isolated **module-only, default-OFF source implementation**. No operator server deployment or in-game acceptance. Designed for AzerothCore 3.3.5a, Individual Progression and Playerbots; not a change to core/Playerbots/IP.
+**Status:** Current isolated **module-only, default-OFF draft PR #32 source, exact current head `082a03d` as of this evidence refresh**. Prior pinned source/C++/full-link CI **PASS**, but no operator server deployment, in-game inventory acceptance, or additional core/Playerbots/IP edits. Editing these Markdown notes produces a NEW exact documentation commit; the pinned source PASS remains attributed to `082a03d`, not automatically to that later docs-only SHA.
 
 ## Owner's request and observed gap
 
@@ -42,11 +42,11 @@ The Hunter's real/effective dungeon level is also clamped to Vanilla's level **6
 
 The code checks the live database's actual item template against these assumptions. Other notable rarer ammo (Doomshot, AV ammunition, expansion ammunition) is **not** minted by this draft.
 
-## Additional numeric safety regression (prepared, not in draft PR #32 yet)
+## Additional numeric safety regression (included in draft PR #32)
 
 The feature now separates quota arithmetic into three pure C++ functions in `HunterAmmoSelection.h`: `TargetCount` strictly applies the **1–1000 ceiling** and any lower positive item template limit; `Shortfall` returns zero for sufficient existing ammunition; and `ObservedAdded` limits reporting to the *actual* before/after inventory increase, never exceeding the attempted quantity. The standalone policy test includes **17 additional edge-case assertions**, covering malformed configured targets, repeated runs, one missing round, insufficient capacity/partial additions, and impossible/negative stock deltas.
 
-The corresponding source contract has been updated. This is still source-only: **no new exact-head CI has run for these prepared changes**; the existing PR #32 pinned full Worldserver build is preserved until its completion.
+The corresponding source contract and tests are **already included in the current draft PR #32** at exact SHA `082a03d773b0b96a8f2beaefe6fb0433b5f138e3`. The [source and C++ policy CI #39135564447](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39135564447), [NT1 #39135564621](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39135564621) and [pinned real C++/full Worldserver build #39135564348](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39135564348) all **COMPLETED SUCCESS** on that **previous source/test-exact head**. The pinned build verified that the actual defined `NaxxramasHunterAmmo::TopUpHunterAmmo` symbol survives both module archive and linked Worldserver. This is **not live inventory/Playerbots acceptance** and does not authorise installation or opt-in.
 
 ## Test and acceptance matrix
 
@@ -54,9 +54,9 @@ The corresponding source contract has been updated. This is still source-only: *
 - [x] Wire `src/Systems/HunterAmmoProvision.cpp` to existing MC/dungeon command and stats; source only, disabled unless config explicit.
 - [x] Maintain class/pet separation: `PrepareHunter` top-up occurs **before** missing-pet early return.
 - [x] Include source-check contract `tests/test_hunter_ammo_consumables.py`.
-- [x] **Prepared separately (NOT current PR #32 head):** added independent `AllowSelectedNonVendor = 0` permission and selected-Thorium default-deny tests. Prepared branch `feature/hunter-ammo-source-safety-prepared-2026-10-18` must receive its own exact-head CI after PR #32's current pinned build completes.
-- [ ] Standalone C++ model test and source checks pass on exact PR revision.
-- [ ] Compile exact new C++ translation unit against pinned core/Playerbots/IP and full Worldserver link; verify module contains new code.
+- [x] **Current PR #32 head `082a03d`:** independent `AllowSelectedNonVendor = 0` gate and selected-Thorium default-deny source tests are included. Earlier `feature/hunter-ammo-source-safety-prepared-2026-10-18` is a historical preparation branch, not the live PR head.
+- [x] Exact source revision `082a03d`: standalone C++ model/policy and source checks **PASS** — [#39135564447](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39135564447).
+- [x] Exact source revision `082a03d`: actual C++ translation unit, full pinned AzerothCore/Playerbots/IP Worldserver link, and **defined `TopUpHunterAmmo` function presence in archive AND final executable** **PASS** — [#39135564348](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39135564348). No in-game ammo use inferred.
 - [ ] Verify operator's actual installed source and current world `item_template` match the test pin; investigate IP's additional item gating, especially Hunter stage shifts.
 - [ ] Back up known-good Worldserver, active config and **full characters database**, and **prove the restore procedure** before any proposed inventory test.
 - [ ] Approved one-Hunter MC pilot: selected vendor arrows, gun bullets, crossbow arrows; manual fallbacks without a selected ammo; crafted Thorium already selected; unusual/quest ammo denied; broken/missing weapon, level cap, no pet, full inventory, retry, relog, ammo consumption, character restore.
