@@ -50,6 +50,26 @@ int main()
     assert(ChooseAmmo(2, 0, 0).itemId == 0);
     assert(ChooseAmmo(19, 0, 60).itemId == 0);
 
+    // Repeated preparation never adds when already at/above target.
+    assert(TargetCount(600, 0) == 600);
+    assert(TargetCount(600, -1) == 600);
+    assert(TargetCount(-3, 0) == 1);
+    assert(TargetCount(0, 0) == 1);
+    assert(TargetCount(2000, 0) == 1000);
+    assert(TargetCount(2000, 200) == 200);
+    assert(TargetCount(600, 20) == 20);
+    assert(Shortfall(0, 600) == 600);
+    assert(Shortfall(599, 600) == 1);
+    assert(Shortfall(600, 600) == 0);
+    assert(Shortfall(800, 600) == 0);
+    // Report what was really stored, including unexpected partial writes.
+    assert(ObservedAdded(0, 600, 600) == 600);
+    assert(ObservedAdded(0, 250, 600) == 250);
+    assert(ObservedAdded(599, 600, 1) == 1);
+    assert(ObservedAdded(400, 400, 200) == 0);
+    assert(ObservedAdded(400, 350, 200) == 0);
+    assert(ObservedAdded(400, 900, 200) == 200);
+
     std::cout << "PASS: Hunter ammunition selection is type/level/source bounded\n";
     return 0;
 }
