@@ -42,6 +42,12 @@ The Hunter's real/effective dungeon level is also clamped to Vanilla's level **6
 
 The code checks the live database's actual item template against these assumptions. Other notable rarer ammo (Doomshot, AV ammunition, expansion ammunition) is **not** minted by this draft.
 
+## Additional numeric safety regression (prepared, not in draft PR #32 yet)
+
+The feature now separates quota arithmetic into three pure C++ functions in `HunterAmmoSelection.h`: `TargetCount` strictly applies the **1–1000 ceiling** and any lower positive item template limit; `Shortfall` returns zero for sufficient existing ammunition; and `ObservedAdded` limits reporting to the *actual* before/after inventory increase, never exceeding the attempted quantity. The standalone policy test includes **17 additional edge-case assertions**, covering malformed configured targets, repeated runs, one missing round, insufficient capacity/partial additions, and impossible/negative stock deltas.
+
+The corresponding source contract has been updated. This is still source-only: **no new exact-head CI has run for these prepared changes**; the existing PR #32 pinned full Worldserver build is preserved until its completion.
+
 ## Test and acceptance matrix
 
 - [x] Implement isolated selection policy and a real C++ test, `tests/hunter_ammo_selection.cpp`.
