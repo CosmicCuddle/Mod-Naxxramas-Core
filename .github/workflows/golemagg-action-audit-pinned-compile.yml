@@ -5,10 +5,12 @@ on:
     types: [opened, reopened, synchronize]
     paths:
       - 'src/Systems/BotGolemaggActionAudit.cpp'
+      - 'src/Systems/GolemaggActionAuditAllowlist.h'
       - 'src/NaxxramasCore_loader.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'scripts/check_golemagg_action_audit_pinned_compile.py'
       - 'tests/test_golemagg_action_audit.py'
+      - 'tests/golemagg_action_audit_allowlist.cpp'
       - '.github/workflows/golemagg-action-audit-pinned-compile.yml'
   workflow_dispatch:
 
