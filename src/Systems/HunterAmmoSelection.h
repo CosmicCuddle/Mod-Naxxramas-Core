@@ -35,8 +35,9 @@ namespace NaxxramasHunterAmmo
     };
 
     // Conservative Classic catalog, not the entire WotLK item database.
-    // Crafted Thorium ammunition may be topped up ONLY if already selected;
-    // it is never minted as a fallback for an unselected Hunter.
+    // Quest-exchanged / engineered Thorium ammunition is never a vendor
+    // fallback and is only replenished when already selected AND a separate
+    // default-DENY owner configuration explicitly permits duplication.
     constexpr KnownAmmo Catalog[] =
     {
         {2512, 2, 1, true},    // Rough Arrow
@@ -51,6 +52,35 @@ namespace NaxxramasHunterAmmo
         {15997, 3, 52, false} // Thorium Shells, selected-only
     };
 
+    // Pure arithmetic policy for repeatable, inventory-safe top-ups.
+    // maxCount <= 0 means unlimited in the item template, NOT unlimited
+    // supply; the separately configured 1..1000 hard ceiling still applies.
+    constexpr uint32_t TargetCount(int32_t configuredTarget, int32_t maxCount)
+    {
+        uint32_t bounded = configuredTarget < 1 ? 1u :
+            configuredTarget > 1000 ? 1000u :
+            static_cast<uint32_t>(configuredTarget);
+
+        if (maxCount > 0 && static_cast<uint32_t>(maxCount) < bounded)
+            bounded = static_cast<uint32_t>(maxCount);
+
+        return bounded;
+    }
+
+    constexpr uint32_t Shortfall(uint32_t current, uint32_t target)
+    {
+        return current < target ? target - current : 0u;
+    }
+
+    // Core AddItem may store fewer pieces than requested if anything goes
+    // wrong, so account for actual observed change, never assumed success.
+    constexpr uint32_t ObservedAdded(uint32_t before, uint32_t after,
+                                     uint32_t attempted)
+    {
+        uint32_t const delta = after > before ? after - before : 0u;
+        return delta < attempted ? delta : attempted;
+    }
+
     constexpr uint32_t ProjectileForWeapon(uint32_t weaponSubclass)
     {
         return weaponSubclass == 2 || weaponSubclass == 18 ? 2 :
@@ -59,7 +89,8 @@ namespace NaxxramasHunterAmmo
 
     inline Selection ChooseAmmo(uint32_t weaponSubclass,
                                 uint32_t selectedAmmoId,
-                                uint32_t effectiveLevel)
+                                uint32_t effectiveLevel,
+                                bool allowSelectedNonVendor = false)
     {
         uint32_t const wanted = ProjectileForWeapon(weaponSubclass);
         if (!wanted)
@@ -77,6 +108,13 @@ namespace NaxxramasHunterAmmo
 
                 if (item.requiredLevel > effectiveLevel)
                     return {0, wanted, Decision::LevelTooLow};
+
+                // Important for Individual Progression: a Hunter could have
+                // acquired a quest-reward or engineered ammo stack legitimately.
+                // Merely selecting it is NOT permission to mint extra copies.
+                // Operator must explicitly allow those inventory top-ups.
+                if (!item.vendorFallback && !allowSelectedNonVendor)
+                    return {0, wanted, Decision::UnsupportedSelectedAmmo};
 
                 return {item.itemId, wanted, Decision::Selected};
             }

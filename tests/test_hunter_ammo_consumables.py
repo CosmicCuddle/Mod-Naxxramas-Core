@@ -19,8 +19,8 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertIn('"NaxxramasCore.BotConsumables.HunterAmmo.Enabled", false', PROVISION)
         self.assertIn("NaxxramasCore.BotConsumables.HunterAmmo.TargetCount = 600", CONFIG)
         self.assertIn('"NaxxramasCore.BotConsumables.HunterAmmo.TargetCount", 600', PROVISION)
-        self.assertIn("1, 1000", PROVISION)
-        self.assertIn("before >= target", PROVISION)
+        self.assertIn("configuredTarget > 1000", POLICY)
+        self.assertIn("Shortfall(before, target)", PROVISION)
 
     def test_actual_weapon_and_current_selected_ammo(self):
         self.assertIn("GetWeaponForAttack(RANGED_ATTACK)", PROVISION)
@@ -53,14 +53,38 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertIn("UnsupportedSelectedAmmo", POLICY)
         self.assertIn("vendorFallback", POLICY)
 
+    def test_non_vendor_selected_ammo_needs_second_opt_in(self):
+        self.assertIn(
+            "NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor = 0",
+            CONFIG,
+        )
+        self.assertIn(
+            '"NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor", false',
+            PROVISION,
+        )
+        self.assertIn("allowSelectedNonVendor", POLICY)
+        self.assertIn("!item.vendorFallback && !allowSelectedNonVendor", POLICY)
+        self.assertIn("allowSelectedNonVendor);", PROVISION)
+        self.assertIn("UnsupportedSelectedAmmo", POLICY)
+
     def test_bag_preflight_and_real_delta_accounting(self):
         self.assertIn("CanStoreNewItem(", PROVISION)
         self.assertIn("capacity != EQUIP_ERR_OK || noSpace || destination.empty()", PROVISION)
         self.assertIn("bot->AddItem(chosen.itemId, needed)", PROVISION)
         self.assertIn("GetItemCount(chosen.itemId, false)", PROVISION)
-        self.assertIn("after - before", PROVISION)
+        self.assertIn("after - before", POLICY)
         self.assertIn("stats.HunterAmmoAdded += result.added", COMMAND)
         self.assertIn("stats.ItemsAdded += result.added", COMMAND)
+
+    def test_quantity_is_pure_clamped_and_counts_only_real_additions(self):
+        self.assertIn("constexpr uint32_t TargetCount(", POLICY)
+        self.assertIn("constexpr uint32_t Shortfall(", POLICY)
+        self.assertIn("constexpr uint32_t ObservedAdded(", POLICY)
+        self.assertIn("TargetCount(", PROVISION)
+        self.assertIn("ObservedAdded(before, after, needed)", PROVISION)
+        self.assertIn("if (!needed)", PROVISION)
+        self.assertIn("return current < target ? target - current : 0u;", POLICY)
+        self.assertIn("delta < attempted ? delta : attempted", POLICY)
 
     def test_pet_missing_does_not_block_ammunition(self):
         start = COMMAND.index("void PrepareHunter(")
