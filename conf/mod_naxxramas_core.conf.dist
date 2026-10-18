@@ -251,3 +251,19 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptGMs = 1
 # Preserve Playerbots queues based on IndividualProgression.BotAccountsRegex.
 # Default: 1
 NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
+
+#####################################
+# Molten Core / Golemagg — READ-ONLY Playerbot action probe
+#####################################
+
+# EXPERIMENTAL research-only diagnostic. Does not fix movement or override AI.
+# Samples the PUBLIC PlayerbotAI "action" status on account-controlled
+# melee Altbots in Molten Core during combat with Golemagg.
+# Logs are capped at 24 distinct action-tail samples per bot per encounter,
+# with a minimum 2.5s interval. A recent action tail does NOT prove the
+# specific movement action responsible for a retreat/reapproach loop.
+# Does not touch upstream Playerbots, paths, motion, DB, or raid mechanics.
+# Requires an explicit Worldserver restart to pick up config changes.
+# DO NOT enable for live 40-bot raids without a backed-up controlled pilot.
+# Default: 0
+NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0
