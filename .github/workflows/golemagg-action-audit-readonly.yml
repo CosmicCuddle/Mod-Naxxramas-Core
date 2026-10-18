@@ -4,10 +4,12 @@ on:
   pull_request:
     paths:
       - 'src/Systems/BotGolemaggActionAudit.cpp'
+      - 'src/Systems/GolemaggActionAuditAllowlist.h'
       - 'src/NaxxramasCore_loader.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'docs/PLAYERBOTS-GOLEMAGG-MELEE-GUARD-FEASIBILITY.md'
       - 'tests/test_golemagg_action_audit.py'
+      - 'tests/golemagg_action_audit_allowlist.cpp'
       - '.github/workflows/golemagg-action-audit-readonly.yml'
   workflow_dispatch:
 
@@ -23,6 +25,13 @@ jobs:
         uses: actions/checkout@v4
       - name: Run Golemagg read-only/opt-in contract checks
         run: python3 -m unittest discover -s tests -p 'test_golemagg_action_audit.py' -v
+      - name: Compile and run exact-name one-bot C++ policy tests
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            -Isrc/Systems tests/golemagg_action_audit_allowlist.cpp \
+            -o /tmp/golemagg_audit_allowlist_test
+          /tmp/golemagg_audit_allowlist_test
       - name: State remaining evidence gaps
         run: |
           echo "Passing source checks does NOT prove the C++ compiles with the pinned core."
