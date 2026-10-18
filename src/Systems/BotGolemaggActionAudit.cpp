@@ -7,6 +7,7 @@
  */
 #include "AiObjectContext.h"
 #include "Config.h"
+#include "GolemaggActionAuditAllowlist.h"
 #include "Log.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -52,6 +53,13 @@ namespace
             if (!enabled || !player)
                 return;
 
+            // SECOND independent opt-in: a single exact Altbot character
+            // name is required even after Enabled has been explicitly set.
+            static std::string const allowedBot = sConfigMgr->GetOption<std::string>(
+                "NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName", "");
+            if (!NaxxramasGolemaggActionAudit::IsAllowedBotName(player->GetName(), allowedBot))
+                return;
+
             ObjectGuid::LowType const guid = player->GetGUID().GetCounter();
             if (player->GetMapId() != MOLTEN_CORE_MAP ||
                 !player->IsAlive() || !player->IsInCombat())
@@ -87,7 +95,11 @@ namespace
             if (!boss || !boss->IsAlive() ||
                 boss->GetMapId() != MOLTEN_CORE_MAP)
             {
-                _samples.erase(guid);
+                // Keep the per-combat sample budget during temporary boss
+                // lookup/target loss. Erasing it here lets the same bot
+                // replenish 24 log lines repeatedly as the context flickers.
+                // Only combat exit, death, map exit, role loss or logout
+                // resets the budget. This performs NO movement mutation.
                 return;
             }
 

@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = (ROOT / "src/Systems/BotGolemaggActionAudit.cpp").read_text()
 CONFIG = (ROOT / "conf/mod_naxxramas_core.conf.dist").read_text()
 LOADER = (ROOT / "src/NaxxramasCore_loader.cpp").read_text()
+ALLOWLIST = (ROOT / "src/Systems/GolemaggActionAuditAllowlist.h").read_text()
 
 
 class GolemaggActionAuditSourceContract(unittest.TestCase):
@@ -23,6 +24,23 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
             r'sConfigMgr->GetOption<bool>\(\s*'
             r'"NaxxramasCore\.Playerbots\.GolemaggActionAudit\.Enabled", false\)',
         )
+
+    def test_single_exact_allowlisted_bot_is_required(self):
+        self.assertIn(
+            'NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""',
+            CONFIG,
+        )
+        self.assertIn(
+            '"NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName", ""',
+            SOURCE,
+        )
+        self.assertIn('#include "GolemaggActionAuditAllowlist.h"', SOURCE)
+        self.assertIn("NaxxramasGolemaggActionAudit::IsAllowedBotName(", SOURCE)
+        self.assertIn("player->GetName(), allowedBot", SOURCE)
+        self.assertIn('if (first == std::string::npos)', ALLOWLIST)
+        self.assertIn("expected.size() != actual.size()", ALLOWLIST)
+        self.assertIn("std::equal(", ALLOWLIST)
+        self.assertNotIn("find('*')", ALLOWLIST)
 
     def test_registration_is_isolated(self):
         self.assertEqual(LOADER.count("void AddBotGolemaggActionAuditScripts();"), 1)
@@ -71,6 +89,19 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
         self.assertIn("state.samples >= MAX_SAMPLES_PER_BOT", SOURCE)
         self.assertIn("state.lastTrace", SOURCE)
         self.assertIn("_samples.erase", SOURCE)
+
+    def test_transient_target_loss_does_not_rearm_logging_quota(self):
+        # The boss lookup is allowed to flicker while the same bot remains
+        # in combat. In that case the 24-line quota must NOT be cleared.
+        self.assertIn("Unit* boss = found ? found->Get() : nullptr;", SOURCE)
+        after_lookup = SOURCE.split(
+            "Unit* boss = found ? found->Get() : nullptr;", 1
+        )[1]
+        self.assertIn("// This public branch returns", after_lookup)
+        boss_block = after_lookup.split("// This public branch returns", 1)[0]
+        self.assertIn("if (!boss || !boss->IsAlive()", boss_block)
+        self.assertNotIn("_samples.erase(guid)", boss_block)
+        self.assertIn("return;", boss_block)
 
     def test_does_not_claim_action_is_causal(self):
         self.assertIn("RECENT action-log tail", SOURCE)
