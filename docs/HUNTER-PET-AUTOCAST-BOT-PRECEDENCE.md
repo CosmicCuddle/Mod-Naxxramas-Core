@@ -27,6 +27,34 @@ Five [synthetic timeline tests](../tests/test_hunter_pet_autocast_bot_precedence
 
 **Master ingress traced:** The pinned Playerbots [chat-to-AI pipeline](HUNTER-PET-AUTOCAST-BOT-MASTER-INGRESS.md) passes a sender into `HandleCommand`, which can reject input or queue it for a later AI trigger. Internal bot code can also issue commands. The native-on/off result has no authenticated module-only link back to the original human sender. Source guard and synthetic end-to-end tests keep this an explicit blocker.
 
+## Prepared six-ability mixed-policy regression (not yet pinned CI)
+
+A further **standalone, synthetic** C++ bridge model test is prepared on
+`research/hunter-autocast-multispell-precedence-prepared-2026-10-18`
+without changing PR #26's pinned successful head or the running three-feature
+integration test. It loops through six **fictional, distinct spell/rank IDs**
+rather than assuming the player has a fixed Lightning Breath, Bite, Cower, or
+Prowl loadout. These model numbers are **not actual DBC pet ability IDs**.
+
+For each hypothetical current legal/rank-eligible spell, it models:
+- alternating verified master ON and OFF intents and independently different
+  Playerbots default policies;
+- an authenticated native-applied master operation that becomes either an
+  advisory compatible candidate or a bot-policy conflict;
+- an automated Playerbots policy event that must remain
+  `AutomatedObservationOnly`, regardless of observed native state;
+- a new, separately sequenced master event that cannot inherit the AI's
+  origin, plus sequence-replay rejection across spell identities;
+- current spell/rank mismatch rejected even with an otherwise trusted event.
+
+All transitions require synthetic `trustedProducer`, `ipReconciliationCompleted`,
+verified owner, pet lifecycle identity, and native evidence for the purpose of
+test modelling. **No live producer exists**, so passing these tests does not
+show that actual preferences can be stored or restored, nor that any
+particular Hunter has learned these abilities. Do not implement periodic
+`ToggleAutocast` calls to force a desired state. The test is review-ready
+source but **has no exact-head GitHub CI or live gameplay result yet**.
+
 ## What is still needed
 
 An authenticated bot-master command source, demonstrated native command application, verified per-pet lifecycle identity, an authoritative post-IP return, and a safe Playerbots policy precedence/override mechanism (if conflicting master instructions should win) are still missing. These may need separately approved cross-repository work. No alternative that repeatedly re-enables/re-disables spells from a Naxx timer is permitted.

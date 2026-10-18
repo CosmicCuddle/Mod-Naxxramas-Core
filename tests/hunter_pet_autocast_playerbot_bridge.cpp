@@ -160,6 +160,79 @@ int main()
         assert(c.Review(next,off)==Verdict::MasterCandidateOnly);
         assert(c.Review(e,off)==Verdict::Skip);
     }
+    {
+        // Model ALL eligible ability IDs generically, never only Lightning
+        // Breath. The numbers below are distinct synthetic spell/rank pairs,
+        // NOT claims of learnt spells in the operator's current pet book.
+        constexpr std::uint32_t spells[] = {
+            10001, 10002, 10003, 10004, 10005, 10006
+        };
+        Consumer c(ValidId());
+        std::uint64_t sequence = 1;
+        for (std::uint32_t i = 0; i < 6; ++i)
+        {
+            bool const requestedOn = (i % 2 == 0);
+            bool const botDefaultOn = (i % 3 == 0) ? requestedOn
+                                                     : !requestedOn;
+            Current current = Live();
+            current.spellId = spells[i];
+            current.rankFamily = spells[i];
+            current.nativeOn = requestedOn;
+
+            Notification owner = ValidMaster();
+            owner.operationSequence = sequence++;
+            owner.spellId = spells[i];
+            owner.rankFamily = spells[i];
+            owner.requestedOn = requestedOn;
+            owner.beforeNativeOn = !requestedOn;
+            owner.afterNativeOn = requestedOn;
+            owner.nativeChangeApplied = true;
+            owner.botDefaultOn = botDefaultOn;
+
+            Verdict const expected = requestedOn == botDefaultOn
+                ? Verdict::MasterCandidateOnly
+                : Verdict::MasterConflictNeedsBotCoordination;
+            assert(c.Review(owner, current) == expected);
+            // Per-bot operation sequences must not be reused across spells.
+            assert(c.Review(owner, current) == Verdict::Skip);
+
+            // Normal Playerbots policy can subsequently reassert the bot's
+            // default. This observation is AUTOMATED, never master intent.
+            Notification ai = owner;
+            ai.operationSequence = sequence++;
+            ai.origin = Origin::BotDefault;
+            ai.masterIdentityAndCommandVerified = false;
+            ai.masterRequestApplied = false;
+            ai.beforeNativeOn = requestedOn;
+            ai.afterNativeOn = botDefaultOn;
+            ai.nativeChangeApplied = (requestedOn != botDefaultOn);
+            current.nativeOn = botDefaultOn;
+            assert(c.Review(ai, current) == Verdict::AutomatedObservationOnly);
+
+            // A hypothetical newly verified master request on this SAME
+            // spell requires coordination if opposing Playerbots policy.
+            Notification ownerAgain = owner;
+            ownerAgain.operationSequence = sequence++;
+            ownerAgain.beforeNativeOn = botDefaultOn;
+            ownerAgain.afterNativeOn = requestedOn;
+            ownerAgain.nativeChangeApplied = (requestedOn != botDefaultOn);
+            ownerAgain.botPolicyOverrideCoordinated = true;
+            current.nativeOn = requestedOn;
+            assert(c.Review(ownerAgain, current) ==
+                   Verdict::MasterCandidateOnly);
+            // Old events cannot relabel AI action after newer master action.
+            assert(c.Review(ai, current) == Verdict::Skip);
+
+            // A previous rank or replaced spell cannot be used as evidence
+            // of intent for a different legal rank on the current pet.
+            Current differentRank = current;
+            ++differentRank.rankFamily;
+            Notification stale = owner;
+            stale.operationSequence = sequence++;
+            assert(c.Review(stale, differentRank) == Verdict::Skip);
+        }
+        // Model verdicts remain advisory; no Pet toggle or DB persistence.
+    }
     { Consumer c(ValidId());c.Invalidate();assert(c.Review(good,now)==Verdict::Skip); }
     { Consumer c({});assert(c.Review(good,now)==Verdict::Skip); }
 }
