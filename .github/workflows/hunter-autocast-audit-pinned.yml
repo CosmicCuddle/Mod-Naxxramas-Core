@@ -74,6 +74,8 @@ concurrency:
 
 jobs:
   compile-and-link:
+    # Integration PR runs one shared full Worldserver; isolated feature PRs unaffected.
+    if: ${{ !startsWith(github.head_ref, 'integration/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 105
     steps:
