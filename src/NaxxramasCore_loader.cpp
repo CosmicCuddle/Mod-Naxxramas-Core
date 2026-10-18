@@ -42,6 +42,7 @@ void AddHonorResetScripts();
 void AddForcedPvPScripts();
 void AddAltMailDelayScripts();
 void AddBotRaidConsumablesScripts();
+void AddBotGolemaggActionAuditScripts();
 void AddBotTalentExpansionLimitsScripts();
 void AddBotTalentCompletionScripts();
 void AddMeetingStoneProgressionScripts();
@@ -87,6 +88,7 @@ void Addmod_naxxramas_coreScripts()
     AddForcedPvPScripts();
     AddAltMailDelayScripts();
     AddBotRaidConsumablesScripts();
+    AddBotGolemaggActionAuditScripts();
     AddBotTalentExpansionLimitsScripts();
     AddBotTalentCompletionScripts();
     AddMeetingStoneProgressionScripts();
