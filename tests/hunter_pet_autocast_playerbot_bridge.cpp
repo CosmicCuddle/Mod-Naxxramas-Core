@@ -29,7 +29,8 @@ constexpr Notification ValidMaster()
 }
 constexpr Current Live()
 {
-    return {ValidId(), 17261, 17261, true, true, true};
+    return {ValidId(), 17261, 17261, true, true, true,
+        true, true, true};
 }
 constexpr bool OneShot()
 {
@@ -53,8 +54,8 @@ int main()
         Consumer c(ValidId());
         assert(c.Review(e, state) == Verdict::Skip);
     };
-    { auto e=good; e.version=1; reject(e); }
-    { auto e=good; e.version=3; reject(e); }
+    { auto e=good; e.version=2; reject(e); }
+    { auto e=good; e.version=4; reject(e); }
     { auto e=good; e.identity.petIncarnation++; reject(e); }
     { auto e=good; e.identity.processEpoch++; reject(e); }
     { auto e=good; e.identity.ownerSessionEpoch++; reject(e); }
@@ -84,6 +85,13 @@ int main()
     { auto e=good; auto c=now; c.stillSameActivePet=false; reject(e,c); }
     { auto e=good; auto c=now; c.ownerSessionActive=false; reject(e,c); }
     { auto e=good; auto c=now; c.nativeOn=false; reject(e,c); }
+    // Native state and spell ID can remain unchanged even after IP
+    // revokes entitlement, a spell loses autocastability, or IP starts a
+    // replacement reconciliation. All three must fail closed NOW,
+    // regardless of the earlier event's claimed legal/ready state.
+    { auto e=good; auto c=now; c.currentPetKnowsLegalRank=false; reject(e,c); }
+    { auto e=good; auto c=now; c.currentNativeAutocastable=false; reject(e,c); }
+    { auto e=good; auto c=now; c.currentIpReconciliationCompleted=false; reject(e,c); }
     {
         auto e=good; e.botDefaultOn=false;
         Consumer c(ValidId());
@@ -230,6 +238,23 @@ int main()
             Notification stale = owner;
             stale.operationSequence = sequence++;
             assert(c.Review(stale, differentRank) == Verdict::Skip);
+
+            // Even an equal spell ID, family, pet and native ON/OFF may
+            // have become ineligible since the earlier signed event.
+            // Use fresh consumers so the test isolates current eligibility
+            // rather than accidentally succeeding due to replay rejection.
+            Current revoked = current;
+            revoked.currentPetKnowsLegalRank = false;
+            Consumer revokedConsumer(ValidId());
+            assert(revokedConsumer.Review(owner, revoked) == Verdict::Skip);
+            Current replacing = current;
+            replacing.currentIpReconciliationCompleted = false;
+            Consumer replacingConsumer(ValidId());
+            assert(replacingConsumer.Review(owner, replacing) == Verdict::Skip);
+            Current noAutocast = current;
+            noAutocast.currentNativeAutocastable = false;
+            Consumer noAutocastConsumer(ValidId());
+            assert(noAutocastConsumer.Review(owner, noAutocast) == Verdict::Skip);
         }
         // Model verdicts remain advisory; no Pet toggle or DB persistence.
     }
