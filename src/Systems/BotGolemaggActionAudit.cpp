@@ -7,6 +7,7 @@
  */
 #include "AiObjectContext.h"
 #include "Config.h"
+#include "GolemaggActionAuditAllowlist.h"
 #include "Log.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -17,7 +18,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <string>
-#include <unordered_map>
 
 namespace
 {
@@ -26,8 +26,11 @@ namespace
     constexpr uint32 SAMPLE_INTERVAL_MS = 2500;
     constexpr uint8 MAX_SAMPLES_PER_BOT = 24;
     constexpr size_t MAX_ACTION_TEXT = 320;
+    constexpr char const* AUDIT_STATE_KEY = "NaxxramasCore.GolemaggActionAudit.BotState";
 
-    struct SampleState
+    // State belongs to each Player object; never share one mutable map
+    // between concurrently ticking Worldserver map threads.
+    struct SampleState final : DataMap::Base
     {
         uint32 elapsedMs = 0;
         uint8 samples = 0;
@@ -52,11 +55,17 @@ namespace
             if (!enabled || !player)
                 return;
 
-            ObjectGuid::LowType const guid = player->GetGUID().GetCounter();
+            // SECOND independent opt-in: a single exact Altbot character
+            // name is required even after Enabled has been explicitly set.
+            static std::string const allowedBot = sConfigMgr->GetOption<std::string>(
+                "NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName", "");
+            if (!NaxxramasGolemaggActionAudit::IsAllowedBotName(player->GetName(), allowedBot))
+                return;
+
             if (player->GetMapId() != MOLTEN_CORE_MAP ||
                 !player->IsAlive() || !player->IsInCombat())
             {
-                _samples.erase(guid);
+                player->CustomData.Erase(AUDIT_STATE_KEY);
                 return;
             }
 
@@ -65,18 +74,18 @@ namespace
                 PlayerbotAI::IsTank(player) || !PlayerbotAI::IsDps(player) ||
                 !PlayerbotAI::IsMelee(player))
             {
-                _samples.erase(guid);
+                player->CustomData.Erase(AUDIT_STATE_KEY);
                 return;
             }
 
-            SampleState& state = _samples[guid];
-            if (state.samples >= MAX_SAMPLES_PER_BOT)
+            SampleState* state = player->CustomData.GetDefault<SampleState>(AUDIT_STATE_KEY);
+            if (state->samples >= MAX_SAMPLES_PER_BOT)
                 return;
 
-            state.elapsedMs += std::min(diff, SAMPLE_INTERVAL_MS);
-            if (state.elapsedMs < SAMPLE_INTERVAL_MS)
+            state->elapsedMs += std::min(diff, SAMPLE_INTERVAL_MS);
+            if (state->elapsedMs < SAMPLE_INTERVAL_MS)
                 return;
-            state.elapsedMs = 0;
+            state->elapsedMs = 0;
 
             // Public Playerbots context lookup, used by its own MC triggers.
             // Never access PlayerbotAI::currentEngine or register a listener.
@@ -87,17 +96,21 @@ namespace
             if (!boss || !boss->IsAlive() ||
                 boss->GetMapId() != MOLTEN_CORE_MAP)
             {
-                _samples.erase(guid);
+                // Keep the per-combat sample budget during temporary boss
+                // lookup/target loss. Erasing it here lets the same bot
+                // replenish 24 log lines repeatedly as the context flickers.
+                // Only combat exit, death, map exit, role loss or logout
+                // resets the budget. This performs NO movement mutation.
                 return;
             }
 
             // This public branch returns a RECENT action-log tail (not one
             // guaranteed action/event). It does not Execute an AI action.
             std::string trace = ai->HandleRemoteCommand("action");
-            if (trace.empty() || trace == state.lastTrace)
+            if (trace.empty() || trace == state->lastTrace)
                 return;
 
-            state.lastTrace = trace;
+            state->lastTrace = trace;
             if (trace.size() > MAX_ACTION_TEXT)
                 trace.erase(0, trace.size() - MAX_ACTION_TEXT);
             std::replace(trace.begin(), trace.end(), '\n', ' ');
@@ -114,12 +127,12 @@ namespace
 
             // One sample at most every 2.5 seconds and 24 reports per bot.
             // Do not draw movement-causality conclusions from this alone.
-            ++state.samples;
+            ++state->samples;
             LOG_INFO("module",
                 "GolemaggActionAudit READ ONLY: bot={} samples={}/{} "
                 "splash_stacks={} splash_remaining_ms={} boss_hp_pct={} "
                 "boss_distance_yards={} current_target={} recent_actions={}",
-                player->GetName(), static_cast<uint32>(state.samples),
+                player->GetName(), static_cast<uint32>(state->samples),
                 static_cast<uint32>(MAX_SAMPLES_PER_BOT),
                 stacks, remainingMs, boss->GetHealthPct(),
                 player->GetDistance2d(boss), target, trace);
@@ -128,11 +141,9 @@ namespace
         void OnPlayerLogout(Player* player) override
         {
             if (player)
-                _samples.erase(player->GetGUID().GetCounter());
+                player->CustomData.Erase(AUDIT_STATE_KEY);
         }
 
-    private:
-        std::unordered_map<ObjectGuid::LowType, SampleState> _samples;
     };
 }
 

@@ -267,3 +267,12 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
 # DO NOT enable for live 40-bot raids without a backed-up controlled pilot.
 # Default: 0
 NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0
+#
+# SECOND INDEPENDENT SAFETY GATE: one exact Altbot character name.
+# The observer never samples anyone when this setting is empty, even if
+# Enabled is changed to 1. No wildcard, comma-separated list, or "all" mode.
+# ASCII names match case-insensitively; surrounding whitespace is ignored.
+# For a separately authorised one-bot pilot only, use "Grau".
+# Default: "" (no bots are sampled)
+NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
+
