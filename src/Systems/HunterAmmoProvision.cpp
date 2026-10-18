@@ -54,8 +54,14 @@ namespace NaxxramasHunterAmmo
             std::min<uint32_t>(bot->GetLevel(), effectiveLevel), 60);
 
         uint32_t const selected = bot->GetUInt32Value(PLAYER_AMMO_ID);
+        // Non-vendor selected ammo can represent earned quest or crafted
+        // supplies. Selected status alone does NOT grant infinite free ammo.
+        // This second explicit opt-in is independent from overall enablement.
+        bool const allowSelectedNonVendor = sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor", false);
         Selection const chosen = ChooseAmmo(
-            weaponTemplate->SubClass, selected, level);
+            weaponTemplate->SubClass, selected, level,
+            allowSelectedNonVendor);
 
         if (!chosen.itemId)
         {
