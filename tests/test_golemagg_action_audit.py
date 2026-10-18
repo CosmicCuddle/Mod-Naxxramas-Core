@@ -86,9 +86,9 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
         self.assertRegex(SOURCE, r"SAMPLE_INTERVAL_MS\s*=\s*2500")
         self.assertRegex(SOURCE, r"MAX_SAMPLES_PER_BOT\s*=\s*24")
         self.assertRegex(SOURCE, r"MAX_ACTION_TEXT\s*=\s*320")
-        self.assertIn("state.samples >= MAX_SAMPLES_PER_BOT", SOURCE)
-        self.assertIn("state.lastTrace", SOURCE)
-        self.assertIn("_samples.erase", SOURCE)
+        self.assertIn("state->samples >= MAX_SAMPLES_PER_BOT", SOURCE)
+        self.assertIn("state->lastTrace", SOURCE)
+        self.assertIn("player->CustomData.Erase(AUDIT_STATE_KEY)", SOURCE)
 
     def test_transient_target_loss_does_not_rearm_logging_quota(self):
         # The boss lookup is allowed to flicker while the same bot remains
@@ -100,8 +100,18 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
         self.assertIn("// This public branch returns", after_lookup)
         boss_block = after_lookup.split("// This public branch returns", 1)[0]
         self.assertIn("if (!boss || !boss->IsAlive()", boss_block)
-        self.assertNotIn("_samples.erase(guid)", boss_block)
+        self.assertNotIn("CustomData.Erase(AUDIT_STATE_KEY)", boss_block)
         self.assertIn("return;", boss_block)
+
+    def test_sample_state_is_per_player_not_global_across_maps(self):
+        self.assertIn("struct SampleState final : DataMap::Base", SOURCE)
+        self.assertIn(
+            "player->CustomData.GetDefault<SampleState>(AUDIT_STATE_KEY)", SOURCE
+        )
+        self.assertIn('AUDIT_STATE_KEY = "NaxxramasCore.GolemaggActionAudit.BotState"', SOURCE)
+        self.assertIn("player->CustomData.Erase(AUDIT_STATE_KEY)", SOURCE)
+        self.assertNotIn("std::unordered_map<ObjectGuid::LowType", SOURCE)
+        self.assertNotIn("_samples", SOURCE)
 
     def test_does_not_claim_action_is_causal(self):
         self.assertIn("RECENT action-log tail", SOURCE)
