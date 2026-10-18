@@ -9,7 +9,7 @@
 
 namespace NaxxramasCore::HunterAutocastPlayerbotBridge
 {
-    constexpr std::uint16_t ContractVersion = 1;
+    constexpr std::uint16_t ContractVersion = 2;
 
     enum class Origin : std::uint8_t
     {
@@ -69,6 +69,11 @@ namespace NaxxramasCore::HunterAutocastPlayerbotBridge
         bool afterNativeOn = false;
         bool requestedOn = false;
         bool masterIdentityAndCommandVerified = false;
+        // Trusted upstream must prove that this exact authenticated master
+        // request passed native validation for this spell and Pet. The
+        // requested state may already be present (an idempotent request).
+        // A chat receipt or AI-generated command does NOT establish this.
+        bool masterRequestApplied = false;
         bool botDefaultKnown = false;
         bool botDefaultOn = false;
         bool botPolicyOverrideCoordinated = false;
@@ -109,7 +114,7 @@ namespace NaxxramasCore::HunterAutocastPlayerbotBridge
                 event.afterNativeOn != now.nativeOn ||
                 // A producer may claim a native change only if BEFORE and
                 // AFTER native states actually differ on the same Pet.
-                // An idempotent command is not an applied state transition.
+                // An idempotent command is not a native state transition.
                 event.nativeChangeApplied !=
                     (event.beforeNativeOn != event.afterNativeOn))
                 return Verdict::Skip;
@@ -118,17 +123,23 @@ namespace NaxxramasCore::HunterAutocastPlayerbotBridge
                 event.origin == Origin::FactoryOrTame ||
                 event.origin == Origin::OtherAI)
             {
+                // Contradictory source attribution fails closed.
+                if (event.masterIdentityAndCommandVerified ||
+                    event.masterRequestApplied)
+                    return Verdict::Skip;
                 _lastAcceptedSequence = event.operationSequence;
                 return Verdict::AutomatedObservationOnly;
             }
 
             if (event.origin != Origin::HypotheticalAuthenticatedMaster ||
                 !event.masterIdentityAndCommandVerified ||
-                !event.nativeChangeApplied ||
+                !event.masterRequestApplied ||
                 event.requestedOn != now.nativeOn ||
                 !event.botDefaultKnown)
                 return Verdict::Skip;
 
+            // A verified no-op may prove deliberate intent, without a
+            // native ON/OFF transition. No persistence is authorised.
             _lastAcceptedSequence = event.operationSequence;
             if (event.requestedOn != event.botDefaultOn &&
                 !event.botPolicyOverrideCoordinated)

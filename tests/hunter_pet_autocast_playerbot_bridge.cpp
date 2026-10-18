@@ -22,6 +22,7 @@ constexpr Notification ValidMaster()
     e.afterNativeOn = true;
     e.requestedOn = true;
     e.masterIdentityAndCommandVerified = true;
+    e.masterRequestApplied = true;
     e.botDefaultKnown = true;
     e.botDefaultOn = true;
     return e;
@@ -52,7 +53,8 @@ int main()
         Consumer c(ValidId());
         assert(c.Review(e, state) == Verdict::Skip);
     };
-    { auto e=good; e.version=2; reject(e); }
+    { auto e=good; e.version=1; reject(e); }
+    { auto e=good; e.version=3; reject(e); }
     { auto e=good; e.identity.petIncarnation++; reject(e); }
     { auto e=good; e.identity.processEpoch++; reject(e); }
     { auto e=good; e.identity.ownerSessionEpoch++; reject(e); }
@@ -67,10 +69,10 @@ int main()
     { auto e=good; e.trustedProducer=false; reject(e); }
     { auto e=good; e.nativeOperationAttempted=false; reject(e); }
     { auto e=good; e.nativeChangeApplied=false; reject(e); }
+    { auto e=good; e.masterRequestApplied=false; reject(e); }
     { auto e=good; e.beforeNativeOn=true; reject(e); }
-    { auto e=good; e.beforeNativeOn=true; e.nativeChangeApplied=false; reject(e); }
-    // Same desired/native state is an idempotent command, not a
-    // native ON/OFF transition to record as an explicit preference.
+    // An unchanged state with a false 'changed' claim is inconsistent;
+    // trusted, actually accepted idempotent master intent is tested below.
     { auto e=good; e.petKnowsLegalRank=false; reject(e); }
     { auto e=good; e.nativeAutocastable=false; reject(e); }
     { auto e=good; e.ipReconciliationCompleted=false; reject(e); }
@@ -94,10 +96,17 @@ int main()
     for (auto origin: {Origin::BotDefault,Origin::FactoryOrTame,Origin::OtherAI})
     {
         auto e=good; e.origin=origin;
-        e.masterIdentityAndCommandVerified=false; e.nativeChangeApplied=false;
+        e.masterIdentityAndCommandVerified=false;
+        e.masterRequestApplied=false; e.nativeChangeApplied=false;
         e.beforeNativeOn=e.afterNativeOn; // unchanged, source-labelled observation
         Consumer c(ValidId());
         assert(c.Review(e,now)==Verdict::AutomatedObservationOnly);
+        e.masterRequestApplied=true;
+        Consumer rejectApplied(ValidId());
+        assert(rejectApplied.Review(e,now)==Verdict::Skip);
+        e.masterRequestApplied=false; e.masterIdentityAndCommandVerified=true;
+        Consumer rejectIdentity(ValidId());
+        assert(rejectIdentity.Review(e,now)==Verdict::Skip);
     }
     {
         // Automatic notifications and master events must share ONE producer
@@ -105,6 +114,7 @@ int main()
         Consumer c(ValidId());
         auto bot = good; bot.origin=Origin::BotDefault;
         bot.masterIdentityAndCommandVerified=false;
+        bot.masterRequestApplied=false;
         bot.nativeChangeApplied=false;
         bot.beforeNativeOn=bot.afterNativeOn;
         assert(c.Review(bot,now)==Verdict::AutomatedObservationOnly);
@@ -121,11 +131,34 @@ int main()
     {
         auto bot=good; bot.origin=Origin::BotDefault;
         bot.masterIdentityAndCommandVerified=false;
+        bot.masterRequestApplied=false;
         bot.nativeChangeApplied=false;
         // A bot event claiming no change, while BEFORE and AFTER differ,
         // is also an inconsistent native observation and must fail closed.
         Consumer c(ValidId());
         assert(c.Review(bot,now)==Verdict::Skip);
+    }
+    {
+        // Already ON: a verified master request can be explicit intent.
+        auto e=good; e.beforeNativeOn=true; e.nativeChangeApplied=false;
+        Consumer c(ValidId());
+        assert(c.Review(e,now)==Verdict::MasterCandidateOnly);
+        assert(c.Review(e,now)==Verdict::Skip);
+        e.operationSequence=2; e.masterRequestApplied=false;
+        assert(c.Review(e,now)==Verdict::Skip);
+    }
+    {
+        // Already OFF despite AI default ON: policy coordination required.
+        auto e=good; e.beforeNativeOn=false; e.afterNativeOn=false;
+        e.nativeChangeApplied=false; e.requestedOn=false;
+        e.botDefaultOn=true;
+        auto off=now; off.nativeOn=false;
+        Consumer c(ValidId());
+        assert(c.Review(e,off)==Verdict::MasterConflictNeedsBotCoordination);
+        auto next=e; next.operationSequence=2;
+        next.botPolicyOverrideCoordinated=true;
+        assert(c.Review(next,off)==Verdict::MasterCandidateOnly);
+        assert(c.Review(e,off)==Verdict::Skip);
     }
     { Consumer c(ValidId());c.Invalidate();assert(c.Review(good,now)==Verdict::Skip); }
     { Consumer c({});assert(c.Review(good,now)==Verdict::Skip); }
