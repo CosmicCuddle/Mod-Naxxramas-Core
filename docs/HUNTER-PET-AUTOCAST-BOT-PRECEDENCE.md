@@ -27,14 +27,29 @@ Five [synthetic timeline tests](../tests/test_hunter_pet_autocast_bot_precedence
 
 **Master ingress traced:** The pinned Playerbots [chat-to-AI pipeline](HUNTER-PET-AUTOCAST-BOT-MASTER-INGRESS.md) passes a sender into `HandleCommand`, which can reject input or queue it for a later AI trigger. Internal bot code can also issue commands. The native-on/off result has no authenticated module-only link back to the original human sender. Source guard and synthetic end-to-end tests keep this an explicit blocker.
 
-## Prepared six-ability mixed-policy regression (not yet pinned CI)
+## Six-ability mixed-policy regression — exact-head CI verified
 
-A further **standalone, synthetic** C++ bridge model test is prepared on
-`research/hunter-autocast-multispell-precedence-prepared-2026-10-18`
-without changing PR #26's pinned successful head or the running three-feature
-integration test. It loops through six **fictional, distinct spell/rank IDs**
-rather than assuming the player has a fixed Lightning Breath, Bite, Cower, or
-Prowl loadout. These model numbers are **not actual DBC pet ability IDs**.
+The **standalone, synthetic** C++ bridge regression is now included in
+[draft PR #26](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/26)
+at exact source SHA `54931d2647c2e0921fb26a20ba3b41ad1ae5080d`.
+The older `research/hunter-autocast-multispell-precedence-prepared-2026-10-18`
+branch is historical preparation, **not** the current PR head. The test
+loops through six **fictional, distinct spell/rank IDs** rather than assuming
+a fixed Lightning Breath, Bite, Cower, or Prowl loadout. These model numbers
+are **not actual DBC pet ability IDs**.
+
+**Exact-head evidence (18 October 2026):**
+- [Pinned Hunter audit + standalone bridge + full Worldserver #39147893647](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39147893647)
+  **COMPLETED SUCCESS** at `54931d2`: the standalone C++ models, actual
+  Hunter audit translation-unit compile, full Worldserver link, and module
+  registration all passed.
+- [NT1 read-only checks #39147893660](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39147893660)
+  **PASS** at the same Hunter pet commit.
+- The older combined integration [#39141781780](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39141781780)
+  **PASS** belongs to previous integration SHA `42d3581` (older pet tests).
+  The newer integration `464d80c` requires its own
+  [exact-head combined CI #39152887883](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39152887883);
+  **do not infer its result from the earlier success**.
 
 For each hypothetical current legal/rank-eligible spell, it models:
 - alternating verified master ON and OFF intents and independently different
@@ -53,7 +68,8 @@ test modelling. **No live producer exists**, so passing these tests does not
 show that actual preferences can be stored or restored, nor that any
 particular Hunter has learned these abilities. Do not implement periodic
 `ToggleAutocast` calls to force a desired state. The test is review-ready
-source but **has no exact-head GitHub CI or live gameplay result yet**.
+source with the exact-head **GitHub source/model/full-link CI result recorded above**,
+but **no live gameplay result** and no usable preference-restoration feature.
 
 ## What is still needed
 
