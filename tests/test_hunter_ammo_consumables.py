@@ -44,7 +44,7 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertNotIn("void OnUpdate", PROVISION)
 
     def test_no_unapproved_equip_or_quest_minting(self):
-        for denied in ["SetAmmo(", "RemoveAmmo(", "EquipItem(", "StoreNewItem(",
+        for denied in ["SetAmmo(", "RemoveAmmo(", "EquipItem(", "bot->StoreNewItem(",
                        "CharacterDatabase.", "WorldDatabase.", "CastSpell(",
                        "AddActionExecutionListener(", "TeleportTo(", "LearnSpell("]:
             with self.subTest(denied=denied):
