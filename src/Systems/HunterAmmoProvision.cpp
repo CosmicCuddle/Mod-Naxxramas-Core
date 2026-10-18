@@ -54,8 +54,14 @@ namespace NaxxramasHunterAmmo
             std::min<uint32_t>(bot->GetLevel(), effectiveLevel), 60);
 
         uint32_t const selected = bot->GetUInt32Value(PLAYER_AMMO_ID);
+        // Non-vendor selected ammo can represent earned quest or crafted
+        // supplies. Selected status alone does NOT grant infinite free ammo.
+        // This second explicit opt-in is independent from overall enablement.
+        bool const allowSelectedNonVendor = sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor", false);
         Selection const chosen = ChooseAmmo(
-            weaponTemplate->SubClass, selected, level);
+            weaponTemplate->SubClass, selected, level,
+            allowSelectedNonVendor);
 
         if (!chosen.itemId)
         {
@@ -78,21 +84,15 @@ namespace NaxxramasHunterAmmo
             return {0, chosen.itemId, Status::ItemRejected};
         }
 
-        uint32_t target = static_cast<uint32_t>(
-            std::clamp<int32>(
-                sConfigMgr->GetOption<int32>(
-                    "NaxxramasCore.BotConsumables.HunterAmmo.TargetCount", 600),
-                1, 1000));
-
-        if (ammo->MaxCount > 0)
-            target = std::min<uint32_t>(
-                target, static_cast<uint32_t>(ammo->MaxCount));
+        uint32_t const target = TargetCount(
+            sConfigMgr->GetOption<int32>(
+                "NaxxramasCore.BotConsumables.HunterAmmo.TargetCount", 600),
+            ammo->MaxCount);
 
         uint32_t const before = bot->GetItemCount(chosen.itemId, false);
-        if (before >= target)
+        uint32_t const needed = Shortfall(before, target);
+        if (!needed)
             return {0, chosen.itemId, Status::AlreadySupplied};
-
-        uint32_t const needed = target - before;
 
         // Unlike the general TopUpToCount helper, do not risk a partial
         // bag-space grant. Native AddItem may add only SOME requested ammo;
@@ -109,8 +109,7 @@ namespace NaxxramasHunterAmmo
         // restock. Do not change PLAYER_AMMO_ID or ammo bag/equipment.
         bot->AddItem(chosen.itemId, needed);
         uint32_t const after = bot->GetItemCount(chosen.itemId, false);
-        uint32_t const added = after > before
-            ? std::min<uint32_t>(after - before, needed) : 0;
+        uint32_t const added = ObservedAdded(before, after, needed);
 
         if (!added)
             return {0, chosen.itemId, Status::NoBagSpace};
