@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = (ROOT / "src/Systems/BotGolemaggActionAudit.cpp").read_text()
 CONFIG = (ROOT / "conf/mod_naxxramas_core.conf.dist").read_text()
 LOADER = (ROOT / "src/NaxxramasCore_loader.cpp").read_text()
+ALLOWLIST = (ROOT / "src/Systems/GolemaggActionAuditAllowlist.h").read_text()
 
 
 class GolemaggActionAuditSourceContract(unittest.TestCase):
@@ -23,6 +24,23 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
             r'sConfigMgr->GetOption<bool>\(\s*'
             r'"NaxxramasCore\.Playerbots\.GolemaggActionAudit\.Enabled", false\)',
         )
+
+    def test_single_exact_allowlisted_bot_is_required(self):
+        self.assertIn(
+            'NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""',
+            CONFIG,
+        )
+        self.assertIn(
+            '"NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName", ""',
+            SOURCE,
+        )
+        self.assertIn('#include "GolemaggActionAuditAllowlist.h"', SOURCE)
+        self.assertIn("NaxxramasGolemaggActionAudit::IsAllowedBotName(", SOURCE)
+        self.assertIn("player->GetName(), allowedBot", SOURCE)
+        self.assertIn('if (first == std::string::npos)', ALLOWLIST)
+        self.assertIn("expected.size() != actual.size()", ALLOWLIST)
+        self.assertIn("std::equal(", ALLOWLIST)
+        self.assertNotIn("find('*')", ALLOWLIST)
 
     def test_registration_is_isolated(self):
         self.assertEqual(LOADER.count("void AddBotGolemaggActionAuditScripts();"), 1)
