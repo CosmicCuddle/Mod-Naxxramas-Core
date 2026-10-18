@@ -18,6 +18,7 @@ constexpr Notification ValidMaster()
     e.petKnowsLegalRank = true;
     e.nativeAutocastable = true;
     e.ipReconciliationCompleted = true;
+    e.beforeNativeOn = false;
     e.afterNativeOn = true;
     e.requestedOn = true;
     e.masterIdentityAndCommandVerified = true;
@@ -66,6 +67,10 @@ int main()
     { auto e=good; e.trustedProducer=false; reject(e); }
     { auto e=good; e.nativeOperationAttempted=false; reject(e); }
     { auto e=good; e.nativeChangeApplied=false; reject(e); }
+    { auto e=good; e.beforeNativeOn=true; reject(e); }
+    { auto e=good; e.beforeNativeOn=true; e.nativeChangeApplied=false; reject(e); }
+    // Same desired/native state is an idempotent command, not a
+    // native ON/OFF transition to record as an explicit preference.
     { auto e=good; e.petKnowsLegalRank=false; reject(e); }
     { auto e=good; e.nativeAutocastable=false; reject(e); }
     { auto e=good; e.ipReconciliationCompleted=false; reject(e); }
@@ -90,8 +95,37 @@ int main()
     {
         auto e=good; e.origin=origin;
         e.masterIdentityAndCommandVerified=false; e.nativeChangeApplied=false;
+        e.beforeNativeOn=e.afterNativeOn; // unchanged, source-labelled observation
         Consumer c(ValidId());
         assert(c.Review(e,now)==Verdict::AutomatedObservationOnly);
+    }
+    {
+        // Automatic notifications and master events must share ONE producer
+        // sequence namespace per bot/Pet lifecycle, not one per ability.
+        Consumer c(ValidId());
+        auto bot = good; bot.origin=Origin::BotDefault;
+        bot.masterIdentityAndCommandVerified=false;
+        bot.nativeChangeApplied=false;
+        bot.beforeNativeOn=bot.afterNativeOn;
+        assert(c.Review(bot,now)==Verdict::AutomatedObservationOnly);
+        auto laterMaster=good; laterMaster.operationSequence=2;
+        assert(c.Review(laterMaster,now)==Verdict::MasterCandidateOnly);
+        assert(c.Review(bot,now)==Verdict::Skip);
+        // An alternate spell requires exact matching CURRENT spell and rank.
+        auto bite=good; bite.operationSequence=3; bite.spellId=14916;
+        bite.rankFamily=14916;
+        Current growl=now; growl.spellId=14916; growl.rankFamily=14916;
+        assert(c.Review(bite,growl)==Verdict::MasterCandidateOnly);
+        assert(c.Review(laterMaster,now)==Verdict::Skip);
+    }
+    {
+        auto bot=good; bot.origin=Origin::BotDefault;
+        bot.masterIdentityAndCommandVerified=false;
+        bot.nativeChangeApplied=false;
+        // A bot event claiming no change, while BEFORE and AFTER differ,
+        // is also an inconsistent native observation and must fail closed.
+        Consumer c(ValidId());
+        assert(c.Review(bot,now)==Verdict::Skip);
     }
     { Consumer c(ValidId());c.Invalidate();assert(c.Review(good,now)==Verdict::Skip); }
     { Consumer c({});assert(c.Review(good,now)==Verdict::Skip); }

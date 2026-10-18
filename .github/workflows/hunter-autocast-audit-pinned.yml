@@ -32,6 +32,7 @@ on:
       - 'src/Systems/HunterPetAutocastPlayerbotBridgeContract.h'
       - 'tests/hunter_pet_autocast_playerbot_bridge.cpp'
       - 'docs/HUNTER-PET-AUTOCAST-PLAYERBOT-BRIDGE.md'
+      - 'docs/HUNTER-PET-AUTOCAST-UPSTREAM-INTEGRATION-PLAN.md'
       - 'docs/HUNTER-PET-AUTOCAST-PLAYERBOT-POLICY.md'
       - 'docs/HUNTER-PET-AUTOCAST-DECISION-GATE.md'
       - 'src/NaxxramasCore_loader.cpp'

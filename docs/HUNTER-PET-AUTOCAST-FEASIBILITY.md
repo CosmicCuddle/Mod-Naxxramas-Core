@@ -150,6 +150,8 @@ Stage 4: controlled production test only after owner approves actual install and
 
 **Standalone Playerbots notification consumer contract:** [HUNTER-PET-AUTOCAST-PLAYERBOT-BRIDGE.md](HUNTER-PET-AUTOCAST-PLAYERBOT-BRIDGE.md) specifies a versioned post-native per-spell event, separate AI/master provenance, per-pet/process/session generation checking, replay rejection and bot-policy conflict escalation. Its isolated C++20 model compiles and executes in CI but has no runtime producer or active toggle. The tests reject unknown/stale identities, illegal spells, unverified IP completion, mismatched observed ON/OFF, false master attribution and source-policy conflicts. This is a review blueprint, NOT an installable Playerbots integration or permission to edit upstream repositories.
 
+**Concrete upstream work plan (review only):** [HUNTER-PET-AUTOCAST-UPSTREAM-INTEGRATION-PLAN.md](HUNTER-PET-AUTOCAST-UPSTREAM-INTEGRATION-PLAN.md) sequences pet incarnation, IP after-return, Playerbots per-spell origin, bot-policy coordination, then Naxx persistence and staging with verified characters DB restore. The standalone Playerbots bridge now rejects contradictory native changed flags vs BEFORE/AFTER state and tests one monotonic replay sequence across ability families; it remains isolated from Worldserver. No upstream changes authorised or undertaken.
+
 ## 4. Hard release blockers
 
 1. No trusted way to distinguish **player OFF** from **newly learned spell defaults to OFF**: do not silently re-enable unknown spells. A new preference must be captured by a confirmed explicit toggle.

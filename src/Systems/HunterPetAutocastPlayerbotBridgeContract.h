@@ -65,6 +65,7 @@ namespace NaxxramasCore::HunterAutocastPlayerbotBridge
         bool petKnowsLegalRank = false;
         bool nativeAutocastable = false;
         bool ipReconciliationCompleted = false;
+        bool beforeNativeOn = false;
         bool afterNativeOn = false;
         bool requestedOn = false;
         bool masterIdentityAndCommandVerified = false;
@@ -105,7 +106,12 @@ namespace NaxxramasCore::HunterAutocastPlayerbotBridge
                 !event.trustedProducer || !event.nativeOperationAttempted ||
                 !event.petKnowsLegalRank || !event.nativeAutocastable ||
                 !event.ipReconciliationCompleted ||
-                event.afterNativeOn != now.nativeOn)
+                event.afterNativeOn != now.nativeOn ||
+                // A producer may claim a native change only if BEFORE and
+                // AFTER native states actually differ on the same Pet.
+                // An idempotent command is not an applied state transition.
+                event.nativeChangeApplied !=
+                    (event.beforeNativeOn != event.afterNativeOn))
                 return Verdict::Skip;
 
             if (event.origin == Origin::BotDefault ||
