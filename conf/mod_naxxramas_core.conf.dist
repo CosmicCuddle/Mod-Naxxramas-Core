@@ -1,4 +1,21 @@
 #####################################
+# Molten Core — Greater Fire Protection one-shot refresh
+#####################################
+
+# When .bot consumables mc successfully applies (or preserves) the
+# Greater Fire Protection aura, schedule ONE refresh attempt for each
+# originally eligible grouped/controlled bot 90 seconds afterwards.
+# The one-shot is consumed even if the bot has died, left the group
+# or instance, or refresh fails. It never runs on another timer tick.
+# The normal initial Greater Fire Protection and Juju Flurry behavior
+# are unchanged when disabled. No repeat at 180 seconds.
+# 1 = enable one optional 90-second GFPP refresh attempt
+# 0 = existing MC consumable behavior unchanged
+# Default: 0 (disabled until owner-approved gameplay tests)
+NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled = 0
+
+
+#####################################
 # Honor Overflow
 #####################################
 
