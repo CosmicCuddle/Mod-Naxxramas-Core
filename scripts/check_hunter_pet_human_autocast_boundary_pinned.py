@@ -87,7 +87,7 @@ def check(core: Path, ip: Path) -> None:
     assert (load_pet.index(
         "_LoadSpells(holder.GetPreparedResult(PetLoadQueryHolder::SPELLS));") <
         load_pet.index("InitLevelupSpellsForLevel();") <
-        load_pet.index("m_loading = false;"))
+        load_pet.rindex("m_loading = false;"))
     init_family = between(pet, "void Pet::InitLevelupSpellsForLevel()",
                           "bool Pet::unlearnSpell(")
     assert "sSpellMgr->GetPetLevelupSpellList(GetCreatureTemplate()->family)" in init_family
