@@ -41,6 +41,32 @@ NaxxramasCore.QuestLootProtection.Debug = 0
 
 Rollback: set `Enabled = 0` in the active config and restart the Worldserver (after appropriate backups and change approval). Removal in source: revert the standalone `QuestLootProtection.cpp` file, its loader registration, and these two config lines in a dedicated later PR; no migrations or cleanup are required.
 
+## Controlled S5/S6 operator acceptance matrix (NOT YET RUN)
+
+This is a proposed checklist for a separately approved staging build only. No tests in this table have been performed on the owner's realm. The default-OFF configuration must be proven inactive before enabling any scenario. Record exact Naxxramas / AzerothCore / IP / Playerbots SHAs, world/characters DB snapshots, backup restore rehearsal, actual eligible quest item ID, and the loot observation for each case. Never infer live success from synthetic tests.
+
+| ID | Scenario (one corpse unless stated) | Expected behavior with guard ON |
+| --- | --- | --- |
+| QL-01 | Two eligible group members need the same single-copy creature quest item; non-owner tries first | Non-owner denied; item not consumed or duplicated; owner still able to collect |
+| QL-02 | Actual round-robin owner collects their quest item | Normal native pickup succeeds |
+| QL-03 | Owner releases loot turn; eligible second member tries | Native fallback allowed; no permanent new lock |
+| QL-04 | Owner offline/leaves party or lacks eligible personal quest slot | No new guard denial; check native behavior |
+| QL-05 | Viewer has multiple quest slots; client slot maps to a different underlying quest item | Uses viewer-index mapping, never raw slot as global index |
+| QL-06 | Owner mapping refers to different quest item or matching owner view already looted | No stale-owner denial |
+| QL-07 | Owner completed quest or fails native item eligibility | Guard defers to core, cannot strand quest loot |
+| QL-08 | Normal slot, unrelated opcode, empty or padded autostore packet | Unrelated/empty use native handling; padding may not bypass active protection |
+| QL-09 | FREE_FOR_ALL and MASTER_LOOT group modes | Native ownership behavior |
+| QL-10 | GROUP_LOOT, ROUND_ROBIN, NEED_BEFORE_GREED with eligible owner | Narrow guard, no legitimate roll suppression |
+| QL-11 | ITEM_FLAG_MULTI_DROP, shared or follow_loot_rules items | Not intercepted |
+| QL-12 | Blocked/rolled quest item with winner, or multiple-count quest item | Native loot/roll handling remains authoritative |
+| QL-13 | Gameobject loot, non-creature corpse, distant/not-reward-group corpse | No new guard denial |
+| QL-14 | Playerbots normal LootAction packet queue versus headless/direct store paths | Trace which paths hit CanPacketReceive; do not claim universal direct-storage coverage |
+| QL-15 | Guard OFF baseline, relog, corpse expiry, complete inventory before/after | OFF mirrors native; no orphaned/unlootable corpse, inventory mutation or crash |
+
+**Capture and abort rules:** Verify the owner has authorized the exact candidate and that known-good Worldserver binary/config plus **complete characters database** backups are independently proven **restorable**. Keep personal/account IDs and server credentials private. Abort on duplication/loss, stranded legitimate loot, skipped hook paths, unexpected Playerbot behavior or crash. Disable the feature through approved restart/restore; never delete items manually to improvise rollback. Record each row as PASS / FAIL / NOT RUN with evidence before checking S6. This matrix is not permission to install or enable anything.
+
+**Important source limitation:** A packet guard only protects paths entering the native CMSG_AUTOSTORE_LOOT_ITEM handler through CanPacketReceive. A direct caller of Player::StoreLootItem bypasses it. Random Bots, Altbots and headless Playerbots must be independently checked where applicable; do not assume every route is covered.
+
 ## Validation checklist (required before merge/production use)
 
 - Automated source/synthetic regression checks: correct slot translation, malformed/invalid player slot, padded packet cannot bypass the guard, native methods untouched, shared items and roll winners excluded, released owner, missing owner quest slot, owner no longer eligible, guarded group methods, config off. All use mocks/models, not the actual loot manager.
