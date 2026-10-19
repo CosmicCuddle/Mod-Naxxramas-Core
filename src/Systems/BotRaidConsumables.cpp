@@ -3079,13 +3079,15 @@ void PrepareManaUser(
         PlayerbotMgr* manager =
             PlayerbotsMgr::instance().GetPlayerbotMgr(master);
 
-        if (!manager)
-            return;
-
+        // Consume the deadline even if the bot manager has vanished.
+        // We must not fire an unexpectedly delayed aura later.
         for (OneShotFireProtection& pending :
              tracker.FireProtectionOneShots)
         {
             if (!pending.Timer.ConsumeIfDue(diff))
+                continue;
+
+            if (!manager)
                 continue;
 
             Player* bot = ResolvePreparedBot(
