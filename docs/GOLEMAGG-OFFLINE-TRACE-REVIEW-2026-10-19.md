@@ -18,6 +18,7 @@ The local helper reports only totals:
 - Count of sampled **retreat-condition snapshots**: living boss lookup present, boss HP **above 10%**, Magma Splash **at least 20 stacks**, and boss distance **under 12 yards**. This is source-informed context, not proof that the Playerbots strategy was selected or executed
 - Separately count back-off *mentions* during a sampled condition versus mentions without a confirmed condition. **A recent action tail may describe an earlier action**, so these are not synchronized events or a contradiction by themselves
 - Sample-number resets/replays which may indicate combat-window rollover
+- **Unavailable recent action history samples** using the literal sentinel `(no recent action)`, proposed separately in [stacked read-only observer PR #40](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/40). This means the action log was empty when queried, **not that the bot performed no actions**. Such samples still count toward 20-stack/12-yard buckets, but never create a false back-off action mention
 
 It does **not** display raw log lines, bot names, recent actions, target names, account data or any configuration. Original logs may contain personal data; keep them private and do not upload raw logs to GitHub discussions.
 
@@ -33,7 +34,7 @@ Run on a local computer or disposable analysis workspace with Python 3.10+ and a
 - Exit 1: readable log but **no parseable** samples.
 - Exit 2: missing or unreadable log.
 
-**Compatibility:** new observer output has explicit threshold booleans; old output lacks them and is reported as legacy/inferred. The helper cannot prove which revision is installed on the realm.
+**Compatibility:** new observer output has explicit threshold booleans; old output lacks them and is reported as legacy/inferred. The helper can also distinguish the proposed new PR #40 `(no recent action)` marker from a real recent action tail, without modifying the parent Golemagg PR #30 or requiring PR #40 to be merged. The two stacked PRs #35 and #40 are separate siblings and require careful later integration if approved. The helper cannot prove which revision is installed on the realm.
 
 ## Interpretation and safety limitations
 
