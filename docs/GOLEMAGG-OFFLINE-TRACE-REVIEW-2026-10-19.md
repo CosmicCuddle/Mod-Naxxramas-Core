@@ -1,0 +1,42 @@
+# Golemagg diagnostic log review — offline helper
+
+**Prepared research branch; not installed, deployed, merged or run on the owner's Worldserver.** The existing Golemagg diagnostic draft PR #30 is **OFF by default** and still requires separate operator approval, installed-version comparison, restorable backups, a one-Altbot config gate and a Worldserver restart before any in-game sampling.
+
+## Purpose
+
+After a separately approved Grau-only raid pilot, summarize already-written Worldserver log lines containing the marker GolemaggActionAudit READ ONLY: from a **private, local copy**. This does not increase game logging frequency, change movement or fetch data from a server.
+
+The existing observer samples at most 24 lines per qualifying bot/combat window with a 2.5-second minimum interval. The newer unmerged PR #30 at SHA 3c742a1 adds explicit fields retreat_stacks_20 and inside_retreat_12yd when the **pinned Playerbots Magma Splash policy** crosses 20 stacks and 12 yards. Earlier observer revisions lacked those booleans; the offline helper can infer threshold buckets from old stack/distance fields, but counts how many samples lack explicit values.
+
+The local helper reports only totals:
+
+- Valid/malformed observer line counts and distinct character count (never names)
+- Samples with 20+ stacks and count of stack-bucket transitions
+- Sampled crossings of the 12-yard boss distance bucket, excluding missing boss lookup
+- Temporary boss lookup misses and samples when boss is at or under 10% HP
+- Recent action tails *mentioning* Golemagg back-off (not proof the action executed)
+- Sample-number resets/replays which may indicate combat-window rollover
+
+It does **not** display raw log lines, bot names, recent actions, target names, account data or any configuration. Original logs may contain personal data; keep them private and do not upload raw logs to GitHub discussions.
+
+## Usage on a separately supplied local text file
+
+For future operator review only, **not an instruction to enable the diagnostic or execute the script now**:
+
+    python3 scripts/summarize_golemagg_action_audit.py /path/to/private-redacted-worldserver.log
+
+Run on a local computer or disposable analysis workspace with Python 3.10+ and a trusted copy of the script. It reads only the specified local file, prints aggregate counts and exits; standard Python library only, no network or file writes.
+
+- Exit 0: one or more valid observer samples.
+- Exit 1: readable log but **no parseable** samples.
+- Exit 2: missing or unreadable log.
+
+**Compatibility:** new observer output has explicit threshold booleans; old output lacks them and is reported as legacy/inferred. The helper cannot prove which revision is installed on the realm.
+
+## Interpretation and safety limitations
+
+The pinned Playerbots HandleRemoteCommand("action") returns a **recent action-log tail**, not a causally linked exact execution event. Repeated mentions of "mc golemagg back off" do not demonstrate that it caused an oscillation. The relevant native strategy applies under conditions including non-tank bot, boss above 10% HP, Magma Splash 20+ stacks and roughly 12-yard retreat. Other AI movement actions, priorities, pathfinding, lag and loss of threat target could still be involved.
+
+Transitions **between** the 2.5-second samples are unknown. Distance when boss threat lookup is missing is -1 and intentionally **excluded** from distance transition comparisons. Sample number resets are not connected across combat windows. This can corroborate or weaken a hypothesis, never certify a movement fix. Actual root cause still needs reviewed gameplay and exact installed Playerbots code.
+
+Before any future on-realm collection: separately obtain explicit owner approval for source revision, install/restart/enable actions and scope; back up executable/config/source, prove restores, keep Hunter Ammo disabled, and disable audit after the authorised one-Grau test. No global AI interception or upstream Playerbots change authorised.
