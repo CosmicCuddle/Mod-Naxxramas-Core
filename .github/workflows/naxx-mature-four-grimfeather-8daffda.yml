@@ -1,0 +1,150 @@
+name: Mature four-feature same-binary newer Grimfeather compatibility
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - '.github/workflows/naxx-mature-four-grimfeather-8daffda.yml'
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'src/Systems/GreaterFireProtectionOneShot.h'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/test_mc_gfpp_one_shot.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-mature-four-newcore-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-and-full-link:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout target updated Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+      - name: Checkout pinned Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact integrated Naxx branch head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify exact candidate and dependency SHAs
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = 037c01418b5d01506917a3db9b44fd56ac5f965c
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Verify all new inventory and GFPP effects OFF by default
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("acore/modules/mod-naxxramas-core")
+          conf = (root / "conf/mod_naxxramas_core.conf.dist").read_text()
+          for key in (
+              "NaxxramasCore.QuestLootProtection.Enabled = 0",
+              "NaxxramasCore.QuestLootProtection.Debug = 0",
+              "NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0",
+              "NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor = 0",
+              "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled = 0",
+          ):
+              assert conf.count(key) == 1, "Missing/duplicated OFF default: " + key
+          loader = (root / "src/NaxxramasCore_loader.cpp").read_text()
+          assert sum(line.strip() == "AddQuestLootProtectionScripts();" for line in loader.splitlines()) == 1
+          assert sum(line.strip() == "void AddQuestLootProtectionScripts();" for line in loader.splitlines()) == 1
+          print("PASS: isolated Quest Loot, Hunter Ammo and GFPP OFF defaults and registration.")
+          PY
+      - name: Run all four feature test families
+        run: |
+          set -euo pipefail
+          root=acore/modules/mod-naxxramas-core
+          python3 -m unittest discover -s "$root/tests" -p 'test_ep_tower_module_only.py' -v
+          python3 -m unittest discover -s "$root/tests" -p 'test_quest_loot_protection.py' -v
+          python3 -m unittest discover -s "$root/tests" -p 'test_hunter_ammo_consumables.py' -v
+          python3 -m unittest discover -s "$root/tests" -p 'test_mc_gfpp_one_shot.py' -v
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -I"$root/src/Systems" "$root/tests/hunter_ammo_selection.cpp" -o /tmp/naxx_mature_hunter_ammo_model
+          /tmp/naxx_mature_hunter_ammo_model
+      - name: Install pinned full Worldserver compile dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure pinned full Worldserver
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile actual four module C++ translation units
+        run: |
+          set -euo pipefail
+          module=acore/modules/mod-naxxramas-core
+          python3 "$module/scripts/check_hunter_ammo_pinned_compile.py" --compile-commands acore-build/compile_commands.json --timeout 360
+          python3 "$module/scripts/check_quest_loot_pinned_compile.py" --compile-commands acore-build/compile_commands.json --timeout 360
+          python3 "$module/scripts/check_ep_module_compile_commands.py" --compile-commands acore-build/compile_commands.json --timeout 360
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          commands = json.loads(Path("acore-build/compile_commands.json").read_text())
+          units = [x for x in commands if x["file"].endswith("/src/Systems/BotRaidConsumables.cpp")]
+          assert len(units) == 1, f"Expected one MC/Hunter Ammo shared C++ unit: {len(units)}"
+          source = Path("acore/modules/mod-naxxramas-core/src/Systems/BotRaidConsumables.cpp").read_text()
+          assert '#include "GreaterFireProtectionOneShot.h"' in source
+          assert 'NaxxramasHunterAmmo::TopUpHunterAmmo(' in source
+          print("PASS: MC GFPP one-shot and Hunter Ammo share one compiled C++ translation unit")
+          PY
+      - name: Link one actual Worldserver containing all four candidates
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify four integrated features in final executable
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          archive=acore-build/modules/libmodules.a
+          test -s "$archive" && test -s "$binary" && test -x "$binary"
+          nm -C --defined-only "$archive" > /tmp/naxx_mature_archive_symbols.txt
+          nm -C --defined-only "$binary" > /tmp/naxx_mature_binary_symbols.txt
+          grep -Fq 'NaxxramasHunterAmmo::TopUpHunterAmmo(' /tmp/naxx_mature_archive_symbols.txt
+          grep -Fq 'NaxxramasHunterAmmo::TopUpHunterAmmo(' /tmp/naxx_mature_binary_symbols.txt
+          grep -aFq 'NaxxramasQuestLootProtection' "$binary"
+          grep -aFq 'outdoorpvp_naxxramas_ep_lock' "$binary"
+          grep -Fq 'AddBotRaidConsumablesScripts()' /tmp/naxx_mature_archive_symbols.txt
+          grep -Fq 'AddBotRaidConsumablesScripts()' /tmp/naxx_mature_binary_symbols.txt
+          grep -aFq 'NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled' "$binary"
+          sha256sum "$binary"
+          echo "PASS: Hunter Ammo, Quest Loot, EP and GFPP one-shot retained in ONE linked Worldserver."
+      - name: State provisional dependency and no-release boundary
+        if: always()
+        run: |
+          echo "PROVISIONAL compatibility: Grimfeather core pinned 8daffda; Playerbots and Individual Progression revisions are historical CI pins."
+          echo "Exact installed Playerbots/IP versions have NOT been confirmed with the owner."
+          echo "No server deployment, config/SQL activation, live gameplay or production backup proof is implied."
+      - name: State no-release or gameplay acceptance boundary
+        if: always()
+        run: |
+          echo "Build-only source candidate. No server launch, installation, inventory or DB interaction."
+          echo "No SQL handler activation, config enablement, merge, or owner acceptance claimed."
