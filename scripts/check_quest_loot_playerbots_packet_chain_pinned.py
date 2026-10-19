@@ -28,10 +28,15 @@ def verify(bot_source, session_source, opcode_source, module_source):
     create = "new WorldPacket(CMSG_AUTOSTORE_LOOT_ITEM, 1)"
     slot = "*packet << itemindex;"
     queued = "bot->GetSession()->QueuePacket(packet);"
-    for item in (create, slot, queued):
-        required(bot, item)
-    if not (bot.index(create) < bot.index(slot) < bot.index(queued)):
-        raise ValueError("packet/slot/queue order changed")
+    # The method can queue other packets (for example loot money) BEFORE
+    # the autostore item is constructed. Locate only the correct later
+    # slot/QueuePacket pair, never the first QueuePacket in the whole method.
+    required(bot, create)
+    create_at = bot.index(create)
+    slot_at = bot.find(slot, create_at + len(create))
+    queue_at = bot.find(queued, slot_at + len(slot)) if slot_at >= 0 else -1
+    if slot_at < 0 or queue_at < 0:
+        raise ValueError("QueuePacket order changed or missing after autostore slot")
     if "HandleAutostoreLootItemOpcode(" in bot or "StoreLootItem(" in bot:
         raise ValueError("direct store/handler bypass found in normal bot path")
 
@@ -40,7 +45,7 @@ def verify(bot_source, session_source, opcode_source, module_source):
                     "void WorldSession::LogUnexpectedOpcode")
     required(queue, "_recvQueue.add(new_packet);")
     logged_in = section(session_source, "case STATUS_LOGGEDIN:",
-                        "case STATUS_LOGGEDIN_OR_RECENTLYLOGGOUT:")
+                        "case STATUS_LOGGEDIN_OR_RECENTLY_LOGGOUT:")
     guard = "if (!sScriptMgr->CanPacketReceive(this, *packet))"
     dispatch = "opHandle->Call(this, *packet);"
     for item in ("else if (_player->IsInWorld())", guard, dispatch):
