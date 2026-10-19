@@ -1,7 +1,7 @@
 # Eastern Plaguelands Towers — Naxxramas Core Module-Only Design
 
-**Status: module-only C++ + reversible SQL DRAFT. Unmerged, uninstalled and not yet proved on the owner's live core.**
-**Scope confirmed by owner:** all four towers lock **individually** for **90 real-time minutes** when that tower's capture bar reaches **100%**, then become neutral again. Survives clean Worldserver restart and time elapsed during downtime. No added announcements, countdown UI, config flags or Terokkar changes.
+**Status: core module implementation merged in PR #21; owner reports recompilation, installation and restart on 14 October 2026. In-game acceptance and optional SQL activation remain pending.**
+**Scope confirmed by owner:** all four towers lock **individually** for **90 real-time minutes** when that tower's capture bar reaches **100%**, then become neutral again. Survives clean Worldserver restart and time elapsed during downtime. A **new draft enhancement** adds one Eastern Plaguelands zone announcement at each successful 100% capture (not part of the earlier installed build); no countdown UI, new config flags or Terokkar changes.
 
 Tracking: [Issue #19](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/19). The earlier [core-source patch PR #20](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/20) is **PAUSED and superseded by this module-only design**. NT1 talent research PR #18 remains separate.
 
@@ -31,7 +31,7 @@ The original AzerothCore capture update flags towers as controlled once the capt
 - During startup restoration, the original `ChangeState()` restores each captured tower's benefits with `_oldState=_state` to avoid extra capture text. The initial zero-diff refresh recalculates the original zone's private control-count cache.
 - **Late-loaded flag appearance:** The original `ChangeState()` updates artkits only on currently loaded map objects. The module wrapper additionally uses the pinned `GameObject::SetGoArtKit(kit, nullptr, spawnId)` API to refresh **in-memory spawn metadata** for both each tower's capture point and its flag, including on restart restoration and neutral expiry. Thus grids loaded later inherit the faction/neutral artkit. This does not edit GameObject C++ or write to the world DB. Actual unloaded-grid behaviour remains a staging acceptance test.
 - **Northpass shrine loaded after restart:** Stock `OPvPCapturePointEP_NPT::SummonGO` applies faction 84/83 only to a loaded shrine object. The module now forwards `OutdoorPvP::OnGameObjectCreate` and re-applies that same stock faction only when the generated **Northpass shrine spawn ID** appears, and only while Alliance/Horde controls the tower. This does not change faction semantics for any other gameobject. Verify delayed shrine spawning on staging.
-- No new messages or client-side countdowns are introduced.
+- The optional follow-up announcement draft adds one **zone-wide** `The Horde/Alliance has secured [Tower]!` notice exactly when a tower first reaches a persistable 100% capture and enters its 90-minute lock. Original earlier ownership announcements remain unchanged. No messages are added for restore or neutral expiry; no client-side countdown. See [full-capture announcement amendment](EP-TOWER-FULL-CAPTURE-ZONE-ANNOUNCEMENT-2026-10-14.md).
 
 ## Restart-safe characters database state
 
