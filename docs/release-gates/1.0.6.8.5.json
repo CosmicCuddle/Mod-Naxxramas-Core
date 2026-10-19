@@ -183,5 +183,8 @@
       "owner_approved": false,
       "limitation": "Historical features exist, but current installed revisions, behavior and client/server DBC consistency not evidenced."
     }
-  ]
+  ],
+  "release_approved": false,
+  "installed_shas_verified": false,
+  "release_backup_restore_verified": false
 }
