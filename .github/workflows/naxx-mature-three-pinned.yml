@@ -1,0 +1,134 @@
+name: Mature three-feature integration pinned Worldserver
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/EasternPlaguelandsTowerLock.cpp'
+      - 'src/Systems/QuestLootProtection.cpp'
+      - 'src/Systems/HunterAmmoProvision.cpp'
+      - 'src/Systems/HunterAmmoProvision.h'
+      - 'src/Systems/HunterAmmoSelection.h'
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/test_ep_tower_module_only.py'
+      - 'tests/test_quest_loot_protection.py'
+      - 'tests/test_hunter_ammo_consumables.py'
+      - '.github/workflows/naxx-mature-three-pinned.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-mature-three-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-and-full-link:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout pinned Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: acore
+          persist-credentials: false
+      - name: Checkout pinned Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact integrated Naxx branch head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify exact candidate and dependency SHAs
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = 037c01418b5d01506917a3db9b44fd56ac5f965c
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Verify both inventory-affecting features are OFF by default
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("acore/modules/mod-naxxramas-core")
+          conf = (root / "conf/mod_naxxramas_core.conf.dist").read_text()
+          for key in (
+              "NaxxramasCore.QuestLootProtection.Enabled = 0",
+              "NaxxramasCore.QuestLootProtection.Debug = 0",
+              "NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0",
+              "NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor = 0",
+          ):
+              assert conf.count(key) == 1, "Missing/duplicated OFF default: " + key
+          loader = (root / "src/NaxxramasCore_loader.cpp").read_text()
+          assert loader.count("AddQuestLootProtectionScripts();") == 1
+          print("PASS: isolated Quest Loot and Hunter Ammo OFF defaults and registration.")
+          PY
+      - name: Run all three source and synthetic test families
+        run: |
+          set -euo pipefail
+          root=acore/modules/mod-naxxramas-core
+          python3 -m unittest discover -s "$root/tests" -p 'test_ep_tower_module_only.py' -v
+          python3 -m unittest discover -s "$root/tests" -p 'test_quest_loot_protection.py' -v
+          python3 -m unittest discover -s "$root/tests" -p 'test_hunter_ammo_consumables.py' -v
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -I"$root/src/Systems" "$root/tests/hunter_ammo_selection.cpp" -o /tmp/naxx_mature_hunter_ammo_model
+          /tmp/naxx_mature_hunter_ammo_model
+      - name: Install pinned full Worldserver compile dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure pinned full Worldserver
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile actual three module C++ translation units
+        run: |
+          set -euo pipefail
+          module=acore/modules/mod-naxxramas-core
+          python3 "$module/scripts/check_hunter_ammo_pinned_compile.py" --compile-commands acore-build/compile_commands.json --timeout 360
+          python3 "$module/scripts/check_quest_loot_pinned_compile.py" --compile-commands acore-build/compile_commands.json --timeout 360
+          python3 "$module/scripts/check_ep_module_compile_commands.py" --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Link one actual Worldserver containing all three candidates
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify three integrated features in final executable
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          archive=acore-build/modules/libmodules.a
+          test -s "$archive" && test -s "$binary" && test -x "$binary"
+          nm -C --defined-only "$archive" > /tmp/naxx_mature_archive_symbols.txt
+          nm -C --defined-only "$binary" > /tmp/naxx_mature_binary_symbols.txt
+          grep -Fq 'NaxxramasHunterAmmo::TopUpHunterAmmo(' /tmp/naxx_mature_archive_symbols.txt
+          grep -Fq 'NaxxramasHunterAmmo::TopUpHunterAmmo(' /tmp/naxx_mature_binary_symbols.txt
+          grep -aFq 'NaxxramasQuestLootProtection' "$binary"
+          grep -aFq 'outdoorpvp_naxxramas_ep_lock' "$binary"
+          sha256sum "$binary"
+          echo "PASS: Hunter Ammo, Quest Loot and EP handler retained in ONE linked Worldserver."
+      - name: State no-release or gameplay acceptance boundary
+        if: always()
+        run: |
+          echo "Build-only source candidate. No server launch, installation, inventory or DB interaction."
+          echo "No SQL handler activation, config enablement, merge, or owner acceptance claimed."
