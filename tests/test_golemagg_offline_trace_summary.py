@@ -53,6 +53,35 @@ class GolemaggOfflineSummaryTests(unittest.TestCase):
         self.assertEqual(counts["lookup_missing"], 1)
         self.assertNotIn("sampled_distance_bucket_changes", counts)
 
+    def test_retreat_window_does_not_conflate_recent_backoff_tail(self):
+        counts, bots = tool.summarize([
+            line(sequence=1, stacks=19, distance=11, hp="75.0"),
+            line(sequence=2, stacks=20, distance=11, hp="75.0"),
+            line(sequence=3, stacks=20, distance=11, hp="9.0"),
+            line(sequence=4, stacks=20, distance=13, hp="75.0"),
+            line(sequence=5, stacks=20, distance=-1, lookup="false", hp="-1"),
+        ])
+        self.assertEqual(bots, 1)
+        self.assertEqual(counts["recent_back_off_mentions"], 5)
+        self.assertEqual(counts["sampled_retreat_condition_met"], 1)
+        self.assertEqual(counts["back_off_mentions_with_condition"], 1)
+        self.assertEqual(counts["back_off_mentions_without_confirmed_condition"], 4)
+
+    def test_nonfinite_and_contradictory_samples_are_rejected(self):
+        bad_stacks = line(sequence=2, stacks=19).replace(
+            "retreat_stacks_20=false", "retreat_stacks_20=true")
+        bad_distance = line(sequence=3, stacks=21, distance=13).replace(
+            "inside_retreat_12yd=false", "inside_retreat_12yd=true")
+        counts, bots = tool.summarize([
+            line(sequence=1, hp="nan"),
+            line(sequence=1, distance=float("inf")),
+            bad_stacks, bad_distance, line(sequence=1),
+        ])
+        self.assertEqual(bots, 1)
+        self.assertEqual(counts["candidate_lines"], 5)
+        self.assertEqual(counts["unparsed_lines"], 4)
+        self.assertEqual(counts["parsed_samples"], 1)
+
     def test_old_format_is_explicitly_marked_as_inferred(self):
         counts, _ = tool.summarize([
             line(sequence=1, current=False, stacks=19, distance=10),
