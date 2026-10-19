@@ -90,6 +90,12 @@ jobs:
           python3 -m unittest discover -s "$root" -p 'test_golemagg_action_audit.py' -v
           python3 -m unittest discover -s "$root" -p 'test_hunter_ammo_consumables.py' -v
           python3 -m unittest discover -s "$root" -p 'test_hunter_pet_autocast*.py' -v
+      - name: Validate pinned IP/Playerbots native Hunter pet producer boundary
+        run: |
+          set -euo pipefail
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_native_producer_boundary_pinned.py \
+            --ip acore/modules/mod-individual-progression \
+            --playerbots acore/modules/mod-playerbots
       - name: Run standalone Golemagg, Hunter ammo and Hunter pet safety C++ tests
         run: |
           set -euo pipefail
