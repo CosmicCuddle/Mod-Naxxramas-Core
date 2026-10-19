@@ -1,0 +1,112 @@
+diff --git a/src/IndividualProgressionSpells.cpp b/src/IndividualProgressionSpells.cpp
+--- a/src/IndividualProgressionSpells.cpp
++++ b/src/IndividualProgressionSpells.cpp
+@@ -1,3 +1,6 @@
+ #include "IndividualProgression.h"
++#include "CharmInfo.h"
++#include "SpellMgr.h"
++#include "Pet.h"
+ #include "Spell.h"
+ #include "DataMap.h"
+@@ -69,27 +69,79 @@
+     std::string familyName = familyEntry->Name[0];
+ 
+-    auto reconcile = [pet, player](std::initializer_list<uint32> wipeIds, std::initializer_list<uint32> dummyIds)
+-        {
+-            uint32 keepId = 0;
+-            for (auto it = std::rbegin(dummyIds); it != std::rend(dummyIds); ++it)
+-            {
+-                if (player->HasSpell(*it))
+-                {
+-                    keepId = *it - 600000;
+-                    break;
+-                }
+-            }
+-
+-            for (uint32 id : wipeIds)
+-            {
+-                if (id != keepId && pet->HasSpell(id))
+-                    pet->unlearnSpell(id, false, true);
+-            }
+-
+-            if (keepId && !pet->HasSpell(keepId))
+-                pet->learnSpell(keepId);
+-
+-        };
++    auto reconcile = [pet, player](std::initializer_list<uint32> wipeIds, std::initializer_list<uint32> dummyIds)
++        {
++            uint32 keepId = 0;
++            for (auto it = std::rbegin(dummyIds); it != std::rend(dummyIds); ++it)
++            {
++                if (player->HasSpell(*it))
++                {
++                    keepId = *it - 600000;
++                    break;
++                }
++            }
++
++            // REVIEW PROPOSAL ONLY: preserve the single prior native ON/OFF
++            // when IP is actually replacing a known rank with a legal keepId.
++            // No keepId, already-known keepId, ambiguous candidates or bot
++            // accounts never trigger this preference transfer.
++            int8 oldAutocast = -1;
++            uint8 candidates = 0;
++            if (keepId && !pet->HasSpell(keepId))
++            {
++                for (uint32 id : wipeIds)
++                {
++                    if (id == keepId || !pet->HasSpell(id))
++                        continue;
++                    SpellInfo const* oldInfo = sSpellMgr->GetSpellInfo(id);
++                    if (!oldInfo || !oldInfo->IsAutocastable())
++                        continue;
++                    auto const spell = pet->m_spells.find(id);
++                    if (spell == pet->m_spells.end())
++                        continue;
++                    if (spell->second.active != ACT_ENABLED && spell->second.active != ACT_DISABLED)
++                        continue;
++                    ++candidates;
++                    oldAutocast = (spell->second.active == ACT_ENABLED) ? 1 : 0;
++                }
++            }
++
++            for (uint32 id : wipeIds)
++            {
++                if (id != keepId && pet->HasSpell(id))
++                    pet->unlearnSpell(id, false, true);
++            }
++
++            if (keepId && !pet->HasSpell(keepId))
++            {
++                bool const learned = pet->learnSpell(keepId);
++                SpellInfo const* keepInfo = sSpellMgr->GetSpellInfo(keepId);
++                CharmInfo* charm = pet->GetCharmInfo();
++                if (learned && candidates == 1 && oldAutocast >= 0 &&
++                    player->GetPet() == pet && pet->getPetType() == HUNTER_PET &&
++                    !pet->isBeingLoaded() && pet->HasSpell(keepId) &&
++                    keepInfo && keepInfo->IsAutocastable() && charm)
++                {
++                    bool barHasKeepSpell = false;
++                    for (uint8 slot = 0; slot < MAX_UNIT_ACTION_BAR_INDEX; ++slot)
++                    {
++                        UnitActionBarEntry const* entry = charm->GetActionBarEntry(slot);
++                        if (entry && entry->IsActionBarForSpell() &&
++                            entry->GetAction() == keepId)
++                        {
++                            barHasKeepSpell = true;
++                            break;
++                        }
++                    }
++                    if (barHasKeepSpell)
++                    {
++                        bool const enabled = oldAutocast == 1;
++                        pet->ToggleAutocast(keepInfo, enabled);
++                        charm->SetSpellAutocast(keepInfo, enabled);
++                        player->PetSpellInitialize();
++                    }
++                }
++            }
++        };
+ 
+     if (familyName == "Wolf")
+     {
