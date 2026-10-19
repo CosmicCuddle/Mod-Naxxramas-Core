@@ -1,0 +1,59 @@
+name: EP full-capture native zone announcement source contract (read only)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/check_ep_zone_announcement_pinned.py'
+      - 'tests/test_ep_zone_announcement_pinned.py'
+      - 'docs/EP-ZONE-ANNOUNCEMENT-PINNED-ROUTING-2026-10-19.md'
+      - '.github/workflows/ep-zone-announcement-pinned-route.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-zone-announcement-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout candidate module exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: naxx
+          persist-credentials: false
+      - name: Checkout exact pinned native EP and Map sources
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: pinned/core
+          sparse-checkout: |
+            src/server/scripts/OutdoorPvP/OutdoorPvPEP.h
+            src/server/game/Maps/Map.h
+            src/server/game/Maps/Map.cpp
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Assert exact candidate and native pinned revisions
+        run: |
+          set -euo pipefail
+          test "$(git -C naxx rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned/core rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
+      - name: Run eight synthetic fail-closed source model tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile naxx/scripts/check_ep_zone_announcement_pinned.py
+          python3 -m unittest discover -s naxx/tests -p 'test_ep_zone_announcement_pinned.py' -v
+      - name: Verify exact pinned native Map and EP tower route
+        run: |
+          set -euo pipefail
+          python3 naxx/scripts/check_ep_zone_announcement_pinned.py \
+            --ep-header pinned/core/src/server/scripts/OutdoorPvP/OutdoorPvPEP.h \
+            --map-header pinned/core/src/server/game/Maps/Map.h \
+            --map-source pinned/core/src/server/game/Maps/Map.cpp \
+            --module naxx/src/Systems/EasternPlaguelandsTowerLock.cpp
+      - name: Print strict scope limitations
+        run: |
+          echo "Source-only exact pinned EP enum, zone, team-neutral and ordering verification."
+          echo "No gameplay, Worldserver launch, native SQL activation, DB, character or deployment."
