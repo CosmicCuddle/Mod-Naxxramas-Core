@@ -320,6 +320,7 @@ namespace
     {
         ObjectGuid::LowType BotGuid = 0;
         uint32 SpellId = 0;
+        bool OriginallyRandomBot = false;
         NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};
     };
 
@@ -1013,6 +1014,10 @@ namespace
         OneShotFireProtection pending;
         pending.BotGuid = guid;
         pending.SpellId = spellId;
+        // Random Bots are only eligible when grouped. Remember this
+        // even if the group disbands before the scheduled refresh.
+        pending.OriginallyRandomBot =
+            sRandomPlayerbotMgr.GetPlayerBot(guid) == bot;
         tracker.FireProtectionOneShots.push_back(pending);
     }
 
@@ -3093,7 +3098,9 @@ void PrepareManaUser(
                     master, tracker.RequiredMapId, tracker.RequiredArea) ||
                 !IsProfileLocationValid(
                     bot, tracker.RequiredMapId, tracker.RequiredArea) ||
-                !BotIsInPreparationScope(master, bot))
+                !(pending.OriginallyRandomBot
+                    ? RandomBotIsInPreparationScope(master, bot)
+                    : BotIsInPreparationScope(master, bot)))
             {
                 continue;
             }
