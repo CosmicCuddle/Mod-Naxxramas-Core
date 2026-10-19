@@ -54,6 +54,32 @@ level-based initialization -> delayed IP reconcile** sequence. This is
 stronger static evidence for a potential repeat-summon reset, still **not**
 a real-player reproduction or authorization to patch IP.
 
+## Native dual state and action-bar consistency — a separate correctness gate
+
+The pinned core does **not** represent player autocast in just one place.
+`Pet::ToggleAutocast` updates `PetSpell.active` and the active-autospell
+list, while `CharmInfo` has an **independent action-bar entry type**.
+`CharmInfo::SetSpellAutocast` updates that slot type, and
+`Player::PetSpellInitialize` sends **both** the action-bar data and each
+spell's native `active` state to the client. Crucially,
+`Pet::CleanupActionBar` can reapply `ToggleAutocast` **from the bar's
+`ACT_ENABLED`/`ACT_DISABLED` type**.
+
+Consequently, a future patch must **not** assume
+`pet->ToggleAutocast(keepSpell, true)` alone is sufficient. If a legal
+rank was unlearned/relearned, the bar may still contain a disabled old slot,
+and later cleanup/client refresh could contradict the native spell flag.
+The accepted implementation must verify the correct ability/rank is on
+the bar (if present), update the **existing** legal spell's bar autocast
+state through the core's public `CharmInfo::SetSpellAutocast` surface,
+and refresh the client appropriately. Do **not** place extra abilities,
+rewrite unrelated action-bar slots or grant missing ranks.
+
+The prepared Python guard now verifies exact pinned
+`Pet::CleanupActionBar`, `CharmInfo::SetSpellAutocast`, and
+`Player::PetSpellInitialize` source relationships. This is source
+review evidence only; no patch or in-game actionbar verification exists.
+
 ## Minimal correction candidates (NOT implemented)
 
 **Option A — module-only, first choice if a reliable interception point exists.** Capture the *actual, previously loaded* native legal spell's `PetSpell.active` for a verified real human Hunter's **same current pet** before IP removes it. Transfer only that explicit state to the **correct newly legal rank after IP finishes**. Preserve ON **and OFF**, never generate a spell, never force-enable absent/untrained abilities, and never infer user intent from the default disabled state. **Blocking problem:** the pinned public PetScript/PlayerScript surfaces lack a reliable before-and-after IP reconciliation callback. Pet AddToWorld can run before async `_LoadSpells`, and a scheduled delay/poll does not prove IP completed. Do not implement a fragile timer or fake a module-only fix.
