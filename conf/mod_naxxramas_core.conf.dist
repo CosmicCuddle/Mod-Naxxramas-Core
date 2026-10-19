@@ -251,3 +251,85 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptGMs = 1
 # Preserve Playerbots queues based on IndividualProgression.BotAccountsRegex.
 # Default: 1
 NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
+
+#####################################
+# Molten Core / Golemagg — READ-ONLY Playerbot action probe
+#####################################
+
+# EXPERIMENTAL research-only diagnostic. Does not fix movement or override AI.
+# Samples the PUBLIC PlayerbotAI "action" status on account-controlled
+# melee Altbots in Molten Core during combat with Golemagg.
+# Logs are capped at 24 distinct action-tail samples per bot per encounter,
+# with a minimum 2.5s interval. A recent action tail does NOT prove the
+# specific movement action responsible for a retreat/reapproach loop.
+# Does not touch upstream Playerbots, paths, motion, DB, or raid mechanics.
+# Requires an explicit Worldserver restart to pick up config changes.
+# DO NOT enable for live 40-bot raids without a backed-up controlled pilot.
+# Default: 0
+NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0
+#
+# SECOND INDEPENDENT SAFETY GATE: one exact Altbot character name.
+# The observer never samples anyone when this setting is empty, even if
+# Enabled is changed to 1. No wildcard, comma-separated list, or "all" mode.
+# ASCII names match case-insensitively; surrounding whitespace is ignored.
+# For a separately authorised one-bot pilot only, use "Grau".
+# Default: "" (no bots are sampled)
+NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
+
+
+###############################################
+# Bot Consumables / Hunter ammunition (research)
+###############################################
+
+# Adds actual ammunition to the inventories of explicitly controlled Hunter
+# Altbots during an authenticated .bot consumables MC or dungeon preparation.
+# It reads the equipped bow, crossbow or gun and PLAYER_AMMO_ID selection:
+# - Bows/crossbows -> compatible arrows
+# - Guns -> compatible bullets
+# - Invalid/broken ranged weapons, thrown and wands -> no ammo
+#
+# Supports a conservative Classic catalog of vendor ammunition and selected
+# crafted Thorium ammo only. Any unsupported selected/quest/PvP ammo is skipped
+# rather than replaced, duplicated or upgraded beyond the current era.
+#
+# If a Hunter has NO ammo selected, basic level-appropriate vendor ammo may
+# be placed into inventory, but this module NEVER selects/equips ammo for them.
+# The player/bot must select the new ammo in the ammo slot before shooting.
+#
+# This is an inventory grant (saved to characters DB by native core), not
+# an aura, and no SQL schema/DBC modification is included.
+# Existing Bot Consumables command cooldown, eligibility and instance scope
+# remain unchanged. Random Bots and human players are excluded in v1.
+#
+# Default: 0 (OFF); enabling requires explicit owner review, approved backup
+# and rollback, exact pinned full link and staged in-game testing.
+NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0
+
+# Independent provenance gate for already-selected quest-exchanged / crafted
+# Thorium Headed Arrows (18042) and Thorium Shells (15997). Merely possessing
+# or selecting them does not grant permission to duplicate earned supplies.
+# With this OFF, selected non-vendor ammo remains untouched and no vendor
+# substitute is silently selected or provided.
+# Default: 0 (OFF)
+NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor = 0
+
+# Target number of matching ammo pieces to keep in a Hunter's BAGS
+# (bank contents excluded). Native AddItem uses bag capacity; any insufficient
+# bag capacity prevents this optional top-up.
+# Strictly clamped to 1..1000. Never grants more than the shortfall.
+# Default: 600
+NaxxramasCore.BotConsumables.HunterAmmo.TargetCount = 600
+
+#####################################
+# Hunter Pet Autocast — read-only source audit
+#####################################
+#
+# A development-only observer for accepted Hunter pet autocast toggle
+# transitions. This is NOT the persistence/restoration feature.
+# It never learns spells, toggles autocast, writes to a database, or
+# changes the pet action bar; it only emits a diagnostic when a native
+# CMSG_PET_SPELL_AUTOCAST ON/OFF transition is confirmed next update.
+# Does not yet capture the CMSG_PET_SET_ACTION command path.
+#
+# Default: 0 (completely silent)
+NaxxramasCore.HunterPetAutocast.AuditEnabled = 0
