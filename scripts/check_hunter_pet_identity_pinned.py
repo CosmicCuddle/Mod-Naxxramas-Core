@@ -64,6 +64,36 @@ def check(core):
     assert not re.search(r"\b(Incarnation|Generation|BirthGuid|BirthUUID)\b",
                          info)
 
+    # A saved pet has a real stable-record PetNumber, separate from its
+    # per-summon map pet object GUID. A saved number is useful evidence of
+    # an existing pet, but it is NOT permanently non-reusable after deletion.
+    choose = section(
+        pet,
+        "std::pair<PetStable::PetInfo const*, PetSaveMode> Pet::GetLoadPetInfo(",
+        "bool Pet::LoadPetFromDB("
+    )
+    for marker in (
+        "stable.CurrentPet->PetNumber == petnumber",
+        "stable.StabledPets[stableSlot]->PetNumber == petnumber",
+        "pet.PetNumber == petnumber",
+    ):
+        assert marker in choose, "Re-review stable identity lookup: " + marker
+
+    fill = section(pet, "void Pet::FillPetInfo(", "Player* Pet::GetOwner() const")
+    assert "petInfo->PetNumber = m_charmInfo->GetPetNumber();" in fill
+
+    # Verify the owner/number relationship of the native ordinary-save
+    # path; do not confuse a save's delete+replace with pet retirement.
+    for marker in (
+        "ObjectGuid::LowType ownerLowGUID = GetOwnerGUID().GetCounter();",
+        "stmt->SetData(0, m_charmInfo->GetPetNumber());",
+        "stmt->SetData(2, ownerLowGUID);",
+    ):
+        assert marker in normal_save, "Re-review saved owner/number: " + marker
+
+    player = read(core, "src/server/game/Entities/Player/Player.cpp")
+    assert "petInfo.PetNumber = fields[0].Get<uint32>();" in player
+
     # This hook is a *pre-create attempt* for an existing stable PetInfo.
     # It is not emitted by Pet::CreateBaseAtTamed, and has no post-load
     # success contract. Its absence cannot prove that a pet was freshly tamed.
@@ -75,6 +105,16 @@ def check(core):
     assert (native_load.index("GetLoadPetInfo(") <
             native_load.index("sScriptMgr->OnPlayerBeforeLoadPetFromDB(") <
             native_load.index("if (!Create(guid, map"))
+    for marker in (
+        "ObjectGuid::LowType guid = map->GenerateLowGuid<HighGuid::Pet>();",
+        "Create(guid, map, owner->GetPhaseMask(), petInfo->CreatureId, petInfo->PetNumber)",
+        "GetCharmInfo()->SetPetNumber(petInfo->PetNumber, IsPermanentPetFor(owner))",
+    ):
+        assert marker in native_load, "Re-review persistent-vs-runtime pet identity: " + marker
+    assert (native_load.index("GetLoadPetInfo(") <
+            native_load.index("GenerateLowGuid<HighGuid::Pet>()") <
+            native_load.index("Create(guid, map, owner->GetPhaseMask(), petInfo->CreatureId, petInfo->PetNumber)"))
+
     player_hooks = read(core, "src/server/game/Scripting/ScriptDefines/PlayerScript.h")
     assert "PLAYERHOOK_ON_BEFORE_LOAD_PET_FROM_DB" in player_hooks
     assert "OnPlayerBeforeLoadPetFromDB(Player*" in player_hooks
@@ -88,6 +128,8 @@ def check(core):
     print("PASS: native normal save deletes/replaces pet row")
     print("PASS: pinned pet table and stable metadata lack a proven birth token")
     print("PASS: existing-pet load hook is BEFORE Create and does not prove success")
+    print("PASS: saved PetNumber survives stable selection and native load")
+    print("PASS: each load obtains new map Pet GUID; PetNumber is not that GUID")
     print("GATE BLOCKED: no durable preference store or autocast restore permitted")
     print("Source-only: does NOT inspect a running core or characters database.")
 
