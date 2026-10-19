@@ -123,6 +123,8 @@ namespace
             if (!state->sawGolemaggInThisCombat)
                 return;
 
+            // This public branch returns a RECENT action-log tail (not one
+            // guaranteed action/event). It does not Execute an AI action.
             // Sample BOTH the recent action tail and the pinned Magma Splash
             // retreat thresholds. A repeated action tail must not mask a
             // transition across 20 stacks or 12 yards; those transitions
