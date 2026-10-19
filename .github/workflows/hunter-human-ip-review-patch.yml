@@ -6,6 +6,7 @@ on:
     paths:
       - 'proposals/hunter-player-ip-autocast-legal-rank-review-only.patch'
       - 'tests/test_hunter_human_ip_review_proposal.py'
+      - 'scripts/check_hunter_human_ip_review_cpp_api_pinned.py'
       - 'docs/HUNTER-PET-HUMAN-IP-RANK-PRESERVATION-REVIEW-2026-10-19.md'
       - '.github/workflows/hunter-human-ip-review-patch.yml'
   push:
@@ -27,6 +28,13 @@ jobs:
           ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
           path: pinned-ip
           persist-credentials: false
+      - name: Checkout exact pinned Grimfeather core API headers and source
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: pinned-core
+          persist-credentials: false
       - name: Checkout proposed Naxx document and model fixtures
         uses: actions/checkout@v4
         with:
@@ -38,6 +46,12 @@ jobs:
           test "$(git -C pinned-ip rev-parse HEAD)" = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
           git -C pinned-ip apply --check ../naxx-proposal/proposals/hunter-player-ip-autocast-legal-rank-review-only.patch
           echo "Only git apply --check was run; IP checkout has not been patched."
+      - name: Verify public pinned core API contract (source only, no compile)
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-core rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
+          python3 -m py_compile naxx-proposal/scripts/check_hunter_human_ip_review_cpp_api_pinned.py
+          python3 naxx-proposal/scripts/check_hunter_human_ip_review_cpp_api_pinned.py --core pinned-core --proposal naxx-proposal/proposals/hunter-player-ip-autocast-legal-rank-review-only.patch
       - name: Run disposable rank-preference review models
         run: |
           python3 -m py_compile naxx-proposal/tests/test_hunter_human_ip_review_proposal.py
@@ -47,5 +61,6 @@ jobs:
         run: |
           set -euo pipefail
           test -z "$(git -C pinned-ip status --porcelain --untracked-files=no)"
+          test -z "$(git -C pinned-core status --porcelain --untracked-files=no)"
           echo "This is a REVIEW ONLY patch, not compiled code or a gameplay fix."
           echo "No upstream/core/Playerbots modification, realm access, SQL, DBC or deployment."
