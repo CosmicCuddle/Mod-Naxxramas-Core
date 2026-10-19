@@ -17,7 +17,7 @@
 
 **This is a source-backed candidate cause, not an in-game verified root cause.** It cannot explain a lost toggle when the same rank remained known and no spell was removed; that case must be investigated separately.
 
-Pinned sources: [core Pet.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Entities/Pet/Pet.cpp), [core CharacterDatabase.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815b4e2ee1c1f48e7/src/server/database/Database/Implementation/CharacterDatabase.cpp), [core PetScript.h](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815b4e2ee1c1f48e7/src/server/game/Scripting/ScriptDefines/PetScript.h), [IP IndividualProgressionSpells.cpp](https://github.com/Grimfeather/mod-individual-progression/blob/4ff4b5fcc1480348f058c632573143e62d4e3a41/src/IndividualProgressionSpells.cpp).
+Pinned sources: [core Pet.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Entities/Pet/Pet.cpp), [core CharacterDatabase.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/database/Database/Implementation/CharacterDatabase.cpp), [core PetScript.h](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Scripting/ScriptDefines/PetScript.h), [IP IndividualProgressionSpells.cpp](https://github.com/Grimfeather/mod-individual-progression/blob/4ff4b5fcc1480348f058c632573143e62d4e3a41/src/IndividualProgressionSpells.cpp).
 
 ## Minimal correction candidates (NOT implemented)
 
