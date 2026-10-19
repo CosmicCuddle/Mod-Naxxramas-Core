@@ -39,7 +39,15 @@ def boolean(value: str | None) -> bool | None:
 def read_sample(line: str) -> Sample | None:
     if MARKER not in line:
         return None
-    fields = dict(FIELDS.findall(line.split(" recent_actions=", 1)[0].split(MARKER, 1)[1]))
+    # Duplicated fields can silently replace a real value, while only one
+    # explicit threshold flag makes the sample neither new nor legacy.
+    pairs = FIELDS.findall(line.split(" recent_actions=", 1)[0].split(MARKER, 1)[1])
+    names = [name for name, _ in pairs]
+    if len(names) != len(set(names)):
+        return None
+    fields = dict(pairs)
+    if ("retreat_stacks_20" in fields) != ("inside_retreat_12yd" in fields):
+        return None
     try:
         name = fields["bot"]
         number = int(fields["samples"].split("/", 1)[0])
