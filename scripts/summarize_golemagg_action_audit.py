@@ -8,6 +8,7 @@ import argparse
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+import math
 import re
 
 MARKER = "GolemaggActionAudit READ ONLY:"
@@ -45,6 +46,9 @@ def read_sample(line: str) -> Sample | None:
         lookup = boolean(fields.get("boss_lookup_present"))
         hp = float(fields["boss_hp_pct"])
         distance = float(fields["boss_distance_yards"])
+        # Malformed log values must never be counted as genuine telemetry.
+        if not math.isfinite(hp) or not math.isfinite(distance):
+            return None
         if not name or number < 1 or stacks < 0 or lookup is None:
             return None
         if not lookup:
@@ -59,6 +63,13 @@ def read_sample(line: str) -> Sample | None:
         )
         if at_stacks is None or (has_both and inside is None):
             return None
+        if has_both:
+            # The exact module observer computes both booleans from these
+            # metrics. Reject contradictory/corrupted lines, not just gaps.
+            if at_stacks != (stacks >= 20):
+                return None
+            if inside != (lookup and distance is not None and distance < 12.0):
+                return None
         if not lookup:
             inside = None
         tail = line.split(" recent_actions=", 1)[1].lower() if " recent_actions=" in line else ""
@@ -92,8 +103,21 @@ def summarize(lines):
             counters["lookup_missing"] += 1
         if sample.hp is not None and sample.hp <= 10:
             counters["burn_phase_samples"] += 1
+        # Observer is already scoped to melee DPS. Only call this a
+        # sampled *condition*, not proof a native back-off action executed.
+        condition_seen = (
+            sample.lookup and sample.at_stacks and
+            sample.inside_distance is True and sample.hp is not None and
+            sample.hp > 10.0
+        )
+        if condition_seen:
+            counters["sampled_retreat_condition_met"] += 1
         if sample.mentions_back_off:
             counters["recent_back_off_mentions"] += 1
+            if condition_seen:
+                counters["back_off_mentions_with_condition"] += 1
+            else:
+                counters["back_off_mentions_without_confirmed_condition"] += 1
         if sample.at_stacks:
             counters["at_or_over_20_stacks"] += 1
 
@@ -129,9 +153,15 @@ def main() -> int:
         "legacy_without_explicit_thresholds", "lookup_missing",
         "burn_phase_samples", "at_or_over_20_stacks",
         "sampled_stack_bucket_changes", "sampled_distance_bucket_changes",
-        "recent_back_off_mentions", "sample_counter_reset_or_replay",
+        "recent_back_off_mentions", "sampled_retreat_condition_met",
+        "back_off_mentions_with_condition",
+        "back_off_mentions_without_confirmed_condition",
+        "sample_counter_reset_or_replay",
     ):
         print(f"{key}: {counts.get(key, 0)}")
+    print("CAUTION: sampled retreat condition means boss >10% HP, 20+ stacks, "
+          "distance <12yd with boss lookup; not proof of an action.")
+    print("Back-off mentions are RECENT tails, not time-aligned executions.")
     print("CAUTION: logs are sampled/limited recent action tails, not execution causality.")
     print("No raid result, bot movement fix, 100% event capture or stack timing proof.")
     print("No server, bot, configuration, source, database or log content modified.")
