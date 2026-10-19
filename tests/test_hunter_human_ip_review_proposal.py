@@ -11,19 +11,26 @@ PATCH = ROOT / "proposals/hunter-player-ip-autocast-legal-rank-review-only.patch
 
 
 def model_transfer(known, wipe, keep, legal_ids, autocastable, bar_ids,
-                   same_pet=True, being_loaded=False, learn_succeeds=True):
-    """Return only the ON/OFF to carry into an actually learned legal rank."""
-    if not keep or keep in known or keep not in legal_ids:
+                   same_pet=True, being_loaded=False, learn_succeeds=True,
+                   same_rank_chain=True):
+    """Model guarded one-old-rank transfer, never all IP family spell grants."""
+    if (not keep or keep not in wipe or keep in known or
+            keep not in legal_ids or keep not in autocastable):
         return None
-    previous = [known[i] for i in wipe if i != keep and
-                i in known and i in autocastable and
-                known[i] in (True, False)]
-    if len(previous) != 1:
+    # Any second known old spell in the wipe list is ambiguous, even if
+    # it is passive/unrecognized: do NOT silently exclude it from the count.
+    existing_old = [i for i in wipe if i != keep and i in known]
+    if len(existing_old) != 1:
+        return None
+    old_id = existing_old[0]
+    old_state = known[old_id]
+    if (old_id not in autocastable or
+            not isinstance(old_state, bool) or not same_rank_chain):
         return None
     if not (learn_succeeds and same_pet and not being_loaded and
-            keep in autocastable and keep in bar_ids):
+            keep in bar_ids):
         return None
-    return previous[0]
+    return old_state
 
 
 class HumanHunterIPReviewProposalTests(unittest.TestCase):
@@ -56,6 +63,24 @@ class HumanHunterIPReviewProposalTests(unittest.TestCase):
         self.assertIsNone(model_transfer({101: True}, [101, 102], 102,
                                          {102}, {102}, {102}))
 
+    def test_mixed_wipe_ids_do_not_cross_spell_rank_chains(self):
+        self.assertIsNone(model_transfer({101: True}, [101, 102], 102,
+                                         {102}, {101, 102}, {102},
+                                         same_rank_chain=False))
+
+    def test_unlisted_keepid_cannot_receive_old_choice(self):
+        self.assertIsNone(model_transfer({101: True}, [101], 102,
+                                         {102}, {101, 102}, {102}))
+
+    def test_unknown_second_known_spell_makes_old_state_ambiguous(self):
+        self.assertIsNone(model_transfer({100: True, 101: 7},
+                                         [100, 101, 102], 102, {102},
+                                         {100, 102}, {102}))
+
+    def test_invalid_old_state_cannot_masquerade_as_boolean_off(self):
+        self.assertIsNone(model_transfer({101: 0}, [101, 102], 102,
+                                         {102}, {101, 102}, {102}))
+
     def test_pet_swap_and_async_loading_fail_closed(self):
         self.assertIsNone(model_transfer({101: True}, [101, 102], 102,
                                          {102}, {101, 102}, {102},
@@ -78,7 +103,9 @@ class HumanHunterIPReviewProposalTests(unittest.TestCase):
         self.assertIn("b/src/IndividualProgressionSpells.cpp", patch)
         for token in (
             "keepId && !pet->HasSpell(keepId)",
-            "candidates == 1",
+            "presentOldRanks == 1 && eligibleOldRanks == 1",
+            "oldInfo->IsDifferentRankOf(keepInfo)",
+            "keepIdInWipeList",
             "player->GetPet() == pet",
             "pet->getPetType() == HUNTER_PET",
             "!pet->isBeingLoaded()",
