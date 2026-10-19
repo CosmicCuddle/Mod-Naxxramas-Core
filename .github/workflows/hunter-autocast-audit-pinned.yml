@@ -10,6 +10,8 @@ on:
       - 'src/Systems/HunterPetAutocastHandoffContract.h'
       - 'tests/hunter_pet_autocast_handoff_contract.cpp'
       - 'scripts/check_hunter_pet_ip_handoff_boundary_pinned.py'
+      - 'scripts/check_hunter_pet_native_producer_boundary_pinned.py'
+      - 'docs/HUNTER-PET-AUTOCAST-NATIVE-PRODUCER-FEASIBILITY-2026-10-18.md'
       - 'docs/HUNTER-PET-AUTOCAST-TRUSTED-HANDOFF.md'
       - 'scripts/check_hunter_pet_post_event_surface_pinned.py'
       - 'tests/test_hunter_pet_autocast_post_event_model.py'
@@ -74,8 +76,6 @@ concurrency:
 
 jobs:
   compile-and-link:
-    # Integration PR runs one shared full Worldserver; isolated feature PRs unaffected.
-    if: ${{ !startsWith(github.head_ref, 'integration/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 105
     steps:
@@ -146,6 +146,11 @@ jobs:
         run: |
           python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_ip_handoff_boundary_pinned.py \
             --ip acore/modules/mod-individual-progression
+      - name: Verify pinned native IP and Playerbots producer eligibility boundary
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_native_producer_boundary_pinned.py \
+            --ip acore/modules/mod-individual-progression \
+            --playerbots acore/modules/mod-playerbots
       - name: Verify pinned per-Pet post-event observation boundary
         run: |
           python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_post_event_surface_pinned.py \
