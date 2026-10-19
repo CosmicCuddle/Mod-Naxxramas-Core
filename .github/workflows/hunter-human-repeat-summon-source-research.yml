@@ -1,6 +1,13 @@
 name: Hunter human repeat-summon source-only research
 
 on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'scripts/check_hunter_pet_human_autocast_boundary_pinned.py'
+      - 'docs/HUNTER-PET-PLAYER-FIRST-MINIMAL-FIX-DECISION-2026-10-19.md'
+      - 'docs/HUNTER-PET-PLAYER-AUTOCAST-HEIDISQL-READONLY-REPRO-2026-10-19.md'
+      - '.github/workflows/hunter-human-repeat-summon-source-research.yml'
   push:
     branches: [research/hunter-human-repeated-load-reconcile-prepared-2026-10-19]
     paths:
