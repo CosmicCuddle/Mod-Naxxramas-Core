@@ -39,6 +39,8 @@ def validate(document: dict) -> None:
         raise ValueError("Combined candidate must be draft PR #33 at an exact SHA")
     for key in ("source_built", "full_worldserver_built", "owner_approved"):
         _bool(combined, key)
+    if combined["full_worldserver_built"] and not combined["source_built"]:
+        raise ValueError("Combined candidate cannot have full Worldserver link without source build")
     rows = document.get("components")
     if not isinstance(rows, list) or len(rows) != len(REQUIRED_COMPONENTS):
         raise ValueError("Active-feature inventory missing or changed")
@@ -112,8 +114,14 @@ def release_blockers(document: dict) -> list[str]:
             problems.append(f"{name}: no verified restorable full backups.")
         if not row["owner_approved"]:
             problems.append(f"{name}: no explicit owner feature-inclusion approval.")
-        if row["in_combined_candidate"] and not document["combined_candidate"]["owner_approved"]:
-            problems.append(f"{name}: combined candidate PR #33 has not been approved.")
+        if row["in_combined_candidate"]:
+            candidate = document["combined_candidate"]
+            if not candidate["source_built"]:
+                problems.append(f"{name}: combined candidate PR #33 has no verified source build.")
+            if not candidate["full_worldserver_built"]:
+                problems.append(f"{name}: combined candidate PR #33 has no verified full Worldserver link.")
+            if not candidate["owner_approved"]:
+                problems.append(f"{name}: combined candidate PR #33 has not been approved.")
         if row["default_behavior"] == "unknown":
             problems.append(f"{name}: active default behavior not yet verified.")
     for key in ("release_approved", "installed_shas_verified", "release_backup_restore_verified"):
