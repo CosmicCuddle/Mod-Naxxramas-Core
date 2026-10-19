@@ -119,18 +119,18 @@
       "id": "quest_loot_turn_guard",
       "name": "Quest Loot single-copy turn protection",
       "track": "A04",
-      "stage": "S3",
+      "stage": "S4",
       "draft_pr": 25,
       "exact_head": "e3e1bf339c8b1aba07ab065d50dbcc3fafbf0e51",
       "in_combined_candidate": false,
       "source_state": "draft",
       "default_behavior": "off",
-      "full_build_verified": false,
+      "full_build_verified": true,
       "live_accepted": false,
       "backup_restore_verified": false,
       "include_in_release": false,
       "owner_approved": false,
-      "limitation": "Packet-level block only; direct StoreLootItem paths may bypass; no staged loot test. Current docs/tests-only draft head: previous S4 evidence at 4ab6378; new exact-head full pinned CI #39270992658 in progress, not yet S4."
+      "limitation": "Default-off packet-level single-copy quest loot guard, other direct StoreLootItem paths unproven; no QL-01..QL-15 staged loot acceptance, installed SHA or restorable backup. Exact-head pinned C++/complete Worldserver/registration PASS CI #39270992658 (18/18 steps). NOT all Playerbots paths or live acceptance."
     },
     {
       "id": "ep_tower_lock",
@@ -153,18 +153,18 @@
       "id": "ep_tower_announcements",
       "name": "Eastern Plaguelands full-capture zone announcements",
       "track": "A06",
-      "stage": "S3",
+      "stage": "S4",
       "draft_pr": 24,
       "exact_head": "8946f8f3bdbb980393922b9226a3cbe211609308",
       "in_combined_candidate": false,
       "source_state": "draft",
       "default_behavior": "unknown",
-      "full_build_verified": false,
+      "full_build_verified": true,
       "live_accepted": false,
       "backup_restore_verified": false,
       "include_in_release": false,
       "owner_approved": false,
-      "limitation": "Requires compatible tower-lock binding and approved four-tower/faction real-client test. Current docs/tests-only draft head: previous S4 evidence at 7c826ae; new exact-head full pinned CI #39269122346 in progress, not yet S4."
+      "limitation": "Zone announcement after 100% capture/persisted lock; manual EP SQL binding and real four-tower/two-faction client chat unverified. Current docs-only exact head pinned EP C++/Worldserver/final handler PASS CI #39269122346 (18/18 steps); no installed-binary or restorable backup acceptance."
     },
     {
       "id": "existing_module_regression",
