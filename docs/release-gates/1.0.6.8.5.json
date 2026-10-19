@@ -12,6 +12,13 @@
     "full_worldserver_built": true,
     "owner_approved": false
   },
+  "mature_three_candidate": {
+    "draft_pr": 46,
+    "exact_head": "4734e4a0ccb2d457420f9995c21bee14826d2a9a",
+    "source_built": true,
+    "full_worldserver_built": false,
+    "owner_approved": false
+  },
   "components": [
     {
       "id": "golemagg_diagnostic",
