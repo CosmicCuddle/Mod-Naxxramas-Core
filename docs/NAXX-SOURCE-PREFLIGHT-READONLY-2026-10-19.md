@@ -17,7 +17,12 @@ The preflight checks each checkout's independent **real Git root**, exact HEAD S
 | `modules/mod-individual-progression` | `4ff4b5fcc1480348f058c632573143e62d4e3a41` |
 | `modules/mod-naxxramas-core` | Recorded without presuming a single target version; pass `--expected-naxx` with the **separately chosen** exact candidate SHA |
 
-These are pinned **CI development baselines**, not claims about the user's installation. A mismatch means *review compatibility*; it does not mean the current server is necessarily broken or that it should be forcibly reset to the pinned revision.
+These are pinned **historical CI development defaults**, not claims about the user's installation. A mismatch means *review compatibility*; it does not mean the current server is necessarily broken or that it should be forcibly reset to the pinned revision.
+
+**For newer-core compatibility reviews**, the optional flags `--expected-core`, `--expected-playerbots`, and `--expected-ip` each accept an exact **40-character Git SHA**. Each override is independent and affects only the SHA against which the read-only preflight compares the corresponding installed Git checkout; unspecified dependencies retain the historical pinned default. The helper **never fetches, updates, resets, checks out or guesses** a repository version. An arbitrary operator-chosen SHA being an exact match is **not** proof that the combination has compiled, linked or run correctly.
+
+The owner's prospective [Grimfeather AzerothCore merge](https://github.com/Grimfeather/azerothcore-wotlk/commit/8daffdabe9202c228e45d833c9a1d399597a15cd) is `8daffdabe9202c228e45d833c9a1d399597a15cd`. Newer-core [draft CI PR #47](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/47) checks that new core with the older Playerbots and Individual Progression pins as a **provisional test matrix**; these two old pins are not assertions about the owner's next installed versions. Only use `--expected-core` with this revision when that exact version is separately agreed for the inspection.
+
 
 ## Owner-approved future MobaXterm / Linux use
 
@@ -28,7 +33,19 @@ python3 /path/to/azerothcore/modules/mod-naxxramas-core/scripts/check_naxx_sourc
   --core /path/to/azerothcore
 ```
 
-For a **specific separately reviewed** candidate revision, add `--expected-naxx <full-40-character-Git-SHA>` (replace the placeholder; do not type angle brackets literally in a shell). The default omits Naxx Core's expectation and clearly marks it **not certified**. To hash a known on-disk binary without executing it, optionally add `--worldserver /path/to/worldserver`.
+For a **specific separately reviewed** candidate revision, add `--expected-naxx` followed by its full 40-character Git SHA. The default omits Naxx Core's expectation and clearly marks it **not certified**.
+
+For example, **ONLY after separate authorisation** and with the correct core directory, the owner's prospective newer core can be selected for comparison using this example (do **not** run against the live realm at this stage):
+
+```bash
+python3 /path/to/azerothcore/modules/mod-naxxramas-core/scripts/check_naxx_source_preflight_readonly.py \
+  --core /path/to/azerothcore \
+  --expected-core 8daffdabe9202c228e45d833c9a1d399597a15cd
+```
+
+If the planned Playerbots and Individual Progression exact revisions are also confirmed, add `--expected-playerbots` and `--expected-ip` with their **own** full 40-character SHAs. Omit flags rather than inventing a revision. The tool's defaults remain the earlier proven CI baseline. An exact Git checkout match does not prove binary/source correspondence.
+
+To hash a known on-disk binary without executing it, optionally add `--worldserver /path/to/worldserver`.
 
 **Optional running-process check (separate future owner authorization required):** use the read-only `pgrep -x worldserver` command in MobaXterm to list candidates and privately confirm the intended server PID. Do not select an unrelated process or run the preflight as root merely to bypass permissions. Then add `--worldserver-pid 12345`, replacing `12345` with the confirmed existing PID. The helper reads **only** `/proc/12345/comm`, the kernel's `/proc/12345/exe` symlink and that executable's bytes. It does **not** read command-line arguments, environment, memory, sockets, accounts, DB configuration, or secrets; does **not** signal/restart a process. It requires the process name to be exactly `worldserver` and **fails closed** for inaccessible, exited, renamed or deleted executables.
 
