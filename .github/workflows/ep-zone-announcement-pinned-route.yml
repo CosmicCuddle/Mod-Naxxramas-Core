@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
           test "$(git -C naxx rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git -C pinned/core rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
-      - name: Run eight synthetic fail-closed source model tests
+      - name: Run nine synthetic fail-closed source model tests
         run: |
           set -euo pipefail
           python3 -m py_compile naxx/scripts/check_ep_zone_announcement_pinned.py
