@@ -48,7 +48,7 @@ class ReadOnlySourcePreflight(unittest.TestCase):
                 not_certified = preflight.check_checkout("Naxx Core", path, None)
             self.assertEqual(exact, 0)
             self.assertEqual(not_certified, 0)
-            self.assertIn("MATCH: exact tested source revision", stdout.getvalue())
+            self.assertIn("MATCH: requested source revision", stdout.getvalue())
             self.assertIn("NOT certified".lower(), stdout.getvalue().lower())
 
     def test_wrong_revision_fails_even_on_clean_checkout(self):
@@ -59,6 +59,48 @@ class ReadOnlySourcePreflight(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 result = preflight.check_checkout("AzerothCore", path, alternate)
             self.assertEqual(result, preflight.MISMATCH)
+
+    def test_old_pins_stay_default_and_new_core_can_be_selected(self):
+        default = preflight.selected_pins()
+        self.assertEqual(default, preflight.PINS)
+        new_core = "8daffdabe9202c228e45d833c9a1d399597a15cd"
+        selected = preflight.selected_pins(core=new_core)
+        self.assertEqual(selected["AzerothCore"], new_core)
+        self.assertEqual(selected["Playerbots"], default["Playerbots"])
+        self.assertEqual(selected["Individual Progression"],
+                         default["Individual Progression"])
+        self.assertEqual(default, preflight.PINS)
+
+    def test_independent_exact_overrides_do_not_change_global_defaults(self):
+        playerbots = "d750b4b3a50effdf22bedc8032f0e8e5f7cb8091"
+        ip = "84818a195bd02107f13c261eea11c9e14cb3f1a0"
+        selected = preflight.selected_pins(
+            playerbots=playerbots.upper(), ip=ip.upper())
+        self.assertEqual(selected["AzerothCore"],
+                         preflight.PINS["AzerothCore"])
+        self.assertEqual(selected["Playerbots"], playerbots)
+        self.assertEqual(selected["Individual Progression"], ip)
+        self.assertEqual(preflight.selected_pins(), preflight.PINS)
+
+    def test_invalid_or_short_overrides_are_refused_not_autofilled(self):
+        for field in ("core", "playerbots", "ip"):
+            for value in ("8daffda", "x" * 40, "", "abcd", " " * 40):
+                with self.subTest(field=field, value=value):
+                    with self.assertRaisesRegex(ValueError, "40-character"):
+                        preflight.selected_pins(**{field: value})
+
+    def test_new_core_checkout_matches_only_explicit_chosen_revision(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "core"
+            real = init_repo(path)
+            wrong = "0" * 40 if real != "0" * 40 else "1" * 40
+            selected = preflight.selected_pins(core=real)
+            with contextlib.redirect_stdout(io.StringIO()):
+                good = preflight.check_checkout("AzerothCore", path,
+                                                selected["AzerothCore"])
+                bad = preflight.check_checkout("AzerothCore", path, wrong)
+            self.assertEqual(good, 0)
+            self.assertEqual(bad, preflight.MISMATCH)
 
     def test_modified_tracked_source_blocks_acceptance(self):
         with tempfile.TemporaryDirectory() as temporary:
