@@ -1,0 +1,35 @@
+name: Golemagg read-only offline trace parser tests
+
+on:
+  push:
+    branches: [research/golemagg-offline-trace-review-prepared-2026-10-19]
+    paths:
+      - 'scripts/summarize_golemagg_action_audit.py'
+      - 'tests/test_golemagg_offline_trace_summary.py'
+      - 'docs/GOLEMAGG-OFFLINE-TRACE-REVIEW-2026-10-19.md'
+      - '.github/workflows/golemagg-offline-trace-review.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-log-fixtures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check Python standard library syntax
+        run: |
+          python3 -m py_compile scripts/summarize_golemagg_action_audit.py
+          python3 -m py_compile tests/test_golemagg_offline_trace_summary.py
+      - name: Run offline synthetic trace tests only
+        run: |
+          python3 -m unittest discover -s tests -p 'test_golemagg_offline_trace_summary.py' -v
+      - name: State read-only scope
+        run: |
+          echo "No Worldserver process, plugin, config, bot, character, SQL or DBC modified."
+          echo "A successful unit test is not proof of any live Golemagg movement cause."
