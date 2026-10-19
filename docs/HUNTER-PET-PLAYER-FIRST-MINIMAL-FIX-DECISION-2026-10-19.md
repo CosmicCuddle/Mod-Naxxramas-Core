@@ -19,6 +19,77 @@
 
 Pinned sources: [core Pet.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Entities/Pet/Pet.cpp), [core CharacterDatabase.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/database/Database/Implementation/CharacterDatabase.cpp), [core PetScript.h](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Scripting/ScriptDefines/PetScript.h), [IP IndividualProgressionSpells.cpp](https://github.com/Grimfeather/mod-individual-progression/blob/4ff4b5fcc1480348f058c632573143e62d4e3a41/src/IndividualProgressionSpells.cpp).
 
+## Repeat-summon source sequence: another testable mechanism
+
+The exact pinned AzerothCore `Pet::LoadPetFromDB` async callback first calls
+`_LoadSpells` (reloading saved `pet_spell.active`), then
+`InitLevelupSpellsForLevel`. That routine calls `learnSpell` for eligible
+family-level and template-default spells. A **native direct higher-rank**
+`addSpell` can carry the previously known rank's active flag, but the new
+spell book may differ from what Individual Progression currently permits.
+
+Individual Progression separately schedules a one-pet delayed event from
+pet level initialization/AddToWorld (with loading retries) and then calls
+`checkHunterPetSpells`, which may **unlearn an unwanted rank first and
+relearn the legal keepId**. Thus repeated summoning can, in principle,
+recreate an old-rank/new-rank cycle: native saved spell ON -> native
+level-based initialization -> IP legal-rank pruning -> new spell defaults OFF.
+Whether a specific pet hits this sequence depends on its actual family,
+saved known ranks, IP dummy spells, progression stage and current core
+level-up spell set. **No deployed pet trace yet confirms the hypothesis.**
+
+This makes the initial reproduction especially important:
+- Inspect **the same stored PetNumber** and saved spell ID/active values
+  after a normal save, then after a summon **without advancing IP training**.
+- Compare current in-memory known legal rank with the native and IP expected
+  ranks; do not assume every summon itself changed the rank.
+- Observe both a manually ON and manually OFF ability; an OFF default after
+  relearning is ambiguous and must not be treated as proof the user turned OFF.
+- Preserve semantics for all eligible abilities (not just Lightning Breath)
+  and fail closed for any missing/forbidden spell, stable swap or newly tamed
+  pet.
+
+The pinned source-check guard additionally verifies this **load ->
+level-based initialization -> delayed IP reconcile** sequence. This is
+stronger static evidence for a potential repeat-summon reset, still **not**
+a real-player reproduction or authorization to patch IP.
+
+## Native dual state and action-bar consistency — a separate correctness gate
+
+The pinned core does **not** represent player autocast in just one place.
+`Pet::ToggleAutocast` updates `PetSpell.active` and the active-autospell
+list, while `CharmInfo` has an **independent action-bar entry type**.
+`CharmInfo::SetSpellAutocast` updates that slot type, and
+`Player::PetSpellInitialize` sends **both** the action-bar data and each
+spell's native `active` state to the client. Crucially,
+`Pet::CleanupActionBar` can reapply `ToggleAutocast` **from the bar's
+`ACT_ENABLED`/`ACT_DISABLED` type**.
+
+Consequently, a future patch must **not** assume
+`pet->ToggleAutocast(keepSpell, true)` alone is sufficient. If a legal
+rank was unlearned/relearned, the bar may still contain a disabled old slot,
+and later cleanup/client refresh could contradict the native spell flag.
+The accepted implementation must verify the correct ability/rank is on
+the bar (if present), update the **existing** legal spell's bar autocast
+state through the core's public `CharmInfo::SetSpellAutocast` surface,
+and refresh the client appropriately. Do **not** place extra abilities,
+rewrite unrelated action-bar slots or grant missing ranks.
+
+**Native reference implementation for a human toggle:** the exact pinned
+`WorldSession::HandlePetSpellAutocastOpcode` in
+[PetHandler.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Handlers/PetHandler.cpp)
+first checks that the spell belongs to the pet and is autocastable, then
+calls `Pet::ToggleAutocast` for the spell state **and**
+`CharmInfo::SetSpellAutocast` for the actionbar state. This confirms the
+existing core's intended **dual-write pattern**. Any future approved
+IP-side legal-rank preservation should follow equivalent checks for the
+same pet/allowed rank; do not copy the packet handler or call it directly.
+
+The prepared Python guard now verifies exact pinned
+`Pet::CleanupActionBar`, `CharmInfo::SetSpellAutocast`, and
+`Player::PetSpellInitialize` source relationships. This is source
+review evidence only; no patch or in-game actionbar verification exists.
+
 ## Minimal correction candidates (NOT implemented)
 
 **Option A — module-only, first choice if a reliable interception point exists.** Capture the *actual, previously loaded* native legal spell's `PetSpell.active` for a verified real human Hunter's **same current pet** before IP removes it. Transfer only that explicit state to the **correct newly legal rank after IP finishes**. Preserve ON **and OFF**, never generate a spell, never force-enable absent/untrained abilities, and never infer user intent from the default disabled state. **Blocking problem:** the pinned public PetScript/PlayerScript surfaces lack a reliable before-and-after IP reconciliation callback. Pet AddToWorld can run before async `_LoadSpells`, and a scheduled delay/poll does not prove IP completed. Do not implement a fragile timer or fake a module-only fix.

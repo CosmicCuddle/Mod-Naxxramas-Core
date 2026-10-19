@@ -21,6 +21,10 @@ def check(core: Path, ip: Path) -> None:
     pet = (core / "src/server/game/Entities/Pet/Pet.cpp").read_text("utf-8")
     db = (core / "src/server/database/Database/Implementation/CharacterDatabase.cpp").read_text("utf-8")
     hooks = (core / "src/server/game/Scripting/ScriptDefines/PetScript.h").read_text("utf-8")
+    charm = (core / "src/server/game/Entities/Unit/CharmInfo.cpp").read_text("utf-8")
+    charm_header = (core / "src/server/game/Entities/Unit/CharmInfo.h").read_text("utf-8")
+    player_core = (core / "src/server/game/Entities/Player/Player.cpp").read_text("utf-8")
+    handler = (core / "src/server/game/Handlers/PetHandler.cpp").read_text("utf-8")
     ipp = (ip / "src/IndividualProgressionSpells.cpp").read_text("utf-8")
 
     loaded = between(pet, "void Pet::_LoadSpells(", "void Pet::_SaveSpells(")
@@ -78,8 +82,57 @@ def check(core: Path, ip: Path) -> None:
         assert marker in load_pet, "Async pet loading changed: " + marker
     assert load_pet.index("map->AddToMap(ToCreature(), true);") < load_pet.index(
         "_LoadSpells(holder.GetPreparedResult(PetLoadQueryHolder::SPELLS));")
+    # Critical repeat-summon candidate: after native stored spell active values
+    # are reloaded, the core explicitly runs level-family spell initialization
+    # again. This may add a different spell rank (preserving ON only for some
+    # native direct higher-rank paths) before IP's delayed keepId pruning.
+    # A pet observed losing state every summon may therefore still encounter
+    # IP remove/relearn even without a new player training action.
+    assert (load_pet.index(
+        "_LoadSpells(holder.GetPreparedResult(PetLoadQueryHolder::SPELLS));") <
+        load_pet.index("InitLevelupSpellsForLevel();") <
+        load_pet.rindex("m_loading = false;"))
+    init_family = between(pet, "void Pet::InitLevelupSpellsForLevel()",
+                          "bool Pet::unlearnSpell(")
+    assert "sSpellMgr->GetPetLevelupSpellList(GetCreatureTemplate()->family)" in init_family
+    assert "learnSpell(itr->second);" in init_family
+    assert "sSpellMgr->GetPetDefaultSpellsEntry(petSpellsId)" in init_family
+    assert "learnSpell(spellInfo->Id);" in init_family
+
     assert "pet->isBeingLoaded() && _attempts < 10" in delayed
     assert "sIndividualProgression->checkHunterPetSpells(player);" in delayed
+    # Native autocast is represented twice: PetSpell.active + CharmInfo
+    # actionbar slot type. A correction changing only PetSpell.active may be
+    # undone by CleanupActionBar or appear wrong in SMSG_PET_SPELLS.
+    cleanup = between(pet, "void Pet::CleanupActionBar()", "void Pet::InitPetCreateSpells()")
+    setbar = between(charm, "void CharmInfo::SetSpellAutocast(",
+                      "void CharmInfo::SetIsCommandAttack(")
+    publish = between(player_core, "void Player::PetSpellInitialize()",
+                      "void Player::PossessSpellInitialize()")
+    assert "ToggleAutocast(spellInfo, ab->GetType() == ACT_ENABLED);" in cleanup, (
+        "Pet actionbar cleanup no longer synchronizes native spell autocast")
+    assert "PetActionBar[i].SetType(state ? ACT_ENABLED : ACT_DISABLED);" in setbar
+    assert "void SetSpellAutocast(SpellInfo const* spellInfo, bool state);" in charm_header
+    assert "charmInfo->BuildActionBar(&data);" in publish
+    assert "MAKE_UNIT_ACTION_BUTTON(itr->first, itr->second.active)" in publish
+    assert "pet->m_spells.begin()" in publish
+
+    # Direct human client toggle handler synchronizes BOTH legal pet spell
+    # active state and actionbar type. A restoration patch should follow this
+    # *existing* native dual-write contract, not invent another persistence DB.
+    manual = between(handler, "void WorldSession::HandlePetSpellAutocastOpcode(",
+                     "void WorldSession::HandlePetCastSpellOpcode(")
+    for marker in (
+        "pet->HasSpell(packet.SpellID)",
+        "spellInfo->IsAutocastable()",
+        "summon->ToggleAutocast(spellInfo, packet.AutocastEnabled);",
+        "charmInfo->SetSpellAutocast(spellInfo, packet.AutocastEnabled);",
+    ):
+        assert marker in manual, "Native human autocast toggle path changed: " + marker
+    assert (manual.index("summon->ToggleAutocast(spellInfo") <
+            manual.index("charmInfo->SetSpellAutocast(spellInfo"))
+    assert "checkPet != _player->GetGuardianPet()" in manual
+
     for prohibited in ("OnPetBeforeUnlearnSpell", "OnPetAfterLearnSpell",
                        "OnPetSpellReconciled", "OnIPPetReconciled"):
         assert prohibited not in hooks, "Review newly available native hook: " + prohibited
@@ -88,6 +141,9 @@ def check(core: Path, ip: Path) -> None:
     print("PASS: native higher-rank replacement inherits old state; new spell defaults OFF.")
     print("PASS: IP's human-Hunter reconciliation may remove old rank before new rank.")
     print("PASS: AddToWorld precedes async spell load, and IP delayed check has no explicit completion hook.")
+    print("PASS: native async load reinitializes level/default spells before delayed IP legal-rank pruning.")
+    print("PASS: native PetSpell active and CharmInfo actionbar have separate synchronisation paths.")
+    print("PASS: human player pet-toggle opcode writes both native spell and actionbar states.")
     print("BLOCKED: root cause on real player and module-only atomic handoff NOT demonstrated.")
     print("No player data/character DB accessed; no Playerbot, IP, core or pet mutation.")
 
