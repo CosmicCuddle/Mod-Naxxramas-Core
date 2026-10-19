@@ -27,6 +27,29 @@ def ensure(code, text, name):
         raise ValueError(f"{name}: missing contract {text}")
 
 
+def scoped_body(code, marker, label):
+    """Extract one braced C++ if-block, fail-closed on missing braces.
+
+    Operates only on the already comment-stripped pinned source. No string
+    literal with braces exists in this reviewed capture/lock region.
+    """
+    start = code.find(marker)
+    if start < 0:
+        raise ValueError(f"{label}: missing guard")
+    opening = code.find("{", start + len(marker))
+    if opening < 0:
+        raise ValueError(f"{label}: missing opening brace")
+    depth = 0
+    for i in range(opening, len(code)):
+        if code[i] == "{":
+            depth += 1
+        elif code[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return code[opening + 1:i]
+    raise ValueError(f"{label}: unbalanced braces")
+
+
 def check(native_ep_h, native_map_h, native_map_cpp, module_cpp):
     header = strip_comments(native_ep_h)
     original_enum = block(header, "enum EP_Towers", "};", "pinned EP tower enum")
@@ -86,6 +109,13 @@ def check(native_ep_h, native_map_h, native_map_cpp, module_cpp):
     if not (update.index("OPvPCapturePoint::Update(diff);") <
             update.index(guard) < update.index(persist) < update.index(notify)):
         raise ValueError("EP announce no longer after successful lock persistence call")
+    endpoint_body = scoped_body(update, "if (this->_maxValue > 0.0f &&",
+                                "signed full-cap guard")
+    lock_body = scoped_body(endpoint_body, guard, "successful PackLock guard")
+    if persist not in lock_body or notify not in lock_body:
+        raise ValueError("EP zone notice escaped the signed endpoint or PackLock scope")
+    if lock_body.index(persist) >= lock_body.index(notify):
+        raise ValueError("EP zone notice precedes lock persistence inside guard")
     if module.count("SendZoneText(") != 1 or update.count("SendZoneText(") != 1:
         raise ValueError("EP additional zone notifications outside lock-start path")
     ensure(module, "using EastwallTower = NaxxramasLockedEPTower<",
