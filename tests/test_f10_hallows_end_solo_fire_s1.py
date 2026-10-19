@@ -31,6 +31,10 @@ def line(text: str, number: int) -> str:
     return text.splitlines()[number - 1]
 
 
+def stripped_lines(text: str):
+    return [row.strip() for row in text.splitlines()]
+
+
 def git_blob_sha1(data: bytes) -> str:
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
@@ -330,15 +334,15 @@ class DesignContract(unittest.TestCase):
         self.assertIn("(playerCount / 3) + 1;", MODULE)
         self.assertIn("playerCount % 2;", MODULE)
         self.assertIn("playerCount * 0.25f", MODULE)
-        self.assertEqual(line(MODULE, 312).strip(), "if (counter > 14)")
-        self.assertEqual(line(MODULE, 359).strip(), "events.Repeat(30s);")
+        self.assertIn("if (counter > 14)", stripped_lines(MODULE))
+        self.assertIn("events.Repeat(30s);", stripped_lines(MODULE))
 
-    def test_this_milestone_does_not_arm_a_solo_mode(self):
-        self.assertNotIn("SetPeriodicTimer", MODULE)
+    def test_core_spell_and_trigger_bindings_stay_out_of_module_sql(self):
+        # S2 adds the default-off reader. These absences are still required:
+        # the module must not rewrite aura amount or bind the core scripts.
         self.assertNotIn("SetAmount", MODULE)
-        self.assertNotIn("SetObjectScale", MODULE)
-        self.assertNotIn("HallowsEnd.SoloFire", MODULE)
-        self.assertNotIn("HallowsEnd.SoloFire", CONF)
+        self.assertNotIn("CalculatePeriodic", MODULE)
+        self.assertNotIn("ResetPeriodic", MODULE)
         self.assertNotIn("23686", SQL)
         self.assertNotIn("42074", SQL)
         self.assertIn("npc_naxxramas_hallows_end_soh", SQL)
@@ -346,11 +350,12 @@ class DesignContract(unittest.TestCase):
         self.assertEqual(LOADER.count("AddHallowsEndShadeOfTheHorsemanScripts();"), 2)
 
     def test_module_keeps_the_30s_cycle_and_counter_threshold(self):
-        self.assertEqual(line(MODULE, 312).strip(), "if (counter > 14)")
-        self.assertEqual(line(MODULE, 359).strip(), "events.Repeat(30s);")
-        self.assertEqual(line(MODULE, 217).strip(), "events.ScheduleEvent(2, 25s);")
-        self.assertEqual(line(MODULE, 218).strip(), "events.ScheduleEvent(2, 43s);")
-        self.assertEqual(line(MODULE, 219).strip(), "events.ScheduleEvent(3, 63s);")
+        rows = stripped_lines(MODULE)
+        self.assertIn("if (counter > 14)", rows)
+        self.assertIn("events.Repeat(30s);", rows)
+        self.assertIn("events.ScheduleEvent(2, 25s);", rows)
+        self.assertIn("events.ScheduleEvent(2, 43s);", rows)
+        self.assertIn("events.ScheduleEvent(3, 63s);", rows)
         self.assertIn("SPELL_START_FIRE", MODULE)
         self.assertNotIn("SPELL_SPREAD_FIRE", MODULE)
         self.assertNotIn("42079", MODULE)

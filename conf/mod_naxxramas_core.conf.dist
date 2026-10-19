@@ -251,3 +251,28 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptGMs = 1
 # Preserve Playerbots queues based on IndividualProgression.BotAccountsRegex.
 # Default: 1
 NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
+
+#####################################
+# Hallow's End - Shade solo fire
+#####################################
+
+# Optional solo pace for the module Shade of the Horseman.
+# 1 = exactly one nearby real player (a GM counts; a Playerbot does not)
+#     uses the existing fire formulas as a party of one, and may stretch
+#     the next interval of aura 42074.
+# 0 = legacy behaviour. Bots stay inside the nearby player count.
+# Any value other than 1 is treated as 0. This does not extinguish a fire
+# and it does not change the 30 second ignition repeat or the counter > 14
+# outcome. Default: 0
+NaxxramasCore.HallowsEnd.SoloFire.Enabled = 0
+
+# Integer multiplier for the live 42074 amplitude. Used only while the
+# solo path above is active.
+# 1 = do not write the periodic timer.
+# 2-8 = on the first sight of a fire, and again when its tick number
+#       changes, store amplitude * multiplier into the current countdown.
+# 0, negatives, values above 8, and non-integers are rejected. They are
+# not clamped and they are not replaced by this default. A rejected value
+# skips timer writes. Scale matching after a real amount drop still runs.
+# Default: 3
+NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier = 3
