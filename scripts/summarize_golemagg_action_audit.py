@@ -27,6 +27,7 @@ class Sample:
     inside_distance: bool | None
     explicit_thresholds: bool
     mentions_back_off: bool
+    unavailable_recent_action_history: bool
 
 
 def boolean(value: str | None) -> bool | None:
@@ -72,12 +73,16 @@ def read_sample(line: str) -> Sample | None:
                 return None
         if not lookup:
             inside = None
-        tail = line.split(" recent_actions=", 1)[1].lower() if " recent_actions=" in line else ""
+        tail = line.split(" recent_actions=", 1)[1].strip().lower() if " recent_actions=" in line else ""
+        # Optional proposed observer PR #40 explicitly uses this sentinel.
+        # It does NOT establish that no bot action occurred; history is unknown.
+        missing_history = tail == "(no recent action)"
         return Sample(
             bot=name, number=number, stacks=stacks, lookup=lookup,
             hp=hp, distance=distance, at_stacks=at_stacks,
             inside_distance=inside, explicit_thresholds=has_both,
             mentions_back_off="mc golemagg back off" in tail,
+            unavailable_recent_action_history=missing_history,
         )
     except (ValueError, KeyError, OverflowError):
         return None
@@ -97,6 +102,8 @@ def summarize(lines):
             continue
         bots.add(sample.bot)
         counters["parsed_samples"] += 1
+        if sample.unavailable_recent_action_history:
+            counters["unavailable_recent_action_history_samples"] += 1
         if not sample.explicit_thresholds:
             counters["legacy_without_explicit_thresholds"] += 1
         if not sample.lookup:
@@ -154,6 +161,7 @@ def main() -> int:
         "burn_phase_samples", "at_or_over_20_stacks",
         "sampled_stack_bucket_changes", "sampled_distance_bucket_changes",
         "recent_back_off_mentions", "sampled_retreat_condition_met",
+        "unavailable_recent_action_history_samples",
         "back_off_mentions_with_condition",
         "back_off_mentions_without_confirmed_condition",
         "sample_counter_reset_or_replay",
