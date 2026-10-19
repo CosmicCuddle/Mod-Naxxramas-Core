@@ -8,7 +8,7 @@ diff --git a/src/IndividualProgressionSpells.cpp b/src/IndividualProgressionSpel
 +#include "Pet.h"
  #include "Spell.h"
  #include "DataMap.h"
-@@ -69,27 +69,79 @@
+@@ -69,27 +69,88 @@
      std::string familyName = familyEntry->Name[0];
  
 -    auto reconcile = [pet, player](std::initializer_list<uint32> wipeIds, std::initializer_list<uint32> dummyIds)
@@ -50,22 +50,31 @@ diff --git a/src/IndividualProgressionSpells.cpp b/src/IndividualProgressionSpel
 +            // No keepId, already-known keepId, ambiguous candidates or bot
 +            // accounts never trigger this preference transfer.
 +            int8 oldAutocast = -1;
-+            uint8 candidates = 0;
-+            if (keepId && !pet->HasSpell(keepId))
++            uint8 presentOldRanks = 0;
++            uint8 eligibleOldRanks = 0;
++            bool keepIdInWipeList = false;
++            for (uint32 id : wipeIds)
++                if (id == keepId)
++                    keepIdInWipeList = true;
++            SpellInfo const* keepInfo = keepId ? sSpellMgr->GetSpellInfo(keepId) : nullptr;
++            if (keepIdInWipeList && keepInfo && keepInfo->IsAutocastable() &&
++                !pet->HasSpell(keepId))
 +            {
 +                for (uint32 id : wipeIds)
 +                {
 +                    if (id == keepId || !pet->HasSpell(id))
 +                        continue;
++                    ++presentOldRanks;
 +                    SpellInfo const* oldInfo = sSpellMgr->GetSpellInfo(id);
-+                    if (!oldInfo || !oldInfo->IsAutocastable())
++                    if (!oldInfo || !oldInfo->IsAutocastable() ||
++                        !oldInfo->IsDifferentRankOf(keepInfo))
 +                        continue;
 +                    auto const spell = pet->m_spells.find(id);
 +                    if (spell == pet->m_spells.end())
 +                        continue;
 +                    if (spell->second.active != ACT_ENABLED && spell->second.active != ACT_DISABLED)
 +                        continue;
-+                    ++candidates;
++                    ++eligibleOldRanks;
 +                    oldAutocast = (spell->second.active == ACT_ENABLED) ? 1 : 0;
 +                }
 +            }
@@ -79,9 +88,9 @@ diff --git a/src/IndividualProgressionSpells.cpp b/src/IndividualProgressionSpel
 +            if (keepId && !pet->HasSpell(keepId))
 +            {
 +                bool const learned = pet->learnSpell(keepId);
-+                SpellInfo const* keepInfo = sSpellMgr->GetSpellInfo(keepId);
 +                CharmInfo* charm = pet->GetCharmInfo();
-+                if (learned && candidates == 1 && oldAutocast >= 0 &&
++                if (learned && presentOldRanks == 1 && eligibleOldRanks == 1 &&
++                    oldAutocast >= 0 && keepIdInWipeList &&
 +                    player->GetPet() == pet && pet->getPetType() == HUNTER_PET &&
 +                    !pet->isBeingLoaded() && pet->HasSpell(keepId) &&
 +                    keepInfo && keepInfo->IsAutocastable() && charm)
