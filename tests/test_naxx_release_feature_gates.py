@@ -253,6 +253,11 @@ class ReleaseFeatureGates(unittest.TestCase):
         message = gate.report(self.d)
         self.assertIn("RELEASE GATE: BLOCKED", message)
         self.assertIn("Golemagg", message)
+        self.assertIn("Historical diagnostic PR #33", message)
+        self.assertIn("Completion-first PR #46", message)
+        self.assertIn("head=" + self.d["mature_three_candidate"]["exact_head"], message)
+        self.assertIn("combined_full_worldserver=False", message)
+        self.assertIn("owner_approved=False", message)
         self.assertEqual(before, self.d)
 
 
