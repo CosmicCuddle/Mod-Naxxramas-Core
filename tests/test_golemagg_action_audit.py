@@ -121,6 +121,34 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
         self.assertNotIn("Unit* lastBoss", SOURCE)
         self.assertNotIn("ObjectGuid lastBoss", SOURCE)
 
+    def test_threshold_crossings_are_logged_even_if_action_tail_repeats(self):
+        # Pin the exact Playerbots retreat thresholds; still observation only.
+        self.assertIn("MAGMA_SPLASH_RETREAT_STACKS = 20", SOURCE)
+        self.assertIn("MAGMA_SPLASH_RETREAT_YARDS = 12.0f", SOURCE)
+        self.assertIn("Aura* splash = player->GetAura(MAGMA_SPLASH_SPELL);", SOURCE)
+        self.assertIn("stacks >= MAGMA_SPLASH_RETREAT_STACKS", SOURCE)
+        self.assertIn("bossDistanceYards < MAGMA_SPLASH_RETREAT_YARDS", SOURCE)
+        self.assertIn("atRetreatStacks != state->lastAtRetreatStacks", SOURCE)
+        self.assertIn("insideRetreatDistance != state->lastInsideRetreatDistance", SOURCE)
+        self.assertIn("!thresholdChanged", SOURCE)
+        self.assertIn("state->hasLastSample = true;", SOURCE)
+        self.assertIn("state->lastAtRetreatStacks = atRetreatStacks;", SOURCE)
+        self.assertIn("state->lastInsideRetreatDistance = insideRetreatDistance;", SOURCE)
+        self.assertIn("retreat_stacks_20={}", SOURCE)
+        self.assertIn("inside_retreat_12yd={}", SOURCE)
+        # Evaluation of threshold crossings must be BEFORE duplicate filtering.
+        self.assertLess(
+            SOURCE.index("bool const thresholdChanged ="),
+            SOURCE.index("trace == state->lastTrace"),
+        )
+        # The existing one-bot, 2.5-second and 24-sample quota remain.
+        self.assertIn("state->samples >= MAX_SAMPLES_PER_BOT", SOURCE)
+        self.assertIn("++state->samples;", SOURCE)
+        self.assertIn("state->elapsedMs < SAMPLE_INTERVAL_MS", SOURCE)
+        # No movement or spell mutation interface is introduced by the probe.
+        for denied in ("MoveAway(", "MoveTo(", "DoSpecificAction(", "CastSpell("):
+            self.assertNotIn(denied, SOURCE)
+
     def test_sample_state_is_per_player_not_global_across_maps(self):
         self.assertIn("struct SampleState final : DataMap::Base", SOURCE)
         self.assertIn(
