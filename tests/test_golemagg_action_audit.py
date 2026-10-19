@@ -149,6 +149,47 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
         for denied in ("MoveAway(", "MoveTo(", "DoSpecificAction(", "CastSpell("):
             self.assertNotIn(denied, SOURCE)
 
+    def test_missing_recent_action_history_cannot_suppress_thresholds(self):
+        # Actual C++ must normalize the empty action-log tail BEFORE
+        # duplicate/threshold filtering, rather than skip the whole sample.
+        sentinel = 'trace = "(no recent action)";'
+        self.assertIn("if (trace.empty())", SOURCE)
+        self.assertEqual(SOURCE.count(sentinel), 1)
+        self.assertNotIn("trace.empty() ||", SOURCE)
+        self.assertLess(SOURCE.index(sentinel),
+                        SOURCE.index("trace == state->lastTrace"))
+        self.assertLess(SOURCE.index("bool const thresholdChanged ="),
+                        SOURCE.index(sentinel))
+        self.assertIn("lookupPresent == state->lastLookupPresent", SOURCE)
+        self.assertIn("!thresholdChanged", SOURCE)
+        self.assertIn("state->lastTrace = trace;", SOURCE)
+        self.assertIn("MAX_ACTION_TEXT = 320", SOURCE)
+        self.assertIn("state->samples >= MAX_SAMPLES_PER_BOT", SOURCE)
+
+    def test_missing_tail_dedup_model_reacts_to_boundary_not_polling(self):
+        # Synthetic decision model matching the C++ predicate; true means
+        # one bounded log sample, not any AI execution or movement change.
+        def sample(raw, previous, lookup, previous_lookup, changed):
+            normalized = raw or "(no recent action)"
+            return normalized, (
+                normalized != previous or
+                lookup != previous_lookup or changed
+            )
+
+        first, should_log = sample("", "", True, False, True)
+        self.assertEqual(first, "(no recent action)")
+        self.assertTrue(should_log)       # first valid Golemagg observation
+        _, should_log = sample("", first, True, True, False)
+        self.assertFalse(should_log)      # no flood at idle 2.5s samples
+        _, should_log = sample("", first, True, True, True)
+        self.assertTrue(should_log)       # 19->20 stacks or 11->13yd
+        _, should_log = sample("", first, False, True, False)
+        self.assertTrue(should_log)       # transient boss lookup loss
+        new, should_log = sample("mc golemagg back off", first, True, True, False)
+        self.assertTrue(should_log)       # newly populated action tail
+        _, should_log = sample("", new, True, True, False)
+        self.assertTrue(should_log)       # changed back to missing history
+
     def test_sample_state_is_per_player_not_global_across_maps(self):
         self.assertIn("struct SampleState final : DataMap::Base", SOURCE)
         self.assertIn(
