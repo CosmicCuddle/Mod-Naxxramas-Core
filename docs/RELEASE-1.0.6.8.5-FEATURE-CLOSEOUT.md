@@ -47,6 +47,30 @@ The release-gate inventory in [`docs/release-gates/1.0.6.8.5.json`](release-gate
 
 **Minimum next owner involvement, when invited:** authorization for a read-only installed-source inventory and restore-safe staging preflight **only**, not installation or gameplay. No action is requested from the owner now; all ten release manifest inclusions remain `false`. Record progress only in [master issue #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28), not another master checklist.
 
+## S5/S6 owner-controlled evidence handoff — prepared, **NOT RUN**
+
+This is an **empty evidence worksheet**, **not** a second feature tracker. Keep the authoritative stage state in [issue #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28). Do **not** paste private absolute home paths, credentials, DSNs, full Worldserver configurations, account IDs, or identifiable character logs into public GitHub issues or this document. Review this record privately with the owner only **after** separate staging authorization.
+
+| Gate and evidence | Current result | Acceptance / STOP rule |
+| --- | --- | --- |
+| Candidate revision and integration CI | #46 exact `4734e4a0ccb2d457420f9995c21bee14826d2a9a`; source tests + native C++ units PASS; *combined full link and final checks unverified at this writing* | Exact completed CI conclusion + final Worldserver symbols required before any S4 claim |
+| Actual installed Grimfeather core SHA and tracked differences | **NOT COLLECTED** | Capture actual SHA and local modifications; pinned CI source SHA is not an assertion about the owner server |
+| Installed Playerbots, Individual Progression and Naxx Core SHAs | **NOT COLLECTED** | Capture all three **separate** repositories, not the parent Git SHA for nested modules; do not force-reset a mismatching install |
+| Running Worldserver process/binary provenance | **NOT COLLECTED** | Identify actual service execution path and resolved binary safely; optional **on-disk** SHA-256 alone does not establish running process provenance |
+| Actual config and EP world handler (TypeId=6) | **NOT COLLECTED** | Private review of feature toggles, IP/Playerbots settings, world DB handler binding; **no SQL UPDATE**, feature activation or restart just to inspect |
+| Restore rehearsal: binary + source + effective config | **NOT RUN** | Prove a known-good restoration on approved disposable staging and record result before proposing feature installation |
+| Restore rehearsal: **complete characters DB** | **NOT RUN** | Verify the full DB can be restored on disposable staging, **not** just that an export file exists; inventory/quest loot change persistent data |
+| EP-specific world state + SQL binding rollback | **NOT RUN** | Prove relevant world-state restore and exact guarded forward/reverse handler row behavior, including independent lock preservation |
+| Hunter ammo owner-approved pilot | **NOT AUTHORIZED / NOT RUN** | First OFF baseline, then single controlled Hunter; bows/crossbows vs gun, selected vs missing ammo, full bag, no-pet, no-weapon, repeat/relog, quantity before/after |
+| Quest Loot owner-approved pilot | **NOT AUTHORIZED / NOT RUN** | QL-01 through QL-15 in [feature guide](QUEST-LOOT-PROTECTION.md), especially owner pickup, released turn, bot packet path and no stranded loot |
+| Eastern Plaguelands owner-approved pilot | **NOT AUTHORIZED / NOT RUN** | All four named towers, both factions, zone-wide notice at full 100% persisted lock only, restart and reset without duplicate announcements |
+| Cross-feature defaults and regression pilot | **NOT AUTHORIZED / NOT RUN** | First combined OFF baseline; validate existing classes, consumables, PvP and progression without simultaneously enabling unaccepted features |
+| Separate owner decisions: include/merge/install/enable/release | **NONE GRANTED** | Specific signed-off candidate, staged test result, backup proof and reviewed manifest required; approval of one gate never implies another |
+
+The independently tested source-check helper [draft PR #34](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/34) is **not installed** on the owner's realm. If separately authorised and made available from a reviewed source, it can inspect Git repository roots/SHA/dirty tracked files **read only**; it does not inspect untracked files, verify running-process provenance, inspect SQL, check actual secrets safely for a human, run backups or certify restore. Any mismatch is a **STOP / investigate** condition, not an instruction to overwrite installed files.
+
+**Short operator result format, for private use when authorised:** `Date/time + selected candidate SHA | installed core/IP/Playerbots/Naxx SHAs and dirty/clean summary | binary identity | config/binding verified? | binary/config/source restore PASS/FAIL | full characters DB restore PASS/FAIL | EP world-state restore PASS/FAIL | specific S6 case IDs and observed PASS/FAIL | rollback PASS/FAIL | owner approvals by action`. Start every field as **NOT RUN**. Only update the corresponding master issue gate with sanitised evidence *after* the real test; never promote a not-yet-run field because a CI build passes.
+
 ## Recommended closeout sequence
 
 1. **Release scope freeze first (no install):** select which current draft features might belong in 1.0.6.8.5. Explicitly classify diagnostics as diagnostics and exclude unimplemented Golemagg movement and human Hunter autocast functionality. Keep all three combined feature flags default-OFF.
