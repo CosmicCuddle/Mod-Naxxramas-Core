@@ -128,7 +128,7 @@ SpellHit runs during `CastSpell`, after `playerCount` has been stored, and the c
 Corrections to the check-in wording:
 
 - "Later ones get amount 1" is true for Shade-cast 42132. It is false for 42079. The spread caster is the burning trigger, whose `GetData` is 0, and `(0 % 3) > 1` is false, so spread fires start at amount 0 (`hallows_end.cpp:557-567`).
-- The 60yd list is every alive `Player`. `AnyPlayerInObjectRangeCheck` has no bot test. A solo player standing among Playerbots does not produce playerCount 0/1. **POTENTIAL ISSUE** for any future solo detector. **NOT TESTED** with bots in the village.
+- The 60yd list is every alive `Player`. `AnyPlayerInObjectRangeCheck` has no bot test. Today's `CastFires` therefore counts a solo player standing among Playerbots as more than one player. **VERIFIED** from that search. **POTENTIAL ISSUE** for the previous draft of section 6, which said bots do not count and also said not to change `sizeCount`. CS01 review `5578105960` closes it: while the solo path is active the list is narrowed to the one real player before these formulas run, and the formulas themselves stay. That narrowing is design-only in this branch. **NOT TESTED** with bots in the village.
 
 `playerCount` also feeds the non-initial throttle `0.5 - playerCount * 0.25` (`:444-458`). With playerCount 0 the unburned fraction must be at least half the trigger list or the cycle casts nothing. That throttle does not slow auras that already exist.
 
@@ -164,6 +164,10 @@ Schedule, counted from `Reset` (the first case-3 run is the 63s event, `:219`):
 **VERIFIED** arithmetic from the two `UpdateAI` switches. **NOT TESTED** as wall-clock time, because a casting Shade returns from `UpdateAI` before the event switch (`HallowsEndShadeOfTheHorseman.cpp:247-251`, core `hallows_end.cpp:711-712`), so a long cast delays the event clock.
 
 The 30s change does not touch burning auras. The threshold change makes the forced ending later than stock, so the core chain reaction has a longer event to fill. That combination matches "we already slowed the cycle and it still spreads too fast."
+
+### Matron 400s versus forced Shade 483s — gameplay acceptance risk
+
+The matron clears the quest offer at about 400s (`eventStarted >= 400 * IN_MILLISECONDS`, `hallows_end.cpp:443`). The module's forced Shade outcome is 483s on the event clock above. **VERIFIED** as those two source expressions. **POTENTIAL ISSUE**, tracked as a gameplay acceptance risk and not as a timer change: a village that runs all the way to the forced finish can still be inside an event whose quest offer has already closed. Whether a player then fails or succeeds depends on the matron, the fire scripts, and later event updates. Those were not executed. This branch does not edit the 400s test, the 30s repeat, or `counter > 14`. **NOT TESTED** as wall-clock time.
 
 Side effect, not the reported bug: `counter == 15` would say "more fires" (`:340-344`), but `counter > 14` finishes and returns first (`:312-333`). The talk is unreachable. **VERIFIED**. Left unchanged in this milestone. The `counter == 5` talk still runs.
 
@@ -243,8 +247,8 @@ Calling it on a poll restarts the tick count and the countdown every time. That 
 
 Approach A can do two things reliably, and only those, behind a default-off solo path:
 
-1. **Slow the next interval** with one `SetPeriodicTimer` when a 42074 aura is first seen, and again when `GetTickNumber()` changes. The value is a bounded multiple of `GetAmplitude()`. That does not write amplitude, tick number, or stacks. Core's growth and every-third-tick rules keep running, on a longer clock.
-2. **Match scale to a drop that core already applied.** If the observed amount fell and the scale is still larger than `amount / 2.0f`, call `SetObjectScale`. That uses the same field core writes on the next tick. It does not cast 42348, does not call `SpellHit`, and does not remove the aura. It is not a bucket hit. The hit already happened inside core.
+1. **Slow the next interval** with one `SetPeriodicTimer` when a 42074 aura is first seen during an active span, and again when `GetTickNumber()` changes during that same span. The value is `GetAmplitude()` times an integer from 2 through 8. Multiplier 1 does not write the timer: `SetPeriodicTimer(GetAmplitude() * 1)` would replace whatever countdown is left with a full amplitude. The write does not change amplitude, tick number, or stacks. Core's growth and every-third-tick rules keep running, on a longer clock when a 2..8 write happened.
+2. **Match scale to a drop that core already applied.** If the observed amount fell and the scale is still larger than `amount / 2.0f`, call `SetObjectScale`. That uses the same field core writes on the next tick. It does not cast 42348, does not call `SpellHit`, and does not remove the aura. It is not a bucket hit. The hit already happened inside core. This scale write does not read the multiplier, so it still runs when the multiplier is 1.
 
 Approach A cannot:
 
@@ -279,7 +283,7 @@ Proposed keys, read by the Shade AI only in a future change:
 | Key | Default | Bounds |
 | --- | --- | --- |
 | `NaxxramasCore.HallowsEnd.SoloFire.Enabled` | `0` | 0 or 1. Any other value is treated as 0. |
-| `NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier` | `3` | Integers 1 through 8. 1 means "no extra delay". 0, negatives, and values above 8 are rejected and the solo timer writes are skipped. They are not clamped. Clamping 0 to 1 would hide a bad setting; accepting 0 would freeze fires if it were ever written into the timer. |
+| `NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier` | `3` | Integers 1 through 8. 1 is a timer-write no-op, not a call to `SetPeriodicTimer`. Writes happen only for 2 through 8. 0, negatives, and values above 8 are rejected and the solo timer writes are skipped. They are not clamped. Clamping 0 to 1 would hide a bad setting; accepting 0 would freeze fires if it were ever written into the timer. |
 
 `PeriodMultiplier` multiplies the aura's current `GetAmplitude()`. That amplitude already includes core's 1.5 factor. A multiplier of 3 is three times the live core period, not three seconds. Seconds cannot be promised until the DBC amplitude is known.
 
@@ -289,19 +293,53 @@ Use the same 60yd `AnyPlayerInObjectRangeCheck` as `CastFires`. Then:
 
 - A real player is an alive `Player` for whom the existing module bot test is false.
 - That test is the one already in `src/Systems/ForcedPvP.cpp:46-52`: `GET_PLAYERBOT_AI(player) != nullptr` when `Playerbots.h` is present, and false when the header is absent. The macro is `sPlayerbotsMgr.GetPlayerbotAI(object)` (`mod-playerbots` `src/Script/Playerbots.h:31` at `037c014`).
-- Solo path iff `Enabled == 1` and that real-player count is exactly 1.
-- Two or more real players: stock formula, even if bots are also nearby and even if `Enabled` is 1.
-- Zero real players (bots only, or nobody): stock formula. Bot-only events are not given a special difficulty.
-- GMs stay in the real-player count. `disallowGM` is false today; excluding them would make a GM helper silently turn a group into "solo". This is a review point for CS01, not an owner decision.
-- Do not use group size. An out-of-range party member does not count. A bot in the party does not count while the solo path is on.
+- Solo path iff `Enabled == 1` and that real-player count is exactly 1. Any other enabled value is off, same as the key table.
+- Two or more real players: the legacy list, even if bots are also nearby and even if `Enabled` is 1.
+- Zero real players (bots only, or nobody): the legacy list. Bot-only events are not given a special difficulty.
+- GMs count as real players. `disallowGM` is false today. CS01 review `5578105960` confirms that a GM is not dropped from the real-player count. **VERIFIED** as that decision. A GM standing with bots and no other real player makes the real count 1.
+- Do not use group size. An out-of-range party member does not count. A bot is omitted from `players.size()` only while the solo path is on.
 
-While the solo path is active, and only then:
+### Effective count inside the existing CastFires arithmetic
 
-- On first sight of a trigger's 42074, and again whenever `GetTickNumber()` changes (including a tick number that goes backwards after a new aura or a core `ResetPeriodic`), set the periodic timer to `GetAmplitude() * PeriodMultiplier` if the amplitude is in `1 .. 60000`.
-- If amount fell since the last observation and scale is still greater than `amount / 2.0f`, set scale to `amount / 2.0f` (0 stays 0, matching the periodic formula). Do this only for that decrease. Do not resize a freshly lit fire just because SpellHit's `0.5 + 0.5 * amount` differs from `amount / 2`.
-- Do not change `sizeCount`, the 30s repeat, `counter`, quest credit, faction, landing, fail clear, evade, or despawn.
+The formulas are not replaced. `playerCount = players.size() - 1`, the initial `playerCount += 1`, `sizeCount = (playerCount / 3) + 1`, the initial `playerCount % 2` term, and the later `0.5f - playerCount * 0.25f` throttle all stay byte-for-byte. Core `SpellHit` still turns the Shade's `GetData()` into the 42132 starting amount (`hallows_end.cpp:540-545`). This branch does not edit that function.
 
-While the solo path is inactive, the poll does not write timers or scale.
+The only new input, and only while the solo path is active, is the list `players.size()` observes:
+
+- Take the same 60yd alive-player list `CastFires` already builds.
+- If the solo path is active, remove bots from that list before the size is read. Exactly one real player remains, so the effective nearby count is 1. Initial `sizeCount`, the later throttle, the stored `playerCount`, and the Shade-lit starting amount then match one human with no bots nearby.
+- If the switch is off, or the real count is 0, or the real count is 2 or more, do not remove anyone. Bots stay in the list. Those three cases stay byte-equivalent to today's `CastFires`.
+
+One human with 0, 1, or 8 nearby bots is the model case. With the option on, all three populations produce the same initial wave and the same later wave, including the same throttle decision and the same Shade starting amount. With the option off, the same populations still scale with every nearby alive player. **NOT TESTED** on a server. The source model in section 7 executes the arithmetic.
+
+Source boundary: **none**. **VERIFIED** by reading this tree, not by running it. `CastFires` and `GetData` are in the module Shade AI, so the list can be narrowed in that function before the existing arithmetic. `AnyPlayerInObjectRangeCheck` itself cannot see bots (section 3d). The module already classifies a bot from a `Player*` in `ForcedPvP.cpp:46-52`, and the future edit uses that classification rather than a core search change. The starting-amount guarantee does not need a core edit because `SpellHit` already reads the Shade count. When `Playerbots.h` is absent, that classification is false for every player, the real count equals the legacy count, and the narrow step leaves the list alone. No obstacle in these sources forces the design to drop the effective-count guarantee, so this document does not drop it.
+
+The 30s repeat, `counter`, quest credit, faction, landing, fail clear, evade, and despawn are unchanged on every path. `sizeCount` changes only because `playerCount` changed. The expression that computes `sizeCount` does not.
+
+### Timer writes, including multiplier 1
+
+Multiplier 1 is a timer-write no-op. **VERIFIED** as the CS01 decision in review `5578105960`. It is not "`SetPeriodicTimer(GetAmplitude() * 1)` on first sight". That call stores a full amplitude into `m_periodicTimer` (`SpellAuraEffects.h:68-69`) and would add delay whenever the countdown had already moved. **POTENTIAL ISSUE** in the previous wording of this section, removed here.
+
+While the solo path is active:
+
+- A multiplier in 2..8 may call `SetPeriodicTimer(GetAmplitude() * multiplier)` when the amplitude is in `1 .. 60000`. The call is edge-triggered inside one continuous active span: the first poll that sees that trigger's 42074, and a later poll whose `GetTickNumber()` differs (including a tick that moved backwards after a new aura or a core `ResetPeriodic`). Another poll on the same tick writes nothing.
+- Multiplier 1 uses the same edge memory and writes nothing. A partially elapsed timer stays at the exact value core last left in `m_periodicTimer`.
+- A rejected multiplier skips timer writes and does not create or refresh edge memory.
+- The poll does not call `CalculatePeriodic`. The poll does not call `ResetPeriodic`. Not once, and not on a repeat. Core's own bucket `ResetPeriodic(true)` is untouched.
+- Scale correction does not read the multiplier. If the amount fell since the last observation and the scale is still greater than `amount / 2.0f`, set the scale to `amount / 2.0f` (0 stays 0). Do this only for that decrease. Do not resize a freshly lit fire just because SpellHit's `0.5 + 0.5 * amount` differs from `amount / 2`. The scale write still runs at multiplier 1, and it still runs when the multiplier was rejected. It does not write the timer.
+
+While the solo path is inactive, including the poll that sees the option turn off mid-event:
+
+- Do not call `SetPeriodicTimer`, `ResetPeriodic`, or `CalculatePeriodic`. Turning solo mode off must not write the amplitude back and must not stretch the timer again.
+- Disarm each per-trigger watch and drop its stored tick on that same transition. A later poll must not treat a tick delta that was measured against the old snapshot as an edge. That is the stale-state refresh this design forbids.
+- Do not write scale.
+
+If the path becomes active again during the same event:
+
+- A trigger that was already watched is re-armed by storing the tick it has on that first poll, with no timer write. The tick movement that happened while the path was off is not an edge, and the re-arm must not reset a partially elapsed timer.
+- A trigger seen for the first time during the new active span is an ordinary first sight: a 2..8 write, or a multiplier-1 no-op.
+- A tick change after the re-arm, while the path stays active, is an ordinary edge.
+
+The poll still must not assign the long timer on every update. That freeze is N7. **NOT TESTED** against a live aura update order.
 
 ### Event coverage the design must keep
 
@@ -313,7 +351,7 @@ While the solo path is inactive, the poll does not write timers or scale.
 | Failure | Still `counter > 14` with a fire left, then clear the saved triggers and despawn. |
 | Evade / despawn | Still the current early despawn. Fires are not newly cleared on evade. |
 | Factions | Same script and the same six path ids. Solo detection is not team-based. |
-| Feature off, and any group of 2+ real players | Current module AI, including bot-inclusive playerCount. |
+| Feature off, zero real players, or 2+ real players | Current module AI. The nearby list stays bot-inclusive and the CastFires expressions are untouched. |
 
 ## 7. Negative test matrix
 
@@ -323,10 +361,10 @@ Rows marked **source model** are executed by `tests/test_f10_hallows_end_solo_fi
 | --- | --- | --- | --- |
 | N1 | Enabled off, one real player | playerCount 1 on each initial wave, 0 on later waves; 30s and `counter > 14` unchanged; no timer write | source model |
 | N2 | Enabled off, one real player plus bots | bots remain inside the stock player count | source model |
-| N3 | Enabled on, one real player plus any bots | solo path | source model |
-| N4 | Enabled on, two real players plus bots | stock path | source model |
-| N5 | Enabled on, zero real players | stock path | source model |
-| N6 | Multiplier 0, negative, 9, non-integer | rejected, no timer write | source model |
+| N3 | Enabled on, one real player plus 0, 1, or 8 bots | effective nearby count 1; identical initial size, later size, throttle, stored playerCount, and Shade starting amount | source model |
+| N4 | Enabled on, two real players plus bots | stock path, byte-equivalent to the legacy list | source model |
+| N5 | Enabled on, zero real players | stock path, byte-equivalent to the legacy list | source model |
+| N6 | Multiplier 0, negative, 9, non-integer | rejected, no timer write, no edge memory | source model |
 | N7 | Poll calls `ResetPeriodic` or assigns the long timer on every update | tick never completes | source model |
 | N8 | Scale write only | amount unchanged, so a later growth tick still spreads | source model |
 | N9 | Amount held at 2 until the core tick runs | the 2→3 tick still spreads inside that tick | source model |
@@ -338,12 +376,19 @@ Rows marked **source model** are executed by `tests/test_f10_hallows_end_solo_fi
 | N15 | Both factions and all six paths | same AI, same coordinates as core | source contract |
 | N16 | Solo path on | does not replace 30s or `counter > 14` | design rule |
 | N17 | Dead player in range | already excluded by `reqAlive` | source contract |
-| N18 | GM in range | counts as a real player in this proposal | review point |
+| N18 | GM in range, including one GM plus bots | counts as a real player; one GM and no other real player uses effective count 1 | source model |
 | N19 | Partial bucket | amount 3 becomes 1, tick number 0, scale stays 1.5 until the next tick | source model |
 | N20 | Amount <= 2 bucket | aura removed; scale write is not what removes it | source model |
 | N21 | Feature off in this branch | no `HallowsEnd.SoloFire` key in the distributed config, no `SetPeriodicTimer` in the module AI | source contract |
+| N22 | Enabled off, one human plus 0, 1, or 8 bots | legacy nearby count; wave size, throttle, and starting amount scale with bots | source model |
+| N23 | Multiplier 1, timer already partially elapsed | timer unchanged exactly; tick number unchanged by the poll; a write of `amplitude * 1` is the failing contrast | source model |
+| N24 | Multiplier 1 after a bucket dropped the amount | scale moves to `amount / 2`; the timer is not written | source model |
+| N25 | Solo turned off mid-event, then on again | off writes nothing and clears the stored tick; a tick that elapsed while off does not refresh the timer on the next on-poll | source model |
+| N26 | Multiplier 2..8 | timer write only on first sight and on a later tick change; the poll never calls `CalculatePeriodic` or `ResetPeriodic` | source model |
+| N27 | Matron ~400s and forced Shade ~483s | recorded as a gameplay acceptance risk; neither timer is edited | source contract |
+| N28 | Effective count | no source-boundary obstacle in the module Shade AI; the legacy formula text is still in `CastFires` | source contract |
 
-N10, N16, and N18 are not runtime tests because the C++ poll does not exist yet. N21 is the milestone guard.
+N10 and N16 are not a C++ poll, because that poll is not in this branch. N21, N27, and N28 read the current tree only. They do not run a server.
 
 ## 8. Not tested
 
@@ -351,8 +396,10 @@ N10, N16, and N18 are not runtime tests because the C++ poll does not exist yet.
 - No installed Spell.dbc, so no millisecond amplitude and no 42339 missile speed.
 - No count of 23686 spawns per village.
 - No confirmation that the live database has applied the 23543 ScriptName override. The SQL file is in the repo; applying it is an operator action and was not done here.
-- No Playerbot walking the fire event.
+- No Playerbot walking the fire event. The 0/1/8 bot cases are source arithmetic only.
 - No proof of aura-update versus creature-AI order under lag.
+- No worldserver check that turning the option off preserves a live periodic timer.
+- The matron ~400s versus forced Shade ~483s gap was not timed in a village. It is a recorded risk, not a measured quest failure.
 - Individual Progression was checked for conflicting files only. It was not built.
 - CI source pins, if they pass, still are not gameplay acceptance.
 
@@ -360,11 +407,11 @@ N10, N16, and N18 are not runtime tests because the C++ poll does not exist yet.
 
 This milestone does not ask the owner to pick a behaviour. Live enablement, new script SQL, and S5–S7 remain owner gates. Nothing in this file is an owner decision.
 
-Review points for CS01:
+Decisions recorded from CS01 review `5578105960` (changes requested on the S1 design; the source findings were accepted):
 
-1. Approach A is accepted only for the edge-triggered timer stretch and the post-drop scale match. It is rejected for rewriting amount growth, faking a splash, or calling `CalculatePeriodic` / `ResetPeriodic` from the poll.
-2. One-splash deletion of a full fire is approach B if it is wanted. It is not in the proposed defaults.
-3. Proposed multiplier is 3 times the live (already 1.5x) amplitude, default off, integers 1..8 otherwise ignored.
-4. GMs count as real players. Bots do not, and only while the solo path is on.
-5. The unreachable `counter == 15` talk, the evade-without-clear, and the matron's 400s window versus the module's 483s outcome are recorded and left alone.
-6. S2, if it happens, stays in the Shade AI, default off, with the N1–N21 matrix still true. No new SQL.
+1. Approach A only, in the module's existing Shade AI, default off. Edge-triggered timer stretch for multipliers 2..8, and post-drop scale matching that does not depend on the multiplier. No fake bucket `SpellHit`, no core growth-formula edit. Approach B (new script SQL, one-splash extinguish) stays unimplemented until the owner approves it.
+2. Solo on and exactly one nearby real player: effective nearby count 1 for the existing CastFires arithmetic. Off, zero real players, and two or more real players stay on the legacy list. GMs count as real. No source-boundary obstacle turned up, so the guarantee is kept.
+3. Multiplier 1 is a timer-write no-op. Turning the path off mid-event does not reset the timer and drops per-trigger tick memory so a later poll cannot refresh from it. The poll still must not call `CalculatePeriodic` or `ResetPeriodic`.
+4. The matron ~400s window versus the module's ~483s forced outcome is a gameplay acceptance risk. Neither timer changes in this design.
+5. The unreachable `counter == 15` talk and the evade-without-clear stay recorded and unchanged.
+6. S2, if it follows a re-review, stays in the Shade AI, default off, with the N1–N28 matrix still true. No new SQL. Source-model agreement is not a compiled gameplay change.

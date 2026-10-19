@@ -150,11 +150,130 @@ class Fire:
 
 
 def real_player_count(units):
+    """Alive non-bots. A GM is a real player; the gm flag is not an exclusion."""
     return sum(1 for unit in units if unit["alive"] and not unit["bot"])
 
 
+def legacy_nearby_count(units):
+    """Today's CastFires list: every alive Player, bots included."""
+    return sum(1 for unit in units if unit["alive"])
+
+
 def solo_path(enabled, units):
-    return bool(enabled) and real_player_count(units) == 1
+    return enabled == 1 and real_player_count(units) == 1
+
+
+def effective_nearby_count(enabled, units):
+    """Input to the unchanged CastFires formulas.
+
+    Solo on and exactly one real player: 1. Every other case: the legacy
+    alive count, so off / zero real / two-or-more real stay byte-equivalent.
+    """
+    if solo_path(enabled, units):
+        return 1
+    return legacy_nearby_count(units)
+
+
+def population(humans=0, bots=0, gms=0, dead_humans=0):
+    units = [{"alive": True, "bot": False, "gm": False} for _ in range(humans)]
+    units += [{"alive": True, "bot": False, "gm": True} for _ in range(gms)]
+    units += [{"alive": True, "bot": True, "gm": False} for _ in range(bots)]
+    units += [{"alive": False, "bot": False, "gm": False} for _ in range(dead_humans)]
+    return units
+
+
+def cast_fires_result(nearby, initial, unburned=None, triggers=None):
+    """Run the existing formulas. None means CastFires returned before them."""
+    counted = stock_player_count(initial, nearby)
+    if counted is None:
+        return None
+    player_count, player_rate = counted
+    if not initial:
+        skipped = False
+        if unburned is not None:
+            skipped = should_skip_later_wave(unburned, triggers, player_count)
+        return {
+            "nearby": nearby,
+            "player_count": player_count,
+            "size_count": None if skipped else size_count(player_count, False),
+            "player_rate": player_rate,
+            "skipped": skipped,
+            "starting_amount": None if skipped else starting_amount("start", player_count),
+        }
+    return {
+        "nearby": nearby,
+        "player_count": player_count,
+        "size_count": size_count(player_count, True),
+        "player_rate": None,
+        "skipped": False,
+        "starting_amount": starting_amount("start", player_count),
+    }
+
+
+class EdgeWatch:
+    """Per-trigger timer edge. Inactive watches keep no tick snapshot."""
+
+    def __init__(self):
+        self.triggers = {}
+
+    def disarm_all(self):
+        for state in self.triggers.values():
+            state["armed"] = False
+            state["last_tick"] = None
+
+
+def _amplitude_in_range(amplitude):
+    return type(amplitude) is int and 1 <= amplitude <= 60000
+
+
+def poll_solo_fire(fire, solo_on, multiplier, watch, guid="t", previous_amount=None):
+    """One designed Shade poll.
+
+    Timer writes happen only for multipliers 2..8, and only on first sight
+    or a tick change inside the current armed span. Multiplier 1 updates
+    that memory and does not write. Turning solo off disarms every watch
+    and writes nothing. Re-arming an existing trigger stores the tick it
+    has now and does not write. Scale correction runs only while solo is
+    on and does not read the multiplier.
+
+    This function never assigns fire.tick. A tick change comes only from
+    Fire.advance / Fire.bucket, which model core.
+    """
+    if not solo_on:
+        watch.disarm_all()
+        return watch
+
+    if (
+        previous_amount is not None
+        and fire.alive
+        and fire.amount < previous_amount
+        and fire.scale > (fire.amount / 2.0)
+    ):
+        fire.scale = fire.amount / 2.0
+
+    accepted = validated_multiplier(multiplier)
+    if accepted is None:
+        return watch
+
+    def maybe_write():
+        if accepted >= 2 and _amplitude_in_range(fire.amplitude):
+            fire.timer = fire.amplitude * accepted
+
+    state = watch.triggers.get(guid)
+    if state is None:
+        maybe_write()
+        watch.triggers[guid] = {"armed": True, "last_tick": fire.tick}
+        return watch
+
+    if not state["armed"]:
+        state["armed"] = True
+        state["last_tick"] = fire.tick
+        return watch
+
+    if state["last_tick"] != fire.tick:
+        maybe_write()
+        state["last_tick"] = fire.tick
+    return watch
 
 
 def run_poll(mode, amplitude, diffs, multiplier=3):
@@ -195,6 +314,24 @@ class DesignContract(unittest.TestCase):
         self.assertIn("No gameplay-affecting C++", DOC)
         for hunch in ("(a)", "(b)", "(c)", "(d)"):
             self.assertIn(hunch, DOC)
+        self.assertIn("timer-write no-op", DOC)
+        self.assertIn("gameplay acceptance risk", DOC)
+        self.assertIn("5578105960", DOC)
+        self.assertIn("Source boundary: **none**.", DOC)
+        self.assertIn("The poll does not call `CalculatePeriodic`.", DOC)
+        self.assertIn("The poll does not call `ResetPeriodic`.", DOC)
+        self.assertNotIn("Do not change `sizeCount`", DOC)
+        self.assertIn("63 + 14 * 30 = 483", DOC)
+        self.assertIn("400 * IN_MILLISECONDS", DOC)
+
+    def test_cast_fires_formula_text_is_still_the_legacy_expression(self):
+        self.assertIn("players.size()) - 1;", MODULE)
+        self.assertIn("playerCount += 1;", MODULE)
+        self.assertIn("(playerCount / 3) + 1;", MODULE)
+        self.assertIn("playerCount % 2;", MODULE)
+        self.assertIn("playerCount * 0.25f", MODULE)
+        self.assertEqual(line(MODULE, 312).strip(), "if (counter > 14)")
+        self.assertEqual(line(MODULE, 359).strip(), "events.Repeat(30s);")
 
     def test_this_milestone_does_not_arm_a_solo_mode(self):
         self.assertNotIn("SetPeriodicTimer", MODULE)
@@ -296,6 +433,127 @@ class StockAndSoloSelection(unittest.TestCase):
         for bad in (0, -1, 9, 100, True, 1.5, "3", None):
             self.assertIsNone(validated_multiplier(bad))
 
+    def test_one_human_with_zero_one_or_eight_bots_matches_only_while_solo_is_on(self):
+        casting = {"unburned": 6, "triggers": 10}
+        throttled = {"unburned": 4, "triggers": 10}
+        on_initial = []
+        on_later = []
+        on_throttled = []
+        off_initial = []
+        off_later = []
+        for bots in (0, 1, 8):
+            units = population(humans=1, bots=bots)
+            self.assertEqual(effective_nearby_count(1, units), 1)
+            self.assertEqual(effective_nearby_count(0, units), 1 + bots)
+            self.assertEqual(legacy_nearby_count(units), 1 + bots)
+            on_initial.append(cast_fires_result(1, True))
+            on_later.append(cast_fires_result(1, False, **casting))
+            on_throttled.append(cast_fires_result(1, False, **throttled))
+            off_nearby = effective_nearby_count(0, units)
+            off_initial.append(cast_fires_result(off_nearby, True))
+            off_later.append(cast_fires_result(off_nearby, False, **casting))
+            self.assertEqual(
+                cast_fires_result(off_nearby, True),
+                cast_fires_result(legacy_nearby_count(units), True),
+            )
+            self.assertEqual(
+                cast_fires_result(off_nearby, False, **casting),
+                cast_fires_result(legacy_nearby_count(units), False, **casting),
+            )
+            self.assertEqual(
+                cast_fires_result(off_nearby, False, **throttled),
+                cast_fires_result(legacy_nearby_count(units), False, **throttled),
+            )
+        self.assertEqual(len({tuple(sorted(item.items())) for item in on_initial}), 1)
+        self.assertEqual(len({tuple(sorted(item.items())) for item in on_later}), 1)
+        self.assertEqual(len({tuple(sorted(item.items())) for item in on_throttled}), 1)
+        self.assertEqual(on_initial[0]["player_count"], 1)
+        self.assertEqual(on_initial[0]["size_count"], 2)
+        self.assertEqual(on_initial[0]["starting_amount"], 2)
+        self.assertEqual(on_later[0]["player_count"], 0)
+        self.assertEqual(on_later[0]["size_count"], 1)
+        self.assertEqual(on_later[0]["player_rate"], 0.5)
+        self.assertEqual(on_later[0]["starting_amount"], 1)
+        self.assertFalse(on_later[0]["skipped"])
+        self.assertTrue(on_throttled[0]["skipped"])
+        self.assertEqual(on_throttled[0]["player_count"], 0)
+        self.assertIsNone(on_throttled[0]["size_count"])
+        self.assertEqual(off_initial[0], on_initial[0])
+        self.assertEqual(off_later[0], on_later[0])
+        self.assertEqual(off_initial[1]["nearby"], 2)
+        self.assertEqual(off_initial[1]["size_count"], 1)
+        self.assertEqual(off_initial[1]["player_count"], 2)
+        self.assertEqual(off_initial[1]["starting_amount"], 2)
+        self.assertEqual(off_later[1]["player_count"], 1)
+        self.assertEqual(off_later[1]["size_count"], 1)
+        self.assertEqual(off_later[1]["player_rate"], 0.25)
+        self.assertEqual(off_later[1]["starting_amount"], 2)
+        self.assertEqual(off_initial[2]["nearby"], 9)
+        self.assertEqual(off_initial[2]["size_count"], 5)
+        self.assertEqual(off_initial[2]["player_count"], 9)
+        self.assertEqual(off_later[2]["player_count"], 8)
+        self.assertEqual(off_later[2]["size_count"], 3)
+        self.assertEqual(off_later[2]["player_rate"], 0.0)
+        self.assertEqual(off_later[2]["starting_amount"], 2)
+        self.assertNotEqual(off_initial[1], on_initial[0])
+        self.assertNotEqual(off_initial[2], on_initial[0])
+        self.assertNotEqual(off_later[2], on_later[0])
+
+    def test_zero_real_and_two_real_stay_on_the_legacy_list(self):
+        groups = [
+            population(bots=8),
+            population(humans=2, bots=8),
+            population(humans=2),
+            population(gms=2, bots=3),
+            population(humans=1, gms=1, bots=4),
+            population(dead_humans=1, bots=5),
+        ]
+        for units in groups:
+            self.assertNotEqual(real_player_count(units), 1)
+            for enabled in (0, 1, 2):
+                nearby = effective_nearby_count(enabled, units)
+                self.assertEqual(nearby, legacy_nearby_count(units))
+                for initial in (True, False):
+                    self.assertEqual(
+                        cast_fires_result(nearby, initial, unburned=6, triggers=10),
+                        cast_fires_result(
+                            legacy_nearby_count(units), initial, unburned=6, triggers=10),
+                    )
+
+    def test_one_human_plus_dead_players_does_not_count_the_dead(self):
+        units = population(humans=1, bots=8, dead_humans=3)
+        self.assertEqual(real_player_count(units), 1)
+        self.assertEqual(effective_nearby_count(1, units), 1)
+        self.assertEqual(legacy_nearby_count(units), 9)
+
+    def test_one_gm_is_the_single_real_player(self):
+        units = population(gms=1, bots=8)
+        human = population(humans=1, bots=8)
+        self.assertEqual(real_player_count(units), 1)
+        self.assertTrue(solo_path(1, units))
+        self.assertEqual(effective_nearby_count(1, units), 1)
+        self.assertEqual(
+            cast_fires_result(effective_nearby_count(1, units), True),
+            cast_fires_result(effective_nearby_count(1, human), True),
+        )
+        self.assertEqual(
+            cast_fires_result(
+                effective_nearby_count(1, units), False, unburned=6, triggers=10),
+            cast_fires_result(
+                effective_nearby_count(1, human), False, unburned=6, triggers=10),
+        )
+        self.assertEqual(effective_nearby_count(0, units), 9)
+        self.assertEqual(
+            cast_fires_result(effective_nearby_count(0, units), True)["size_count"],
+            5,
+        )
+
+    def test_enabled_value_other_than_one_does_not_narrow_the_list(self):
+        units = population(humans=1, bots=8)
+        self.assertFalse(solo_path(2, units))
+        self.assertEqual(effective_nearby_count(2, units), 9)
+        self.assertEqual(cast_fires_result(9, True)["size_count"], 5)
+
 
 class CoreFireModel(unittest.TestCase):
     def test_amount_two_spreads_on_the_first_tick(self):
@@ -378,6 +636,120 @@ class CoreFireModel(unittest.TestCase):
         fire = run_poll("edge", 1500, [100] * 80, multiplier=3)
         self.assertGreater(fire.tick, 0)
         self.assertGreater(fire.spreads, 0)
+
+    def test_multiplier_one_preserves_a_partially_elapsed_timer(self):
+        fire = Fire(2, 1500)
+        fire.advance(400)
+        self.assertEqual((fire.timer, fire.tick), (1100, 0))
+        watch = EdgeWatch()
+        poll_solo_fire(fire, True, 1, watch)
+        self.assertEqual((fire.timer, fire.tick), (1100, 0))
+        poll_solo_fire(fire, True, 1, watch)
+        self.assertEqual((fire.timer, fire.tick), (1100, 0))
+        self.assertNotEqual(fire.timer, fire.amplitude)
+        naive = Fire(2, 1500)
+        naive.advance(400)
+        naive.timer = naive.amplitude * 1
+        self.assertEqual(naive.timer, 1500)
+        self.assertNotEqual(fire.timer, naive.timer)
+        fire.advance(1200)
+        self.assertEqual((fire.tick, fire.timer), (1, 1400))
+        poll_solo_fire(fire, True, 1, watch)
+        self.assertEqual((fire.tick, fire.timer), (1, 1400))
+        self.assertEqual(watch.triggers["t"]["last_tick"], 1)
+
+    def test_multiplier_one_still_corrects_scale_after_a_bucket(self):
+        fire = Fire(2, 1500)
+        fire.advance(1500)
+        self.assertEqual(fire.bucket(), "partial")
+        self.assertEqual((fire.amount, fire.scale, fire.tick), (1, 1.5, 0))
+        fire.advance(200)
+        self.assertEqual(fire.timer, 1300)
+        poll_solo_fire(fire, True, 1, EdgeWatch(), previous_amount=3)
+        self.assertEqual(fire.scale, 0.5)
+        self.assertEqual(fire.amount, 1)
+        self.assertEqual(fire.tick, 0)
+        self.assertEqual(fire.timer, 1300)
+
+    def test_rejected_multiplier_skips_the_timer_and_still_corrects_scale(self):
+        fire = Fire(2, 1500)
+        fire.advance(100)
+        watch = EdgeWatch()
+        poll_solo_fire(fire, True, 0, watch)
+        self.assertEqual((fire.timer, fire.tick), (1400, 0))
+        self.assertNotIn("t", watch.triggers)
+        fire.amount = 1
+        fire.scale = 1.5
+        poll_solo_fire(fire, True, 9, watch, previous_amount=3)
+        self.assertEqual(fire.scale, 0.5)
+        self.assertEqual((fire.timer, fire.tick), (1400, 0))
+        self.assertNotIn("t", watch.triggers)
+        poll_solo_fire(fire, True, "3", watch)
+        self.assertNotIn("t", watch.triggers)
+        self.assertEqual(fire.timer, 1400)
+
+    def test_timer_writes_are_edge_triggered_for_two_through_eight_only(self):
+        fire = Fire(2, 1500)
+        watch = EdgeWatch()
+        poll_solo_fire(fire, True, 2, watch)
+        self.assertEqual((fire.timer, fire.tick), (3000, 0))
+        poll_solo_fire(fire, True, 2, watch)
+        self.assertEqual(fire.timer, 3000)
+        fire.advance(100)
+        poll_solo_fire(fire, True, 2, watch)
+        self.assertEqual((fire.timer, fire.tick), (2900, 0))
+        fire.advance(2900)
+        self.assertEqual((fire.tick, fire.timer), (1, 1500))
+        poll_solo_fire(fire, True, 8, watch)
+        self.assertEqual(fire.timer, 12000)
+        self.assertEqual(fire.tick, 1)
+        out_of_range = Fire(2, 1500)
+        out_of_range.amplitude = 60001
+        out_of_range.timer = 400
+        poll_solo_fire(out_of_range, True, 4, EdgeWatch())
+        self.assertEqual((out_of_range.timer, out_of_range.tick), (400, 0))
+
+    def test_turning_solo_off_preserves_the_timer_and_drops_tick_memory(self):
+        fire = Fire(2, 1500)
+        watch = EdgeWatch()
+        poll_solo_fire(fire, True, 3, watch)
+        self.assertEqual(fire.timer, 4500)
+        fire.advance(1000)
+        self.assertEqual((fire.timer, fire.tick), (3500, 0))
+
+        poll_solo_fire(fire, False, 3, watch)
+        self.assertEqual((fire.timer, fire.tick), (3500, 0))
+        self.assertFalse(watch.triggers["t"]["armed"])
+        self.assertIsNone(watch.triggers["t"]["last_tick"])
+
+        fire.advance(500)
+        poll_solo_fire(fire, False, 3, watch, previous_amount=fire.amount + 1)
+        self.assertEqual((fire.timer, fire.tick), (3000, 0))
+        self.assertEqual(fire.scale, 1.5)
+
+        fire.advance(3000)
+        self.assertEqual((fire.tick, fire.timer), (1, 1500))
+        fire.advance(100)
+        self.assertEqual((fire.tick, fire.timer), (1, 1400))
+        poll_solo_fire(fire, False, 3, watch)
+        self.assertEqual(fire.timer, 1400)
+
+        poll_solo_fire(fire, True, 3, watch)
+        self.assertEqual((fire.timer, fire.tick), (1400, 1))
+        self.assertTrue(watch.triggers["t"]["armed"])
+        self.assertEqual(watch.triggers["t"]["last_tick"], 1)
+        poll_solo_fire(fire, True, 3, watch)
+        self.assertEqual(fire.timer, 1400)
+
+        fire.advance(1400)
+        self.assertEqual((fire.tick, fire.timer), (2, 1500))
+        poll_solo_fire(fire, True, 3, watch)
+        self.assertEqual((fire.timer, fire.tick), (4500, 2))
+
+        fresh = Fire(2, 1500)
+        poll_solo_fire(fresh, True, 3, watch, guid="new")
+        self.assertEqual((fresh.timer, fresh.tick), (4500, 0))
+        self.assertEqual(fire.timer, 4500)
 
 
 class PinnedCoreSource(unittest.TestCase):
