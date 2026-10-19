@@ -134,9 +134,15 @@ class ReleaseFeatureGates(unittest.TestCase):
                    full_build_verified=True, live_accepted=True,
                    backup_restore_verified=True, owner_approved=True,
                    include_in_release=True)
+        second = next(x for x in self.d["components"] if x["id"] == "hunter_pet_autocast_observer")
+        second.update(stage="S6", source_state="merged_main",
+                      draft_pr=None, exact_head=None,
+                      full_build_verified=True, live_accepted=True,
+                      backup_restore_verified=True, owner_approved=True,
+                      include_in_release=True)
         self.d.update(release_approved=True, installed_shas_verified=True,
                       release_backup_restore_verified=True)
-        self.assertIn("combined candidate PR #33 has not been approved",
+        self.assertIn("Combined candidate PR #33 has not been approved.",
                       "\n".join(gate.release_blockers(self.d)))
         self.d["combined_candidate"]["owner_approved"] = True
         self.assertEqual(gate.release_blockers(self.d), [])
@@ -155,6 +161,12 @@ class ReleaseFeatureGates(unittest.TestCase):
                    full_build_verified=True, live_accepted=True,
                    backup_restore_verified=True, owner_approved=True,
                    include_in_release=True)
+        second = next(x for x in self.d["components"] if x["id"] == "hunter_pet_autocast_observer")
+        second.update(stage="S6", source_state="merged_main",
+                      draft_pr=None, exact_head=None,
+                      full_build_verified=True, live_accepted=True,
+                      backup_restore_verified=True, owner_approved=True,
+                      include_in_release=True)
         self.d.update(release_approved=True, installed_shas_verified=True,
                       release_backup_restore_verified=True)
         candidate = self.d["combined_candidate"]
@@ -171,6 +183,69 @@ class ReleaseFeatureGates(unittest.TestCase):
         self.assertTrue(any("no verified full Worldserver link" in msg
                             for msg in blockers))
         candidate["full_worldserver_built"] = True
+        self.assertEqual(gate.release_blockers(self.d), [])
+
+    def test_mature_candidate_requires_exact_sha_and_consistent_build(self):
+        absent = copy.deepcopy(self.d)
+        absent.pop("mature_three_candidate")
+        with self.assertRaisesRegex(ValueError, "Mature combined candidate"):
+            gate.validate(absent)
+        mature = self.d["mature_three_candidate"]
+        mature["full_worldserver_built"] = True
+        mature["source_built"] = False
+        with self.assertRaisesRegex(ValueError, "Mature candidate cannot claim"):
+            gate.validate(self.d)
+
+    def test_mature_quest_and_ep_release_requires_same_worldserver(self):
+        # A fictional fully accepted two-feature package must *still* be
+        # blocked by PR #46 until one combined build and owner approval.
+        for ident in ("quest_loot_turn_guard", "ep_tower_announcements"):
+            row = next(r for r in self.d["components"] if r["id"] == ident)
+            row.update(stage="S6", source_state="merged_main",
+                       draft_pr=None, exact_head=None, full_build_verified=True,
+                       live_accepted=True, backup_restore_verified=True,
+                       owner_approved=True, include_in_release=True,
+                       default_behavior="off")
+        self.d.update(release_approved=True, installed_shas_verified=True,
+                      release_backup_restore_verified=True)
+        candidate = self.d["mature_three_candidate"]
+        blockers = gate.release_blockers(self.d)
+        self.assertTrue(any("PR #46 has no verified full Worldserver link" in b
+                            for b in blockers))
+        self.assertTrue(any("PR #46 has not been approved" in b for b in blockers))
+        candidate["full_worldserver_built"] = True
+        self.assertTrue(any("PR #46 has not been approved" in b
+                            for b in gate.release_blockers(self.d)))
+        candidate["owner_approved"] = True
+        self.assertEqual(gate.release_blockers(self.d), [])
+
+    def test_cross_family_mix_cannot_borrow_two_unrelated_builds(self):
+        for ident in ("quest_loot_turn_guard", "hunter_pet_autocast_observer"):
+            row = next(r for r in self.d["components"] if r["id"] == ident)
+            row.update(stage="S6", source_state="merged_main",
+                       draft_pr=None, exact_head=None, full_build_verified=True,
+                       live_accepted=True, backup_restore_verified=True,
+                       owner_approved=True, include_in_release=True,
+                       default_behavior="off")
+        self.d.update(release_approved=True, installed_shas_verified=True,
+                      release_backup_restore_verified=True)
+        self.d["combined_candidate"]["owner_approved"] = True
+        self.d["mature_three_candidate"]["owner_approved"] = True
+        self.d["mature_three_candidate"]["full_worldserver_built"] = True
+        blockers = gate.release_blockers(self.d)
+        self.assertTrue(any("No exact-source combined Worldserver candidate" in b
+                            for b in blockers))
+
+    def test_single_hunter_release_does_not_require_unselected_combinations(self):
+        row = next(r for r in self.d["components"] if r["id"] == "hunter_ammunition")
+        row.update(stage="S6", source_state="merged_main",
+                   draft_pr=None, exact_head=None, full_build_verified=True,
+                   live_accepted=True, backup_restore_verified=True,
+                   owner_approved=True, include_in_release=True)
+        self.d.update(release_approved=True, installed_shas_verified=True,
+                      release_backup_restore_verified=True)
+        # Independent source, backup and gameplay evidence is enough when
+        # only one experimental feature is selected in a fictional fixture.
         self.assertEqual(gate.release_blockers(self.d), [])
 
     def test_report_does_not_make_a_status_mutation(self):
