@@ -26,8 +26,10 @@
 #include "AiFactory.h"
 #include "Chat.h"
 #include "CommandScript.h"
+#include "Config.h"
 #include "DBCStores.h"
 #include "GameTime.h"
+#include "GreaterFireProtectionOneShot.h"
 #include "Group.h"
 #include "Item.h"
 #include "ItemTemplate.h"
@@ -312,6 +314,15 @@ namespace
         uint32 NextApplicationTimer = 0;
     };
 
+    // MC Greater Fire Protection uses a separate one-shot timer.
+    // Juju Flurry retains its existing expiry-based multi-use timer.
+    struct OneShotFireProtection
+    {
+        ObjectGuid::LowType BotGuid = 0;
+        uint32 SpellId = 0;
+        NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};
+    };
+
     struct RaidConsumableTracker
     {
         std::string Profile;
@@ -320,6 +331,7 @@ namespace
         ProfileArea RequiredArea = ProfileArea::Any;
         std::vector<TrackedAura> Auras;
         std::vector<TimedAura> TimedAuras;
+        std::vector<OneShotFireProtection> FireProtectionOneShots;
     };
 
     struct PreparationStats
@@ -951,6 +963,60 @@ namespace
     }
 
     // =========================================================
+    // Molten Core: optional, exactly one 90-second GFPP refresh
+    // =========================================================
+
+    void ApplyTimedGreaterFireProtection(
+        Player* bot,
+        RaidConsumableTracker& tracker,
+        PreparationStats& stats)
+    {
+        if (!bot)
+            return;
+
+        uint32 spellId =
+            GetItemUseSpell(ITEM_GREATER_FIRE_PROTECTION_POTION);
+
+        // Existing MC protection behavior must remain when the
+        // optional timer is disabled. Keep normal tracking/stats.
+        if (!ApplyItemAura(
+                bot,
+                bot,
+                ITEM_GREATER_FIRE_PROTECTION_POTION,
+                "Greater Fire Protection",
+                false,
+                tracker,
+                stats))
+        {
+            return;
+        }
+
+        if (!sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled",
+                false) || !spellId)
+        {
+            return;
+        }
+
+        ObjectGuid::LowType const guid =
+            bot->GetGUID().GetCounter();
+
+        // A bot may appear in multiple discovery paths. Do not create
+        // two scheduled callbacks for one bot in the same MC command.
+        for (OneShotFireProtection const& existing :
+             tracker.FireProtectionOneShots)
+        {
+            if (existing.BotGuid == guid)
+                return;
+        }
+
+        OneShotFireProtection pending;
+        pending.BotGuid = guid;
+        pending.SpellId = spellId;
+        tracker.FireProtectionOneShots.push_back(pending);
+    }
+
+    // =========================================================
     // Weapon consumables
     // =========================================================
 
@@ -1130,15 +1196,9 @@ namespace
         RaidConsumableTracker& tracker,
         PreparationStats& stats)
     {
-        // Greater Fire Protection is applied directly.
-        ApplyItemAura(
-            bot,
-            bot,
-            ITEM_GREATER_FIRE_PROTECTION_POTION,
-            "Greater Fire Protection",
-            false,
-            tracker,
-            stats);
+        // Preserve the legacy initial application. The optional timed
+        // refresh never schedules unless this initial call succeeds.
+        ApplyTimedGreaterFireProtection(bot, tracker, stats);
 
         // Playerbots already understands these inventory items.
         TopUpVanillaStack(
@@ -3000,6 +3060,60 @@ void PrepareManaUser(
         }
     }
 
+    // Unlike Juju Flurry, this timer is deliberately consumed at
+    // ~90s, with NO retries at 95s/180s. The original bot must remain
+    // eligible and inside MC; even a failed refresh is a used attempt.
+    void ProcessOneShotFireProtections(
+        Player* master,
+        RaidConsumableTracker& tracker,
+        uint32 diff)
+    {
+        if (!master || tracker.Profile != "mc")
+            return;
+
+        PlayerbotMgr* manager =
+            PlayerbotsMgr::instance().GetPlayerbotMgr(master);
+
+        if (!manager)
+            return;
+
+        for (OneShotFireProtection& pending :
+             tracker.FireProtectionOneShots)
+        {
+            if (!pending.Timer.ConsumeIfDue(diff))
+                continue;
+
+            Player* bot = ResolvePreparedBot(
+                manager, pending.BotGuid);
+
+            if (!bot ||
+                !bot->IsInWorld() ||
+                !bot->IsAlive() ||
+                !IsProfileLocationValid(
+                    master, tracker.RequiredMapId, tracker.RequiredArea) ||
+                !IsProfileLocationValid(
+                    bot, tracker.RequiredMapId, tracker.RequiredArea) ||
+                !BotIsInPreparationScope(master, bot))
+            {
+                continue;
+            }
+
+            // Do not overwrite a same-spell aura cast by somebody else.
+            // Our MC initial aura is self-cast using bot->AddAura().
+            if (Aura* current = bot->GetAura(pending.SpellId))
+            {
+                if (current->GetCasterGUID() != bot->GetGUID())
+                    continue;
+
+                // Replace our own remaining absorb rather than stack it.
+                bot->RemoveAurasDueToSpell(
+                    pending.SpellId, bot->GetGUID());
+            }
+
+            bot->AddAura(pending.SpellId, bot);
+        }
+    }
+
     // =========================================================
     // Tracker checks
     // =========================================================
@@ -3220,6 +3334,7 @@ void PrepareManaUser(
         }
 
         tracker.TimedAuras.clear();
+        tracker.FireProtectionOneShots.clear();
     }
 }
 
@@ -3380,6 +3495,7 @@ public:
         tracker.RequiredArea = area;
         tracker.Auras.clear();
         tracker.TimedAuras.clear();
+        tracker.FireProtectionOneShots.clear();
 
         return tracker;
     }
@@ -4405,6 +4521,7 @@ public:
             player,
             tracker,
             diff);
+        ProcessOneShotFireProtections(player, tracker, diff);
 
         tracker.UpdateTimer += diff;
 
