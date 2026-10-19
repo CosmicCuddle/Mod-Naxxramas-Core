@@ -78,6 +78,23 @@ def check(core: Path, ip: Path) -> None:
         assert marker in load_pet, "Async pet loading changed: " + marker
     assert load_pet.index("map->AddToMap(ToCreature(), true);") < load_pet.index(
         "_LoadSpells(holder.GetPreparedResult(PetLoadQueryHolder::SPELLS));")
+    # Critical repeat-summon candidate: after native stored spell active values
+    # are reloaded, the core explicitly runs level-family spell initialization
+    # again. This may add a different spell rank (preserving ON only for some
+    # native direct higher-rank paths) before IP's delayed keepId pruning.
+    # A pet observed losing state every summon may therefore still encounter
+    # IP remove/relearn even without a new player training action.
+    assert (load_pet.index(
+        "_LoadSpells(holder.GetPreparedResult(PetLoadQueryHolder::SPELLS));") <
+        load_pet.index("InitLevelupSpellsForLevel();") <
+        load_pet.index("m_loading = false;"))
+    init_family = between(pet, "void Pet::InitLevelupSpellsForLevel()",
+                          "bool Pet::unlearnSpell(")
+    assert "sSpellMgr->GetPetLevelupSpellList(GetCreatureTemplate()->family)" in init_family
+    assert "learnSpell(itr->second);" in init_family
+    assert "sSpellMgr->GetPetDefaultSpellsEntry(petSpellsId)" in init_family
+    assert "learnSpell(spellInfo->Id);" in init_family
+
     assert "pet->isBeingLoaded() && _attempts < 10" in delayed
     assert "sIndividualProgression->checkHunterPetSpells(player);" in delayed
     for prohibited in ("OnPetBeforeUnlearnSpell", "OnPetAfterLearnSpell",
@@ -88,6 +105,7 @@ def check(core: Path, ip: Path) -> None:
     print("PASS: native higher-rank replacement inherits old state; new spell defaults OFF.")
     print("PASS: IP's human-Hunter reconciliation may remove old rank before new rank.")
     print("PASS: AddToWorld precedes async spell load, and IP delayed check has no explicit completion hook.")
+    print("PASS: native async load reinitializes level/default spells before delayed IP legal-rank pruning.")
     print("BLOCKED: root cause on real player and module-only atomic handoff NOT demonstrated.")
     print("No player data/character DB accessed; no Playerbot, IP, core or pet mutation.")
 
