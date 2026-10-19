@@ -71,6 +71,48 @@ class ReleaseFeatureGates(unittest.TestCase):
         with self.assertRaises(ValueError):
             gate.validate(self.d)
 
+    def test_unimplemented_function_cannot_claim_release_or_advanced_stage(self):
+        row = next(x for x in self.d["components"] if x["id"] == "golemagg_movement_fix")
+        row["stage"] = "S4"
+        with self.assertRaisesRegex(ValueError, "unimplemented"):
+            gate.validate(self.d)
+
+    def test_draft_cannot_claim_released_stage(self):
+        row = next(x for x in self.d["components"] if x["id"] == "hunter_ammunition")
+        row.update(stage="S7", backup_restore_verified=True, live_accepted=True)
+        with self.assertRaisesRegex(ValueError, "unmerged draft"):
+            gate.validate(self.d)
+
+    def test_s4_requires_full_worldserver_evidence(self):
+        row = next(x for x in self.d["components"] if x["id"] == "ep_tower_lock")
+        row["stage"] = "S4"
+        with self.assertRaisesRegex(ValueError, "S4\\+"):
+            gate.validate(self.d)
+
+    def test_s5_requires_restorable_backup_evidence(self):
+        row = next(x for x in self.d["components"] if x["id"] == "hunter_ammunition")
+        row["stage"] = "S5"
+        with self.assertRaisesRegex(ValueError, "S5\\+"):
+            gate.validate(self.d)
+
+    def test_s6_requires_accepted_gameplay_evidence(self):
+        row = next(x for x in self.d["components"] if x["id"] == "hunter_ammunition")
+        row.update(stage="S6", backup_restore_verified=True)
+        with self.assertRaisesRegex(ValueError, "S6\\+"):
+            gate.validate(self.d)
+
+    def test_s4_cannot_already_claim_accepted_gameplay(self):
+        row = next(x for x in self.d["components"] if x["id"] == "hunter_ammunition")
+        row.update(backup_restore_verified=True, live_accepted=True)
+        with self.assertRaisesRegex(ValueError, "classified at S6"):
+            gate.validate(self.d)
+
+    def test_early_stage_cannot_claim_full_build(self):
+        row = next(x for x in self.d["components"] if x["id"] == "golemagg_movement_fix")
+        row["full_build_verified"] = True
+        with self.assertRaises(ValueError):
+            gate.validate(self.d)
+
     def test_approved_fixture_can_pass_only_all_independent_gates(self):
         row = next(x for x in self.d["components"] if x["id"] == "quest_loot_turn_guard")
         row.update(stage="S6", source_state="merged_main",
