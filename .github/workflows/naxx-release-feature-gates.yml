@@ -1,0 +1,48 @@
+name: Module-wide release feature gates (read only)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'docs/release-gates/1.0.6.8.5.json'
+      - 'docs/RELEASE-1.0.6.8.5-FEATURE-CLOSEOUT.md'
+      - 'scripts/check_naxx_release_feature_gates.py'
+      - 'tests/test_naxx_release_feature_gates.py'
+      - '.github/workflows/naxx-release-feature-gates.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review-release-evidence-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout current PR review commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate Python syntax and every release-gate model
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/check_naxx_release_feature_gates.py tests/test_naxx_release_feature_gates.py
+          python3 -m unittest discover -s tests -p 'test_naxx_release_feature_gates.py' -v
+      - name: Print report (always informational, no live access)
+        run: |
+          python3 scripts/check_naxx_release_feature_gates.py --mode report
+      - name: Assert selected release is still explicitly BLOCKED
+        run: |
+          set -euo pipefail
+          if python3 scripts/check_naxx_release_feature_gates.py --mode release-gate; then
+            echo "ERROR: unapproved release manifest was allowed to pass."
+            exit 1
+          else
+            status="$?"
+            test "$status" -eq 2
+          fi
+          echo "PASS: no candidate can be shipped with missing feature and owner gates."
+      - name: Confirm this job has no deployment powers
+        run: |
+          echo "Read-only local manifest/fixtures; no server, GitHub write, source checkout mutation,"
+          echo "no SQL/DBC, Worldserver launch, merge, enabling features or release."
