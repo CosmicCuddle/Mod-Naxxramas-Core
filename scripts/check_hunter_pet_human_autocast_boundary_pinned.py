@@ -108,15 +108,8 @@ def check(core: Path, ip: Path) -> None:
                       "void CharmInfo::SetIsCommandAttack(")
     publish = between(player_core, "void Player::PetSpellInitialize()",
                       "void Player::PossessSpellInitialize()")
-    for marker in (
-        "ToggleAutocast(spellInfo, ab->GetType() == ACT_ENABLED);",
-        "m_charmInfo->SetActionBar",
-    ):
-        # Cleanup specifically reads actionbar type into native autocast.
-        # SetActionBar itself is used elsewhere and is not required inside
-        # CleanupActionBar.
-        if marker.startswith("ToggleAutocast"):
-            assert marker in cleanup, "Pet actionbar cleanup no longer syncs active spell"
+    assert "ToggleAutocast(spellInfo, ab->GetType() == ACT_ENABLED);" in cleanup, (
+        "Pet actionbar cleanup no longer synchronizes native spell autocast")
     assert "PetActionBar[i].SetType(state ? ACT_ENABLED : ACT_DISABLED);" in setbar
     assert "void SetSpellAutocast(SpellInfo const* spellInfo, bool state);" in charm_header
     assert "charmInfo->BuildActionBar(&data);" in publish
