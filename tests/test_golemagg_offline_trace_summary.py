@@ -19,7 +19,7 @@ def line(bot="Grau", sequence=1, stacks=19, distance=9.0, lookup="true",
          hp="75.0", action="mc golemagg back off", current=True):
     extra = (
         f"retreat_stacks_20={'true' if stacks >= 20 else 'false'} "
-        f"inside_retreat_12yd={'true' if distance < 12 else 'false'} "
+        f"inside_retreat_12yd={'true' if lookup == 'true' and distance >= 0 and distance < 12 else 'false'} "
     ) if current else ""
     return (
         f"[2026-10-19] module: GolemaggActionAudit READ ONLY: bot={bot} "
