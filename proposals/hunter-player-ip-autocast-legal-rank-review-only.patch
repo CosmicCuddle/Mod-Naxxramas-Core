@@ -119,3 +119,60 @@ diff --git a/src/IndividualProgressionSpells.cpp b/src/IndividualProgressionSpel
  
      if (familyName == "Wolf")
      {
+@@ -1282,7 +1343,7 @@
+         pending->pending = true;
+ 
+         pet->m_Events.AddEvent(
+-            new DelayedPetSpellCheck(owner->GetGUID()),
++            new DelayedPetSpellCheck(owner->GetGUID(), pet->GetGUID()),
+             pet->m_Events.CalculateTime(200));
+     }
+ 
+@@ -1312,8 +1373,8 @@
+     class DelayedPetSpellCheck : public BasicEvent
+     {
+     public:
+-        explicit DelayedPetSpellCheck(ObjectGuid ownerGuid, uint8 attempts = 0)
+-            : _ownerGuid(ownerGuid), _attempts(attempts) {
++        explicit DelayedPetSpellCheck(ObjectGuid ownerGuid, ObjectGuid petGuid, uint8 attempts = 0)
++            : _ownerGuid(ownerGuid), _petGuid(petGuid), _attempts(attempts) {
+         }
+ 
+         bool Execute(uint64 /*e_time*/, uint32 /*p_time*/) override
+@@ -1322,7 +1383,9 @@
+             if (!player)
+                 return true;
+             Pet* pet = player->GetPet();
+-            if (!pet)
++            // This event was queued by one specific pet's event processor.
++            // Never reconcile the player's subsequently swapped/reloaded pet.
++            if (!pet || pet->GetGUID() != _petGuid)
+                 return true;
+ 
+             // If the LoadPetFromDB async callback hasn't completed yet, poll again.
+@@ -1330,10 +1393,16 @@
+             if (pet->isBeingLoaded() && _attempts < 10)
+             {
+                 pet->m_Events.AddEvent(
+-                    new DelayedPetSpellCheck(_ownerGuid, _attempts + 1),
++                    new DelayedPetSpellCheck(_ownerGuid, _petGuid, _attempts + 1),
+                     pet->m_Events.CalculateTime(200));
+                 return true;
+             }
++            if (pet->isBeingLoaded())
++            {
++                // Reached the retry cap; never run IP on incomplete pet spells.
++                pet->CustomData.GetDefault<PendingPetSpellCheck>(PENDING_CHECK_KEY)->pending = false;
++                return true;
++            }
+ 
+             // The check runs now - allow the next pet load to queue a fresh one.
+             pet->CustomData.GetDefault<PendingPetSpellCheck>(PENDING_CHECK_KEY)->pending = false;
+@@ -1348,6 +1417,7 @@
+ 
+     private:
+         ObjectGuid _ownerGuid;
++        ObjectGuid _petGuid;
+         uint8      _attempts;
+     };
+ };
