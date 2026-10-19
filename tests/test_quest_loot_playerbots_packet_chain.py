@@ -62,8 +62,8 @@ class PacketChainTests(unittest.TestCase):
         f = fixture()
         f[0] = f[0].replace(
             "WorldPacket* packet = new WorldPacket(CMSG_AUTOSTORE_LOOT_ITEM, 1);",
-            "WorldPacket* money = new WorldPacket(CMSG_LOOT_MONEY, 0);\n"
-            "    bot->GetSession()->QueuePacket(packet);\n"
+            "{ WorldPacket* packet = new WorldPacket(CMSG_LOOT_MONEY, 0);\n"
+            "    bot->GetSession()->QueuePacket(packet); }\n"
             "    WorldPacket* packet = new WorldPacket(CMSG_AUTOSTORE_LOOT_ITEM, 1);")
         # Only the queue after the client itemindex validates the claim.
         audit.verify(*f)
