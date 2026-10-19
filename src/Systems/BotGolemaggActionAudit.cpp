@@ -145,10 +145,16 @@ namespace
             // Playerbots returns a RECENT action-log tail, NOT the exact
             // action responsible for this movement. Never execute an action.
             std::string trace = ai->HandleRemoteCommand("action");
-            if (trace.empty() ||
-                (trace == state->lastTrace &&
-                 lookupPresent == state->lastLookupPresent &&
-                 !thresholdChanged))
+            // An empty recent-action history does NOT mean the Magma Splash
+            // or boss-lookup observations are empty. Use an explicit bounded
+            // missing-history marker so threshold transitions are still
+            // reported, but repeated identical samples remain suppressed.
+            // This text is an observation sentinel, NOT a bot action.
+            if (trace.empty())
+                trace = "(no recent action)";
+            if (trace == state->lastTrace &&
+                lookupPresent == state->lastLookupPresent &&
+                !thresholdChanged)
                 return;
 
             state->lastTrace = trace;
