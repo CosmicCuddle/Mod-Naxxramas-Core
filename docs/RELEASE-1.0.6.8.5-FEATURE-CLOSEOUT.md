@@ -24,6 +24,27 @@ The release-gate inventory in [`docs/release-gates/1.0.6.8.5.json`](release-gate
 
 **Recent Hunter research #36–#38 is also not a functioning module-only runtime fix.** [Draft #38](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/38) briefly modifies an **ephemeral** IP checkout in CI to test a proposed upstream-dependent correction; even if that Worldserver links, a permanent IP modification **does not satisfy** the owner's **module-only** delivery requirement.
 
+## Completion-first delivery checkpoint — 19 October 2026
+
+**Planning only: no merge, installation, configuration activation or release approved.** The quickest proposed route is to finish **independently built** features individually, not wait for functional Golemagg movement, Hunter Pet autocast ON/OFF persistence or NT1 changed-build talent application. Those three functional problems remain separate **unimplemented/blocked** outcomes, even though their diagnostic/partial candidates build.
+
+| Pilot order | Exact draft head and independent full Worldserver S4 proof | Gate preventing S5–S7 |
+| --- | --- | --- |
+| 1 — controlled Hunter Ammo | [PR #32](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/32) `84a3da6a3a2192dd56c93a4e9cfd441de7cfe518`, [build 18/18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39269109936) | Actual installed source/era/projectile templates unknown; restore-proven full characters DB and one-Hunter inventory acceptance absent |
+| 2 — narrow Quest Loot | [PR #25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/25) `e3e1bf339c8b1aba07ab065d50dbcc3fafbf0e51`, [build 18/18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39270992658) | Actual packet paths, restorable data and **QL-01–QL-15** controlled group-loot acceptance unverified |
+| 3 — Eastern Plaguelands announcement | [PR #24](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/24) `8946f8f3bdbb980393922b9226a3cbe211609308`, [build 18/18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39269122346) | Active `outdoorpvp_template(TypeId=6)` binding, source installation, world-state restore, four-tower/two-faction message acceptance all unknown |
+
+**Do not confuse independent builds with a combined release:** [combined PR #33](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/33) and newer [PR #41](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/41) successfully build **Golemagg read-only observer + Hunter Ammo + Hunter Pet read-only audit** together. They do **not** include Quest Loot or EP Announcements. Before selecting an actual multi-feature package, verify exact selected source provenance, config/loader conflicts, full combined pinned Worldserver link, final registrations and default-OFF behavior. No standalone S4 result can certify an untested combination.
+
+### One-pass evidence package before any staged pilot
+
+1. **S5 installed-state inventory (read only):** privately record the *actual* AzerothCore / IP / Playerbots / Naxx module HEAD SHAs, tracked local changes, effective config, real running Worldserver binary and relevant SQL handler/item templates. The optional [read-only source preflight draft #34](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/34) is **not installed**; its source check alone cannot prove running-binary provenance.
+2. **S5 restoration rehearsal:** verify known-good source, Worldserver binary, effective configuration and **complete characters database** restore on approved disposable staging. Include world SQL/state and client/DBC backups where relevant. A backup file existing without a verified restore is not enough.
+3. **S6 one OFF-baseline feature test at a time, only after fresh owner approval:** for ammo, verify actual item before/after counts, arrows vs bullets, no-pet, no-weapon, full-bags, repeat and relog; for Quest Loot use QL-01–QL-15 including legitimate owner pickup; for EP check each tower, both factions, only one signed 100% notice and restart/lock behavior. Record **PASS/FAIL/NOT RUN**, installed SHA, logs stored privately, any rollback and regressions. Abort on duplication/loss/unlootable loot/incorrect messages.
+4. **S7 final selected-release sign-off:** separately approve exact integration candidate, per-feature inclusion, installation/enablement and merge; record final in-game evidence and monitoring. Never flip `include_in_release`, `owner_approved`, `release_approved` or installed/backup proof from GitHub CI alone.
+
+**Minimum next owner involvement, when invited:** authorization for a read-only installed-source inventory and restore-safe staging preflight **only**, not installation or gameplay. No action is requested from the owner now; all ten release manifest inclusions remain `false`. Record progress only in [master issue #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28), not another master checklist.
+
 ## Recommended closeout sequence
 
 1. **Release scope freeze first (no install):** select which current draft features might belong in 1.0.6.8.5. Explicitly classify diagnostics as diagnostics and exclude unimplemented Golemagg movement and human Hunter autocast functionality. Keep all three combined feature flags default-OFF.
