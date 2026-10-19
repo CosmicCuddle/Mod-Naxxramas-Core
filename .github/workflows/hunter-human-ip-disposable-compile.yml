@@ -20,7 +20,7 @@ concurrency:
 jobs:
   proposed-ip-translation-unit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    timeout-minutes: 105
     steps:
       - name: Checkout exact pinned owner AzerothCore
         uses: actions/checkout@v4
@@ -95,6 +95,19 @@ jobs:
             --ip-root acore/modules/mod-individual-progression \
             --compile-commands acore-build/compile_commands.json --timeout 420
 
+      - name: Link full pinned Worldserver without launching or installing it
+        run: cmake --build acore-build --target worldserver --parallel 2
+
+      - name: Verify isolated linked Worldserver retains Naxx observer
+        run: |
+          set -euo pipefail
+          binary="$(find acore-build -type f -name worldserver -print -quit)"
+          test -n "$binary"
+          test -s "$binary"
+          grep -aFq "NaxxramasHunterPetAutocastPacketObserver" "$binary"
+          echo "PASS: disposable patched-IP checkout linked a pinned Worldserver retaining the Naxx observer."
+          echo "Executable will not be run, exported, installed or deployed."
+
       - name: Restore ephemeral IP source and assert no tracked changes
         if: always()
         run: |
@@ -108,7 +121,7 @@ jobs:
       - name: State compile-only limitations
         if: always()
         run: |
-          echo "One C++ translation unit only; not a fully linked Worldserver."
+          echo "Exact modified IP translation unit AND full pinned Worldserver link are attempted in CI; no server launch."
           echo "This workflow is stored solely inside Mod-Naxxramas-Core."
           echo "Proposed IP edit was applied and restored in a disposable CI checkout only."
           echo "Not evidence of a module-only runtime implementation or functional pet autocast persistence."
