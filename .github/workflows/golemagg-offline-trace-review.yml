@@ -5,14 +5,18 @@ on:
     types: [opened, reopened, synchronize]
     paths:
       - 'scripts/summarize_golemagg_action_audit.py'
+      - 'scripts/check_golemagg_retreat_policy_pinned.py'
       - 'tests/test_golemagg_offline_trace_summary.py'
+      - 'tests/test_golemagg_retreat_policy_pinned.py'
       - 'docs/GOLEMAGG-OFFLINE-TRACE-REVIEW-2026-10-19.md'
       - '.github/workflows/golemagg-offline-trace-review.yml'
   push:
     branches: [research/golemagg-offline-trace-review-prepared-2026-10-19]
     paths:
       - 'scripts/summarize_golemagg_action_audit.py'
+      - 'scripts/check_golemagg_retreat_policy_pinned.py'
       - 'tests/test_golemagg_offline_trace_summary.py'
+      - 'tests/test_golemagg_retreat_policy_pinned.py'
       - 'docs/GOLEMAGG-OFFLINE-TRACE-REVIEW-2026-10-19.md'
       - '.github/workflows/golemagg-offline-trace-review.yml'
   workflow_dispatch:
@@ -28,14 +32,47 @@ jobs:
       - name: Checkout exact candidate
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Checkout exact pinned Playerbots MC policy only
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: pinned/bots
+          sparse-checkout: |
+            src/Ai/Raid/MC/MCHelpers.h
+            src/Ai/Raid/MC/MCTriggers.cpp
+            src/Ai/Raid/MC/MCActions.cpp
+            src/Ai/Raid/MC/MCMultipliers.cpp
+            src/Ai/Raid/MC/MCStrategy.cpp
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Verify pinned producer checkout SHA
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned/bots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
       - name: Check Python standard library syntax
         run: |
           python3 -m py_compile scripts/summarize_golemagg_action_audit.py
           python3 -m py_compile tests/test_golemagg_offline_trace_summary.py
+          python3 -m py_compile scripts/check_golemagg_retreat_policy_pinned.py
+          python3 -m py_compile tests/test_golemagg_retreat_policy_pinned.py
       - name: Run offline synthetic trace tests only
         run: |
           python3 -m unittest discover -s tests -p 'test_golemagg_offline_trace_summary.py' -v
+          python3 -m unittest discover -s tests -p 'test_golemagg_retreat_policy_pinned.py' -v
+      - name: Check exact pinned MC trigger, movement action, multiplier and observer
+        run: |
+          set -euo pipefail
+          python3 scripts/check_golemagg_retreat_policy_pinned.py \
+            --helper pinned/bots/src/Ai/Raid/MC/MCHelpers.h \
+            --trigger pinned/bots/src/Ai/Raid/MC/MCTriggers.cpp \
+            --action pinned/bots/src/Ai/Raid/MC/MCActions.cpp \
+            --multiplier pinned/bots/src/Ai/Raid/MC/MCMultipliers.cpp \
+            --strategy pinned/bots/src/Ai/Raid/MC/MCStrategy.cpp \
+            --observer src/Systems/BotGolemaggActionAudit.cpp \
+            --summary scripts/summarize_golemagg_action_audit.py
       - name: State read-only scope
         run: |
           echo "No Worldserver process, plugin, config, bot, character, SQL or DBC modified."
