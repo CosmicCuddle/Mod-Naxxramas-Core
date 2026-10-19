@@ -15,7 +15,7 @@ The proposal acts **inside one synchronous IP `reconcile` call**, not through a 
 4. Restore ON **or OFF** only after a *successful* legal learn, for the **same currently owned Hunter pet**, not being loaded, only if the new spell exists and is autocastable and the action bar contains its exact `keepId`.
 5. Use native `Pet::ToggleAutocast` **and** `CharmInfo::SetSpellAutocast`, followed by a native client pet-spell refresh. Never directly write `pet_spell` rows.
 
-**Safety limitation:** The pinned IP delayed event still holds an owner GUID rather than a retained original-pet GUID. This proposal does not rewrite that event and must **not** be approved for deployment until the original-pet scheduling behavior has been examined and accepted. It re-reads only the same current pet within a synchronous reconcile call, so no prior pet preference is sourced from Naxx storage; however an existing stale delayed event could still run IP reconciliation against another current pet. Additional lifecycle correction may be required.
+**Safety limitation / proposed mitigation:** The reviewed patch now also proposes checking the original runtime pet GUID in IP's delayed event, avoiding a stale event targeting a replacement pet and aborting after the loading retry cap. **Neither change has been applied or C++ compiled**; both need maintainer review, separately authorized real-player staging and original-pet lifecycle evidence. No old pet preference is stored in Naxx.
 
 ## Safety review refinement: same rank chain, not merely the same IP wipe list
 
@@ -53,9 +53,40 @@ permission to modify IP. The expanded model has 13 cases, including
 mixed families, unknown extra old spells, out-of-list `keepId` and an
 invalid state that must not be interpreted as OFF.
 
+## Original-pet delayed event guard — second independent defect candidate
+
+The pinned IP `IndividualPlayerProgression_PetScript` enqueues
+`DelayedPetSpellCheck` on a particular **pet's** event processor but
+retains **only the player-owner GUID**. On delivery it searches
+`player->GetPet()` again, which could be a different pet after dismissal
+or stable swapping. Even where this might be prevented by event queue
+destruction, the source alone does **not** guarantee original-pet identity.
+The current loop also runs IP reconciliation after exhausting ten loading
+retries, even if `Pet::isBeingLoaded()` remains true.
+
+A **second hunk within this same UNAPPLIED proposed patch** would pass the
+originating runtime `pet->GetGUID()` into the delayed event, preserve that
+GUID on any retry, and reject an event if the owner now has no pet or a
+different pet GUID. It would **stop without reconciling** if native spell
+loading is still unfinished at the retry cap, clearing its pending marker
+on the matched pet so a future pet lifecycle event is not permanently
+suppressed.
+
+This is intentionally **transient original-object identity**, not a new
+durable preference identifier. It cannot prove that a destroyed pet number
+will never be reused. The event still lives on the original pet's own
+event queue; the GUID check is an additional fail-closed lifecycle gate.
+
+The extended synthetic model now checks stale swapped pets, missing
+original identity, exhausted-loading state and the positive case of the
+**same, fully loaded pet**. This is **not** proof of how the original
+Worldserver behaves during a real stable swap. A full modified IP C++
+compile, upstream maintainer review, controlled test and owner approval
+are required before the event change can be considered safe.
+
 ## What the tests establish—and what they cannot
 
-The lightweight review workflow uses `git apply --check` against a disposable checkout at exact IP source SHA. **That command checks patch context without applying it.** The thirteen standard-library Python synthetic tests cover ON, OFF, pre-existing keep-rank, missing/illegal keep-rank, ambiguous old ranks, uncastable spell, different pet, in-progress load, missing actionbar and learn failure, and patch safety markers.
+The lightweight review workflow uses `git apply --check` against a disposable checkout at exact IP source SHA. **That command checks patch context without applying it.** The seventeen standard-library Python synthetic tests cover ON, OFF, pre-existing keep-rank, missing/illegal keep-rank, ambiguous old ranks, uncastable spell, different pet, in-progress load, missing actionbar and learn failure, and patch safety markers.
 
 A successful `git apply --check` and synthetic model is **not** compiled C++, not proof that the code passes all upstream IP/Worldserver rules, and not proof that the owner's bug occurred because of that code. **No automatic promotion, upstream pull request or installation is authorized.**
 
