@@ -38,7 +38,7 @@ def git(path: Path, *arguments: str) -> str:
 
 def check_checkout(label: str, root: Path, expected: str | None) -> int:
     requested = root.expanduser().resolve()
-    print(f"\\n[{label}]")
+    print(f"\n[{label}]")
     print(f"Checkout directory: {requested}")
     if not requested.is_dir():
         print("STOP: checkout folder missing")
@@ -110,7 +110,7 @@ def main() -> int:
 
     if args.worldserver:
         binary = args.worldserver.expanduser().resolve()
-        print("\\n[Optional on-disk Worldserver file]")
+        print("\n[Optional on-disk Worldserver file]")
         try:
             if not binary.is_file():
                 raise OSError("not a file")
@@ -121,7 +121,7 @@ def main() -> int:
             print("STOP: cannot read optional binary file")
             outcomes.append(BINARY_ERROR)
 
-    print("\\nNo source, config, data, SQL, DBC, binary or service was modified.")
+    print("\nNo source, config, data, SQL, DBC, binary or service was modified.")
     print("No account names, secrets, full config, or player data were read.")
     print("Git checks do NOT prove server process, migrations, or runtime behavior.")
     print("Check actual active config and backups separately with operator approval.")
