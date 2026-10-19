@@ -38,7 +38,9 @@ def check(native_ep_h, native_map_h, native_map_cpp, module_cpp):
     ensure(header, "EP_GraveyardZone = AREA_EASTERN_PLAGUELANDS",
            "native zone constant")
 
-    mh = strip_comments(native_map_h)
+    # The C++ signature can wrap across lines; normalize whitespace rather
+    # than requiring the source/test fixture to use one particular layout.
+    mh = " ".join(strip_comments(native_map_h).split())
     ensure(mh, "void SendZoneText(uint32 zoneId, char const* text,"
            " WorldSession const* self = nullptr, TeamId teamId = TEAM_NEUTRAL)",
            "native zone message default team")
