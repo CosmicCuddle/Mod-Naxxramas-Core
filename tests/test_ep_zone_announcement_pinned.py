@@ -114,6 +114,29 @@ class EPZoneRouteContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no longer after"):
             tool.check(*f)
 
+    def test_message_must_remain_inside_successful_pack_and_endpoint(self):
+        # A simple source-order test would incorrectly permit a broadcast
+        # after the persistence call but OUTSIDE the guarded success scope.
+        f = fixtures()
+        f[3] = f[3].replace(
+            "              map->SendZoneText(EP_GraveyardZone, message.c_str());\n"
+            "          }",
+            "          }\n"
+            "          map->SendZoneText(EP_GraveyardZone, message.c_str());")
+        with self.assertRaisesRegex(ValueError, "escaped the signed endpoint or PackLock"):
+            tool.check(*f)
+
+        f = fixtures()
+        f[3] = f[3].replace(
+            "              map->SendZoneText(EP_GraveyardZone, message.c_str());\n"
+            "          }\n"
+            "      }",
+            "          }\n"
+            "      }\n"
+            "      map->SendZoneText(EP_GraveyardZone, message.c_str());")
+        with self.assertRaisesRegex(ValueError, "escaped the signed endpoint or PackLock"):
+            tool.check(*f)
+
     def test_no_additional_notifications_on_restore_or_reset(self):
         f = fixtures()
         f[3] = f[3].replace("void RestoreFromPersistentState() {}",
