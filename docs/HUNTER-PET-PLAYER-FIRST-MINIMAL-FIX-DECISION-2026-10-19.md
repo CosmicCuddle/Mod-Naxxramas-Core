@@ -75,6 +75,16 @@ state through the core's public `CharmInfo::SetSpellAutocast` surface,
 and refresh the client appropriately. Do **not** place extra abilities,
 rewrite unrelated action-bar slots or grant missing ranks.
 
+**Native reference implementation for a human toggle:** the exact pinned
+`WorldSession::HandlePetSpellAutocastOpcode` in
+[PetHandler.cpp](https://github.com/Grimfeather/azerothcore-wotlk/blob/a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7/src/server/game/Handlers/PetHandler.cpp)
+first checks that the spell belongs to the pet and is autocastable, then
+calls `Pet::ToggleAutocast` for the spell state **and**
+`CharmInfo::SetSpellAutocast` for the actionbar state. This confirms the
+existing core's intended **dual-write pattern**. Any future approved
+IP-side legal-rank preservation should follow equivalent checks for the
+same pet/allowed rank; do not copy the packet handler or call it directly.
+
 The prepared Python guard now verifies exact pinned
 `Pet::CleanupActionBar`, `CharmInfo::SetSpellAutocast`, and
 `Player::PetSpellInitialize` source relationships. This is source
