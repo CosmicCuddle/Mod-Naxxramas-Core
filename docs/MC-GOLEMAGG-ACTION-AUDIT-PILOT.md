@@ -6,6 +6,43 @@
 
 > **This is a read-only, OFF-by-default *diagnostic*, not a movement fix.** Even an exact-head C++ build PASS proves neither that PlayerScript updates are invoked for real Altbots nor which action causes a movement loop. Never modify Playerbots, AzerothCore, Individual Progression, raid boss stats or character data to make the diagnostic work. The player has no separate test realm; the existing live realm may be used for a **narrow, separately approved** pilot only after verified backups/rollback.
 
+## Prepared threshold-transition telemetry — not promoted or tested in-game
+
+An isolated source candidate extends the existing **read-only** action audit to
+record **transitions** across Magma Splash's pinned threshold of **20 stacks**
+and the intended retreat distance of **12 yards**, even when the recent
+Playerbots `HandleRemoteCommand("action")` text has not changed. These
+thresholds are from the exact pinned Playerbots `MCHelpers.h`; the boss lookup
+and target/stack are sampled at the same 2.5-second tick. The output gains
+`retreat_stacks_20` and `inside_retreat_12yd` booleans. The previously
+recorded raw stacks, remaining aura duration, boss HP, lookup state,
+boss distance, target and recent action tail remain intact.
+
+**Safety preserved:** single exact Altbot name + Enabled opt-ins, map 409,
+alive/in-combat, non-tank melee DPS, observed Golemagg requirement,
+per-player sampling data, **2.5-second minimum sample interval**, **24-line
+per-combat cap**, and clearing data on logout/end of encounter. No attempt
+to suppress, reroute or execute any Playerbots AI or movement action. The
+extra threshold check only decides whether an otherwise identical recent
+action tail is worth logging. A temporary threat-list lookup loss never
+dereferences a missing boss pointer.
+
+**Causal limits:** a log line is not the exact action selected by Playerbots
+at that instant; samples can miss transitions between 2.5-second ticks.
+An unchanged trace and unchanged threshold buckets remain suppressed;
+`HandleRemoteCommand("action")` returning empty still yields no sample.
+Crossing 20 stacks or 12yd is not proof that Magma Splash *caused* a
+retreat. Distinguish boss under/over 10% HP and any tank/offtank role,
+because pinned Playerbots disables this policy for tanks and its final
+burn phase.
+
+**Validation boundary:** candidate-only source/tests must be reviewed,
+then compiled against exact pinned actual C++ headers/full Worldserver and
+verified in the final linked module registration before any separately
+approved one-Grau on-realm pilot. This is not a movement fix or permission
+to edit Playerbots. Historical successful diagnostic CI remains attached
+to its previous source SHA, not to the prepared candidate.
+
 ## Stage 0 — Mandatory proof before contemplating deployment
 
 - [ ] Record the owner's **actual installed** Git SHAs for Naxxramas Core, AzerothCore, Playerbots and IP; note any local source edits. GitHub's pinned commits are reference builds, not evidence of the operator's machine.
