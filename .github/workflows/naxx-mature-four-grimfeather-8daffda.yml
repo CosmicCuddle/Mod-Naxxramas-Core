@@ -9,6 +9,21 @@ on:
       - 'src/Systems/GreaterFireProtectionOneShot.h'
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'tests/test_mc_gfpp_one_shot.py'
+      # All other four-feature code, registration, model-test and
+      # pinned compile-wrapper changes must re-run this combined build.
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'src/Systems/HunterAmmoProvision.cpp'
+      - 'src/Systems/HunterAmmoProvision.h'
+      - 'src/Systems/HunterAmmoSelection.h'
+      - 'src/Systems/QuestLootProtection.cpp'
+      - 'src/Systems/EasternPlaguelandsTowerLock.cpp'
+      - 'tests/hunter_ammo_selection.cpp'
+      - 'tests/test_hunter_ammo_consumables.py'
+      - 'tests/test_quest_loot_protection.py'
+      - 'tests/test_ep_tower_module_only.py'
+      - 'scripts/check_hunter_ammo_pinned_compile.py'
+      - 'scripts/check_quest_loot_pinned_compile.py'
+      - 'scripts/check_ep_module_compile_commands.py'
   workflow_dispatch:
 
 permissions:
@@ -100,7 +115,7 @@ jobs:
             -DMODULES=static -DSCRIPTS=static \
             -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
             -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
-      - name: Compile actual four module C++ translation units
+      - name: Compile 3 independent C++ units and identify shared MC-Hunter C++ unit
         run: |
           set -euo pipefail
           module=acore/modules/mod-naxxramas-core
