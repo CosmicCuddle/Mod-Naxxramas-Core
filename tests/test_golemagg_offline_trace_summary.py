@@ -105,6 +105,28 @@ class GolemaggOfflineSummaryTests(unittest.TestCase):
         self.assertEqual(counts["unparsed_lines"], 4)
         self.assertEqual(counts["parsed_samples"], 1)
 
+    def test_partial_or_duplicate_snapshot_fields_are_not_trusted(self):
+        # A new-format audit should carry both threshold flags together.
+        valid = line(sequence=1, stacks=20, distance=11)
+        missing_distance_flag = valid.replace("inside_retreat_12yd=true ", "")
+        missing_stack_flag = valid.replace("retreat_stacks_20=true ", "")
+        doubled_stack = valid.replace(
+            "splash_stacks=20 ", "splash_stacks=19 splash_stacks=20 "
+        )
+        doubled_threshold = valid.replace(
+            "retreat_stacks_20=true ",
+            "retreat_stacks_20=false retreat_stacks_20=true "
+        )
+        counts, bots = tool.summarize([
+            missing_distance_flag, missing_stack_flag,
+            doubled_stack, doubled_threshold, valid,
+        ])
+        self.assertEqual(bots, 1)
+        self.assertEqual(counts["candidate_lines"], 5)
+        self.assertEqual(counts["unparsed_lines"], 4)
+        self.assertEqual(counts["parsed_samples"], 1)
+        self.assertNotIn("legacy_without_explicit_thresholds", counts)
+
     def test_old_format_is_explicitly_marked_as_inferred(self):
         counts, _ = tool.summarize([
             line(sequence=1, current=False, stacks=19, distance=10),
