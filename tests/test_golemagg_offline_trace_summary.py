@@ -67,6 +67,29 @@ class GolemaggOfflineSummaryTests(unittest.TestCase):
         self.assertEqual(counts["back_off_mentions_with_condition"], 1)
         self.assertEqual(counts["back_off_mentions_without_confirmed_condition"], 4)
 
+    def test_empty_action_history_sentinel_is_unknown_not_an_action(self):
+        # Draft observer PR #40 can emit a meaningful threshold sample
+        # while Playerbots' recent action history is temporarily empty.
+        counts, bots = tool.summarize([
+            line(sequence=1, action="(no recent action)", stacks=19, distance=11),
+            line(sequence=2, action="(no recent action)", stacks=20, distance=11),
+            line(sequence=3, action="(no recent action)", stacks=20, distance=13),
+            line(sequence=4, action="mc golemagg back off", stacks=20, distance=11),
+        ])
+        self.assertEqual(bots, 1)
+        self.assertEqual(counts["parsed_samples"], 4)
+        self.assertEqual(counts["unavailable_recent_action_history_samples"], 3)
+        self.assertEqual(counts["sampled_stack_bucket_changes"], 1)
+        self.assertEqual(counts["sampled_distance_bucket_changes"], 2)
+        self.assertEqual(counts["sampled_retreat_condition_met"], 2)
+        self.assertEqual(counts["recent_back_off_mentions"], 1)
+        self.assertEqual(counts["back_off_mentions_with_condition"], 1)
+
+    def test_old_action_tail_not_relabelled_as_unknown(self):
+        counts, bots = tool.summarize([line(sequence=1)])
+        self.assertEqual(bots, 1)
+        self.assertNotIn("unavailable_recent_action_history_samples", counts)
+
     def test_nonfinite_and_contradictory_samples_are_rejected(self):
         bad_stacks = line(sequence=2, stacks=19).replace(
             "retreat_stacks_20=false", "retreat_stacks_20=true")
