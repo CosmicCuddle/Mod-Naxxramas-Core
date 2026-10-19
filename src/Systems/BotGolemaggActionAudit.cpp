@@ -23,6 +23,9 @@ namespace
 {
     constexpr uint32 MOLTEN_CORE_MAP = 409;
     constexpr uint32 MAGMA_SPLASH_SPELL = 13880;
+    // From exact pinned Playerbots MCHelpers.h; context, NOT a movement veto.
+    constexpr uint32 MAGMA_SPLASH_RETREAT_STACKS = 20;
+    constexpr float MAGMA_SPLASH_RETREAT_YARDS = 12.0f;
     constexpr uint32 SAMPLE_INTERVAL_MS = 2500;
     constexpr uint8 MAX_SAMPLES_PER_BOT = 24;
     constexpr size_t MAX_ACTION_TEXT = 320;
@@ -37,6 +40,10 @@ namespace
         std::string lastTrace;
         bool sawGolemaggInThisCombat = false;
         bool lastLookupPresent = false;
+        // Bounded threshold telemetry. Store no pointers, GUIDs or action mutators.
+        bool hasLastSample = false;
+        bool lastAtRetreatStacks = false;
+        bool lastInsideRetreatDistance = false;
     };
 
     class NaxxramasCoreGolemaggActionAudit final : public PlayerScript
@@ -118,22 +125,41 @@ namespace
 
             // This public branch returns a RECENT action-log tail (not one
             // guaranteed action/event). It does not Execute an AI action.
+            // Sample BOTH the recent action tail and the pinned Magma Splash
+            // retreat thresholds. A repeated action tail must not mask a
+            // transition across 20 stacks or 12 yards; those transitions
+            // are essential to distinguishing expected retreat from an
+            // unrelated pursuit action. This remains a 2.5s, 24-line probe.
+            Aura* splash = player->GetAura(MAGMA_SPLASH_SPELL);
+            uint32 const stacks = splash ? splash->GetStackAmount() : 0;
+            int32 const remainingMs = splash ? splash->GetDuration() : 0;
+            float const bossDistanceYards =
+                lookupPresent ? player->GetDistance2d(boss) : -1.0f;
+            bool const atRetreatStacks = stacks >= MAGMA_SPLASH_RETREAT_STACKS;
+            bool const insideRetreatDistance =
+                lookupPresent && bossDistanceYards < MAGMA_SPLASH_RETREAT_YARDS;
+            bool const thresholdChanged = !state->hasLastSample ||
+                atRetreatStacks != state->lastAtRetreatStacks ||
+                insideRetreatDistance != state->lastInsideRetreatDistance;
+
+            // Playerbots returns a RECENT action-log tail, NOT the exact
+            // action responsible for this movement. Never execute an action.
             std::string trace = ai->HandleRemoteCommand("action");
             if (trace.empty() ||
                 (trace == state->lastTrace &&
-                 lookupPresent == state->lastLookupPresent))
+                 lookupPresent == state->lastLookupPresent &&
+                 !thresholdChanged))
                 return;
 
             state->lastTrace = trace;
             state->lastLookupPresent = lookupPresent;
+            state->hasLastSample = true;
+            state->lastAtRetreatStacks = atRetreatStacks;
+            state->lastInsideRetreatDistance = insideRetreatDistance;
             if (trace.size() > MAX_ACTION_TEXT)
                 trace.erase(0, trace.size() - MAX_ACTION_TEXT);
             std::replace(trace.begin(), trace.end(), '\n', ' ');
             std::replace(trace.begin(), trace.end(), '\r', ' ');
-
-            Aura* splash = player->GetAura(MAGMA_SPLASH_SPELL);
-            uint32 const stacks = splash ? splash->GetStackAmount() : 0;
-            int32 const remainingMs = splash ? splash->GetDuration() : 0;
             std::string target = ai->HandleRemoteCommand("target");
             if (target.size() > 64)
                 target.resize(64);
@@ -145,13 +171,15 @@ namespace
             ++state->samples;
             LOG_INFO("module",
                 "GolemaggActionAudit READ ONLY: bot={} samples={}/{} "
-                "splash_stacks={} splash_remaining_ms={} boss_lookup_present={} "
+                "splash_stacks={} splash_remaining_ms={} retreat_stacks_20={} "
+                "inside_retreat_12yd={} boss_lookup_present={} "
                 "boss_hp_pct={} boss_distance_yards={} current_target={} recent_actions={}",
                 player->GetName(), static_cast<uint32>(state->samples),
                 static_cast<uint32>(MAX_SAMPLES_PER_BOT),
-                stacks, remainingMs, lookupPresent,
+                stacks, remainingMs, atRetreatStacks, insideRetreatDistance,
+                lookupPresent,
                 lookupPresent ? boss->GetHealthPct() : -1.0f,
-                lookupPresent ? player->GetDistance2d(boss) : -1.0f,
+                bossDistanceYards,
                 target, trace);
         }
 
