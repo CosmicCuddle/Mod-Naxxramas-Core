@@ -1,0 +1,51 @@
+name: Hunter human pet offline evidence summary (read only)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'scripts/summarize_hunter_pet_human_autocast_audit.py'
+      - 'tests/test_hunter_pet_human_offline_summary.py'
+      - 'docs/HUNTER-PET-HUMAN-OFFLINE-EVIDENCE-2026-10-19.md'
+      - '.github/workflows/hunter-pet-human-offline-evidence.yml'
+  push:
+    branches: [research/hunter-pet-human-offline-evidence-summary-2026-10-19]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-human-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact draft
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact GitHub head SHA
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Verify script and tests compile
+        run: |
+          python3 -m py_compile scripts/summarize_hunter_pet_human_autocast_audit.py
+          python3 -m py_compile tests/test_hunter_pet_human_offline_summary.py
+      - name: Run offline human Hunter pet audit synthetic tests
+        run: |
+          python3 -m unittest discover -s tests -p 'test_hunter_pet_human_offline_summary.py' -v
+      - name: Verify real module emits precisely scoped audit labels
+        run: |
+          set -euo pipefail
+          grep -Fq 'HunterPetAutocast GENERIC audit: later owner={}' src/Systems/HunterPetAutocastAudit.cpp
+          grep -Fq 'native=matching-state-only' src/Systems/HunterPetAutocastAudit.cpp
+          grep -Fq 'HunterPetAutocast LEARN-PACKET audit: owner={}' src/Systems/HunterPetAutocastAudit.cpp
+          grep -Fq 'HunterPetAutocast STABILITY audit: owner={}' src/Systems/HunterPetAutocastAudit.cpp
+          grep -Fq '"NaxxramasCore.HunterPetAutocast.AuditEnabled", false' src/Systems/HunterPetAutocastAudit.cpp
+      - name: State strict read-only boundary
+        run: |
+          echo "No private log fetched; only generated synthetic lines are analyzed."
+          echo "No real pet toggles, IP reconciliation, server startup, DB, SQL, DBC or upstream changes."
+          echo "A matching later native state is NOT authenticated player intent."
