@@ -141,6 +141,38 @@ class ReleaseFeatureGates(unittest.TestCase):
         self.d["combined_candidate"]["owner_approved"] = True
         self.assertEqual(gate.release_blockers(self.d), [])
 
+    def test_inconsistent_combined_link_and_source_build_is_rejected(self):
+        self.d["combined_candidate"]["source_built"] = False
+        with self.assertRaisesRegex(ValueError, "without source build"):
+            gate.validate(self.d)
+
+    def test_fully_approved_fixture_needs_combined_own_real_build_gates(self):
+        # Make every *other* release requirement true only in a disposable
+        # model. Independent feature S4 does NOT certify combined S4.
+        row = next(x for x in self.d["components"] if x["id"] == "hunter_ammunition")
+        row.update(stage="S6", source_state="merged_main",
+                   draft_pr=None, exact_head=None,
+                   full_build_verified=True, live_accepted=True,
+                   backup_restore_verified=True, owner_approved=True,
+                   include_in_release=True)
+        self.d.update(release_approved=True, installed_shas_verified=True,
+                      release_backup_restore_verified=True)
+        candidate = self.d["combined_candidate"]
+        candidate["owner_approved"] = True
+        candidate["source_built"] = False
+        candidate["full_worldserver_built"] = False
+        blockers = gate.release_blockers(self.d)
+        self.assertTrue(any("no verified source build" in msg for msg in blockers))
+        self.assertTrue(any("no verified full Worldserver link" in msg
+                            for msg in blockers))
+        candidate["source_built"] = True
+        blockers = gate.release_blockers(self.d)
+        self.assertFalse(any("no verified source build" in msg for msg in blockers))
+        self.assertTrue(any("no verified full Worldserver link" in msg
+                            for msg in blockers))
+        candidate["full_worldserver_built"] = True
+        self.assertEqual(gate.release_blockers(self.d), [])
+
     def test_report_does_not_make_a_status_mutation(self):
         before = copy.deepcopy(self.d)
         message = gate.report(self.d)
