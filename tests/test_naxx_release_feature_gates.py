@@ -197,8 +197,8 @@ class ReleaseFeatureGates(unittest.TestCase):
             gate.validate(self.d)
 
     def test_mature_quest_and_ep_release_requires_same_worldserver(self):
-        # A fictional fully accepted two-feature package must *still* be
-        # blocked by PR #46 until one combined build and owner approval.
+        # A fictional fully accepted two-feature package must still be
+        # blocked by PR #46 owner approval, even AFTER a real same-binary build.
         for ident in ("quest_loot_turn_guard", "ep_tower_announcements"):
             row = next(r for r in self.d["components"] if r["id"] == ident)
             row.update(stage="S6", source_state="merged_main",
@@ -209,13 +209,19 @@ class ReleaseFeatureGates(unittest.TestCase):
         self.d.update(release_approved=True, installed_shas_verified=True,
                       release_backup_restore_verified=True)
         candidate = self.d["mature_three_candidate"]
+        self.assertTrue(candidate["source_built"])
+        self.assertTrue(candidate["full_worldserver_built"])
+        blockers = gate.release_blockers(self.d)
+        self.assertFalse(any("PR #46 has no verified full Worldserver link" in b
+                             for b in blockers))
+        self.assertTrue(any("PR #46 has not been approved" in b for b in blockers))
+        # Simulate a regression in the exact combined proof to ensure
+        # the independently successful feature builds cannot mask it.
+        candidate["full_worldserver_built"] = False
         blockers = gate.release_blockers(self.d)
         self.assertTrue(any("PR #46 has no verified full Worldserver link" in b
                             for b in blockers))
-        self.assertTrue(any("PR #46 has not been approved" in b for b in blockers))
         candidate["full_worldserver_built"] = True
-        self.assertTrue(any("PR #46 has not been approved" in b
-                            for b in gate.release_blockers(self.d)))
         candidate["owner_approved"] = True
         self.assertEqual(gate.release_blockers(self.d), [])
 
@@ -256,7 +262,10 @@ class ReleaseFeatureGates(unittest.TestCase):
         self.assertIn("Historical diagnostic PR #33", message)
         self.assertIn("Completion-first PR #46", message)
         self.assertIn("head=" + self.d["mature_three_candidate"]["exact_head"], message)
-        self.assertIn("combined_full_worldserver=False", message)
+        self.assertIn("Completion-first PR #46 head=" +
+                      self.d["mature_three_candidate"]["exact_head"] +
+                      " source_built=True combined_full_worldserver=True owner_approved=False",
+                      message)
         self.assertIn("owner_approved=False", message)
         self.assertEqual(before, self.d)
 
