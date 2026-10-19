@@ -251,3 +251,46 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptGMs = 1
 # Preserve Playerbots queues based on IndividualProgression.BotAccountsRegex.
 # Default: 1
 NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
+
+###############################################
+# Bot Consumables / Hunter ammunition (research)
+###############################################
+
+# Adds actual ammunition to the inventories of explicitly controlled Hunter
+# Altbots during an authenticated .bot consumables MC or dungeon preparation.
+# It reads the equipped bow, crossbow or gun and PLAYER_AMMO_ID selection:
+# - Bows/crossbows -> compatible arrows
+# - Guns -> compatible bullets
+# - Invalid/broken ranged weapons, thrown and wands -> no ammo
+#
+# Supports a conservative Classic catalog of vendor ammunition and selected
+# crafted Thorium ammo only. Any unsupported selected/quest/PvP ammo is skipped
+# rather than replaced, duplicated or upgraded beyond the current era.
+#
+# If a Hunter has NO ammo selected, basic level-appropriate vendor ammo may
+# be placed into inventory, but this module NEVER selects/equips ammo for them.
+# The player/bot must select the new ammo in the ammo slot before shooting.
+#
+# This is an inventory grant (saved to characters DB by native core), not
+# an aura, and no SQL schema/DBC modification is included.
+# Existing Bot Consumables command cooldown, eligibility and instance scope
+# remain unchanged. Random Bots and human players are excluded in v1.
+#
+# Default: 0 (OFF); enabling requires explicit owner review, approved backup
+# and rollback, exact pinned full link and staged in-game testing.
+NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0
+
+# Independent provenance gate for already-selected quest-exchanged / crafted
+# Thorium Headed Arrows (18042) and Thorium Shells (15997). Merely possessing
+# or selecting them does not grant permission to duplicate earned supplies.
+# With this OFF, selected non-vendor ammo remains untouched and no vendor
+# substitute is silently selected or provided.
+# Default: 0 (OFF)
+NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor = 0
+
+# Target number of matching ammo pieces to keep in a Hunter's BAGS
+# (bank contents excluded). Native AddItem uses bag capacity; any insufficient
+# bag capacity prevents this optional top-up.
+# Strictly clamped to 1..1000. Never grants more than the shortfall.
+# Default: 600
+NaxxramasCore.BotConsumables.HunterAmmo.TargetCount = 600
