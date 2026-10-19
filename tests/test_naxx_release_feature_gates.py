@@ -91,13 +91,15 @@ class ReleaseFeatureGates(unittest.TestCase):
 
     def test_s5_requires_restorable_backup_evidence(self):
         row = next(x for x in self.d["components"] if x["id"] == "hunter_ammunition")
-        row["stage"] = "S5"
+        # Isolate S5 missing backup proof; S4 proof is synthetic in this fixture.
+        row.update(stage="S5", full_build_verified=True)
         with self.assertRaisesRegex(ValueError, "S5\\+"):
             gate.validate(self.d)
 
     def test_s6_requires_accepted_gameplay_evidence(self):
         row = next(x for x in self.d["components"] if x["id"] == "hunter_ammunition")
-        row.update(stage="S6", backup_restore_verified=True)
+        # Isolate S6 missing gameplay proof; previous stages are synthetic.
+        row.update(stage="S6", full_build_verified=True, backup_restore_verified=True)
         with self.assertRaisesRegex(ValueError, "S6\\+"):
             gate.validate(self.d)
 
