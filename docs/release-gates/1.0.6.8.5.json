@@ -16,7 +16,7 @@
     "draft_pr": 46,
     "exact_head": "4734e4a0ccb2d457420f9995c21bee14826d2a9a",
     "source_built": true,
-    "full_worldserver_built": false,
+    "full_worldserver_built": true,
     "owner_approved": false
   },
   "components": [
