@@ -69,6 +69,24 @@ def validate(document: dict) -> None:
             raise ValueError(f"{key}: cannot claim built unimplemented feature")
         if row["live_accepted"] and not row["backup_restore_verified"]:
             raise ValueError(f"{key}: can't accept a live test without restorable backup evidence")
+        # The milestone label must not outrun its own evidence. These checks
+        # validate the authored manifest; they do not claim actual server proof.
+        stage_number = int(row["stage"][1])
+        if row["source_state"] == "not_implemented" and (
+                stage_number > 1 or row["live_accepted"] or row["include_in_release"]):
+            raise ValueError(f"{key}: unimplemented work cannot claim delivery or acceptance")
+        if row["source_state"] == "draft" and stage_number == 7:
+            raise ValueError(f"{key}: an unmerged draft cannot be marked released")
+        if stage_number >= 4 and not row["full_build_verified"]:
+            raise ValueError(f"{key}: S4+ requires exact-source full-build evidence")
+        if row["full_build_verified"] and stage_number < 4:
+            raise ValueError(f"{key}: full-build evidence must be classified at S4 or later")
+        if stage_number >= 5 and not row["backup_restore_verified"]:
+            raise ValueError(f"{key}: S5+ requires restorable backup evidence")
+        if stage_number >= 6 and not row["live_accepted"]:
+            raise ValueError(f"{key}: S6+ requires actual in-game acceptance")
+        if row["live_accepted"] and stage_number < 6:
+            raise ValueError(f"{key}: gameplay acceptance must be classified at S6 or later")
 
     # Top-level release controls MUST exist so a single feature cannot
     # substitute for approval of the selected combined release.
