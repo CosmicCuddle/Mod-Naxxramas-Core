@@ -1,0 +1,51 @@
+name: Hunter human autocast IP review patch applicability (read only)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'proposals/hunter-player-ip-autocast-legal-rank-review-only.patch'
+      - 'tests/test_hunter_human_ip_review_proposal.py'
+      - 'docs/HUNTER-PET-HUMAN-IP-RANK-PRESERVATION-REVIEW-2026-10-19.md'
+      - '.github/workflows/hunter-human-ip-review-patch.yml'
+  push:
+    branches: [research/hunter-human-ip-review-patch-2026-10-19]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review-only-patch-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout pinned IP for read-only patch-context check
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: pinned-ip
+          persist-credentials: false
+      - name: Checkout proposed Naxx document and model fixtures
+        uses: actions/checkout@v4
+        with:
+          path: naxx-proposal
+          persist-credentials: false
+      - name: Check exact IP source and patch context WITHOUT applying
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-ip rev-parse HEAD)" = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
+          git -C pinned-ip apply --check ../naxx-proposal/proposals/hunter-player-ip-autocast-legal-rank-review-only.patch
+          echo "Only git apply --check was run; IP checkout has not been patched."
+      - name: Run disposable rank-preference review models
+        run: |
+          python3 -m py_compile naxx-proposal/tests/test_hunter_human_ip_review_proposal.py
+          cd naxx-proposal
+          python3 -m unittest discover -s tests -p 'test_hunter_human_ip_review_proposal.py' -v
+      - name: Assert no changes to tracked pinned IP source
+        run: |
+          set -euo pipefail
+          test -z "$(git -C pinned-ip status --porcelain --untracked-files=no)"
+          echo "This is a REVIEW ONLY patch, not compiled code or a gameplay fix."
+          echo "No upstream/core/Playerbots modification, realm access, SQL, DBC or deployment."
