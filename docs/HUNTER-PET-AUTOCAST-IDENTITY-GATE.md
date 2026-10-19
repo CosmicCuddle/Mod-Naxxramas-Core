@@ -26,6 +26,31 @@ The [pinned PetStable::PetInfo](https://github.com/Grimfeather/azerothcore-wotlk
 
 The new [source check](../scripts/check_hunter_pet_identity_pinned.py) runs against the exact upstream checkout in CI to detect changes in these assumptions. A passing result means the BLOCKER is corroborated; it does not authorize persistence or constitute a live-schema or runtime test.
 
+## New source guard: saved PetNumber versus per-load runtime GUID (prepared 19 Oct 2026)
+
+The pinned source audit now also asserts that a saved pet is selected from
+`PetStable` using **PetNumber** (current, stabled or unslotted), and that
+`Pet::LoadPetFromDB` subsequently calls
+`map->GenerateLowGuid<HighGuid::Pet>()` for a **new transient object GUID**
+while passing the original `petInfo->PetNumber` into `Create` and
+`GetCharmInfo()->SetPetNumber`. It checks that `FillPetInfo`, ordinary save
+and `Player::LoadPetStable` consistently use the stored number/owner. The
+new invariants are source-contract assertions; they are **not proof that a
+live pet was loaded**, nor that a saved pet number is unique for all time.
+
+Thus: **same existing saved pet across dismiss/stable/reload** may legitimately
+have the same persistent number and different runtime GUIDs. But
+**delete-highest-ID → restart → tame** can still recycle the number, because
+the pinned allocation seed is `MAX(id)`. Neither runtime GUID nor PetNumber
+is a proven all-time birth marker. **No preference persistence or mutation
+becomes permissible because this additional source guard passes.**
+
+Any future trusted upstream event should carry *both* a current-session pet
+generation (to reject stale queued IP/Playerbots messages) and independently
+verified durable non-recycled incarnation (to reject deleted-pet ID reuse).
+The current module has neither an authoritative event producer nor an
+approved SQL schema for the durable marker. Keep autocast changes blocked.
+
 ## Source-confirmed existing-pet load attempt hook (read only)
 
 Pinned AzerothCore `Pet::LoadPetFromDB` selects a pet's stable information via `GetLoadPetInfo`, then invokes `PlayerScript::OnPlayerBeforeLoadPetFromDB` **before it creates the Pet object**. Naxx Core now observes this callback as a read-only `NATIVE-LOAD-ATTEMPT` log when its diagnostic config is explicitly enabled. The callback parameters may still be changed by other scripts and the load can subsequently abort; this signal is neither proof of successful summon nor a durable identity or proof IP has completed.
