@@ -2,7 +2,7 @@
 
 **Tracked at:** [master #28 (B02a)](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28) · [issue #31](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/31)
 
-**Status:** Current isolated **module-only, default-OFF draft PR #32 source, exact current head `082a03d` as of this evidence refresh**. Prior pinned source/C++/full-link CI **PASS**, but no operator server deployment, in-game inventory acceptance, or additional core/Playerbots/IP edits. Editing these Markdown notes produces a NEW exact documentation commit; the pinned source PASS remains attributed to `082a03d`, not automatically to that later docs-only SHA.
+**Status (19 October 2026):** Module-only, default-OFF **DRAFT PR #32**. The last verified documentation-only PR head before this guide refresh was `3504cde54e731732e2e6c26eafdf514162647d19`. Its exact-head [full pinned C++ / Worldserver / defined ammo-function CI #39172979749](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39172979749), [ammo policy #39172979690](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39172979690) and [NT1 #39172979688](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39172979688) **ALL PASSED**. The runtime ammunition implementation remains the prior `082a03d` source; this update changes only this Markdown guide. **NO** installed-server evidence, inventory acceptance, item grant, merge or configuration enablement.
 
 ## Owner's request and observed gap
 
@@ -54,9 +54,10 @@ The corresponding source contract and tests are **already included in the curren
 - [x] Wire `src/Systems/HunterAmmoProvision.cpp` to existing MC/dungeon command and stats; source only, disabled unless config explicit.
 - [x] Maintain class/pet separation: `PrepareHunter` top-up occurs **before** missing-pet early return.
 - [x] Include source-check contract `tests/test_hunter_ammo_consumables.py`.
-- [x] **Current PR #32 head `082a03d`:** independent `AllowSelectedNonVendor = 0` gate and selected-Thorium default-deny source tests are included. Earlier `feature/hunter-ammo-source-safety-prepared-2026-10-18` is a historical preparation branch, not the live PR head.
+- [x] **Hunter runtime source `082a03d` (retained by docs-only successors):** independent `AllowSelectedNonVendor = 0` gate and selected-Thorium default-deny source tests are included. Earlier `feature/hunter-ammo-source-safety-prepared-2026-10-18` is a historical preparation branch, not the live PR head.
 - [x] Exact source revision `082a03d`: standalone C++ model/policy and source checks **PASS** — [#39135564447](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39135564447).
 - [x] Exact source revision `082a03d`: actual C++ translation unit, full pinned AzerothCore/Playerbots/IP Worldserver link, and **defined `TopUpHunterAmmo` function presence in archive AND final executable** **PASS** — [#39135564348](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39135564348). No in-game ammo use inferred.
+- [x] **Documentation/CI synchronization before this new guide revision:** PR #32 previous head `3504cde` passed exact-head full C++/Worldserver/retained-function #39172979749, policy #39172979690 and NT1 #39172979688. Any newer documentation-only commit needs its **own** head/run recorded; prior build results cannot be silently re-labelled.
 - [ ] Verify operator's actual installed source and current world `item_template` match the test pin; investigate IP's additional item gating, especially Hunter stage shifts.
 - [ ] Back up known-good Worldserver, active config and **full characters database**, and **prove the restore procedure** before any proposed inventory test.
 - [ ] Approved one-Hunter MC pilot: selected vendor arrows, gun bullets, crossbow arrows; manual fallbacks without a selected ammo; crafted Thorium already selected; unusual/quest ammo denied; broken/missing weapon, level cap, no pet, full inventory, retry, relog, ammo consumption, character restore.
