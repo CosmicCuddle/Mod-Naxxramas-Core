@@ -11,7 +11,7 @@ Existing [Quest Loot PR #25](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/
 3. The same core \`Opcodes.cpp\` maps \`CMSG_AUTOSTORE_LOOT_ITEM\` to \`STATUS_LOGGEDIN\` / \`HandleAutostoreLootItemOpcode\`.
 4. Current module \`QuestLootProtection.cpp\`: the receive script still uses the correct opcode, copies the packet cursor, checks \`PermitPickup\` and issues a native locked-loot error before returning false.
 
-The GitHub job uses sparse checkouts with exact SHA checks. Seven synthetic tests intentionally break the packet queue, client item index, queue order, receive-hook order, opcode dispatch, and module hook to demonstrate fail-closed behavior. It then checks the **real pinned** source files with the identical verifier. No Worldserver compilation, SQL query, gameplay, item awards or owner live machine involved.
+The GitHub job uses sparse checkouts with exact SHA checks. Eight synthetic tests intentionally break the packet queue, client item index, queue order, receive-hook order, opcode dispatch, and module hook to demonstrate fail-closed behavior. It then checks the **real pinned** source files with the identical verifier. No Worldserver compilation, SQL query, gameplay, item awards or owner live machine involved.
 
 ## Deliberate limitations
 
