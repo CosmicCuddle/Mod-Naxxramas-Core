@@ -1,0 +1,51 @@
+name: Hunter human repeat-summon source-only research
+
+on:
+  push:
+    branches: [research/hunter-human-repeated-load-reconcile-prepared-2026-10-19]
+    paths:
+      - 'scripts/check_hunter_pet_human_autocast_boundary_pinned.py'
+      - 'docs/HUNTER-PET-PLAYER-FIRST-MINIMAL-FIX-DECISION-2026-10-19.md'
+      - 'docs/HUNTER-PET-PLAYER-AUTOCAST-HEIDISQL-READONLY-REPRO-2026-10-19.md'
+      - '.github/workflows/hunter-human-repeat-summon-source-research.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-human-source-order:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact pinned Grimfeather core
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: core
+          persist-credentials: false
+      - name: Checkout exact pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: ip
+          persist-credentials: false
+      - name: Checkout exact current research head
+        uses: actions/checkout@v4
+        with:
+          path: mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify pinned source SHAs and run read-only human Hunter check
+        run: |
+          set -euo pipefail
+          test "$(git -C core rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
+          test "$(git -C ip rev-parse HEAD)" = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
+          test "$(git -C mod-naxxramas-core rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -m py_compile mod-naxxramas-core/scripts/check_hunter_pet_human_autocast_boundary_pinned.py
+          python3 mod-naxxramas-core/scripts/check_hunter_pet_human_autocast_boundary_pinned.py --core core --ip ip
+      - name: State human-player source-only boundary
+        run: |
+          echo "Only source ordering verified. No player pet tested and no IP/runtime mutation."
+          echo "No Worldserver, SQL, DBC, Playerbots, live bot AI, config or deployment change."
