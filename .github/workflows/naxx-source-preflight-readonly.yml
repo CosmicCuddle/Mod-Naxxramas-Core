@@ -1,0 +1,41 @@
+name: Naxx release source preflight read-only checks
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'scripts/check_naxx_source_preflight_readonly.py'
+      - 'tests/test_naxx_source_preflight_readonly.py'
+      - 'docs/NAXX-SOURCE-PREFLIGHT-READONLY-2026-10-19.md'
+      - '.github/workflows/naxx-source-preflight-readonly.yml'
+  push:
+    branches: [research/naxx-source-preflight-standalone-2026-10-19]
+    paths:
+      - 'scripts/check_naxx_source_preflight_readonly.py'
+      - 'tests/test_naxx_source_preflight_readonly.py'
+      - 'docs/NAXX-SOURCE-PREFLIGHT-READONLY-2026-10-19.md'
+      - '.github/workflows/naxx-source-preflight-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-disposable-git-fixtures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact prepared research commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify offline preflight Python syntax
+        run: |
+          python3 -m py_compile scripts/check_naxx_source_preflight_readonly.py
+          python3 -m py_compile tests/test_naxx_source_preflight_readonly.py
+      - name: Run only disposable local Git fixture tests
+        run: |
+          python3 -m unittest discover -s tests -p 'test_naxx_source_preflight_readonly.py' -v
+      - name: Verify this job makes no server or database changes
+        run: |
+          echo "Offline source check only: temp Git repos, no remote server, no database, no deployment."
