@@ -60,6 +60,8 @@ on:
       - 'scripts/check_hunter_pet_ip_readiness_pinned.py'
       - 'scripts/check_hunter_pet_ip_ability_scope_pinned.py'
       - 'scripts/check_hunter_pet_native_spell_state_pinned.py'
+      - 'scripts/check_hunter_pet_human_autocast_boundary_pinned.py'
+      - 'docs/HUNTER-PET-PLAYER-FIRST-MINIMAL-FIX-DECISION-2026-10-19.md'
       - 'docs/HUNTER-PET-AUTOCAST-STATE-LIFECYCLE.md'
       - 'docs/HUNTER-PET-IP-ABILITY-SCOPE.md'
       - '.github/workflows/hunter-autocast-audit-pinned.yml'
@@ -131,6 +133,10 @@ jobs:
       - name: Verify pinned native autocast loss path and IP re-learn source
         run: |
           python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_native_spell_state_pinned.py \
+            --core acore --ip acore/modules/mod-individual-progression
+      - name: Verify pinned human Hunter native spell-choice and IP rank-change boundary
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_human_autocast_boundary_pinned.py \
             --core acore --ip acore/modules/mod-individual-progression
       - name: Verify pinned IP Hunter pet fixed-point source conditions
         run: |
