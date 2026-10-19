@@ -115,6 +115,34 @@ int main()
         self.assertIn("RandomBotIsInPreparationScope(master, bot)", section)
         self.assertIn("BotIsInPreparationScope(master, bot)", section)
 
+    def test_dead_master_never_reapplies_due_protection(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        section = source.split("void ProcessOneShotFireProtections(", 1)[1].split(
+            "// =========================================================", 1)[0]
+        self.assertIn("!master->IsAlive()", section)
+        self.assertLess(section.index("pending.Timer.ConsumeIfDue(diff)"),
+                        section.index("!master->IsAlive()"))
+
+    def test_same_worldserver_instance_required_not_only_map_id(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        section = source.split("void ProcessOneShotFireProtections(", 1)[1].split(
+            "// =========================================================", 1)[0]
+        self.assertIn("bot->GetMap() != master->GetMap()", section)
+        self.assertLess(section.index("pending.Timer.ConsumeIfDue(diff)"),
+                        section.index("bot->GetMap() != master->GetMap()"))
+
+    def test_config_disable_reload_and_failure_report_are_once_only(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        section = source.split("void ProcessOneShotFireProtections(", 1)[1].split(
+            "// =========================================================", 1)[0]
+        self.assertIn('"' + FLAG + '"', section)
+        self.assertIn("!bot->AddAura(pending.SpellId, bot)", section)
+        self.assertIn("one-time refresh failed", section)
+        self.assertLess(section.index("pending.Timer.ConsumeIfDue(diff)"),
+                        section.index("GetOption<bool>("))
+        self.assertLess(section.index("pending.Timer.ConsumeIfDue(diff)"),
+                        section.index("!bot->AddAura(pending.SpellId, bot)"))
+
     def test_cross_caster_aura_is_never_removed(self):
         source = SOURCE.read_text(encoding="utf-8")
         section = source.split("void ProcessOneShotFireProtections(", 1)[1].split(
