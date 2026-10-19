@@ -3,6 +3,7 @@
 These fixtures use disposable temp repositories, never the operator's server.
 """
 import contextlib
+import hashlib
 import importlib.util
 import io
 from pathlib import Path
@@ -99,8 +100,7 @@ class ReadOnlySourcePreflight(unittest.TestCase):
             path.write_bytes(b"disposable-not-a-real-worldserver")
             self.assertEqual(
                 preflight.sha256_file(path),
-                "d67156966a907c9b4d56ad1ec90a6944b3ef8d3d4e1ebcc18eead6d32c943a3b"
-                if False else __import__("hashlib").sha256(path.read_bytes()).hexdigest(),
+                hashlib.sha256(b"disposable-not-a-real-worldserver").hexdigest(),
             )
 
     def test_script_has_no_mutation_commands(self):
