@@ -33,6 +33,12 @@ def model_transfer(known, wipe, keep, legal_ids, autocastable, bar_ids,
     return old_state
 
 
+def model_can_reconcile_delayed_pet(original_guid, current_guid, being_loaded):
+    """Proposed delayed event must never follow the owner to another pet."""
+    return bool(original_guid and current_guid and
+                original_guid == current_guid and not being_loaded)
+
+
 class HumanHunterIPReviewProposalTests(unittest.TestCase):
     def test_previous_explicit_on_survives_one_legal_rank_replacement(self):
         self.assertIs(model_transfer({101: True}, [101, 102], 102,
@@ -96,6 +102,18 @@ class HumanHunterIPReviewProposalTests(unittest.TestCase):
                                          {102}, {101, 102}, {102},
                                          learn_succeeds=False))
 
+    def test_delayed_event_rejects_swapped_pet(self):
+        self.assertFalse(model_can_reconcile_delayed_pet("pet-A", "pet-B", False))
+
+    def test_delayed_event_rejects_incomplete_pet_after_retry_cap(self):
+        self.assertFalse(model_can_reconcile_delayed_pet("pet-A", "pet-A", True))
+
+    def test_delayed_event_keeps_same_loaded_original_pet(self):
+        self.assertTrue(model_can_reconcile_delayed_pet("pet-A", "pet-A", False))
+
+    def test_missing_original_guid_is_not_accepted(self):
+        self.assertFalse(model_can_reconcile_delayed_pet(None, "pet-A", False))
+
     def test_review_diff_has_only_one_ip_file_and_existing_api_patterns(self):
         patch = PATCH.read_text(encoding="utf-8")
         self.assertEqual(patch.count("diff --git "), 1)
@@ -114,6 +132,10 @@ class HumanHunterIPReviewProposalTests(unittest.TestCase):
             "barHasKeepSpell",
             "pet->ToggleAutocast(keepInfo, enabled)",
             "charm->SetSpellAutocast(keepInfo, enabled)",
+            "pet->GetGUID() != _petGuid",
+            "new DelayedPetSpellCheck(_ownerGuid, _petGuid, _attempts + 1)",
+            "if (pet->isBeingLoaded())",
+            "ObjectGuid _petGuid;",
             "player->PetSpellInitialize()",
         ):
             self.assertIn(token, patch)
