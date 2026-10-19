@@ -24,6 +24,7 @@ def check(core: Path, ip: Path) -> None:
     charm = (core / "src/server/game/Entities/Unit/CharmInfo.cpp").read_text("utf-8")
     charm_header = (core / "src/server/game/Entities/Unit/CharmInfo.h").read_text("utf-8")
     player_core = (core / "src/server/game/Entities/Player/Player.cpp").read_text("utf-8")
+    handler = (core / "src/server/game/Handlers/PetHandler.cpp").read_text("utf-8")
     ipp = (ip / "src/IndividualProgressionSpells.cpp").read_text("utf-8")
 
     loaded = between(pet, "void Pet::_LoadSpells(", "void Pet::_SaveSpells(")
@@ -116,6 +117,22 @@ def check(core: Path, ip: Path) -> None:
     assert "MAKE_UNIT_ACTION_BUTTON(itr->first, itr->second.active)" in publish
     assert "pet->m_spells.begin()" in publish
 
+    # Direct human client toggle handler synchronizes BOTH legal pet spell
+    # active state and actionbar type. A restoration patch should follow this
+    # *existing* native dual-write contract, not invent another persistence DB.
+    manual = between(handler, "void WorldSession::HandlePetSpellAutocastOpcode(",
+                     "void WorldSession::HandlePetCastSpellOpcode(")
+    for marker in (
+        "pet->HasSpell(packet.SpellID)",
+        "spellInfo->IsAutocastable()",
+        "summon->ToggleAutocast(spellInfo, packet.AutocastEnabled);",
+        "charmInfo->SetSpellAutocast(spellInfo, packet.AutocastEnabled);",
+    ):
+        assert marker in manual, "Native human autocast toggle path changed: " + marker
+    assert (manual.index("summon->ToggleAutocast(spellInfo") <
+            manual.index("charmInfo->SetSpellAutocast(spellInfo"))
+    assert "checkPet != _player->GetGuardianPet()" in manual
+
     for prohibited in ("OnPetBeforeUnlearnSpell", "OnPetAfterLearnSpell",
                        "OnPetSpellReconciled", "OnIPPetReconciled"):
         assert prohibited not in hooks, "Review newly available native hook: " + prohibited
@@ -126,6 +143,7 @@ def check(core: Path, ip: Path) -> None:
     print("PASS: AddToWorld precedes async spell load, and IP delayed check has no explicit completion hook.")
     print("PASS: native async load reinitializes level/default spells before delayed IP legal-rank pruning.")
     print("PASS: native PetSpell active and CharmInfo actionbar have separate synchronisation paths.")
+    print("PASS: human player pet-toggle opcode writes both native spell and actionbar states.")
     print("BLOCKED: root cause on real player and module-only atomic handoff NOT demonstrated.")
     print("No player data/character DB accessed; no Playerbot, IP, core or pet mutation.")
 
