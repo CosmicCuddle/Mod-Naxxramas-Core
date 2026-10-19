@@ -78,7 +78,8 @@ jobs:
           ):
               assert conf.count(key) == 1, "Missing/duplicated OFF default: " + key
           loader = (root / "src/NaxxramasCore_loader.cpp").read_text()
-          assert loader.count("AddQuestLootProtectionScripts();") == 1
+          assert sum(line.strip() == "AddQuestLootProtectionScripts();" for line in loader.splitlines()) == 1
+          assert sum(line.strip() == "void AddQuestLootProtectionScripts();" for line in loader.splitlines()) == 1
           print("PASS: isolated Quest Loot and Hunter Ammo OFF defaults and registration.")
           PY
       - name: Run all three source and synthetic test families
