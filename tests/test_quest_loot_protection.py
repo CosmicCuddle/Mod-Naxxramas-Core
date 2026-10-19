@@ -21,7 +21,8 @@ def modeled_pickup(
     needs_quest=True, looted=False, shared=False,
     follow_rules=False, blocked=False, roll_winner=False,
     item_template=True, owner_online=True, owner_in_group=True,
-    owner_has_slot=True, owner_needs=True, owner_eligible=True
+    owner_has_slot=True, owner_needs=True, owner_eligible=True,
+    owner_personal=None
 ):
     """Model conditions in PermitPickup, not independent proof of source."""
     if not enabled or not packet or malformed or not grouped or not corpse:
@@ -37,12 +38,22 @@ def modeled_pickup(
     mapped_slot = slot - normal_count
     if mapped_slot < 0 or mapped_slot >= len(personal):
         return True
-    if quest_index < 0 or quest_index >= quest_count:
+    # Translate client's viewer-specific SLOT to the underlying index.
+    # This model considers one specified underlying quest item.
+    mapped_index = personal[mapped_slot]
+    if mapped_index < 0 or mapped_index >= quest_count:
+        return True
+    if mapped_index != quest_index:
         return True
     if not needs_quest or looted or shared or follow_rules or blocked or roll_winner:
         return True
     if not item_template or not owner_online or not owner_in_group or not owner_has_slot:
         return True
+    if owner_personal is not None:
+        # Match SAME quest_items index, with an unlooted owner view.
+        if not any(item_index == mapped_index and not was_looted
+                   for item_index, was_looted in owner_personal):
+            return True
     if not owner_needs or not owner_eligible:
         return True
     return False
@@ -127,6 +138,42 @@ class QuestLootProtectionContract(unittest.TestCase):
         self.assertTrue(modeled_pickup(owner_online=False))
         self.assertTrue(modeled_pickup(owner_in_group=False))
         self.assertTrue(modeled_pickup(owner_has_slot=False))
+
+    def test_view_slot_must_map_to_the_exact_quest_item(self):
+        self.assertTrue(modeled_pickup(personal=[1, 0], slot=4,
+                                       quest_index=0, quest_count=2))
+        self.assertFalse(modeled_pickup(personal=[1, 0], slot=5,
+                                        quest_index=0, quest_count=2))
+        self.assertTrue(modeled_pickup(personal=[-1],
+                                       quest_index=0, quest_count=2))
+        self.assertTrue(modeled_pickup(personal=[2],
+                                       quest_index=0, quest_count=2))
+
+    def test_owner_needs_same_underlying_unlooted_view(self):
+        self.assertTrue(modeled_pickup(owner_personal=[(1, False)]))
+        self.assertTrue(modeled_pickup(owner_personal=[(0, True)]))
+        self.assertTrue(modeled_pickup(owner_personal=[]))
+        self.assertFalse(modeled_pickup(owner_personal=[(1, False),
+                                                       (0, False)]))
+        self.assertTrue(modeled_pickup(owner_personal=[(1, False),
+                                                      (0, True)]))
+
+    def test_personal_view_and_owner_guards_present_in_real_cpp(self):
+        for expression in (
+            "QuestItem const& view = found->second->at(personalSlot);",
+            "LootItem const& item = loot.quest_items[view.index];",
+            "ownerItem.index == view.index && !ownerItem.is_looted",
+            "owner->HasQuestForItem(item.itemid)",
+            "item.AllowedForPlayer(owner, loot.sourceWorldObjectGUID)",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, CPP)
+
+    def test_operator_acceptance_plan_identifies_real_gameplay_gates(self):
+        for marker in ("QL-01", "QL-05", "QL-10", "QL-15",
+                       "read-only", "restorable", "Random Bots"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, DOC)
 
     def test_native_loot_modes(self):
         for method in ("FREE_FOR_ALL", "MASTER_LOOT", "UNKNOWN"):
