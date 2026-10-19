@@ -15,6 +15,8 @@ The local helper reports only totals:
 - Sampled crossings of the 12-yard boss distance bucket, excluding missing boss lookup
 - Temporary boss lookup misses and samples when boss is at or under 10% HP
 - Recent action tails *mentioning* Golemagg back-off (not proof the action executed)
+- Count of sampled **retreat-condition snapshots**: living boss lookup present, boss HP **above 10%**, Magma Splash **at least 20 stacks**, and boss distance **under 12 yards**. This is source-informed context, not proof that the Playerbots strategy was selected or executed
+- Separately count back-off *mentions* during a sampled condition versus mentions without a confirmed condition. **A recent action tail may describe an earlier action**, so these are not synchronized events or a contradiction by themselves
 - Sample-number resets/replays which may indicate combat-window rollover
 
 It does **not** display raw log lines, bot names, recent actions, target names, account data or any configuration. Original logs may contain personal data; keep them private and do not upload raw logs to GitHub discussions.
@@ -34,6 +36,8 @@ Run on a local computer or disposable analysis workspace with Python 3.10+ and a
 **Compatibility:** new observer output has explicit threshold booleans; old output lacks them and is reported as legacy/inferred. The helper cannot prove which revision is installed on the realm.
 
 ## Interpretation and safety limitations
+
+Current observer threshold flags are checked against the actual stack and distance fields. A contradictory boolean (or non-finite HP/distance such as `nan`/`inf`) is considered an **unparsed** line rather than evidence. When boss lookup is missing, distance is unknown and **never** counted as within 12 yards; an unknown condition is counted only as *not confirmed*, not as proof of absence. Legacy samples without explicit threshold flags remain inferred and separately marked.
 
 The pinned Playerbots HandleRemoteCommand("action") returns a **recent action-log tail**, not a causally linked exact execution event. Repeated mentions of "mc golemagg back off" do not demonstrate that it caused an oscillation. The relevant native strategy applies under conditions including non-tank bot, boss above 10% HP, Magma Splash 20+ stacks and roughly 12-yard retreat. Other AI movement actions, priorities, pathfinding, lag and loss of threat target could still be involved.
 
