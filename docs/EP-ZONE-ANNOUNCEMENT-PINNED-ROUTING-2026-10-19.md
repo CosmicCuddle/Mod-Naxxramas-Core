@@ -17,7 +17,7 @@ This isolated test checks assumptions that the draft announcement source relies 
 
 ## Run and safety
 
-The sparse checkout GitHub Action validates exact SHA pins, runs **eight disposable synthetic positive/negative tests**, then tests the real pinned EP header, native map header/dispatcher and current module draft source. It does not build/start Worldserver, send chat, perform manual SQL binding, read/alter the owner's DB, or activate anything.
+The sparse checkout GitHub Action validates exact SHA pins, runs **nine disposable synthetic positive/negative tests**, including guard-scope escape checks, then tests the real pinned EP header, native map header/dispatcher and current module draft source. It does not build/start Worldserver, send chat, perform manual SQL binding, read/alter the owner's DB, or activate anything.
 
 Actual S5/S6 testing still requires separate owner authorization, exact installed versions, restorable binary/config/characters/affected worldstate backups and manually approved EP handler selection. Test the four towers in both factions, an observer elsewhere in Eastern Plaguelands, repeat locked ticks, restart, neutral expiry, and unaffected core objectives. An in-zone notice screenshot is separate from the synthetic check.
 
