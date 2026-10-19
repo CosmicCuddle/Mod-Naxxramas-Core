@@ -17,9 +17,45 @@ The proposal acts **inside one synchronous IP `reconcile` call**, not through a 
 
 **Safety limitation:** The pinned IP delayed event still holds an owner GUID rather than a retained original-pet GUID. This proposal does not rewrite that event and must **not** be approved for deployment until the original-pet scheduling behavior has been examined and accepted. It re-reads only the same current pet within a synchronous reconcile call, so no prior pet preference is sourced from Naxx storage; however an existing stale delayed event could still run IP reconciliation against another current pet. Additional lifecycle correction may be required.
 
+## Safety review refinement: same rank chain, not merely the same IP wipe list
+
+The first proposed diff treated any single autocastable spell in the
+`wipeIds` list as the source of the replacement preference. That was **too
+permissive**: IP's lists are eligibility lists and can contain different
+types of abilities or several surviving old entries. We should not infer
+that two spell IDs are ranks of the same ability merely because they
+appear together in one removal list.
+
+The improved, **still unapplied** proposal now insists on **all** of these:
+- `keepId` must actually appear in that IP `wipeIds` list, be a known
+  native spell, and be autocastable (otherwise leave IP's original behavior
+  unchanged).
+- Exactly **one** other spell from the list is *currently known* by the
+  same pet. Count **every** currently known spell, including passive or
+  unrecognized entries; don't hide ambiguity by counting only eligible
+  autocast candidates.
+- The previous spell and permitted `keepId` must be native
+  `SpellInfo::IsDifferentRankOf` members of the **same spell chain**,
+  both autocastable, with a valid native `ACT_ENABLED` or
+  `ACT_DISABLED` state.
+- The replacement must actually be learned and still owned by the same
+  loaded player Hunter pet, and its exact spell must have an existing
+  action-bar slot. Otherwise, **do not transfer a setting**.
+- A failure of these conservative checks does not cancel the original
+  legal IP reconciliation; it only refuses preference restoration.
+  Consequently some custom IP-defined rank families might not restore
+  state until their real spell-chain metadata is independently verified.
+  That is deliberate fail-closed behavior.
+
+This corrects an **identified semantic weakness** in the first review
+proposal; it does **not** establish the real-player cause or grant
+permission to modify IP. The expanded model has 13 cases, including
+mixed families, unknown extra old spells, out-of-list `keepId` and an
+invalid state that must not be interpreted as OFF.
+
 ## What the tests establish—and what they cannot
 
-The lightweight review workflow uses `git apply --check` against a disposable checkout at exact IP source SHA. **That command checks patch context without applying it.** The nine standard-library Python synthetic tests cover ON, OFF, pre-existing keep-rank, missing/illegal keep-rank, ambiguous old ranks, uncastable spell, different pet, in-progress load, missing actionbar and learn failure, and patch safety markers.
+The lightweight review workflow uses `git apply --check` against a disposable checkout at exact IP source SHA. **That command checks patch context without applying it.** The thirteen standard-library Python synthetic tests cover ON, OFF, pre-existing keep-rank, missing/illegal keep-rank, ambiguous old ranks, uncastable spell, different pet, in-progress load, missing actionbar and learn failure, and patch safety markers.
 
 A successful `git apply --check` and synthetic model is **not** compiled C++, not proof that the code passes all upstream IP/Worldserver rules, and not proof that the owner's bug occurred because of that code. **No automatic promotion, upstream pull request or installation is authorized.**
 
