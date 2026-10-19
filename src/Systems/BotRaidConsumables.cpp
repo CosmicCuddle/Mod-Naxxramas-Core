@@ -3087,8 +3087,19 @@ void PrepareManaUser(
             if (!pending.Timer.ConsumeIfDue(diff))
                 continue;
 
-            if (!manager)
+            // A dead raid leader must not grant replacement
+            // protection after the one-shot timer expires.
+            if (!manager || !master->IsAlive())
                 continue;
+
+            // A config reload that disables this feature also
+            // suppresses an already scheduled refresh attempt.
+            if (!sConfigMgr->GetOption<bool>(
+                    "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled",
+                    false))
+            {
+                continue;
+            }
 
             Player* bot = ResolvePreparedBot(
                 manager, pending.BotGuid);
@@ -3096,6 +3107,9 @@ void PrepareManaUser(
             if (!bot ||
                 !bot->IsInWorld() ||
                 !bot->IsAlive() ||
+                // Map ID alone is not enough: MC may have many
+                // separate instances with the same map ID.
+                bot->GetMap() != master->GetMap() ||
                 !IsProfileLocationValid(
                     master, tracker.RequiredMapId, tracker.RequiredArea) ||
                 !IsProfileLocationValid(
@@ -3119,7 +3133,15 @@ void PrepareManaUser(
                     pending.SpellId, bot->GetGUID());
             }
 
-            bot->AddAura(pending.SpellId, bot);
+            if (!bot->AddAura(pending.SpellId, bot) &&
+                master->GetSession())
+            {
+                // Deliberately no retry: report the consumed attempt
+                // so the leader knows the absorb was not refreshed.
+                ChatHandler(master->GetSession()).PSendSysMessage(
+                    "[Bot Consumables] Greater Fire Protection one-time refresh failed for {}.",
+                    bot->GetName());
+            }
         }
     }
 
