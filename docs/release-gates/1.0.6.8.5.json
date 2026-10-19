@@ -34,18 +34,18 @@
       "id": "hunter_ammunition",
       "name": "Hunter Altbot ammunition provision",
       "track": "B02a",
-      "stage": "S3",
+      "stage": "S4",
       "draft_pr": 32,
       "exact_head": "84a3da6a3a2192dd56c93a4e9cfd441de7cfe518",
       "in_combined_candidate": true,
       "source_state": "draft",
       "default_behavior": "off",
-      "full_build_verified": false,
+      "full_build_verified": true,
       "live_accepted": false,
       "backup_restore_verified": false,
       "include_in_release": false,
       "owner_approved": false,
-      "limitation": "Inventory writes possible only after opt-in and command; no owner-approved Hunter in-game pilot. Current docs/tests-only draft head: previous S4 evidence at 3504cde; new exact-head full pinned CI #39269109936 in progress, not yet S4."
+      "limitation": "Inventory writes possible only after explicit opt-in and command; no owner-approved Hunter in-game pilot, installed SHA compatibility or restorable backup verified. Exact docs-only draft head 84a3da6 pinned C++ compile, full Worldserver link and final Hunter ammo function retention passed CI #39269109936 (18/18 steps). Not live inventory or ammo selection acceptance."
     },
     {
       "id": "hunter_pet_autocast_observer",
