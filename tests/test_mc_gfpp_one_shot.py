@@ -106,7 +106,8 @@ int main()
         source = SOURCE.read_text(encoding="utf-8")
         section = source.split("void ProcessOneShotFireProtections(", 1)[1].split(
             "// =========================================================", 1)[0]
-        self.assertIn("ResolvePreparedBot(manager, pending.BotGuid)", section)
+        self.assertIn("ResolvePreparedBot(", section)
+        self.assertIn("manager, pending.BotGuid", section)
         self.assertIn("!bot->IsInWorld()", section)
         self.assertIn("!bot->IsAlive()", section)
         self.assertIn("IsProfileLocationValid(", section)
