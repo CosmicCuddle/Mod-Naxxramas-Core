@@ -29,8 +29,14 @@ dereferences a missing boss pointer.
 
 **Causal limits:** a log line is not the exact action selected by Playerbots
 at that instant; samples can miss transitions between 2.5-second ticks.
-An unchanged trace and unchanged threshold buckets remain suppressed;
-`HandleRemoteCommand("action")` returning empty still yields no sample.
+An unchanged trace and unchanged threshold buckets remain suppressed.
+A **separate follow-on draft** (not merged or installed) now proposes that an
+empty `HandleRemoteCommand("action")` result be shown explicitly as
+`(no recent action)`, rather than vetoing an otherwise informative 20-stack,
+12-yard or boss-lookup sample. The placeholder is **not a Playerbots action**;
+repeated empty tails with unchanged lookup and threshold buckets remain
+suppressed, preserving the original 24-line quota and 2.5-second spacing.
+This pilot plan does **not** authorize that draft's installation or sampling.
 Crossing 20 stacks or 12yd is not proof that Magma Splash *caused* a
 retreat. Distinguish boss under/over 10% HP and any tank/offtank role,
 because pinned Playerbots disables this policy for tanks and its final
@@ -42,6 +48,24 @@ verified in the final linked module registration before any separately
 approved one-Grau on-realm pilot. This is not a movement fix or permission
 to edit Playerbots. Historical successful diagnostic CI remains attached
 to its previous source SHA, not to the prepared candidate.
+
+## Separate review of the empty action-tail continuation candidate
+
+This document also covers the **isolated stacked** candidate based exactly
+on the existing PR #30 head `3c742a1`. The observed C++ issue was:
+
+- Previously, `trace.empty() ||` immediately abandoned a sample even when
+  crossing Magma Splash 20 stacks, crossing 12 yards or losing boss lookup
+- The new branch records only a bounded **missing recent action** sentinel
+  for those cases, and otherwise retains the identical duplicate guard
+- There is **no movement, spell, strategy, NPC, player, SQL or IP mutation**
+
+Validation requires new exact-commit source/model tests, real pinned Golemagg
+C++ translation-unit compilation, one complete pinned Worldserver link and
+final module-registration check. A passing runner does not replace an
+operator-approved live diagnostic/backup/restore check. Do not merge or
+rebase parent #30, dependent offline reviewer #35 or combined PR #33 as part
+of this isolated proposal; explicitly plan their later integration.
 
 ## Stage 0 — Mandatory proof before contemplating deployment
 
