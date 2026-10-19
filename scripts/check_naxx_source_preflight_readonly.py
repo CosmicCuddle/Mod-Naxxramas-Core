@@ -22,6 +22,26 @@ SHA40 = re.compile(r"^[0-9a-fA-F]{40}$")
 INVALID, MISMATCH, DIRTY, BINARY_ERROR = 2, 3, 4, 5
 
 
+def selected_pins(core: str | None = None, playerbots: str | None = None,
+                  ip: str | None = None) -> dict[str, str]:
+    """Build the caller-chosen source comparison only; NEVER discover or update.
+
+    The historical pins remain defaults, and each separately supplied
+    revision must be an exact Git SHA. An override is a request to compare,
+    NOT evidence that this dependency combination has been built or tested.
+    """
+    requested = {
+        "AzerothCore": core,
+        "Playerbots": playerbots,
+        "Individual Progression": ip,
+    }
+    for name, sha in requested.items():
+        if sha is not None and not SHA40.fullmatch(sha):
+            raise ValueError(f"{name}: expected revision must be a full 40-character Git SHA")
+    return {name: requested[name].lower() if requested[name] is not None
+            else existing for name, existing in PINS.items()}
+
+
 def git(path: Path, *arguments: str) -> str:
     # --no-optional-locks prevents normal status index refresh writes.
     command = ["git", "--no-optional-locks", "-C", str(path), *arguments]
@@ -59,12 +79,12 @@ def check_checkout(label: str, root: Path, expected: str | None) -> int:
     print(f"Actual Git SHA: {head}")
     errors = []
     if expected:
-        print(f"Pinned comparison SHA: {expected}")
+        print(f"Expected comparison SHA: {expected}")
         if head.lower() != expected.lower():
-            print("DIFFERENT: pinned CI is NOT build proof for this installed source")
+            print("DIFFERENT: source differs from chosen comparison; compatibility NOT verified")
             errors.append(MISMATCH)
         else:
-            print("MATCH: exact tested source revision")
+            print("MATCH: requested source revision (not proof of a compatible build)")
     else:
         print("UNSPECIFIED EXPECTATION: Naxx Core revision recorded, NOT certified")
     if dirty:
@@ -129,6 +149,12 @@ def main() -> int:
     )
     ap.add_argument("--core", type=Path, required=True,
                     help="AzerothCore source checkout root, NOT its parent")
+    ap.add_argument("--expected-core", type=str,
+                    help="Optional exact 40-character AzerothCore comparison SHA")
+    ap.add_argument("--expected-playerbots", type=str,
+                    help="Optional exact 40-character Playerbots comparison SHA")
+    ap.add_argument("--expected-ip", type=str,
+                    help="Optional exact 40-character Individual Progression comparison SHA")
     ap.add_argument("--expected-naxx", type=str,
                     help="Optional exact 40-character Naxx Core candidate SHA")
     ap.add_argument("--worldserver", type=Path,
@@ -139,12 +165,18 @@ def main() -> int:
     if args.expected_naxx and not SHA40.fullmatch(args.expected_naxx):
         ap.error("--expected-naxx must be an exact 40-character Git SHA")
 
+    try:
+        pins = selected_pins(args.expected_core, args.expected_playerbots,
+                             args.expected_ip)
+    except ValueError as error:
+        ap.error(str(error))
+
     core = args.core.expanduser().resolve()
     roots = (
-        ("AzerothCore", core, PINS["AzerothCore"]),
-        ("Playerbots", core / "modules/mod-playerbots", PINS["Playerbots"]),
+        ("AzerothCore", core, pins["AzerothCore"]),
+        ("Playerbots", core / "modules/mod-playerbots", pins["Playerbots"]),
         ("Individual Progression", core / "modules/mod-individual-progression",
-         PINS["Individual Progression"]),
+         pins["Individual Progression"]),
         ("Naxxramas Core", core / "modules/mod-naxxramas-core",
          args.expected_naxx),
     )
@@ -178,7 +210,7 @@ def main() -> int:
 
     print("\nNo source, config, data, SQL, DBC, binary or service was modified.")
     print("No account names, secrets, full config, or player data were read.")
-    print("Source and optional PID checks do NOT prove migrations or runtime behavior.")
+    print("Chosen source SHA matches and optional PID checks do NOT prove compatibility, migrations or runtime behavior.")
     print("Check actual active config and backups separately with operator approval.")
     if any(outcomes):
         print("STOP: manual compatibility review required before ANY rollout.")
