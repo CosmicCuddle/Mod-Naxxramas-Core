@@ -1,0 +1,68 @@
+name: Quest Loot pinned Playerbots packet chain (read only)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/check_quest_loot_playerbots_packet_chain_pinned.py'
+      - 'tests/test_quest_loot_playerbots_packet_chain.py'
+      - 'docs/QUEST-LOOT-PINNED-PLAYERBOTS-PACKET-CHAIN.md'
+      - '.github/workflows/quest-loot-packet-chain-pinned.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-packet-source-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate module
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: naxx
+          persist-credentials: false
+      - name: Checkout exact pinned Playerbots loot implementation
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: pinned/bots
+          sparse-checkout: src/Ai/Base/Actions/LootAction.cpp
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Checkout exact pinned native receive/opcode implementation
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: pinned/core
+          sparse-checkout: |
+            src/server/game/Server/WorldSession.cpp
+            src/server/game/Server/Protocol/Opcodes.cpp
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Verify all three exact source revisions
+        run: |
+          set -euo pipefail
+          test "$(git -C naxx rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned/bots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
+          test "$(git -C pinned/core rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
+      - name: Run isolated Python positive and negative contracts
+        run: |
+          set -euo pipefail
+          python3 -m py_compile naxx/scripts/check_quest_loot_playerbots_packet_chain_pinned.py
+          python3 -m unittest discover -s naxx/tests -p test_quest_loot_playerbots_packet_chain.py -v
+      - name: Verify pinned REAL native queue and module receive guard
+        run: |
+          set -euo pipefail
+          python3 naxx/scripts/check_quest_loot_playerbots_packet_chain_pinned.py \
+            --playerbots pinned/bots/src/Ai/Base/Actions/LootAction.cpp \
+            --session pinned/core/src/server/game/Server/WorldSession.cpp \
+            --opcodes pinned/core/src/server/game/Server/Protocol/Opcodes.cpp \
+            --module naxx/src/Systems/QuestLootProtection.cpp
+      - name: State strict scope
+        run: |
+          echo "Read-only NORMAL Playerbots loot packet source proof, not all loot routes."
+          echo "No Worldserver start, item grant, SQL/DBC, realm access or upstream edits."
