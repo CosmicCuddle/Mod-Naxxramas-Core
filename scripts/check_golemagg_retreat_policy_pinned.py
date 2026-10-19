@@ -35,7 +35,7 @@ def pinned_policy(helper, trigger, action, multiplier, strategy, observer, summa
         "return bot->GetDistance2d(boss) < MAGMA_SPLASH_BACK_OFF_DISTANCE",
     ), "MC retreat trigger")
     contains(action, (
-        "bool McGolemaggBackOffAction::Execute(Event /*event*/)",
+        "bool McGolemaggBackOffAction::Execute(Event ",
         "float distToTravel = MAGMA_SPLASH_BACK_OFF_DISTANCE - bot->GetDistance2d(boss)",
         "if (distToTravel <= 0.0f)",
         "return MoveAway(boss, distToTravel)",
@@ -55,8 +55,10 @@ def pinned_policy(helper, trigger, action, multiplier, strategy, observer, summa
         "multipliers.push_back(new GolemaggMultiplier(botAI));",
     ), "MC strategy installation")
     contains(observer, (
-        "splash->GetStackAmount() >= 20",
-        "bossDistance < 12.0f",
+        "MAGMA_SPLASH_RETREAT_STACKS = 20",
+        "MAGMA_SPLASH_RETREAT_YARDS = 12.0f",
+        "stacks >= MAGMA_SPLASH_RETREAT_STACKS",
+        "bossDistanceYards < MAGMA_SPLASH_RETREAT_YARDS",
         "boss->GetHealthPct()",
     ), "Naxx Golemagg observer")
     contains(summary, (
