@@ -251,3 +251,17 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptGMs = 1
 # Preserve Playerbots queues based on IndividualProgression.BotAccountsRegex.
 # Default: 1
 NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
+
+#####################################
+# Hunter Pet Autocast — read-only source audit
+#####################################
+#
+# A development-only observer for accepted Hunter pet autocast toggle
+# transitions. This is NOT the persistence/restoration feature.
+# It never learns spells, toggles autocast, writes to a database, or
+# changes the pet action bar; it only emits a diagnostic when a native
+# CMSG_PET_SPELL_AUTOCAST ON/OFF transition is confirmed next update.
+# Does not yet capture the CMSG_PET_SET_ACTION command path.
+#
+# Default: 0 (completely silent)
+NaxxramasCore.HunterPetAutocast.AuditEnabled = 0

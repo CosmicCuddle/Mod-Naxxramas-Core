@@ -1,0 +1,237 @@
+name: Hunter Pet Autocast Audit pinned Grimfeather module checks
+on:
+  pull_request:
+    # Always validate the exact latest draft PR head, not just its opening.
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/HunterPetAutocastAudit.cpp'
+      - 'src/Systems/HunterPetAutocastDecisionGate.h'
+      - 'tests/hunter_pet_autocast_decision_gate.cpp'
+      - 'src/Systems/HunterPetAutocastHandoffContract.h'
+      - 'tests/hunter_pet_autocast_handoff_contract.cpp'
+      - 'scripts/check_hunter_pet_ip_handoff_boundary_pinned.py'
+      - 'scripts/check_hunter_pet_native_producer_boundary_pinned.py'
+      - 'docs/HUNTER-PET-AUTOCAST-NATIVE-PRODUCER-FEASIBILITY-2026-10-18.md'
+      - 'docs/HUNTER-PET-AUTOCAST-TRUSTED-HANDOFF.md'
+      - 'scripts/check_hunter_pet_post_event_surface_pinned.py'
+      - 'tests/test_hunter_pet_autocast_post_event_model.py'
+      - 'docs/HUNTER-PET-AUTOCAST-POST-EVENT-OBSERVATION.md'
+      - 'scripts/check_hunter_pet_intent_provenance_pinned.py'
+      - 'tests/test_hunter_pet_autocast_intent_provenance_model.py'
+      - 'docs/HUNTER-PET-AUTOCAST-INTENT-PROVENANCE.md'
+      - 'scripts/check_hunter_pet_playerbot_autocast_pinned.py'
+      - 'tests/test_hunter_pet_autocast_playerbot_policy_model.py'
+      - 'src/Systems/HunterPetAutocastBotPrecedence.h'
+      - 'tests/hunter_pet_autocast_bot_precedence.cpp'
+      - 'tests/test_hunter_pet_autocast_bot_precedence_timeline.py'
+      - 'docs/HUNTER-PET-AUTOCAST-BOT-PRECEDENCE.md'
+      - 'scripts/check_hunter_pet_bot_master_ingress_pinned.py'
+      - 'tests/test_hunter_pet_autocast_bot_master_ingress_model.py'
+      - 'docs/HUNTER-PET-AUTOCAST-BOT-MASTER-INGRESS.md'
+      - 'scripts/check_hunter_pet_playerbot_action_listener_pinned.py'
+      - 'tests/test_hunter_pet_autocast_action_listener_model.py'
+      - 'docs/HUNTER-PET-AUTOCAST-BOT-ACTION-LISTENER.md'
+      - 'src/Systems/HunterPetAutocastPlayerbotBridgeContract.h'
+      - 'tests/hunter_pet_autocast_playerbot_bridge.cpp'
+      - 'docs/HUNTER-PET-AUTOCAST-PLAYERBOT-BRIDGE.md'
+      - 'docs/HUNTER-PET-AUTOCAST-UPSTREAM-INTEGRATION-PLAN.md'
+      - 'docs/HUNTER-PET-AUTOCAST-PLAYERBOT-POLICY.md'
+      - 'docs/HUNTER-PET-AUTOCAST-DECISION-GATE.md'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'docs/HUNTER-PET-AUTOCAST-FEASIBILITY.md'
+      - 'docs/HUNTER-PET-AUTOCAST-ACCEPTANCE.md'
+      - 'docs/HUNTER-PET-AUTOCAST-IDENTITY-GATE.md'
+      - 'tests/test_hunter_pet_autocast_identity_model.py'
+      - 'tests/test_hunter_pet_autocast_generic_model.py'
+      - 'tests/test_hunter_pet_autocast_stability_model.py'
+      - 'tests/test_hunter_pet_autocast_ip_fixed_point_model.py'
+      - 'tests/test_hunter_pet_autocast_ip_character_stage_model.py'
+      - 'tests/test_hunter_pet_autocast_unlearn_observability_model.py'
+      - 'scripts/check_hunter_pet_unlearn_observability_pinned.py'
+      - 'docs/HUNTER-PET-AUTOCAST-IP-COMPLETION-BOUNDARY.md'
+      - 'scripts/check_hunter_pet_ip_character_stage_pinned.py'
+      - 'docs/HUNTER-PET-AUTOCAST-IP-CHARACTER-STAGE.md'
+      - 'scripts/check_hunter_pet_ip_fixed_point_pinned.py'
+      - 'docs/HUNTER-PET-AUTOCAST-IP-FIXED-POINT.md'
+      - 'tests/test_hunter_pet_autocast_audit.py'
+      - 'scripts/check_hunter_pet_autocast_pinned_compile.py'
+      - 'scripts/check_hunter_pet_identity_pinned.py'
+      - 'scripts/check_hunter_pet_ip_readiness_pinned.py'
+      - 'scripts/check_hunter_pet_ip_ability_scope_pinned.py'
+      - 'scripts/check_hunter_pet_native_spell_state_pinned.py'
+      - 'scripts/check_hunter_pet_human_autocast_boundary_pinned.py'
+      - 'docs/HUNTER-PET-PLAYER-FIRST-MINIMAL-FIX-DECISION-2026-10-19.md'
+      - 'docs/HUNTER-PET-AUTOCAST-STATE-LIFECYCLE.md'
+      - 'docs/HUNTER-PET-IP-ABILITY-SCOPE.md'
+      - '.github/workflows/hunter-autocast-audit-pinned.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only the newest head of this draft PR needs a full pinned Worldserver link.
+# Workflow-dispatch runs use the ref as fallback; no other CI is affected.
+concurrency:
+  group: hunter-pet-autocast-pinned-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile-and-link:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 105
+    steps:
+      - name: Checkout exact owner Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: acore
+          persist-credentials: false
+      - name: Checkout compatible pinned Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout pinned Grimfeather Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact Naxxramas Core draft branch head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify all four source revisions
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Run offline source and model tests
+        run: |
+          python3 -m unittest discover -s acore/modules/mod-naxxramas-core/tests -p 'test_hunter_pet_autocast_*.py' -v
+      - name: Verify pinned pet identity blocker against native source
+        run: python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_identity_pinned.py --core acore
+      - name: Verify pinned IP reconciliation ordering blocker
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_ip_readiness_pinned.py \
+            --core acore --ip acore/modules/mod-individual-progression
+      - name: Verify pinned IP family-reconciliation source scope
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_ip_ability_scope_pinned.py \
+            --ip acore/modules/mod-individual-progression
+      - name: Verify pinned native autocast loss path and IP re-learn source
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_native_spell_state_pinned.py \
+            --core acore --ip acore/modules/mod-individual-progression
+      - name: Verify pinned human Hunter native spell-choice and IP rank-change boundary
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_human_autocast_boundary_pinned.py \
+            --core acore --ip acore/modules/mod-individual-progression
+      - name: Verify pinned IP Hunter pet fixed-point source conditions
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_ip_fixed_point_pinned.py \
+            --ip acore/modules/mod-individual-progression
+      - name: Verify pinned per-Hunter IP quest stage and dummy eligibility
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_ip_character_stage_pinned.py \
+            --ip acore/modules/mod-individual-progression
+      - name: Verify pinned pet spell event observability limits
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_unlearn_observability_pinned.py \
+            --core acore --ip acore/modules/mod-individual-progression
+      - name: Verify pinned missing IP handoff boundary
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_ip_handoff_boundary_pinned.py \
+            --ip acore/modules/mod-individual-progression
+      - name: Verify pinned native IP and Playerbots producer eligibility boundary
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_native_producer_boundary_pinned.py \
+            --ip acore/modules/mod-individual-progression \
+            --playerbots acore/modules/mod-playerbots
+      - name: Verify pinned per-Pet post-event observation boundary
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_post_event_surface_pinned.py \
+            --core acore --ip acore/modules/mod-individual-progression
+      - name: Verify pinned pet packet and native acceptance provenance boundary
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_intent_provenance_pinned.py \
+            --core acore
+      - name: Verify pinned Playerbots direct native autocast policy
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_playerbot_autocast_pinned.py \
+            --playerbots acore/modules/mod-playerbots
+      - name: Verify pinned bot master chat command ingress boundary
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_bot_master_ingress_pinned.py \
+            --playerbots acore/modules/mod-playerbots
+      - name: Verify pinned Playerbot action listener limits and ownership
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_playerbot_action_listener_pinned.py \
+            --playerbots acore/modules/mod-playerbots
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Compile and execute standalone fail-closed decision gate model
+        run: |
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            acore/modules/mod-naxxramas-core/tests/hunter_pet_autocast_decision_gate.cpp \
+            -o /tmp/hunter_pet_autocast_decision_gate
+          /tmp/hunter_pet_autocast_decision_gate
+      - name: Compile standalone trusted-handoff safety model
+        run: |
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            acore/modules/mod-naxxramas-core/tests/hunter_pet_autocast_handoff_contract.cpp \
+            -o /tmp/hunter_pet_autocast_handoff_contract
+          /tmp/hunter_pet_autocast_handoff_contract
+      - name: Compile standalone Hunter Playerbot precedence model
+        run: |
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            acore/modules/mod-naxxramas-core/tests/hunter_pet_autocast_bot_precedence.cpp \
+            -o /tmp/hunter_pet_autocast_bot_precedence
+          /tmp/hunter_pet_autocast_bot_precedence
+      - name: Compile standalone Playerbot notification consumer model
+        run: |
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            acore/modules/mod-naxxramas-core/tests/hunter_pet_autocast_playerbot_bridge.cpp \
+            -o /tmp/hunter_pet_autocast_playerbot_bridge
+          /tmp/hunter_pet_autocast_playerbot_bridge
+      - name: Configure full pinned scripts and module build
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile real Hunter Pet Autocast Audit translation unit
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_pet_autocast_pinned_compile.py \
+            --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Link Worldserver without launching it
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Confirm linked module registration
+        run: |
+          set -euo pipefail
+          binary="$(find acore-build -type f -name worldserver -print -quit)"
+          test -n "$binary"
+          test -s "$binary"
+          grep -aFq "NaxxramasHunterPetAutocastPacketObserver" "$binary"
+          echo "PASS: read-only observer registration found in linked Worldserver."
+          echo "No owner VM, SQL, in-game autocast test, merge or deployment."
+      - name: State remaining limitations
+        if: always()
+        run: |
+          echo "Source tests and isolated CI compile/link do NOT establish IP readiness or pet autocast persistence."
+          echo "Only narrow CMSG_PET_SPELL_AUTOCAST and CMSG_PET_SET_ACTION candidates are observed; Altbot direct toggles, durable identity and post-IP handoff still need proof."
