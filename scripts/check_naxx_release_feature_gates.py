@@ -109,7 +109,7 @@ def report(document: dict) -> str:
     lines = [f"Release {document['release']} — read-only evidence (NOT live verification)"]
     for row in document["components"]:
         selected = "INCLUDED" if row["include_in_release"] else "EXCLUDED"
-        lines.append(f"{row['id']}: {row['stage']} {selected} "
+        lines.append(f"{row['name']} [{row['id']}]: {row['stage']} {selected} "
                      f"source={row['source_state']} full_build={row['full_build_verified']} "
                      f"live={row['live_accepted']} — {row['limitation']}")
     blockers = release_blockers(document)
