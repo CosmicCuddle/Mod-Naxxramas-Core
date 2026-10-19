@@ -2,7 +2,7 @@
 """Read-only checkout preflight for owner-approved Naxx Core staging.
 
 Does NOT pull, install, rebuild, restart, enable settings, open a database,
-inspect private account configuration, or prove the running Worldserver.
+inspect private account configuration, or authorize the running Worldserver.
 """
 import argparse
 import hashlib
@@ -18,7 +18,7 @@ PINS = {
 }
 SHA40 = re.compile(r"^[0-9a-fA-F]{40}$")
 # Exit codes: 0 clean/pinned, 2 invalid/missing/not repository,
-# 3 pinned mismatch, 4 dirty tracked files, 5 unreadable binary.
+# 3 pinned mismatch, 4 dirty tracked files, 5 unreadable/unverified binary.
 INVALID, MISMATCH, DIRTY, BINARY_ERROR = 2, 3, 4, 5
 
 
@@ -83,6 +83,46 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+
+def check_running_worldserver_pid(pid: int, proc_root: Path = Path("/proc")) -> tuple[int, str | None]:
+    """Hash the kernel's process executable handle; never touch its memory/config.
+
+    This identifies the executable used by *that PID at inspection time*,
+    not source provenance, module flags, migration state or runtime behavior.
+    proc_root is injectable for disposable filesystem-only tests.
+    """
+    print("\n[Optional currently running Worldserver PID]")
+    if pid <= 0:
+        print("STOP: PID must be a positive process number")
+        return BINARY_ERROR, None
+    directory = proc_root / str(pid)
+    executable = directory / "exe"
+    try:
+        name = (directory / "comm").read_text(encoding="utf-8").strip()
+        if name != "worldserver":
+            print("STOP: selected PID is not named worldserver")
+            return BINARY_ERROR, None
+        target = os.readlink(executable)
+        if target.endswith(" (deleted)"):
+            print("STOP: selected process still uses a deleted executable")
+            return BINARY_ERROR, None
+        before = executable.stat()
+        digest = sha256_file(executable)
+        after = executable.stat()
+        if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+            print("STOP: process executable identity changed during inspection")
+            return BINARY_ERROR, None
+    except (OSError, UnicodeError, ValueError):
+        print("STOP: /proc executable handle is inaccessible or process exited")
+        return BINARY_ERROR, None
+    print(f"Inspected PID: {pid} (worldserver)")
+    print(f"Executable basename: {Path(target).name}")
+    print(f"Running-process executable SHA-256: {digest}")
+    print("No /proc command line, environment, memory or open file descriptors read.")
+    print("Does NOT certify linked modules, effective config, DB state or safe deployment.")
+    return 0, digest
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Read-only Naxx Core installed-checkout preflight"
@@ -93,6 +133,8 @@ def main() -> int:
                     help="Optional exact 40-character Naxx Core candidate SHA")
     ap.add_argument("--worldserver", type=Path,
                     help="Optional path to an on-disk executable to hash only")
+    ap.add_argument("--worldserver-pid", type=int,
+                    help="Optional existing Linux Worldserver PID: hash /proc/PID/exe read-only")
     args = ap.parse_args()
     if args.expected_naxx and not SHA40.fullmatch(args.expected_naxx):
         ap.error("--expected-naxx must be an exact 40-character Git SHA")
@@ -108,6 +150,7 @@ def main() -> int:
     )
     outcomes = [check_checkout(*row) for row in roots]
 
+    on_disk_sha = None
     if args.worldserver:
         binary = args.worldserver.expanduser().resolve()
         print("\n[Optional on-disk Worldserver file]")
@@ -115,20 +158,32 @@ def main() -> int:
             if not binary.is_file():
                 raise OSError("not a file")
             print(f"File path: {binary}")
-            print(f"File SHA-256: {sha256_file(binary)}")
+            on_disk_sha = sha256_file(binary)
+            print(f"File SHA-256: {on_disk_sha}")
             print("This does NOT establish which executable a running process uses.")
         except (OSError, ValueError):
             print("STOP: cannot read optional binary file")
             outcomes.append(BINARY_ERROR)
 
+    if args.worldserver_pid is not None:
+        status, running_sha = check_running_worldserver_pid(args.worldserver_pid)
+        if status:
+            outcomes.append(status)
+        elif on_disk_sha is not None and running_sha != on_disk_sha:
+            print("STOP: selected on-disk and running Worldserver executables differ")
+            outcomes.append(BINARY_ERROR)
+        elif on_disk_sha is not None:
+            print("MATCH: inspected file bytes equal this PID's executable bytes")
+            print("Matching bytes alone does NOT prove source-build provenance.")
+
     print("\nNo source, config, data, SQL, DBC, binary or service was modified.")
     print("No account names, secrets, full config, or player data were read.")
-    print("Git checks do NOT prove server process, migrations, or runtime behavior.")
+    print("Source and optional PID checks do NOT prove migrations or runtime behavior.")
     print("Check actual active config and backups separately with operator approval.")
     if any(outcomes):
         print("STOP: manual compatibility review required before ANY rollout.")
     else:
-        print("SOURCE CHECK PASSED only; deployment is NOT approved.")
+        print("PREFLIGHT CHECKS PASSED only; deployment is NOT approved.")
     return max(outcomes, default=0)
 
 
