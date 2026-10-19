@@ -168,6 +168,18 @@ def release_blockers(document: dict) -> list[str]:
 def report(document: dict) -> str:
     validate(document)
     lines = [f"Release {document['release']} — read-only evidence (NOT live verification)"]
+    # The standalone S4 component flags are intentionally separate from
+    # the build evidence of the whole combined executable. Show BOTH.
+    for name, label in (("combined_candidate", "Historical diagnostic PR #33"),
+                        ("mature_three_candidate", "Completion-first PR #46")):
+        candidate = document[name]
+        lines.append(
+            f"{label} head={candidate['exact_head']} "
+            f"source_built={candidate['source_built']} "
+            f"combined_full_worldserver={candidate['full_worldserver_built']} "
+            f"owner_approved={candidate['owner_approved']} "
+            "(authored evidence only; no installed-binary or gameplay proof)"
+        )
     for row in document["components"]:
         selected = "INCLUDED" if row["include_in_release"] else "EXCLUDED"
         lines.append(f"{row['name']} [{row['id']}]: {row['stage']} {selected} "
