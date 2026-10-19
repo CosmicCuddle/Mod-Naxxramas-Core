@@ -1,6 +1,13 @@
 name: Golemagg read-only offline trace parser tests
 
 on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'scripts/summarize_golemagg_action_audit.py'
+      - 'tests/test_golemagg_offline_trace_summary.py'
+      - 'docs/GOLEMAGG-OFFLINE-TRACE-REVIEW-2026-10-19.md'
+      - '.github/workflows/golemagg-offline-trace-review.yml'
   push:
     branches: [research/golemagg-offline-trace-review-prepared-2026-10-19]
     paths:
