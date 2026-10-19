@@ -30,7 +30,7 @@ def fixture():
               break;
           opHandle->Call(this, *packet);
       }
-    case STATUS_LOGGEDIN_OR_RECENTLYLOGGOUT:"""
+    case STATUS_LOGGEDIN_OR_RECENTLY_LOGGOUT:"""
     opcodes = """DEFINE_HANDLER(CMSG_AUTOSTORE_LOOT_ITEM, STATUS_LOGGEDIN,
        PROCESS_INPLACE, &WorldSession::HandleAutostoreLootItemOpcode);"""
     module = """class Guard {
@@ -58,6 +58,21 @@ class PacketChainTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "QueuePacket"):
             audit.verify(*f)
 
+    def test_unrelated_money_queue_before_autostore_does_not_confuse_guard(self):
+        f = fixture()
+        f[0] = f[0].replace(
+            "WorldPacket* packet = new WorldPacket(CMSG_AUTOSTORE_LOOT_ITEM, 1);",
+            "WorldPacket* money = new WorldPacket(CMSG_LOOT_MONEY, 0);\n"
+            "    bot->GetSession()->QueuePacket(packet);\n"
+            "    WorldPacket* packet = new WorldPacket(CMSG_AUTOSTORE_LOOT_ITEM, 1);")
+        # Only the queue after the client itemindex validates the claim.
+        audit.verify(*f)
+        f[0] = f[0].replace(
+            "    bot->GetSession()->QueuePacket(packet);\n    //",
+            "    // bot->GetSession()->QueuePacket(packet);\n    //")
+        with self.assertRaisesRegex(ValueError, "QueuePacket order changed"):
+            audit.verify(*f)
+
     def test_direct_inventory_or_handler_bypass_fails(self):
         for code in ("StoreLootItem(slot);",
                      "bot->GetSession()->HandleAutostoreLootItemOpcode(packet);"):
@@ -69,12 +84,12 @@ class PacketChainTests(unittest.TestCase):
     def test_wrong_slot_or_order_fails(self):
         f = fixture()
         f[0] = f[0].replace("*packet << itemindex;", "*packet << otherSlot;")
-        with self.assertRaisesRegex(ValueError, "itemindex"):
+        with self.assertRaisesRegex(ValueError, "QueuePacket order changed"):
             audit.verify(*f)
         f = fixture()
         f[0] = f[0].replace("*packet << itemindex;\n    bot->GetSession()->QueuePacket(packet);",
                             "bot->GetSession()->QueuePacket(packet);\n    *packet << itemindex;")
-        with self.assertRaisesRegex(ValueError, "order changed"):
+        with self.assertRaisesRegex(ValueError, "QueuePacket order changed"):
             audit.verify(*f)
 
     def test_native_veto_after_dispatch_fails(self):
