@@ -1,0 +1,34 @@
+name: Five-feature owner smoke preflight (read-only)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/five-feature-owner-smoke-preflight.yml'
+      - 'docs/test/five-feature-integrated-owner-smoke-preflight-2026-10-20.md'
+      - 'tests/test_five_feature_owner_smoke_preflight.py'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'src/Events/HallowsEndShadeOfTheHorseman.cpp'
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'src/Systems/QuestLootProtection.cpp'
+      - 'data/sql/db-world/2026_09_21_00_event_script_overrides.sql'
+      - 'docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql'
+      - 'docs/rollback/2026_10_13_00_ep_tower_lock_module_unbind.sql'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout exact draft source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify only source and rollback contracts
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_five_feature_owner_smoke_preflight.py' -v
+          echo 'Research/smoke-plan test only. NOT a Worldserver build, SQL execution, release or owner approval.'
