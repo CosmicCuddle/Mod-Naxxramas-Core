@@ -152,6 +152,23 @@ class NT1DirectLearnHazard(unittest.TestCase):
                         IMPORT_FIXTURE,
                     )
 
+    def test_braced_control_flow_and_lambda_addtalent_fail_closed(self):
+        # CS02 found that a preceding '{' passed the old line-boundary
+        # check; function_body() returns LearnTalent's braces EXCLUDED.
+        # The pinned addTalent statement must be at brace nesting depth 0.
+        original = "    addTalent(spellId, GetActiveSpecMask(), currentTalentRank);"
+        variants = (
+            "    if (canLearn) {\n        " + original.strip() + "\n    }",
+            "    while (shouldApply) {\n        " + original.strip() + "\n    }",
+            "    auto wrapper = [&]() {\n        " + original.strip() + "\n    };",
+            "    if (canLearn)\n    {\n        " + original.strip() + "\n    }",
+        )
+        for variant in variants:
+            with self.subTest(variant=variant):
+                with self.assertRaises(SourceContractError):
+                    check_direct_learn_risk(
+                        CORE_FIXTURE.replace(original, variant), IMPORT_FIXTURE)
+
     def test_changed_importer_sequence_fails_closed(self):
         with self.assertRaises(SourceContractError):
             check_direct_learn_risk(
