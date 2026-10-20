@@ -1,6 +1,10 @@
 name: F10 one-bucket plus five-feature Worldserver ephemeral overlay
 
 on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - '.github/workflows/f10-one-bucket-five-feature-overlay.yml'
   push:
     branches:
       - ci/f10-one-bucket-five-feature-overlay-2026-10-20
