@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 
 
 class SourceContractError(AssertionError):
@@ -82,8 +83,17 @@ def verify_source(player_cpp: str, player_h: str) -> dict[str, bool]:
     if ("OnPlayerCanUnequipItem" in offhand or
             "OnPlayerUnequip" in offhand):
         raise SourceContractError("offhand path changed: re-review hooks and veto semantics")
-    if not (offhand.index("CanStoreItem(") <
-            offhand.index("RemoveItem(") < offhand.index("StoreItem(")):
+    # Match full function identifiers; "StoreItem(" is a suffix of
+    # "CanStoreItem(", so str.index would return a false call ordering.
+    def call_position(name: str) -> int:
+        match = re.search(r"\b" + re.escape(name) + r"\s*\(", offhand)
+        if not match:
+            raise SourceContractError(f"offhand: missing call {name}")
+        return match.start()
+
+    if not (call_position("CanStoreItem") <
+            call_position("RemoveItem") <
+            call_position("StoreItem")):
         raise SourceContractError("offhand inventory branch changed")
 
     must_contain(add, [
