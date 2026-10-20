@@ -84,6 +84,27 @@ class NT1DirectLearnHazard(unittest.TestCase):
                 IMPORT_FIXTURE,
             )
 
+    def test_bool_const_addtalent_result_fails_closed(self):
+        # CS02 peer review found the original checker missed this form.
+        with self.assertRaises(SourceContractError):
+            check_direct_learn_risk(
+                CORE_FIXTURE.replace(
+                    "addTalent(spellId, GetActiveSpecMask(), currentTalentRank);",
+                    "bool const added = addTalent(spellId, GetActiveSpecMask(), currentTalentRank);",
+                ),
+                IMPORT_FIXTURE,
+            )
+
+    def test_auto_addtalent_result_fails_closed(self):
+        with self.assertRaises(SourceContractError):
+            check_direct_learn_risk(
+                CORE_FIXTURE.replace(
+                    "addTalent(spellId, GetActiveSpecMask(), currentTalentRank);",
+                    "auto result = addTalent(spellId, GetActiveSpecMask(), currentTalentRank);",
+                ),
+                IMPORT_FIXTURE,
+            )
+
     def test_changed_importer_sequence_fails_closed(self):
         with self.assertRaises(SourceContractError):
             check_direct_learn_risk(
