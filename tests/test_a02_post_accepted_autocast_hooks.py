@@ -7,7 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from check_a02_post_accepted_autocast_hooks import (  # noqa: E402
     PET_HOOKS, SourceContractChanged, body_of, check_accepted_autocast_paths,
     check_low_level_autocast_no_script_hook, verify_pinned_low_level_blobs,
-    PINNED_LOW_LEVEL_BLOBS, git_blob_oid,
+    PINNED_LOW_LEVEL_BLOBS, PINNED_ENTRY_BLOBS, git_blob_oid,
+    verify_pinned_entry_blobs,
 )
 
 ACTION = """
@@ -207,6 +208,69 @@ class AcceptedChoiceSourceContract(unittest.TestCase):
         with self.assertRaises(SourceContractChanged):
             verify_pinned_low_level_blobs(
                 PET_TOGGLE_CPP, CHARM_SET_CPP, "unreviewed-new-core")
+
+    def test_entire_handler_hooks_and_direct_dismiss_files_are_pinned(self):
+        # Real pinned files have been independently observed at both refs.
+        expected = (
+            "34f3070074e75cc6a83df3f0d7e74fe8a6fd6043",
+            "f1455f20ca3a83e3fc38f0ba9c7dbff9d2faef46",
+            "138e7eab4905ec366338a54cc18e6cfe749a3670",
+        )
+        for sha, blobs in PINNED_ENTRY_BLOBS.items():
+            with self.subTest(sha=sha):
+                self.assertEqual(blobs, expected)
+                self.assertEqual(len(blobs), 3)
+
+    def test_actual_pin_tripwire_rejects_new_unbraced_early_return(self):
+        # The narrower lexical checker still sees all required patterns
+        # after this injection. The CLI must check whole-file blobs first.
+        altered = (ACTION + AUTOCAST).replace(
+            "if (!pet->HasSpell(spell_id)) return;",
+            "if (!pet->HasSpell(spell_id)) return;\n"
+            "    if (is_blocked) return;",
+        )
+        self.assertFalse(altered == ACTION + AUTOCAST)
+        self.assertTrue(check_accepted_autocast_paths(
+            altered, PET_SCRIPT, REMOVE_PET)["safe_to_enable_hunter_pet_cache"]
+            is False)
+        for sha in PINNED_ENTRY_BLOBS:
+            with self.subTest(sha=sha):
+                with self.assertRaises(SourceContractChanged):
+                    verify_pinned_entry_blobs(
+                        altered, PET_SCRIPT, REMOVE_PET, sha)
+
+    def test_pinned_entry_changes_and_unknown_pin_fail_closed(self):
+        # These synthetic fixtures do NOT match real core blobs. Any added
+        # handler callback, altered public hooks, reordered dismissal, or
+        # comment-only change must require a new source review.
+        cases = (
+            (ACTION + AUTOCAST + "\n// comment\n", PET_SCRIPT, REMOVE_PET),
+            (ACTION + AUTOCAST, PET_SCRIPT + "\n// comment\n", REMOVE_PET),
+            (ACTION + AUTOCAST, PET_SCRIPT, REMOVE_PET + "\n// comment\n"),
+            (ACTION + AUTOCAST, PET_SCRIPT, REMOVE_PET.replace(
+                "pet->SavePetToDB(mode);", "EarlyReturn();\n"
+                "    pet->SavePetToDB(mode);")),
+        )
+        for sha in PINNED_ENTRY_BLOBS:
+            for changed in cases:
+                with self.subTest(sha=sha, changed=changed[-1][-22:]):
+                    with self.assertRaises(SourceContractChanged):
+                        verify_pinned_entry_blobs(*changed, sha)
+        with self.assertRaises(SourceContractChanged):
+            verify_pinned_entry_blobs(
+                ACTION + AUTOCAST, PET_SCRIPT, REMOVE_PET, "future-unknown-core")
+
+    def test_real_blob_tripwire_is_wired_before_lexical_parsing_in_cli(self):
+        source = (Path(__file__).resolve().parents[1] / "scripts" /
+                  "check_a02_post_accepted_autocast_hooks.py").read_text()
+        cli = source.split("def main() -> None:", 1)[1]
+        self.assertLess(
+            cli.index("pinned_entries = verify_pinned_entry_blobs("),
+            cli.index("facts = check_accepted_autocast_paths("))
+        self.assertLess(
+            cli.index("pinned_low_level = verify_pinned_low_level_blobs("),
+            cli.index("facts = check_accepted_autocast_paths("))
+        self.assertIn("PINNED HANDLER / PETSCRIPT / PLAYER:", cli)
 
     def test_script_is_source_only(self):
         source = (Path(__file__).resolve().parents[1] / "scripts" /
