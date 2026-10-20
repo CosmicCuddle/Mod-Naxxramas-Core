@@ -45,6 +45,12 @@
  *   quoted config characters are removed Config.cpp:327
  *   GET_PLAYERBOT_AI                     mod-playerbots 037c01418b5d01506917a3db9b44fd56ac5f965c
  *                                        src/Script/Playerbots.h:31
+ *   IsRealPlayer                         src/Bot/PlayerbotAI.h:81
+ *                                        src/Bot/PlayerbotAI.cpp:4411
+ *                                        return player && !GET_PLAYERBOT_AI(player)
+ *   IsSelfBot                            src/Bot/PlayerbotAI.cpp:4419
+ *                                        AI attached and master == player
+ *   Playerbots.h includes PlayerbotAI.h  src/Script/Playerbots.h:13
  *   Individual Progression pin           4ff4b5fcc1480348f058c632573143e62d4e3a41
  *                                        (no Hallow's End fire script)
  *
@@ -76,12 +82,15 @@
 #ifndef NAXXRAMAS_CORE_HALLOWS_END_SOLO_FIRE_H
 #define NAXXRAMAS_CORE_HALLOWS_END_SOLO_FIRE_H
 
+#include <algorithm>
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <optional>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace NaxxramasCore::HallowsEndSoloFire
 {
@@ -407,6 +416,134 @@ inline WatchState DisarmWatch(WatchState watch)
     return watch;
 }
 
+/* Contract of IsRealPlayer at the pinned Playerbots SHA.
+ * PlayerbotAI.cpp:4416 is `return player && !GET_PLAYERBOT_AI(player)`.
+ * A SelfBot has PlayerbotAI attached (PlayerbotAI.cpp:4419-4423), so it
+ * is not real. Account name is not an argument. The Shade writer does
+ * not call this. With Playerbots.h it passes IsRealPlayer. Without that
+ * header it passes apiPresent false and does not remove 42074.
+ */
+inline bool PinnedIsRealPlayerContract(bool objectNonNull, bool playerbotAiAttached)
+{
+    return objectNonNull && !playerbotAiAttached;
+}
+
+/* Triggers this Shade has actually begun spell 42132 on during this
+ * cycle. Cleared by the caller on Reset and FinishEvent. Zero is not a
+ * trigger id. The record is not a timer and not a unit flag.
+ */
+struct CycleIgnition
+{
+    std::vector<uint64_t> triggered;
+
+    void Clear()
+    {
+        triggered.clear();
+    }
+
+    bool Contains(uint64_t id) const
+    {
+        if (id == 0)
+            return false;
+        return std::find(triggered.begin(), triggered.end(), id) != triggered.end();
+    }
+
+    void NoteCastInitiated(uint64_t id)
+    {
+        if (id == 0 || Contains(id))
+            return;
+        triggered.push_back(id);
+    }
+};
+
+/* Observations CastFires already has before it chooses targets.
+ * False means the cast loop must not run and NoteCastInitiated must
+ * not be called. The stock playerCount formulas stay in the caller.
+ */
+struct FireCastRequest
+{
+    std::size_t unlitTriggerCount = 0;
+    std::size_t playerCountBeforeSoloFilter = 0;
+    std::size_t playerCountAfterSoloFilter = 0;
+    bool initial = false;
+    bool rateAllows = true;
+};
+
+inline bool FireCastRequestReachesIgnition(FireCastRequest const& request)
+{
+    if (request.unlitTriggerCount == 0)
+        return false;
+    if (request.playerCountBeforeSoloFilter == 0)
+        return false;
+    if (request.playerCountAfterSoloFilter == 0)
+        return false;
+    if (!request.initial && !request.rateAllows)
+        return false;
+    return true;
+}
+
+/* One living module Shade that owns the struck trigger.
+ * ignitedThisTrigger is true only when this cycle's 42132 record
+ * contains that trigger. Dead, non-module, and non-owning rows do
+ * not count.
+ */
+struct ShadeOwnerView
+{
+    bool alive = false;
+    bool moduleScript = false;
+    bool ownsTrigger = false;
+    bool ignitedThisTrigger = false;
+};
+
+struct OwnerCensusTally
+{
+    uint32_t livingOwners = 0;
+    uint32_t activeOwners = 0;
+};
+
+inline OwnerCensusTally TallyShadeOwners(ShadeOwnerView const* shades, std::size_t count)
+{
+    OwnerCensusTally tally;
+    if (!shades)
+        return tally;
+
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        ShadeOwnerView const& shade = shades[index];
+        if (!shade.alive || !shade.moduleScript || !shade.ownsTrigger)
+            continue;
+        ++tally.livingOwners;
+        if (shade.ignitedThisTrigger)
+            ++tally.activeOwners;
+    }
+    return tally;
+}
+
+struct CensusPlayerView
+{
+    uint64_t playerId = 0;
+    bool isRealPlayer = false;
+};
+
+struct OneBucketObservation
+{
+    bool hitAccepted = false;
+    uint32_t spellId = 0;
+    uint8_t effectIndex = 0;
+    uint32_t targetEntry = 0;
+    bool targetHasFireAura = false;
+    int32_t oneBucket = 0;
+    int32_t soloEnabled = 0;
+    bool casterIsPlayer = false;
+    bool playerbotsApiPresent = false;
+    bool casterIsRealPlayer = false;
+    uint64_t casterId = 0;
+    ShadeOwnerView const* shades = nullptr;
+    std::size_t shadeCount = 0;
+    CensusPlayerView const* players = nullptr;
+    std::size_t playerCount = 0;
+};
+
 /* Accepted 42339 hit on one burning normal fire. Amount is not an input.
  * removeFireAura is the only action. The caller removes spell 42074 and
  * does not cast, credit, or clear any other aura or creature.
@@ -421,9 +558,11 @@ enum class OneBucketReason : uint8_t
     OneBucketOff,
     SoloEnabledOff,
     NotPlayer,
+    PlayerbotsApiUnavailable,
     BotCaster,
     FireAuraAbsent,
     ShadeCount,
+    OwnerNotIgnited,
     Census
 };
 
@@ -437,10 +576,12 @@ struct OneBucketFacts
     int32_t oneBucket = 0;
     int32_t soloEnabled = 0;
     bool casterIsPlayer = false;
-    bool casterIsBot = false;
+    bool playerbotsApiPresent = false;
+    bool casterIsRealPlayer = false;
     bool casterInCensus = false;
     uint32_t realPlayersInCensus = 0;
-    uint32_t activeBurningShadeCount = 0;
+    uint32_t livingOwnerShadeCount = 0;
+    uint32_t activeOwnerShadeCount = 0;
 };
 
 struct OneBucketDecision
@@ -448,6 +589,47 @@ struct OneBucketDecision
     OneBucketReason reason = OneBucketReason::MissOrCancel;
     bool removeFireAura = false;
 };
+
+/* A true casterIsRealPlayer flag is ignored when the API is absent.
+ * Player rows are counted only for the single living owner that has
+ * ignited this trigger. Any other owner shape leaves the census empty.
+ */
+inline OneBucketFacts FactsFromObservation(OneBucketObservation const& obs)
+{
+    OneBucketFacts facts;
+    facts.hitAccepted = obs.hitAccepted;
+    facts.spellId = obs.spellId;
+    facts.effectIndex = obs.effectIndex;
+    facts.targetEntry = obs.targetEntry;
+    facts.targetHasFireAura = obs.targetHasFireAura;
+    facts.oneBucket = obs.oneBucket;
+    facts.soloEnabled = obs.soloEnabled;
+    facts.casterIsPlayer = obs.casterIsPlayer;
+    facts.playerbotsApiPresent = obs.playerbotsApiPresent;
+    facts.casterIsRealPlayer = obs.playerbotsApiPresent && obs.casterIsRealPlayer;
+
+    OwnerCensusTally tally = TallyShadeOwners(obs.shades, obs.shadeCount);
+    facts.livingOwnerShadeCount = tally.livingOwners;
+    facts.activeOwnerShadeCount = tally.activeOwners;
+
+    if (!obs.playerbotsApiPresent ||
+        tally.livingOwners != 1 ||
+        tally.activeOwners != 1)
+        return facts;
+
+    if (!obs.players || obs.casterId == 0)
+        return facts;
+
+    for (std::size_t index = 0; index < obs.playerCount; ++index)
+    {
+        CensusPlayerView const& player = obs.players[index];
+        if (player.isRealPlayer)
+            ++facts.realPlayersInCensus;
+        if (player.playerId == obs.casterId)
+            facts.casterInCensus = true;
+    }
+    return facts;
+}
 
 inline OneBucketDecision DecideOneBucket(OneBucketFacts const& facts)
 {
@@ -474,12 +656,16 @@ inline OneBucketDecision DecideOneBucket(OneBucketFacts const& facts)
         return refuse(OneBucketReason::SoloEnabledOff);
     if (!facts.casterIsPlayer)
         return refuse(OneBucketReason::NotPlayer);
-    if (facts.casterIsBot)
+    if (!facts.playerbotsApiPresent)
+        return refuse(OneBucketReason::PlayerbotsApiUnavailable);
+    if (!facts.casterIsRealPlayer)
         return refuse(OneBucketReason::BotCaster);
     if (!facts.targetHasFireAura)
         return refuse(OneBucketReason::FireAuraAbsent);
-    if (facts.activeBurningShadeCount != 1)
+    if (facts.livingOwnerShadeCount != 1)
         return refuse(OneBucketReason::ShadeCount);
+    if (facts.activeOwnerShadeCount != 1)
+        return refuse(OneBucketReason::OwnerNotIgnited);
     if (!facts.casterInCensus || facts.realPlayersInCensus != 1)
         return refuse(OneBucketReason::Census);
 

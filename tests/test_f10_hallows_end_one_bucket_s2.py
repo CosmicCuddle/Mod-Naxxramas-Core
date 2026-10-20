@@ -116,10 +116,12 @@ def armed() -> dict[str, int]:
         "one_bucket": 1,
         "solo": 1,
         "player": 1,
-        "bot": 0,
+        "api": 1,
+        "real": 1,
         "census": 1,
         "reals": 1,
-        "shades": 1,
+        "living": 1,
+        "active": 1,
     }
 
 
@@ -137,10 +139,12 @@ def decide(**overrides: int) -> dict[str, object]:
             str(facts["one_bucket"]),
             str(facts["solo"]),
             str(facts["player"]),
-            str(facts["bot"]),
+            str(facts["api"]),
+            str(facts["real"]),
             str(facts["census"]),
             str(facts["reals"]),
-            str(facts["shades"]),
+            str(facts["living"]),
+            str(facts["active"]),
         ]
     )
     parts = dict(item.split("=", 1) for item in text.split())
@@ -166,10 +170,12 @@ def simulate(timing: str, amount: int = 3, unrelated: int = 1, child: int = 1, *
             str(facts["one_bucket"]),
             str(facts["solo"]),
             str(facts["player"]),
-            str(facts["bot"]),
+            str(facts["api"]),
+            str(facts["real"]),
             str(facts["census"]),
             str(facts["reals"]),
-            str(facts["shades"]),
+            str(facts["living"]),
+            str(facts["active"]),
             str(amount),
             str(unrelated),
             str(child),
@@ -178,11 +184,41 @@ def simulate(timing: str, amount: int = 3, unrelated: int = 1, child: int = 1, *
     return {key: int(value) for key, value in (item.split("=", 1) for item in text.split())}
 
 
+def scenario(name: str) -> dict[str, str]:
+    text = policy_query(["--scenario", name])
+    return dict(item.split("=", 1) for item in text.split())
+
+
 class PolicyBinary(unittest.TestCase):
     def test_self_check_passes(self):
         program = policy_program()
         self.assertEqual(program["code"], 0)
         self.assertIn("F10_ONE_BUCKET_POLICY_OK", program["stdout"])
+
+    def test_harness_runs_the_classifier_census_and_ignition_paths(self):
+        expected = {
+            "sole-real": ("1", "RemoveFireAura", "1", "1", "1"),
+            "rndbot-account-human": ("1", "RemoveFireAura", "1", "1", "1"),
+            "self-bot": ("0", "BotCaster", "1", "1", "1"),
+            "odd-account-bot": ("0", "BotCaster", "1", "1", "1"),
+            "no-header": ("0", "PlayerbotsApiUnavailable", "1", "1", "1"),
+            "overlap-inactive": ("0", "ShadeCount", "2", "1", "1"),
+            "two-active": ("0", "ShadeCount", "2", "2", "2"),
+            "stale-aura": ("0", "OwnerNotIgnited", "1", "0", "0"),
+            "empty-triggers": ("0", "OwnerNotIgnited", "1", "0", "0"),
+            "empty-players": ("0", "OwnerNotIgnited", "1", "0", "0"),
+            "empty-solo-filter": ("0", "OwnerNotIgnited", "1", "0", "0"),
+        }
+        for name, (remove, reason, living, active, ignited) in expected.items():
+            row = scenario(name)
+            self.assertEqual(row["remove"], remove, name)
+            self.assertEqual(row["reason"], reason, name)
+            self.assertEqual(row["living"], living, name)
+            self.assertEqual(row["active"], active, name)
+            self.assertEqual(row["ignited"], ignited, name)
+        self.assertEqual(scenario("self-bot")["reason"], scenario("odd-account-bot")["reason"])
+        self.assertEqual(scenario("no-header")["reals"], "0")
+        self.assertEqual(scenario("sole-real")["reals"], "1")
 
     def test_sole_real_player_in_the_census_removes_the_fire_aura(self):
         decision = decide()
@@ -205,18 +241,23 @@ class PolicyBinary(unittest.TestCase):
         self.assertEqual(decision["reason"], "Census")
 
     def test_bots_only_do_not_act(self):
-        decision = decide(bot=1, reals=0, census=1)
+        decision = decide(real=0, reals=0, census=1)
         self.assertFalse(decision["remove"])
         self.assertEqual(decision["reason"], "BotCaster")
 
     def test_bot_throw_while_one_real_player_is_inside_does_not_act(self):
-        decision = decide(bot=1, reals=1, census=1)
+        decision = decide(real=0, reals=1, census=1)
         self.assertFalse(decision["remove"])
         self.assertEqual(decision["reason"], "BotCaster")
 
     def test_real_thrower_with_bots_nearby_still_acts(self):
-        decision = decide(bot=0, reals=1, census=1)
+        decision = decide(real=1, reals=1, census=1)
         self.assertTrue(decision["remove"])
+
+    def test_missing_playerbots_api_does_not_act_even_if_marked_real(self):
+        decision = decide(api=0, real=1)
+        self.assertFalse(decision["remove"])
+        self.assertEqual(decision["reason"], "PlayerbotsApiUnavailable")
 
     def test_training_fire_does_not_act(self):
         decision = decide(entry=TRAIN)
@@ -224,14 +265,24 @@ class PolicyBinary(unittest.TestCase):
         self.assertEqual(decision["reason"], "WrongTarget")
 
     def test_inactive_shade_count_does_not_act(self):
-        decision = decide(shades=0)
+        decision = decide(living=0, active=0)
         self.assertFalse(decision["remove"])
         self.assertEqual(decision["reason"], "ShadeCount")
 
     def test_two_owning_shades_do_not_act(self):
-        decision = decide(shades=2)
+        decision = decide(living=2, active=2)
         self.assertFalse(decision["remove"])
         self.assertEqual(decision["reason"], "ShadeCount")
+
+    def test_active_plus_inactive_owner_does_not_act(self):
+        decision = decide(living=2, active=1)
+        self.assertFalse(decision["remove"])
+        self.assertEqual(decision["reason"], "ShadeCount")
+
+    def test_sole_owner_without_an_ignition_does_not_act(self):
+        decision = decide(living=1, active=0)
+        self.assertFalse(decision["remove"])
+        self.assertEqual(decision["reason"], "OwnerNotIgnited")
 
     def test_wrong_spell_does_not_act(self):
         decision = decide(spell=SPLASH)
@@ -329,8 +380,8 @@ class PolicyBinary(unittest.TestCase):
 
     def test_outside_caster_and_disjoint_shades_leave_the_fire(self):
         outside = simulate("delayed", amount=3, census=0)
-        disjoint = simulate("delayed", amount=3, shades=2)
-        inactive = simulate("delayed", amount=3, shades=0)
+        disjoint = simulate("delayed", amount=3, living=2, active=2)
+        inactive = simulate("delayed", amount=3, living=0, active=0)
         for result in (outside, disjoint, inactive):
             self.assertEqual(result["featureRemoves"], 0)
             self.assertEqual(result["fire"], 1)
@@ -364,29 +415,74 @@ class SourceWiring(unittest.TestCase):
         self.assertNotIn("void SpellHit", SHADE)
         self.assertEqual(SHADE.count("ALLSPELLHOOK_"), 1)
 
-    def test_phase_requires_the_fire_cycle_not_the_flag_alone(self):
-        phase = brace_body(SHADE, "bool OneBucketFirePhaseActive() const")
-        self.assertIn("fireCycleStarted", phase)
-        self.assertIn("UNIT_FLAG_NON_ATTACKABLE", phase)
+    def test_phase_is_a_cast_record_not_the_flag_or_the_case_label(self):
+        self.assertNotIn("fireCycleStarted", SHADE)
+        self.assertNotIn("OneBucketFirePhaseActive", SHADE)
+        phase = brace_body(SHADE, "bool IgnitedTriggerThisCycle(ObjectGuid const& guid) const")
+        self.assertIn("ignitedThisCycle.Contains", phase)
+        self.assertNotIn("UNIT_FLAG_NON_ATTACKABLE", phase)
+        self.assertNotIn("GetData", phase)
+        self.assertNotIn("playerCount", phase)
         reset = brace_body(SHADE, "void Reset() override")
-        self.assertIn("fireCycleStarted = false;", reset)
+        self.assertIn("ignitedThisCycle.Clear();", reset)
         self.assertIn("UNIT_FLAG_NON_ATTACKABLE", reset)
         update = brace_body(SHADE, "void UpdateAI(uint32 diff) override")
         case_two = update.split("case 2:", 1)[1].split("case 3:", 1)[0]
         case_three = update.split("case 3:", 1)[1].split("case 4:", 1)[0]
-        self.assertIn("fireCycleStarted = true;", case_two)
-        self.assertIn("fireCycleStarted = true;", case_three)
-        self.assertLess(case_two.index("fireCycleStarted = true;"), case_two.index("CastFires"))
+        self.assertNotIn("NoteCastInitiated", case_two)
+        self.assertNotIn("ignitedThisCycle", case_two)
+        self.assertIn("CastFires(true)", case_two)
+        self.assertNotIn("NoteCastInitiated", case_three)
         finish = brace_body(SHADE, "void FinishEvent(bool failed)")
-        self.assertLess(finish.index("fireCycleStarted = false;"), finish.index("RemoveAllAuras"))
-        census = brace_body(SHADE, "OneBucketOwnerCensus CollectOneBucketOwnerCensus(")
-        self.assertIn("OneBucketFirePhaseActive()", census)
-        self.assertIn("OwnsFireTrigger", census)
+        self.assertLess(finish.index("ignitedThisCycle.Clear();"), finish.index("RemoveAllAuras"))
+        cast = brace_body(SHADE, "void CastFires(bool initial)")
+        self.assertLess(cast.index("if (SoloFirePathActive(players))"), cast.index("players.size()) - 1;"))
+        self.assertLess(cast.index("FireCastRequestReachesIgnition"), cast.index("SPELL_START_FIRE"))
+        self.assertLess(cast.index("SPELL_START_FIRE"), cast.index("NoteCastInitiated"))
+        self.assertIn("IsHallowsEndShadePlayerBot", cast)
+        self.assertIn("OwnsFireTrigger", cast)
+        census = brace_body(SHADE, "OneBucketOwnerLists CollectOneBucketOwnerCensus(")
+        self.assertLess(census.index("OwnsFireTrigger"), census.index("IgnitedTriggerThisCycle"))
+        after_ignite = census.split("IgnitedTriggerThisCycle", 1)[1].split("push_back", 1)[0]
+        self.assertNotIn("continue", after_ignite)
+        self.assertIn("TallyShadeOwners", census)
+        self.assertLess(census.index("TallyShadeOwners"), census.index("CollectNearbyHallowsPlayers"))
+        self.assertIn("livingOwners != 1", census)
+        self.assertLess(census.index("livingOwners != 1"), census.index("activeOwners != 1"))
         self.assertIn("IsAlive()", census)
-        self.assertIn("CountRealHallowsPlayers", census)
-        self.assertIn("CollectNearbyHallowsPlayers", census)
+        self.assertIn("ReadOneBucketCaster", census)
+        self.assertNotIn("CountRealHallowsPlayers", census)
+        self.assertNotIn("IsHallowsEndShadePlayerBot", census)
         self.assertIn("100.0f", census)
         self.assertIn("NPC_SHADE_OF_HORSEMAN", census)
+
+    def test_one_bucket_classifier_fails_closed_without_the_playerbots_api(self):
+        reader = brace_body(SHADE, "OneBucketCasterRead ReadOneBucketCaster(Player* player)")
+        self.assertIn("IsRealPlayer(player)", reader)
+        self.assertIn("result.apiPresent = false;", reader)
+        self.assertIn("result.isRealPlayer = false;", reader)
+        self.assertLess(reader.index("IsRealPlayer(player)"), reader.index("result.apiPresent = false;"))
+        solo = brace_body(SHADE, "bool IsHallowsEndShadePlayerBot(Player* player)")
+        self.assertIn("GET_PLAYERBOT_AI(player) != nullptr", solo)
+        self.assertIn("return false;", solo)
+        apply = brace_body(SHADE, "void ApplyHallowsEndOneBucket(")
+        self.assertIn("ReadOneBucketCaster", apply)
+        self.assertIn("FactsFromObservation", apply)
+        self.assertIn("casterRead.apiPresent", apply)
+        self.assertIn("casterRead.isRealPlayer", apply)
+        self.assertNotIn("IsHallowsEndShadePlayerBot", apply)
+        self.assertNotIn("GetAccountName", apply)
+        self.assertNotIn("RNDBOT", SHADE)
+        self.assertNotIn("GetAccountName", SHADE)
+        header_decision = brace_body(HEADER, "inline OneBucketDecision DecideOneBucket(")
+        self.assertLess(
+            header_decision.index("!facts.playerbotsApiPresent"),
+            header_decision.index("!facts.casterIsRealPlayer"),
+        )
+        self.assertLess(
+            header_decision.index("livingOwnerShadeCount != 1"),
+            header_decision.index("activeOwnerShadeCount != 1"),
+        )
 
     def test_poll_still_does_not_extinguish_and_sql_is_unchanged(self):
         poll = brace_body(SHADE, "void PollSoloFires()")
@@ -546,6 +642,30 @@ class PinnedCoreContract(unittest.TestCase):
             self.assertEqual(text, self.read(self.new, "data/sql/base/db_world/" + name))
             for spell in ("(42339,", "(42348,", "(42074,"):
                 self.assertNotIn(spell, text, name)
+
+
+class PinnedPlayerbotsContract(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        root = os.environ.get("F10_PLAYERBOTS")
+        if not root:
+            raise unittest.SkipTest("F10_PLAYERBOTS is not set; Playerbots pin skipped")
+        cls.root = Path(root)
+
+    def test_is_real_player_is_the_public_ai_check_and_ignores_account_names(self):
+        header = (self.root / "src/Bot/PlayerbotAI.h").read_text(errors="strict")
+        body = (self.root / "src/Bot/PlayerbotAI.cpp").read_text(errors="strict")
+        bots = (self.root / "src/Script/Playerbots.h").read_text(errors="strict")
+        self.assertIn("bool IsRealPlayer(Player* player);", header)
+        self.assertIn('#include "PlayerbotAI.h"', bots)
+        self.assertIn("#define GET_PLAYERBOT_AI(object) sPlayerbotsMgr.GetPlayerbotAI(object)", bots)
+        real = brace_body(body, "bool IsRealPlayer(Player* player)")
+        self.assertIn("return player && !GET_PLAYERBOT_AI(player);", real)
+        self.assertNotIn("account", real.lower())
+        self.assertNotIn("RNDBOT", real)
+        selfbot = brace_body(body, "bool IsSelfBot(Player* player)")
+        self.assertIn("GET_PLAYERBOT_AI(player)", selfbot)
+        self.assertIn("GetMaster() == player", selfbot)
 
 
 if __name__ == "__main__":

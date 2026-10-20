@@ -90,11 +90,25 @@ jobs:
             data/sql/base/db_world/spell_scripts.sql
             data/sql/base/db_world/spell_pet_auras.sql
 
+      - name: Check out pinned Playerbots headers
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: playerbots-037c014
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/Bot/PlayerbotAI.h
+            src/Bot/PlayerbotAI.cpp
+            src/Script/Playerbots.h
+
       - name: Verify the reviewed commits
         run: |
           set -euo pipefail
           test "$(git -C core-a66f1be rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
           test "$(git -C core-8daffda rev-parse HEAD)" = "8daffdabe9202c228e45d833c9a1d399597a15cd"
+          test "$(git -C playerbots-037c014 rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
           echo "Source pin and policy model only. No worldserver, SQL, DBC, or gameplay run."
 
       - name: Install a C++ compiler for the policy binary
@@ -106,6 +120,7 @@ jobs:
         env:
           F10_CORE_OLD: ${{ github.workspace }}/core-a66f1be
           F10_CORE_NEW: ${{ github.workspace }}/core-8daffda
+          F10_PLAYERBOTS: ${{ github.workspace }}/playerbots-037c014
         run: python3 -m unittest tests/test_f10_hallows_end_one_bucket_s2.py -v
 
   compile-module-translation-units:

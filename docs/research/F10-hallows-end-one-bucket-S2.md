@@ -57,31 +57,57 @@ Fork: `https://github.com/Grimfeather/azerothcore-wotlk`. Not upstream AzerothCo
 
 ## 4. Gates
 
-The hook returns before any config read unless the spell is 42339, the effect index is 0, and the entry is 23686. It returns before the grid search unless the remaining cheap gates also match: both config readers equal 1, the caster is a `Player` (`Object.h:208` at both SHAs) and not a bot, and `HasAura(42074)` is already true. `DecideOneBucket` refuses the same inputs.
+The hook returns before any config read unless the spell is 42339, the effect index is 0, and the entry is 23686. It returns before the grid search unless the remaining cheap gates also match: both config readers equal 1, the caster is a `Player` (`Object.h:208` at both SHAs), `ReadOneBucketCaster` reports the Playerbots API and `IsRealPlayer`, and `HasAura(42074)` is already true. `DecideOneBucket` refuses the same inputs. A missing API is `PlayerbotsApiUnavailable`, which is before the bot reason, so a true "real player" flag cannot override it.
 
 `HasAura` is `Unit.h:1500` at `a66f1be` and `Unit.h:1501` at `8daffda`. The removal is `RemoveAurasDueToSpell` at `Unit.h:1408` and `Unit.h:1409` respectively. That call names one spell id. It is not `RemoveAllAuras`. **VERIFIED** as the API. **NOT TESTED** on a live creature that also carries some other aura.
 
-Bot test: `IsHallowsEndShadePlayerBot` is the existing helper. With `Playerbots.h` it is `GET_PLAYERBOT_AI(player) != nullptr` (`mod-playerbots` `src/Script/Playerbots.h:31` at `037c014`). Without that header it returns false. **VERIFIED** from this tree. The translation-unit job checks out that Playerbots commit so the real compile can see the header. Whether a given compile command's include path actually contains it is printed by the job (`playerbots_include=yes|no`). Do not treat a missing include as a bot-branch compile.
+### 4.0 Playerbots API fails closed for this writer
 
-### 4.1 Same player, not merely some real player
+`ReadOneBucketCaster` is the one-bucket classifier. With `Playerbots.h` it sets the API present and stores `IsRealPlayer(player)`. Without that header it sets the API absent and `isRealPlayer` false, and `ApplyHallowsEndOneBucket` does not call `RemoveAurasDueToSpell(42074)`. **VERIFIED** as control flow in this tree.
 
-Owners are living entry 23543 creatures within 100 yards (`Object.h:666` `GetCreaturesWithEntryInRange`, same radius as stock `hallows_end.cpp:680`) whose AI dynamic-casts to `npc_naxxramas_hallows_end_soh`, whose `OneBucketFirePhaseActive()` is true, and whose `unitList` contains the trigger GUID.
+`IsRealPlayer` is declared at `mod-playerbots` `src/Bot/PlayerbotAI.h:81` and implemented at `src/Bot/PlayerbotAI.cpp:4411-4416` at `037c014`:
 
-`IsAlive` is `Unit.h:1798` at `a66f1be` and `Unit.h:1799` at `8daffda`. `Creature::AI()` is `Creature.h:144` at both.
+```cpp
+return player && !GET_PLAYERBOT_AI(player);
+```
 
-When that set has size 1, the census is the existing `CollectNearbyHallowsPlayers`: `AnyPlayerInObjectRangeCheck(me, 60.0f)`. The constructor defaults are `reqAlive = true` and `disallowGM = false` (`GridNotifiers.h:1379` and `:1382` at both SHAs). Real players are `CountRealHallowsPlayers` (bots omitted, a GM kept). The caster's GUID has to be in that list, and the real count has to be 1.
+`Playerbots.h` includes `PlayerbotAI.h` (`src/Script/Playerbots.h:13`) and defines `GET_PLAYERBOT_AI` (`Playerbots.h:31`). **VERIFIED** by reading that pin. The body does not mention an account name. **VERIFIED**.
 
-A real thrower outside that list does not pass, even when a different human inside makes the real count 1. **VERIFIED** as the decision in `DecideOneBucket` and as the model cases. **NOT TESTED** in a village.
+`IsSelfBot` (`PlayerbotAI.cpp:4419-4423`) is a player whose `PlayerbotAI` master is that same player. `GET_PLAYERBOT_AI` is non-null, so `IsRealPlayer` is false. A bot on an account that is not `RNDBOT*` is the same: the AI pointer is the test, not the account string. **VERIFIED** as the pinned source and as harness cases `self-bot`, `odd-account-bot` (account `HelgaTheFarmer`), and `rndbot-account-human` (account `RNDBOT999` with no AI, which still counts as real). **NOT TESTED** as a Playerbot throwing a bucket. The owner-installed binary is **UNKNOWN**.
 
-### 4.2 Actively burning phase
+The harness case `no-header` passes a true real-player lie with the API absent. `FactsFromObservation` ignores that lie, counts zero real players, and `DecideOneBucket` returns `PlayerbotsApiUnavailable`. **VERIFIED** as the shared function the writer calls. **NOT TESTED** as a binary built without the header, because the native translation-unit job checks Playerbots out. That job prints `playerbots_include=yes|no`. A `yes` line is not a missing-header build.
 
-`UNIT_FLAG_NON_ATTACKABLE` is set in stock `Reset` before any fire is cast (`hallows_end.cpp:686-692`). The same assignment is in the module `Reset`. The flag alone is not the burning signal. **VERIFIED**.
+Solo-fire pacing still uses `IsHallowsEndShadePlayerBot`. With the header that is `GET_PLAYERBOT_AI(player) != nullptr`. Without the header it still returns false. That fail-open path is unchanged. **VERIFIED** as the helper body. **POTENTIAL ISSUE** for solo pacing only, and only in a build that does not see `Playerbots.h`. It is not the one-bucket writer. **NOT TESTED** as a behavior change, because the helper was not changed.
 
-Stock event 2 calls `CastFires(true)` (`hallows_end.cpp:719-722`). Stock event 3 treats `HasPeriodicDummyAura()` as the burning check (`hallows_end.cpp:727-729`). `HasPeriodicDummyAura` is any `SPELL_AURA_PERIODIC_DUMMY` (`Unit.h:1824` at `a66f1be`, `Unit.h:1825` at `8daffda`). Aura 42074's effect 0 is that aura type (`hallows_end.cpp:350`) and is applied by the fire trigger on spell 42132 (`hallows_end.cpp:534-536`). The prototype requires that specific aura, not every periodic dummy.
+This latch is not **BLOCKED**. The writer can see whether the header was included, and the public `IsRealPlayer` declaration is in the pinned header.
 
-The module latch `fireCycleStarted` is set when module event 2 or event 3 begins, and cleared in `Reset` and at the start of `FinishEvent`. `OneBucketFirePhaseActive` is that latch and `HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE)`. Stock event 4 clears the flag (`hallows_end.cpp:769-771`). A Shade that has only run `Reset` is not in the fire phase. **VERIFIED** as control flow in this tree. The latch is not a core field. **POTENTIAL ISSUE**: it records entry into the stock event cases; it is not itself a core phase enum. **NOT TESTED** at runtime.
+### 4.1 Same player, and exactly one living owner
 
-`FinishEvent` is the stock end of the burning phase (`hallows_end.cpp:842` in the core, the module method of the same name). Clearing the latch there refuses the hook during the landing flight. **VERIFIED** as control flow. **NOT TESTED**.
+Owners are living entry 23543 creatures within 100 yards (`Object.h:666` `GetCreaturesWithEntryInRange`, same radius as stock `hallows_end.cpp:680`) whose AI dynamic-casts to `npc_naxxramas_hallows_end_soh` and whose `unitList` contains the trigger GUID. `IsAlive` is `Unit.h:1798` at `a66f1be` and `Unit.h:1799` at `8daffda`. `Creature::AI()` is `Creature.h:144` at both.
+
+`CollectOneBucketOwnerCensus` appends every such owner, including one that has not initiated 42132 on this trigger. It then calls `TallyShadeOwners`. Living owners are counted first. Active owners are the subset whose ignition record contains this trigger. The 60 yard player census runs only when both counts are 1. **VERIFIED** as that function's order. The grid search itself is **NOT TESTED**.
+
+`TallyShadeOwners` is the count the writer uses. Harness `overlap-inactive` is one ignited owner plus one owner that has not ignited, plus a dead row and a non-owning row. The tally is living 2, active 1, and the decision is `ShadeCount`. Harness `two-active` is living 2, active 2, also `ShadeCount`. **VERIFIED** as the shared tally. **NOT TESTED** in a village.
+
+When the tally is 1 and 1, the census is the existing `CollectNearbyHallowsPlayers`: `AnyPlayerInObjectRangeCheck(me, 60.0f)`. The constructor defaults are `reqAlive = true` and `disallowGM = false` (`GridNotifiers.h:1379` and `:1382` at both SHAs). Each row's real-player bit is `ReadOneBucketCaster`, not `CountRealHallowsPlayers`. The caster's GUID counter has to be in that list, and the real count has to be 1. A GM stays in the list. **VERIFIED** as the call. **NOT TESTED** in a village.
+
+A real thrower outside that list does not pass, even when a different human inside makes the real count 1. **VERIFIED** as `DecideOneBucket` and as the model. **NOT TESTED** in a village.
+
+### 4.2 Ignition record, not a case label
+
+`UNIT_FLAG_NON_ATTACKABLE` is set in stock `Reset` before any fire is cast (`hallows_end.cpp:686-692`). The same assignment is still in the module `Reset`. The one-bucket path does not read it. **VERIFIED**. It also does not read `GetData`, `playerCount`, or a timer, and it does not treat proximity as the burning signal. **VERIFIED** as the absence of those reads in `IgnitedTriggerThisCycle`.
+
+Stock event 2 calls `CastFires(true)` (`hallows_end.cpp:719-722`). Module event 2 calls `CastFires(true)` and does not mark a trigger before that call. Module event 3 does not mark a trigger before `CastFires(false)`. **VERIFIED** as control flow.
+
+`CastFires` fills a `FireCastRequest` and returns when `FireCastRequestReachesIgnition` is false. That is false when there is no unlit trigger, when the player list is empty, when the solo filter removes every player, or when a later wave fails the existing rate test. The `playerCount` formulas are the same expressions as before (`players.size() - 1`, `playerCount += 1`, `playerCount * 0.25f`, `(playerCount / 3) + 1`, `playerCount % 2`). **VERIFIED** as those expressions still occurring, in that order, only on the path that has a non-empty list. **NOT TESTED** as a change in who receives 42132. No change is intended.
+
+Only the loop that has passed that gate calls `CastSpell(..., SPELL_START_FIRE, true)`. `SPELL_START_FIRE` is 42132. `Unit::CastSpell` returns `SpellCastResult` (`Unit.h:1681` at `a66f1be`, `Unit.h:1682` at `8daffda`). The GUID is recorded with `NoteCastInitiated` after that call, and only when the result is `SPELL_CAST_OK` and `OwnsFireTrigger` is true. **VERIFIED** as source order. Which failures return a value other than `SPELL_CAST_OK`, whether the cast lands, and whether the trigger script then applies 42074, are **NOT TESTED**.
+
+`CycleIgnition` is cleared in `Reset` and at the start of `FinishEvent`. A trigger scanned into `unitList` with a leftover 42074, and no 42132 cast this cycle, stays `ignitedThisTrigger == false`. The decision is `OwnerNotIgnited`. Harness cases `stale-aura`, `empty-triggers`, `empty-players`, and `empty-solo-filter` all refuse that way. **VERIFIED** as the shared record and gate. **NOT TESTED** on a running server.
+
+`FinishEvent` is the stock end of the burning phase (`hallows_end.cpp:842` in the core, the module method of the same name). Clearing the record there refuses the hook during the landing flight. **VERIFIED** as control flow. **NOT TESTED**.
+
+This record is not **BLOCKED**. Spell 42132 is cast in this translation unit, so the writer can see the initiation without a core phase enum. A core phase enum does not exist. **UNKNOWN** whether some other script casts 42132 on the same trigger during the cycle. That other cast would not be in this Shade's record, so this hook would still refuse. **NOT TESTED**.
 
 ## 5. Stock splash is not replaced
 
@@ -116,8 +142,16 @@ Rows are executed by `tests/test_f10_hallows_end_one_bucket_s2.py` through `test
 | N6 | Bot throws while one real player is inside | No removal |
 | N7 | One real player plus bots, the real player throws | Removal |
 | N8 | Training NPC 23537 | No removal. Stock training math remains in the model |
-| N9 | Fire cycle not active, or the Shade does not own the trigger | No removal |
+| N9 | No living module owner, or the Shade does not own the trigger | No removal |
 | N10 | Two owning active Shades | No removal |
+| N19 | SelfBot caster (`IsRealPlayer` contract false) | No removal |
+| N20 | Bot with a non-`RNDBOT` account name, AI attached | No removal |
+| N21 | Playerbots header absent, even if the caster is marked real | No removal. Real-player count stays 0 |
+| N22 | One active owner and one inactive owner of the same trigger | No removal. Living count is 2 |
+| N23 | Stale or inherited 42074, no 42132 cast this cycle | No removal |
+| N24 | CastFires has no unlit trigger | No ignition record and no removal |
+| N25 | CastFires player list is empty | No ignition record and no removal |
+| N26 | Solo filter removes every player | No ignition record and no removal |
 | N11 | Spell 42348, or any id other than 42339 | No removal |
 | N12 | Effect index other than 0 | No removal |
 | N13 | Miss or cancel (`hitAccepted` false) | No splash in the model and no removal |
@@ -132,9 +166,9 @@ Rows are executed by `tests/test_f10_hallows_end_one_bucket_s2.py` through `test
 - No worldserver, no client, no database apply, no packet capture.
 - No Spell.dbc, so no missile speed.
 - No proof that a live `creature_template` row still says `npc_soh_fire_trigger`. The module SQL still updates only entry 23543.
-- No Playerbot threw a bucket. N5, N6, and N7 are the model.
+- No Playerbot threw a bucket. N5, N6, N7, N19, N20, and N21 are the model and the pinned `IsRealPlayer` contract. **NOT TESTED** in game.
 - The 100 yard owner search can miss a Shade that flew farther than the Reset scan. **POTENTIAL ISSUE**. **NOT TESTED**.
-- `EnterEvadeMode` despawns without clearing fire auras (`hallows_end.cpp:698-700`). A new Shade's `Reset` clears the latch, so the hook waits for event 2 even if a trigger still has 42074. Stock splash can still run. **NOT TESTED**.
+- `EnterEvadeMode` despawns without clearing fire auras (`hallows_end.cpp:698-700`). A new Shade starts with an empty ignition record and `Reset` clears it again, so a leftover 42074 is not treated as this cycle's cast. Stock splash can still run. **NOT TESTED**.
 - Native translation-unit compile of the real `HallowsEndShadeOfTheHorseman.cpp` and `HallowsEndSoloFireConfig.cpp` is the workflow job, not this file. A green job is still not a linked worldserver. **NOT TESTED** as gameplay.
 - CI run ids are written on the draft PR and on issue #48 after the workflow finishes. They are not invented here.
 
@@ -145,6 +179,7 @@ Command, from the module root, after the pinned trees were extracted:
 ```text
 F10_CORE_OLD=/tmp/f10-core-old \
 F10_CORE_NEW=/tmp/f10-core-new \
+F10_PLAYERBOTS=/tmp/f10-playerbots \
 python3 -m unittest tests/test_f10_hallows_end_one_bucket_s2.py -v
 ```
 
@@ -153,7 +188,7 @@ The result line is filled only after that command is run. A missing line means i
 Local result, **VERIFIED** as a source and model run only. It is not a worldserver run and it is not CI.
 
 ```text
-Ran 33 tests in 0.330s
+Ran 39 tests in 0.391s
 
 OK
 ```

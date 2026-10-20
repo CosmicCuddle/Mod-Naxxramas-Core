@@ -46,12 +46,16 @@ char const* ReasonName(OneBucketReason reason)
             return "SoloEnabledOff";
         case OneBucketReason::NotPlayer:
             return "NotPlayer";
+        case OneBucketReason::PlayerbotsApiUnavailable:
+            return "PlayerbotsApiUnavailable";
         case OneBucketReason::BotCaster:
             return "BotCaster";
         case OneBucketReason::FireAuraAbsent:
             return "FireAuraAbsent";
         case OneBucketReason::ShadeCount:
             return "ShadeCount";
+        case OneBucketReason::OwnerNotIgnited:
+            return "OwnerNotIgnited";
         case OneBucketReason::Census:
             return "Census";
     }
@@ -69,10 +73,12 @@ OneBucketFacts Armed()
     facts.oneBucket = 1;
     facts.soloEnabled = 1;
     facts.casterIsPlayer = true;
-    facts.casterIsBot = false;
+    facts.playerbotsApiPresent = true;
+    facts.casterIsRealPlayer = true;
     facts.casterInCensus = true;
     facts.realPlayersInCensus = 1;
-    facts.activeBurningShadeCount = 1;
+    facts.livingOwnerShadeCount = 1;
+    facts.activeOwnerShadeCount = 1;
     return facts;
 }
 
@@ -304,11 +310,16 @@ void CheckNegatives()
     CheckRefusal(facts, OneBucketReason::NotPlayer);
 
     facts = Armed();
-    facts.casterIsBot = true;
+    facts.playerbotsApiPresent = false;
+    facts.casterIsRealPlayer = true;
+    CheckRefusal(facts, OneBucketReason::PlayerbotsApiUnavailable);
+
+    facts = Armed();
+    facts.casterIsRealPlayer = false;
     CheckRefusal(facts, OneBucketReason::BotCaster);
 
     facts = Armed();
-    facts.casterIsBot = true;
+    facts.casterIsRealPlayer = false;
     facts.realPlayersInCensus = 1;
     facts.casterInCensus = true;
     CheckRefusal(facts, OneBucketReason::BotCaster);
@@ -318,12 +329,24 @@ void CheckNegatives()
     CheckRefusal(facts, OneBucketReason::FireAuraAbsent);
 
     facts = Armed();
-    facts.activeBurningShadeCount = 0;
+    facts.livingOwnerShadeCount = 0;
+    facts.activeOwnerShadeCount = 0;
     CheckRefusal(facts, OneBucketReason::ShadeCount);
 
     facts = Armed();
-    facts.activeBurningShadeCount = 2;
+    facts.livingOwnerShadeCount = 2;
+    facts.activeOwnerShadeCount = 2;
     CheckRefusal(facts, OneBucketReason::ShadeCount);
+
+    facts = Armed();
+    facts.livingOwnerShadeCount = 2;
+    facts.activeOwnerShadeCount = 1;
+    CheckRefusal(facts, OneBucketReason::ShadeCount);
+
+    facts = Armed();
+    facts.livingOwnerShadeCount = 1;
+    facts.activeOwnerShadeCount = 0;
+    CheckRefusal(facts, OneBucketReason::OwnerNotIgnited);
 
     facts = Armed();
     facts.realPlayersInCensus = 0;
@@ -341,7 +364,7 @@ void CheckNegatives()
     CheckRefusal(facts, OneBucketReason::Census);
 
     facts = Armed();
-    facts.casterIsBot = true;
+    facts.casterIsRealPlayer = false;
     facts.realPlayersInCensus = 0;
     facts.casterInCensus = true;
     CheckRefusal(facts, OneBucketReason::BotCaster);
@@ -434,12 +457,267 @@ void CheckTimings()
     CHECK(absent.child);
 }
 
+struct ScenarioLine
+{
+    bool known = false;
+    int remove = 0;
+    char const* reason = "Unknown";
+    unsigned living = 0;
+    unsigned active = 0;
+    unsigned ignited = 0;
+    unsigned reals = 0;
+};
+
+OneBucketObservation BaseObservation()
+{
+    OneBucketObservation obs;
+    obs.hitAccepted = true;
+    obs.spellId = BucketLandSpellId;
+    obs.effectIndex = BucketLandEffectIndex;
+    obs.targetEntry = FireTriggerEntry;
+    obs.targetHasFireAura = true;
+    obs.oneBucket = 1;
+    obs.soloEnabled = 1;
+    obs.casterIsPlayer = true;
+    obs.playerbotsApiPresent = true;
+    return obs;
+}
+
+ShadeOwnerView OwningShade(bool ignited)
+{
+    ShadeOwnerView shade;
+    shade.alive = true;
+    shade.moduleScript = true;
+    shade.ownsTrigger = true;
+    shade.ignitedThisTrigger = ignited;
+    return shade;
+}
+
+void Publish(
+    ScenarioLine& line,
+    OneBucketObservation const& obs,
+    std::size_t ignited)
+{
+    OneBucketFacts facts = FactsFromObservation(obs);
+    OneBucketDecision decision = DecideOneBucket(facts);
+    line.known = true;
+    line.remove = decision.removeFireAura ? 1 : 0;
+    line.reason = ReasonName(decision.reason);
+    line.living = facts.livingOwnerShadeCount;
+    line.active = facts.activeOwnerShadeCount;
+    line.reals = facts.realPlayersInCensus;
+    line.ignited = static_cast<unsigned>(ignited);
+}
+
+/* accountName is accepted and ignored. Classification is the pinned
+ * IsRealPlayer contract: a non-null object with no PlayerbotAI.
+ */
+ScenarioLine ClassifiedThrow(
+    char const* accountName,
+    bool apiPresent,
+    bool objectNonNull,
+    bool aiAttached,
+    bool failOpenLie)
+{
+    (void)accountName;
+    constexpr uint64_t triggerId = 99;
+    constexpr uint64_t casterId = 7;
+    FireCastRequest request;
+    request.unlitTriggerCount = 1;
+    request.playerCountBeforeSoloFilter = 2;
+    request.playerCountAfterSoloFilter = 2;
+    request.initial = true;
+    CycleIgnition cycle;
+    if (FireCastRequestReachesIgnition(request))
+        cycle.NoteCastInitiated(triggerId);
+
+    ShadeOwnerView shades[1];
+    shades[0] = OwningShade(cycle.Contains(triggerId));
+
+    bool const contractReal = PinnedIsRealPlayerContract(objectNonNull, aiAttached);
+    CensusPlayerView players[2]{};
+    players[0].playerId = casterId;
+    players[0].isRealPlayer = failOpenLie ? true : contractReal;
+    players[1].playerId = 8;
+    players[1].isRealPlayer = apiPresent && !aiAttached ? false : true;
+
+    OneBucketObservation obs = BaseObservation();
+    obs.playerbotsApiPresent = apiPresent;
+    obs.casterIsPlayer = objectNonNull;
+    obs.casterIsRealPlayer = failOpenLie ? true : contractReal;
+    obs.casterId = casterId;
+    obs.shades = shades;
+    obs.shadeCount = 1;
+    obs.players = players;
+    obs.playerCount = 2;
+
+    ScenarioLine line;
+    Publish(line, obs, cycle.triggered.size());
+    return line;
+}
+
+ScenarioLine OwnerScenario(ShadeOwnerView const* shades, std::size_t count, std::size_t ignited)
+{
+    CensusPlayerView players[1]{};
+    players[0].playerId = 7;
+    players[0].isRealPlayer = true;
+    OneBucketObservation obs = BaseObservation();
+    obs.casterIsRealPlayer = true;
+    obs.casterId = 7;
+    obs.shades = shades;
+    obs.shadeCount = count;
+    obs.players = players;
+    obs.playerCount = 1;
+    ScenarioLine line;
+    Publish(line, obs, ignited);
+    return line;
+}
+
+ScenarioLine EarlyReturnScenario(FireCastRequest const& request)
+{
+    constexpr uint64_t triggerId = 99;
+    CycleIgnition cycle;
+    if (FireCastRequestReachesIgnition(request))
+        cycle.NoteCastInitiated(triggerId);
+    ShadeOwnerView shades[1];
+    shades[0] = OwningShade(cycle.Contains(triggerId));
+    return OwnerScenario(shades, 1, cycle.triggered.size());
+}
+
+ScenarioLine RunScenario(char const* name)
+{
+    if (std::strcmp(name, "sole-real") == 0)
+        return ClassifiedThrow("Ada", true, true, false, false);
+    if (std::strcmp(name, "rndbot-account-human") == 0)
+        return ClassifiedThrow("RNDBOT999", true, true, false, false);
+    if (std::strcmp(name, "self-bot") == 0)
+        return ClassifiedThrow("Ada", true, true, true, false);
+    if (std::strcmp(name, "odd-account-bot") == 0)
+        return ClassifiedThrow("HelgaTheFarmer", true, true, true, false);
+    if (std::strcmp(name, "no-header") == 0)
+        return ClassifiedThrow("Ada", false, true, false, true);
+
+    if (std::strcmp(name, "overlap-inactive") == 0)
+    {
+        ShadeOwnerView shades[4];
+        shades[0] = OwningShade(true);
+        shades[1] = OwningShade(false);
+        shades[2] = OwningShade(true);
+        shades[2].alive = false;
+        shades[3] = OwningShade(true);
+        shades[3].ownsTrigger = false;
+        return OwnerScenario(shades, 4, 1);
+    }
+
+    if (std::strcmp(name, "two-active") == 0)
+    {
+        ShadeOwnerView shades[2];
+        shades[0] = OwningShade(true);
+        shades[1] = OwningShade(true);
+        return OwnerScenario(shades, 2, 2);
+    }
+
+    if (std::strcmp(name, "stale-aura") == 0)
+    {
+        CycleIgnition inherited;
+        ShadeOwnerView shades[1];
+        shades[0] = OwningShade(inherited.Contains(99));
+        return OwnerScenario(shades, 1, inherited.triggered.size());
+    }
+
+    if (std::strcmp(name, "empty-triggers") == 0)
+    {
+        FireCastRequest request;
+        request.unlitTriggerCount = 0;
+        request.playerCountBeforeSoloFilter = 1;
+        request.playerCountAfterSoloFilter = 1;
+        request.initial = true;
+        return EarlyReturnScenario(request);
+    }
+
+    if (std::strcmp(name, "empty-players") == 0)
+    {
+        FireCastRequest request;
+        request.unlitTriggerCount = 2;
+        request.playerCountBeforeSoloFilter = 0;
+        request.playerCountAfterSoloFilter = 0;
+        request.initial = true;
+        return EarlyReturnScenario(request);
+    }
+
+    if (std::strcmp(name, "empty-solo-filter") == 0)
+    {
+        FireCastRequest request;
+        request.unlitTriggerCount = 2;
+        request.playerCountBeforeSoloFilter = 4;
+        request.playerCountAfterSoloFilter = 0;
+        request.initial = false;
+        request.rateAllows = true;
+        return EarlyReturnScenario(request);
+    }
+
+    return {};
+}
+
+void ExpectScenario(
+    char const* name,
+    int remove,
+    char const* reason,
+    unsigned living,
+    unsigned active,
+    unsigned ignited)
+{
+    ScenarioLine line = RunScenario(name);
+    CHECK(line.known);
+    CHECK(line.remove == remove);
+    CHECK(std::strcmp(line.reason, reason) == 0);
+    CHECK(line.living == living);
+    CHECK(line.active == active);
+    CHECK(line.ignited == ignited);
+}
+
+void CheckWiringHarness()
+{
+    ExpectScenario("sole-real", 1, "RemoveFireAura", 1, 1, 1);
+    ExpectScenario("rndbot-account-human", 1, "RemoveFireAura", 1, 1, 1);
+    ExpectScenario("self-bot", 0, "BotCaster", 1, 1, 1);
+    ExpectScenario("odd-account-bot", 0, "BotCaster", 1, 1, 1);
+    ExpectScenario("no-header", 0, "PlayerbotsApiUnavailable", 1, 1, 1);
+    ExpectScenario("overlap-inactive", 0, "ShadeCount", 2, 1, 1);
+    ExpectScenario("two-active", 0, "ShadeCount", 2, 2, 2);
+    ExpectScenario("stale-aura", 0, "OwnerNotIgnited", 1, 0, 0);
+    ExpectScenario("empty-triggers", 0, "OwnerNotIgnited", 1, 0, 0);
+    ExpectScenario("empty-players", 0, "OwnerNotIgnited", 1, 0, 0);
+    ExpectScenario("empty-solo-filter", 0, "OwnerNotIgnited", 1, 0, 0);
+
+    ScenarioLine selfBot = RunScenario("self-bot");
+    ScenarioLine oddAccount = RunScenario("odd-account-bot");
+    CHECK(selfBot.remove == oddAccount.remove);
+    CHECK(std::strcmp(selfBot.reason, oddAccount.reason) == 0);
+    CHECK(RunScenario("no-header").reals == 0);
+
+    CycleIgnition cycle;
+    cycle.NoteCastInitiated(99);
+    CHECK(cycle.Contains(99));
+    cycle.Clear();
+    CHECK(!cycle.Contains(99));
+    CHECK(!cycle.Contains(0));
+
+    FireCastRequest blocked;
+    blocked.unlitTriggerCount = 0;
+    blocked.playerCountBeforeSoloFilter = 1;
+    blocked.playerCountAfterSoloFilter = 1;
+    blocked.initial = true;
+    CHECK(!FireCastRequestReachesIgnition(blocked));
+}
+
 int RunSelfCheck()
 {
     CheckParsing();
     CheckArmedRemovesOnlyByDecision();
     CheckNegatives();
     CheckTimings();
+    CheckWiringHarness();
     if (g_failures != 0)
     {
         std::fprintf(stderr, "%d checks failed\n", g_failures);
@@ -472,11 +750,33 @@ OneBucketFacts FactsFromArgs(char** argv)
     facts.oneBucket = static_cast<int32_t>(ReadInt(argv[5]));
     facts.soloEnabled = static_cast<int32_t>(ReadInt(argv[6]));
     facts.casterIsPlayer = ReadInt(argv[7]) != 0;
-    facts.casterIsBot = ReadInt(argv[8]) != 0;
-    facts.casterInCensus = ReadInt(argv[9]) != 0;
-    facts.realPlayersInCensus = static_cast<uint32_t>(ReadInt(argv[10]));
-    facts.activeBurningShadeCount = static_cast<uint32_t>(ReadInt(argv[11]));
+    facts.playerbotsApiPresent = ReadInt(argv[8]) != 0;
+    facts.casterIsRealPlayer = ReadInt(argv[9]) != 0;
+    facts.casterInCensus = ReadInt(argv[10]) != 0;
+    facts.realPlayersInCensus = static_cast<uint32_t>(ReadInt(argv[11]));
+    facts.livingOwnerShadeCount = static_cast<uint32_t>(ReadInt(argv[12]));
+    facts.activeOwnerShadeCount = static_cast<uint32_t>(ReadInt(argv[13]));
     return facts;
+}
+
+int PrintScenario(char const* name)
+{
+    ScenarioLine line = RunScenario(name);
+    if (!line.known)
+    {
+        std::fprintf(stderr, "unknown scenario %s\n", name);
+        return 2;
+    }
+    std::printf(
+        "scenario=%s remove=%d reason=%s living=%u active=%u ignited=%u reals=%u\n",
+        name,
+        line.remove,
+        line.reason,
+        line.living,
+        line.active,
+        line.ignited,
+        line.reals);
+    return 0;
 }
 }
 
@@ -485,7 +785,10 @@ int main(int argc, char** argv)
     if (argc == 1)
         return RunSelfCheck();
 
-    if (argc == 14 && std::strcmp(argv[1], "--decide") == 0)
+    if (argc == 3 && std::strcmp(argv[1], "--scenario") == 0)
+        return PrintScenario(argv[2]);
+
+    if (argc == 16 && std::strcmp(argv[1], "--decide") == 0)
     {
         OneBucketDecision decision = DecideOneBucket(FactsFromArgs(argv + 2));
         std::printf(
@@ -495,20 +798,20 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    if (argc == 18 && std::strcmp(argv[1], "--simulate") == 0)
+    if (argc == 20 && std::strcmp(argv[1], "--simulate") == 0)
     {
         OneBucketFacts facts = FactsFromArgs(argv + 3);
         AuraModel start;
         start.fire = facts.targetHasFireAura;
-        start.amount = static_cast<int32_t>(ReadInt(argv[15]));
-        start.unrelated = ReadInt(argv[16]) != 0;
-        bool child = ReadInt(argv[17]) != 0;
+        start.amount = static_cast<int32_t>(ReadInt(argv[17]));
+        start.unrelated = ReadInt(argv[18]) != 0;
+        bool child = ReadInt(argv[19]) != 0;
         if (!start.fire)
             start.amount = 0;
         PrintSim(Simulate(argv[2], facts, start, child));
         return 0;
     }
 
-    std::fprintf(stderr, "usage: %s [--decide ...] [--simulate timing ...]\n", argv[0]);
+    std::fprintf(stderr, "usage: %s [--decide ...] [--simulate timing ...] [--scenario name]\n", argv[0]);
     return 2;
 }
