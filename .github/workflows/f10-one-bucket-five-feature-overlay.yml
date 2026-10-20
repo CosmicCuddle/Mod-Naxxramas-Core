@@ -1,0 +1,215 @@
+name: F10 one-bucket plus five-feature Worldserver ephemeral overlay
+
+on:
+  push:
+    branches:
+      - ci/f10-one-bucket-five-feature-overlay-2026-10-20
+    paths:
+      - '.github/workflows/f10-one-bucket-five-feature-overlay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f10-one-bucket-five-preview
+  cancel-in-progress: false
+
+jobs:
+  provenance-and-one-worldserver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout pinned Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+
+      - name: Checkout pinned Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+
+      - name: Checkout pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+
+      - name: Checkout immutable previously linked five-feature source
+        uses: actions/checkout@v4
+        with:
+          ref: 146fad73a82729c5cde88e531f59725dff04ee24
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+
+      - name: Checkout independently scoped-pass one-bucket source into a second directory
+        uses: actions/checkout@v4
+        with:
+          ref: 8f45e709195aabcf4d2832b7d838426e82544709
+          path: f10-scoped-review
+          persist-credentials: false
+
+      - name: Verify ALL exact pins and refuse changed inputs
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = 037c01418b5d01506917a3db9b44fd56ac5f965c
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = 146fad73a82729c5cde88e531f59725dff04ee24
+          test "$(git -C f10-scoped-review rev-parse HEAD)" = 8f45e709195aabcf4d2832b7d838426e82544709
+          echo "Five original features = #66 exact SHA; F10 one-bucket donor = #71 independently scoped-source-reviewed SHA."
+          echo "Runner-local copy is NOT GitHub branch merge, PR merge, deployment or final release tree."
+
+      - name: Overlay ONLY F10 implementation in temporary CI workspace
+        run: |
+          set -euo pipefail
+          root=acore/modules/mod-naxxramas-core
+          donor=f10-scoped-review
+          for file in \
+            src/Events/HallowsEndShadeOfTheHorseman.cpp \
+            src/Events/HallowsEndSoloFire.h \
+            src/Events/HallowsEndSoloFireConfig.cpp \
+            tests/f10_s2_one_bucket_policy_tests.cpp \
+            tests/test_f10_hallows_end_one_bucket_s2.py \
+            docs/research/F10-hallows-end-one-bucket-S2.md \
+            .github/workflows/f10-s2-one-bucket.yml
+          do
+            test -s "$root/$file" && test -s "$donor/$file"
+            cp "$donor/$file" "$root/$file"
+            cmp "$root/$file" "$donor/$file"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("acore/modules/mod-naxxramas-core")
+          donor = Path("f10-scoped-review")
+          config_path = root / "conf/mod_naxxramas_core.conf.dist"
+          current = config_path.read_text()
+          config_donor = (donor / "conf/mod_naxxramas_core.conf.dist").read_text()
+          anchor = "NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier = 3"
+          new_option = "NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 0"
+          assert current.count(anchor) == 1 and new_option not in current
+          assert config_donor.count(new_option) == 1
+          # Never copy the other branch's entire config over the proven five.
+          current = current.replace(anchor, anchor + "\n\n"
+            "# One accepted bucket extinguishes the directly struck normal fire.\n"
+            "# EXPERIMENTAL: requires SoloFire.Enabled = 1; default OFF.\n"
+            "# Not approved for install or live use. Default: 0\n" + new_option)
+          config_path.write_text(current)
+          for expected in (
+              "NaxxramasCore.QuestLootProtection.Enabled = 0",
+              "NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0",
+              "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled = 0",
+              "NaxxramasCore.HallowsEnd.SoloFire.Enabled = 0",
+              new_option,
+          ):
+              assert current.count(expected) == 1, expected
+          shade = (root / "src/Events/HallowsEndShadeOfTheHorseman.cpp").read_text()
+          assert "new spell_naxxramas_hallows_end_one_bucket();" in shade
+          assert "RemoveAurasDueToSpell(FireAuraSpellId)" in shade
+          assert "ReadOneBucketCaster" in shade
+          loader = (root / "src/NaxxramasCore_loader.cpp").read_text()
+          assert loader.count("AddHallowsEndShadeOfTheHorsemanScripts();") == 2
+          print("PASS: runtime files exactly donor; legacy five flags remain OFF; new bucket also OFF.")
+          PY
+          git -C "$root" diff --stat
+          echo "TEMPORARY WORKTREE ONLY: no git add, no git commit, no branch merge."
+
+      - name: Run standalone F10 policy model without server or DB
+        run: |
+          set -euo pipefail
+          root=acore/modules/mod-naxxramas-core
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            -I"$root/src/Events" "$root/tests/f10_s2_one_bucket_policy_tests.cpp" \
+            -o /tmp/f10_one_bucket_s4_overlay_policy
+          /tmp/f10_one_bucket_s4_overlay_policy
+
+      - name: Install Linux CMake/Worldserver compile prerequisites
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+
+      - name: Configure exact pinned full Worldserver
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+
+      - name: Confirm CMake sees the new F10 Shade and config reader
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          cmds = json.loads(Path("acore-build/compile_commands.json").read_text())
+          for name in (
+              "/src/Events/HallowsEndShadeOfTheHorseman.cpp",
+              "/src/Events/HallowsEndSoloFireConfig.cpp",
+              "/src/Systems/BotRaidConsumables.cpp",
+              "/src/Systems/QuestLootProtection.cpp",
+              "/src/Systems/EasternPlaguelandsTowerLock.cpp",
+          ):
+              found = [x for x in cmds if x["file"].endswith(name)]
+              assert len(found) == 1, (name, len(found))
+          print("PASS: all five feature systems + one-bucket F10 use the SAME Worldserver CMake source tree.")
+          PY
+
+      - name: Compile and LINK ONE actual pinned Worldserver with F10 one-bucket
+        run: cmake --build acore-build --target worldserver --parallel 2
+
+      - name: Verify source-proven old five plus one-bucket in final binary
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          archive=acore-build/modules/libmodules.a
+          test -s "$binary" && test -x "$binary" && test -s "$archive"
+          nm -C --defined-only "$binary" > /tmp/f10_overlay_worldserver_symbols.txt
+          nm -C --defined-only "$archive" > /tmp/f10_overlay_module_symbols.txt
+          check_symbol() {
+            grep -Fq "$1" /tmp/f10_overlay_worldserver_symbols.txt || {
+              echo "::error::Missing final Worldserver function: $1"; return 1;
+            }
+            grep -Fq "$1" /tmp/f10_overlay_module_symbols.txt || {
+              echo "::error::Missing static module definition: $1"; return 1;
+            }
+            echo "PASS linked binary+archive: $1"
+          }
+          check_binary_string() {
+            grep -aFq -- "$1" "$binary" || {
+              echo "::error::Missing final Worldserver runtime marker: $1"; return 1;
+            }
+            echo "PASS linked binary string: $1"
+          }
+          check_symbol 'NaxxramasHunterAmmo::TopUpHunterAmmo('
+          check_symbol 'AddBotRaidConsumablesScripts()'
+          check_symbol 'AddHallowsEndShadeOfTheHorsemanScripts()'
+          check_symbol 'NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireEnabledSetting()'
+          check_symbol 'NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireMultiplierSetting()'
+          check_symbol 'NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireOneBucketSetting()'
+          check_binary_string 'NaxxramasQuestLootProtection'
+          check_binary_string 'outdoorpvp_naxxramas_ep_lock'
+          check_binary_string 'NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled'
+          check_binary_string 'spell_naxxramas_hallows_end_one_bucket'
+          sha256sum "$binary"
+          echo "PASS: historical 5 source paths + newly reviewed one-bucket registration linked in ONE ephemeral Worldserver."
+          echo "S4 preview ONLY. This is NOT a tagged, merged, deployable or owner-accepted comprehensive candidate."
+
+      - name: Declare limits even when build fails
+        if: always()
+        run: |
+          echo "Historical #66 stays untouched at 146fad73a82729c5cde88e531f59725dff04ee24."
+          echo "F10 #71 stays untouched at 8f45e709195aabcf4d2832b7d838426e82544709."
+          echo "No git merge, database, DBC, config enablement, server launch, live characters, SQL, upload-artifact or deployment."
+          echo "This ephemeral CI copy cannot authorize owner gameplay or establish the complete A01/A02/A03 module."
