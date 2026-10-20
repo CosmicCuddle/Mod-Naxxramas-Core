@@ -1,13 +1,21 @@
 -- Naxxramas Core: hunter pet autocast cache.
--- DO NOT APPLY this file from CI, from this module, or from a worldserver start.
+-- MANUAL INSTALL ONLY. DO NOT APPLY this file from CI, from this module,
+-- or from a worldserver start.
+--
+-- This file is intentionally outside data/sql. At both pinned cores the
+-- character updater discovers modules/<name>/data/sql/* directories whose
+-- names contain "characters" and FillFileListRecursively walks them to
+-- depth 10. A copy under any data/sql/*characters* path would be eligible
+-- for ApplyUpdateFile when Updates.Character is on. Do not move it there.
+--
 -- The owner must approve it and back up the characters database before install.
 -- Installing it does not read or rewrite pet_spell, and it does not turn any
 -- existing pet ability on. There is no one-time migration.
 --
 -- This replaces the first draft shape (owner_guid, pet_number, spell_first,
 -- active). Do not apply that shape. The module probes information_schema for
--- these seven columns and, if they are absent, does not default-on and does
--- not write.
+-- these seven columns and, if the probe fails or they are absent, does not
+-- default-on and does not write.
 --
 -- AzerothCore stores the saved book in characters.pet_spell (guid = pet
 -- number, spell, active). Ownership is characters.character_pet.owner and
@@ -21,7 +29,8 @@
 -- id out again. Abandon deletes the character_pet row and this module's
 -- orphan delete drops cache rows whose number is gone. A number that comes
 -- back with a different entry or create spell deletes the old cache. A
--- matching entry with a different savetime is not applied.
+-- matching entry with a different savetime is not applied. A same-entry
+-- recycle whose savetime was rebound to the new row cannot be told apart.
 
 CREATE TABLE IF NOT EXISTS `mod_naxxramas_hunter_pet_autocast` (
     `owner_guid` INT UNSIGNED NOT NULL COMMENT 'Player GUID counter, character_pet.owner',

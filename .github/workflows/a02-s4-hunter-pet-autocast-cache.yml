@@ -9,7 +9,7 @@ on:
       - 'src/Systems/HunterPetAutocastCache.h'
       - 'src/NaxxramasCore_loader.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
-      - 'data/sql/db-characters/2026_10_20_00_hunter_pet_autocast_cache.sql'
+      - 'docs/install/manual_hunter_pet_autocast_cache.sql'
       - 'tests/a02_s4_hunter_pet_autocast_cache_policy_tests.cpp'
       - 'tests/test_a02_s4_hunter_pet_autocast_cache.py'
       - 'docs/research/a02-s4-hunter-pet-autocast-cache.md'
@@ -83,7 +83,14 @@ jobs:
           test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           grep -Fqx 'NaxxramasCore.HunterPet.AutocastCache.Enabled = 0' \
             acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
-          test -f acore/modules/mod-naxxramas-core/data/sql/db-characters/2026_10_20_00_hunter_pet_autocast_cache.sql
+          grep -Fqx 'NaxxramasCore.HunterPet.AutocastCache.RestoreUtility = 0' \
+            acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          test -f acore/modules/mod-naxxramas-core/docs/install/manual_hunter_pet_autocast_cache.sql
+          if grep -R -l -F --include='*.sql' 'mod_naxxramas_hunter_pet_autocast' \
+            acore/modules/mod-naxxramas-core/data/sql; then
+            echo "cache SQL must not live under data/sql"
+            exit 1
+          fi
       - name: Install the native compiler prerequisites
         run: |
           sudo apt-get update

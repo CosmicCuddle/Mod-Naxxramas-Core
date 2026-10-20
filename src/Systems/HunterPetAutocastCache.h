@@ -10,6 +10,8 @@
  * is read only after _LoadSpells, from characters.pet_spell once
  * character_pet proves a single owner row. The charm bar is not that book.
  * A fixed 3000ms wait is not the ordering proof. See AdvanceOrder.
+ * The snapshot is applied once. Utility stays out of that apply unless
+ * RestoreUtility is 1, and a new utility chain is never defaulted on.
  *
  * State lives on the pet. This header has no process-global pet map.
  */
@@ -34,7 +36,10 @@ inline constexpr char const* DamageSpellIdsKey = "NaxxramasCore.HunterPet.Autoca
 inline constexpr char const* UtilitySpellIdsKey = "NaxxramasCore.HunterPet.AutocastCache.UtilitySpellIds";
 inline constexpr char const* OptionalSpellIdsKey = "NaxxramasCore.HunterPet.AutocastCache.OptionalSpellIds";
 inline constexpr char const* DefaultOptionalSpellIdsRaw = "";
+inline constexpr char const* RestoreUtilityKey = "NaxxramasCore.HunterPet.AutocastCache.RestoreUtility";
+inline constexpr char const* DefaultRestoreUtilityRaw = "0";
 inline constexpr char const* CacheTableName = "mod_naxxramas_hunter_pet_autocast";
+inline constexpr char const* ManualCacheSqlPath = "docs/install/manual_hunter_pet_autocast_cache.sql";
 
 inline constexpr char const* PinnedCoreOldSha = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7";
 inline constexpr char const* PinnedCoreNewSha = "8daffdabe9202c228e45d833c9a1d399597a15cd";
@@ -46,6 +51,9 @@ inline constexpr char const* PinnedIndividualProgressionSha = "4ff4b5fcc1480348f
  * Pet::Update returns before WorldObject::Update. The normal cover is one
  * millisecond past that first 200ms delay. The 2200ms cover is only for a
  * load where something already pumped pet events.
+ * The snapshot is applied once, on the first tick at or after that cover,
+ * and never again. A click inside the cover has no module-visible
+ * accepted-choice source. Packet-before-handler inference is not one.
  */
 inline constexpr uint32_t IpEventDelayMs = 200;
 inline constexpr uint8_t IpLoadingAttemptCap = 10;
@@ -55,10 +63,12 @@ inline constexpr uint32_t CoverTickMs = 50;
 inline constexpr uint32_t SameUpdateGuardMs = 1;
 inline constexpr uint32_t NormalCoverMs = IpEventDelayMs + SameUpdateGuardMs;
 inline constexpr uint32_t ExpectedCacheColumnCount = 7;
+inline constexpr uint32_t MaxApplies = 1;
 
 static_assert(IpWorstCaseMs == 2200u, "IP load retries end at 2200ms");
 static_assert(NormalCoverMs == 201u, "normal cover is the IP delay plus one millisecond");
 static_assert(SameUpdateGuardMs >= 1u, "a requeue of 0 would run again in this Update");
+static_assert(MaxApplies == 1u, "the snapshot is applied once");
 
 /* First ranks. Names were read from Wowhead WotLK tooltips on 2026-10-20.
  * Chains were read from AzerothCore spell_ranks (same ids the 3.3.5 client uses).
@@ -284,17 +294,21 @@ struct SnapshotResult
     std::map<uint32_t, bool> chains;
 };
 
-/* Drop utility, removed, and non-autocast rows. One chain: ON if any
- * remaining row is ON.
+/* Drop removed and non-autocast rows. Utility is dropped unless
+ * restoreUtility is set. One chain: ON if any remaining row is ON.
+ * Default restoreUtility is false: utility is untouched.
  */
-inline std::map<uint32_t, bool> CollapseChains(std::vector<SourceSpell> const& rows, std::vector<uint32_t> const& utility)
+inline std::map<uint32_t, bool> CollapseChains(
+    std::vector<SourceSpell> const& rows,
+    std::vector<uint32_t> const& utility,
+    bool restoreUtility = false)
 {
     std::map<uint32_t, bool> chains;
     for (SourceSpell const& row : rows)
     {
         if (row.chainFirst == 0 || row.removed || !row.autocastable)
             continue;
-        if (ContainsId(utility, row.chainFirst))
+        if (ContainsId(utility, row.chainFirst) && !restoreUtility)
             continue;
         auto found = chains.find(row.chainFirst);
         if (found == chains.end())
@@ -319,6 +333,79 @@ enum class DatabaseRead : uint8_t
     Ok,
     Failed
 };
+
+/* Pinned Query() returns nullptr both when mysql_query fails and when the
+ * statement succeeds with zero rows (MySQLConnection::_Query,
+ * DatabaseWorkerPool::Query). A null result is never a verified empty read.
+ * COUNT(*) is one row when the statement succeeds, including a count of 0.
+ */
+struct CountRead
+{
+    DatabaseRead status = DatabaseRead::Failed;
+    bool verifiedEmpty = false;
+    uint64_t count = 0;
+};
+
+inline CountRead InterpretCountQuery(bool hasRow, uint64_t count)
+{
+    CountRead read;
+    if (!hasRow)
+        return read;
+    read.status = DatabaseRead::Ok;
+    read.count = count;
+    read.verifiedEmpty = count == 0;
+    return read;
+}
+
+inline constexpr bool NullQueryResultIsVerifiedEmpty()
+{
+    return false;
+}
+
+enum class SchemaProbe : uint8_t
+{
+    Unknown = 0,
+    Present,
+    Absent
+};
+
+inline SchemaProbe InterpretSchemaCount(bool hasRow, uint64_t matchingColumns)
+{
+    if (!hasRow)
+        return SchemaProbe::Unknown;
+    if (matchingColumns == ExpectedCacheColumnCount)
+        return SchemaProbe::Present;
+    return SchemaProbe::Absent;
+}
+
+/* CommitTransaction is void and only enqueues. DirectCommitTransaction is
+ * void and does not return ExecuteTransaction's error code. The module-only
+ * success signal is AsyncCommitTransaction's TransactionCallback bool.
+ */
+inline constexpr bool VoidCommitTransactionIsSuccessSignal()
+{
+    return false;
+}
+
+inline constexpr bool DirectCommitExposesErrorCode()
+{
+    return false;
+}
+
+inline constexpr bool AsyncCommitCallbackBoolIsSuccessSignal()
+{
+    return true;
+}
+
+inline constexpr bool MarkWriteVerified(bool callbackInvoked, bool callbackSuccess)
+{
+    return callbackInvoked && callbackSuccess;
+}
+
+inline constexpr bool MarkSavetimeRebound(bool callbackInvoked, bool callbackSuccess)
+{
+    return callbackInvoked && callbackSuccess;
+}
 
 struct OwnerProof
 {
@@ -367,25 +454,30 @@ inline std::vector<SourceSpell> CacheAsSpells(std::vector<StoredCacheRow> const&
 
 /* Cache bits are used only when every stored row names this character_pet
  * life: one owner row, the same creature entry, the same create spell, and
- * the savetime we last bound. A miss fails closed onto pet_spell, or onto
- * nothing when that read is not Ok. The charm bar is not an input.
- * Default-on requires a probed cache table. A missing or failed table does
- * not mean every live damage chain is new.
+ * the savetime we last bound. A failed count is not an empty read: no pet
+ * changes and no default-on. A verified miss falls through to a verified
+ * pet_spell read. The charm bar is not an input.
+ * Default-on requires a present table and a verified cache read. Utility
+ * rows enter the snapshot only when restoreUtility is true.
  */
 inline LoadDecision DecideLoad(
-    bool cacheTablePresent,
+    SchemaProbe schema,
     DatabaseRead cacheRead,
     std::vector<StoredCacheRow> const& cache,
     DatabaseRead petSpellRead,
     std::vector<SourceSpell> const& petSpell,
     OwnerProof const& owner,
     bool bornThisSession,
-    std::vector<uint32_t> const& utility)
+    std::vector<uint32_t> const& utility,
+    bool restoreUtility = false)
 {
     LoadDecision decision;
+    if (schema == SchemaProbe::Unknown)
+        return decision;
+
     if (owner.lookup != OwnerLookup::Unique || owner.creatureEntry == 0)
     {
-        decision.deleteStoredCache = owner.lookup == OwnerLookup::Absent && !cache.empty();
+        decision.deleteStoredCache = schema == SchemaProbe::Present && owner.lookup == OwnerLookup::Absent && !cache.empty();
         return decision;
     }
 
@@ -393,7 +485,10 @@ inline LoadDecision DecideLoad(
     decision.createdBySpell = owner.createdBySpell;
     decision.seenSavetime = owner.savetime;
 
-    bool const cacheReadable = cacheTablePresent && cacheRead == DatabaseRead::Ok;
+    if (schema == SchemaProbe::Present && cacheRead != DatabaseRead::Ok)
+        return decision;
+
+    bool const cacheReadable = schema == SchemaProbe::Present && cacheRead == DatabaseRead::Ok;
     if (cacheReadable && !cache.empty())
     {
         bool sameLife = true;
@@ -409,7 +504,7 @@ inline LoadDecision DecideLoad(
             decision.deleteStoredCache = bornThisSession;
         else
         {
-            decision.chains = CollapseChains(CacheAsSpells(cache), utility);
+            decision.chains = CollapseChains(CacheAsSpells(cache), utility, restoreUtility);
             decision.origin = SnapshotOrigin::ModuleCache;
             decision.allowDefaultOn = true;
             decision.writeAllowed = true;
@@ -428,7 +523,7 @@ inline LoadDecision DecideLoad(
     if (petSpellRead != DatabaseRead::Ok)
         return decision;
 
-    decision.chains = CollapseChains(petSpell, utility);
+    decision.chains = CollapseChains(petSpell, utility, restoreUtility);
     decision.origin = decision.chains.empty() ? SnapshotOrigin::EmptySaved : SnapshotOrigin::PetSpell;
     decision.allowDefaultOn = cacheReadable;
     decision.writeAllowed = cacheReadable;
@@ -459,9 +554,12 @@ inline std::vector<uint32_t> OrphanPetNumbers(
  * IP may already have stored ACT_DISABLED there. Load decisions use
  * DecideLoad, which does not call this.
  */
-inline std::map<uint32_t, bool> CollapseLiveBook(std::vector<SourceSpell> const& book, std::vector<uint32_t> const& utility)
+inline std::map<uint32_t, bool> CollapseLiveBook(
+    std::vector<SourceSpell> const& book,
+    std::vector<uint32_t> const& utility,
+    bool restoreUtility = false)
 {
-    return CollapseChains(book, utility);
+    return CollapseChains(book, utility, restoreUtility);
 }
 
 enum class ApplyKind : uint8_t
@@ -483,16 +581,33 @@ struct ChainLists
     std::vector<uint32_t> damage;
     std::vector<uint32_t> utility;
     std::vector<uint32_t> optionalOn;
+    bool restoreUtility = false;
 };
 
-inline bool IsDefaultOnChain(uint32_t chainFirst, ChainLists const& lists)
+inline bool EligibleForDefaultOn(uint32_t chainFirst, ChainLists const& lists)
 {
-    if (ContainsId(lists.utility, chainFirst))
+    if (chainFirst == 0 || ContainsId(lists.utility, chainFirst))
         return false;
     return ContainsId(lists.damage, chainFirst) || ContainsId(lists.optionalOn, chainFirst);
 }
 
-/* Current non-removed autocastable ranks only. Utility is omitted.
+inline bool EligibleForPreferenceRestore(uint32_t chainFirst, ChainLists const& lists)
+{
+    if (chainFirst == 0)
+        return false;
+    if (ContainsId(lists.utility, chainFirst))
+        return lists.restoreUtility;
+    return true;
+}
+
+inline bool IsDefaultOnChain(uint32_t chainFirst, ChainLists const& lists)
+{
+    return EligibleForDefaultOn(chainFirst, lists);
+}
+
+/* Current non-removed autocastable ranks only. Utility is omitted unless
+ * lists.restoreUtility is set, and then only a chain already in the
+ * snapshot is restored. A utility chain is never eligible for default-on.
  * Snapshot chains are restored to the saved bit. Chains absent from the
  * snapshot are turned on only when they are on the damage allowlist or
  * the optional list. Anything else, including judgement spells left at
@@ -516,7 +631,7 @@ inline std::vector<ApplyAction> PlanApply(
     {
         if (row.chainFirst == 0 || row.removed || !row.autocastable)
             continue;
-        if (ContainsId(lists.utility, row.chainFirst))
+        if (!EligibleForPreferenceRestore(row.chainFirst, lists))
             continue;
 
         Current& slot = current[row.chainFirst];
@@ -539,7 +654,7 @@ inline std::vector<ApplyAction> PlanApply(
         ApplyKind kind = ApplyKind::Restore;
         if (saved != snapshot.end())
             desiredOn = saved->second;
-        else if (allowDefaultOn && IsDefaultOnChain(chain, lists))
+        else if (allowDefaultOn && EligibleForDefaultOn(chain, lists))
         {
             desiredOn = true;
             kind = ApplyKind::DefaultOn;
@@ -578,19 +693,22 @@ inline std::map<uint32_t, bool> VerifiedCacheRows(
     {
         if (row.chainFirst == 0 || row.removed || !row.autocastable)
             continue;
-        if (ContainsId(lists.utility, row.chainFirst))
+        if (!EligibleForPreferenceRestore(row.chainFirst, lists))
             continue;
         if (snapshot.find(row.chainFirst) != snapshot.end())
             continue;
-        if (allowDefaultOn && IsDefaultOnChain(row.chainFirst, lists))
+        if (allowDefaultOn && EligibleForDefaultOn(row.chainFirst, lists))
             rows[row.chainFirst] = true;
     }
     return rows;
 }
 
-inline std::map<uint32_t, bool> PlayerToggleRows(std::vector<SourceSpell> const& book, std::vector<uint32_t> const& utility)
+inline std::map<uint32_t, bool> PlayerToggleRows(
+    std::vector<SourceSpell> const& book,
+    std::vector<uint32_t> const& utility,
+    bool restoreUtility = false)
 {
-    return CollapseChains(book, utility);
+    return CollapseChains(book, utility, restoreUtility);
 }
 
 enum class WriteCause : uint8_t
@@ -641,7 +759,7 @@ inline std::vector<ReconcileTarget> PlanReconcile(
     {
         if (row.chainFirst == 0 || row.removed || !row.autocastable)
             continue;
-        if (ContainsId(lists.utility, row.chainFirst))
+        if (!EligibleForPreferenceRestore(row.chainFirst, lists))
             continue;
         Current& slot = current[row.chainFirst];
         if (slot.spellId == 0 || row.autocastOn)
@@ -661,7 +779,7 @@ inline std::vector<ReconcileTarget> PlanReconcile(
             desiredOn = saved->second;
             owned = true;
         }
-        else if (allowDefaultOn && IsDefaultOnChain(entry.first, lists))
+        else if (allowDefaultOn && EligibleForDefaultOn(entry.first, lists))
         {
             desiredOn = true;
             owned = true;
@@ -782,15 +900,20 @@ struct OrderStep
  * loaded execution snapshots and requeues by at least 1ms, so that step
  * cannot apply in the same EventProcessor::Update as an IP event that is
  * already due (those still sit later in the multimap). Later executions
- * apply until event time passes the cover. No load pumps: cover is 201ms
+ * wait. The snapshot is applied once, on the first tick at or after the
+ * cover, and the order is then finished. No load pumps: cover is 201ms
  * after the snapshot tick, which is after IP's original +200. Any load
  * pump: IP may have retried, so the cover is the full 2200ms budget.
+ * There is no second apply. OnPlayerSave does not apply.
  */
 inline OrderStep AdvanceOrder(OrderState& state, bool beingLoaded, uint64_t eventTime)
 {
     OrderStep step;
-    if (state.finished)
+    if (state.finished || state.applies >= MaxApplies)
+    {
+        state.finished = true;
         return step;
+    }
     if (beingLoaded)
     {
         state.loadPumps += 1u;
@@ -809,15 +932,16 @@ inline OrderStep AdvanceOrder(OrderState& state, bool beingLoaded, uint64_t even
     }
 
     uint64_t const cover = state.loadPumps > 0 ? static_cast<uint64_t>(IpWorstCaseMs) : static_cast<uint64_t>(NormalCoverMs);
-    step.apply = true;
-    state.applies += 1u;
-    if (eventTime >= state.snapshotEventTime + cover)
+    if (eventTime < state.snapshotEventTime + cover)
     {
-        state.finished = true;
+        step.requeue = true;
+        step.delayMs = CoverTickMs;
         return step;
     }
-    step.requeue = true;
-    step.delayMs = CoverTickMs;
+
+    step.apply = true;
+    state.applies += 1u;
+    state.finished = true;
     return step;
 }
 
@@ -878,5 +1002,109 @@ inline bool PumpIpWhileLoading(IpRetry& ip, bool beingLoaded)
 inline bool ScheduleReplacesOpenSnapshot()
 {
     return false;
+}
+
+inline constexpr bool PacketBeforeHandlerIsAcceptedChoice()
+{
+    return false;
+}
+
+inline constexpr bool MayApplyFromPlayerSave()
+{
+    return false;
+}
+
+inline constexpr bool MayPersistChoiceBeforeSingleApply(uint32_t applies)
+{
+    return applies >= MaxApplies;
+}
+
+/* RemovePet calls SavePetToDB with no module hook in front of it.
+ * A dismiss before the single apply is not preserved by this module.
+ */
+inline constexpr bool DismissBeforeApplyPreservesChoice()
+{
+    return false;
+}
+
+/* Owner + pet number + entry + create spell + savetime. After a verified
+ * savetime rebind, a later life with that same tuple cannot be told apart
+ * from this one without a column on character_pet.
+ */
+inline constexpr bool SameEntryRecycleAfterSavetimeRebindIsIndistinguishable()
+{
+    return true;
+}
+
+struct CoverClickResult
+{
+    bool singleApplyUsesSnapshot = false;
+    bool clickPreserved = false;
+    bool blockedModuleOnly = false;
+};
+
+inline CoverClickResult ClickDuringCoverBeforeApply()
+{
+    CoverClickResult result;
+    result.singleApplyUsesSnapshot = true;
+    result.clickPreserved = false;
+    result.blockedModuleOnly = true;
+    return result;
+}
+
+inline CoverClickResult ClickAfterSingleApply(uint32_t applies)
+{
+    CoverClickResult result;
+    result.singleApplyUsesSnapshot = false;
+    result.clickPreserved = applies >= MaxApplies;
+    result.blockedModuleOnly = false;
+    return result;
+}
+
+struct LiveAutocastState
+{
+    std::map<uint32_t, bool> activeBySpell;
+    std::vector<uint32_t> autospells;
+};
+
+/* The C++ apply path toggles only ReconcileTarget::spellId and erases only
+ * StaleAutocastIds of those chains. This is that mutation, with no pet.
+ */
+inline LiveAutocastState ApplyReconcileModel(
+    LiveAutocastState state,
+    std::vector<SourceSpell> const& book,
+    std::vector<ReconcileTarget> const& targets)
+{
+    for (ReconcileTarget const& target : targets)
+    {
+        auto found = state.activeBySpell.find(target.spellId);
+        if (found == state.activeBySpell.end())
+            continue;
+        found->second = target.desiredOn;
+    }
+
+    std::vector<AutocastEntry> autos;
+    for (uint32_t spellId : state.autospells)
+    {
+        AutocastEntry entry;
+        entry.spellId = spellId;
+        for (SourceSpell const& row : book)
+        {
+            if (row.spellId != spellId)
+                continue;
+            entry.chainFirst = row.chainFirst;
+            entry.stillInBook = !row.removed;
+            break;
+        }
+        if (entry.chainFirst != 0)
+            autos.push_back(entry);
+    }
+    for (uint32_t spellId : StaleAutocastIds(autos, targets))
+    {
+        auto found = std::find(state.autospells.begin(), state.autospells.end(), spellId);
+        if (found != state.autospells.end())
+            state.autospells.erase(found);
+    }
+    return state;
 }
 } // namespace NaxxramasCore::HunterPetAutocastCache

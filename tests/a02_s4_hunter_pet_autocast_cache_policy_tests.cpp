@@ -67,6 +67,40 @@ void CheckConfigAndPins()
     CHECK(!CharmBarIsAuthoritativeSavedSpellbook());
     CHECK(!MayTouchDatabase(false));
     CHECK(MayTouchDatabase(true));
+    CHECK(std::strcmp(RestoreUtilityKey, "NaxxramasCore.HunterPet.AutocastCache.RestoreUtility") == 0);
+    CHECK(std::strcmp(DefaultRestoreUtilityRaw, "0") == 0);
+    CHECK(!EnabledFromRaw(DefaultRestoreUtilityRaw));
+    CHECK(std::strcmp(ManualCacheSqlPath, "docs/install/manual_hunter_pet_autocast_cache.sql") == 0);
+    CHECK(!NullQueryResultIsVerifiedEmpty());
+    CHECK(!VoidCommitTransactionIsSuccessSignal());
+    CHECK(!DirectCommitExposesErrorCode());
+    CHECK(AsyncCommitCallbackBoolIsSuccessSignal());
+    CHECK(!MarkWriteVerified(false, true));
+    CHECK(!MarkWriteVerified(true, false));
+    CHECK(MarkWriteVerified(true, true));
+    CHECK(!MarkSavetimeRebound(false, true));
+    CHECK(!MarkSavetimeRebound(true, false));
+    CHECK(MarkSavetimeRebound(true, true));
+    CHECK(!PacketBeforeHandlerIsAcceptedChoice());
+    CHECK(!MayApplyFromPlayerSave());
+    CHECK(!DismissBeforeApplyPreservesChoice());
+    CHECK(!MayPersistChoiceBeforeSingleApply(0));
+    CHECK(MayPersistChoiceBeforeSingleApply(MaxApplies));
+    CHECK(SameEntryRecycleAfterSavetimeRebindIsIndistinguishable());
+    CountRead const failedCount = InterpretCountQuery(false, 0);
+    CHECK(failedCount.status == DatabaseRead::Failed);
+    CHECK(!failedCount.verifiedEmpty);
+    CountRead const emptyCount = InterpretCountQuery(true, 0);
+    CHECK(emptyCount.status == DatabaseRead::Ok);
+    CHECK(emptyCount.verifiedEmpty);
+    CountRead const someCount = InterpretCountQuery(true, 3);
+    CHECK(someCount.status == DatabaseRead::Ok);
+    CHECK(!someCount.verifiedEmpty);
+    CHECK(someCount.count == 3u);
+    CHECK(InterpretSchemaCount(false, 0) == SchemaProbe::Unknown);
+    CHECK(InterpretSchemaCount(true, 0) == SchemaProbe::Absent);
+    CHECK(InterpretSchemaCount(true, 3) == SchemaProbe::Absent);
+    CHECK(InterpretSchemaCount(true, ExpectedCacheColumnCount) == SchemaProbe::Present);
 
     std::vector<uint32_t> const parsedDamage = ParseSpellIds(DefaultDamageSpellIdsRaw);
     std::vector<uint32_t> const parsedUtility = ParseSpellIds(DefaultUtilitySpellIdsRaw);
@@ -137,26 +171,26 @@ void CheckLoadDecisions()
     std::vector<SourceSpell> const charmOnly = { Spell(49966, 49966, true) };
     (void)charmOnly;
 
-    LoadDecision const preferred = DecideLoad(true, DatabaseRead::Ok, { cached }, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
+    LoadDecision const preferred = DecideLoad(SchemaProbe::Present, DatabaseRead::Ok, { cached }, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
     CHECK(preferred.origin == SnapshotOrigin::ModuleCache);
     CHECK(preferred.chains.size() == 1u);
     CHECK(preferred.chains.at(17253));
     CHECK(preferred.allowDefaultOn);
     CHECK(!CharmBarIsAuthoritativeSavedSpellbook());
 
-    LoadDecision const fromPet = DecideLoad(true, DatabaseRead::Ok, {}, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
+    LoadDecision const fromPet = DecideLoad(SchemaProbe::Present, DatabaseRead::Ok, {}, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
     CHECK(fromPet.origin == SnapshotOrigin::PetSpell);
     CHECK(fromPet.chains.at(17253) == false);
     CHECK(fromPet.chains.at(16827) == true);
 
-    LoadDecision const earlyEmpty = DecideLoad(true, DatabaseRead::NotRun, {}, DatabaseRead::NotRun, {}, owner, false, lists.utility);
+    LoadDecision const earlyEmpty = DecideLoad(SchemaProbe::Present, DatabaseRead::NotRun, {}, DatabaseRead::NotRun, {}, owner, false, lists.utility);
     CHECK(earlyEmpty.origin == SnapshotOrigin::Unavailable);
     CHECK(!earlyEmpty.allowDefaultOn);
     CHECK(earlyEmpty.chains.empty());
 
     OwnerProof missing;
     missing.lookup = OwnerLookup::Absent;
-    LoadDecision const abandoned = DecideLoad(true, DatabaseRead::Ok, { cached }, DatabaseRead::Ok, petSpell, missing, false, lists.utility);
+    LoadDecision const abandoned = DecideLoad(SchemaProbe::Present, DatabaseRead::Ok, { cached }, DatabaseRead::Ok, petSpell, missing, false, lists.utility);
     CHECK(abandoned.origin == SnapshotOrigin::Unavailable);
     CHECK(abandoned.deleteStoredCache);
     CHECK(!abandoned.allowDefaultOn);
@@ -164,38 +198,38 @@ void CheckLoadDecisions()
     OwnerProof ambiguous;
     ambiguous.lookup = OwnerLookup::Ambiguous;
     ambiguous.creatureEntry = 42719;
-    LoadDecision const twoRows = DecideLoad(true, DatabaseRead::Ok, { cached }, DatabaseRead::Ok, petSpell, ambiguous, false, lists.utility);
+    LoadDecision const twoRows = DecideLoad(SchemaProbe::Present, DatabaseRead::Ok, { cached }, DatabaseRead::Ok, petSpell, ambiguous, false, lists.utility);
     CHECK(twoRows.origin == SnapshotOrigin::Unavailable);
     CHECK(!twoRows.deleteStoredCache);
     CHECK(!twoRows.allowDefaultOn);
 
     OwnerProof unproven;
-    LoadDecision const failedRead = DecideLoad(true, DatabaseRead::Failed, { cached }, DatabaseRead::Failed, {}, unproven, false, lists.utility);
+    LoadDecision const failedRead = DecideLoad(SchemaProbe::Present, DatabaseRead::Failed, { cached }, DatabaseRead::Failed, {}, unproven, false, lists.utility);
     CHECK(failedRead.origin == SnapshotOrigin::Unavailable);
     CHECK(!failedRead.deleteStoredCache);
     CHECK(!failedRead.allowDefaultOn);
 
     StoredCacheRow otherPet = cached;
     otherPet.creatureEntry = 99;
-    LoadDecision const recycled = DecideLoad(true, DatabaseRead::Ok, { otherPet }, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
+    LoadDecision const recycled = DecideLoad(SchemaProbe::Present, DatabaseRead::Ok, { otherPet }, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
     CHECK(recycled.origin == SnapshotOrigin::PetSpell);
     CHECK(recycled.deleteStoredCache);
     CHECK(recycled.chains.at(17253) == false);
 
     StoredCacheRow staleTime = cached;
     staleTime.seenSavetime = 10;
-    LoadDecision const drifted = DecideLoad(true, DatabaseRead::Ok, { staleTime }, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
+    LoadDecision const drifted = DecideLoad(SchemaProbe::Present, DatabaseRead::Ok, { staleTime }, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
     CHECK(drifted.origin == SnapshotOrigin::PetSpell);
     CHECK(!drifted.deleteStoredCache);
     CHECK(drifted.chains.at(17253) == false);
 
-    LoadDecision const reusedBirth = DecideLoad(true, DatabaseRead::Ok, { staleTime }, DatabaseRead::Ok, petSpell, owner, true, lists.utility);
+    LoadDecision const reusedBirth = DecideLoad(SchemaProbe::Present, DatabaseRead::Ok, { staleTime }, DatabaseRead::Ok, petSpell, owner, true, lists.utility);
     CHECK(reusedBirth.origin == SnapshotOrigin::NewLife);
     CHECK(reusedBirth.deleteStoredCache);
     CHECK(reusedBirth.chains.empty());
     CHECK(reusedBirth.allowDefaultOn);
 
-    LoadDecision const missingTable = DecideLoad(false, DatabaseRead::Failed, {}, DatabaseRead::Ok, { Spell(17253, 17253, false), Spell(16827, 16827, false) }, owner, true, lists.utility);
+    LoadDecision const missingTable = DecideLoad(SchemaProbe::Absent, DatabaseRead::Failed, {}, DatabaseRead::Ok, { Spell(17253, 17253, false), Spell(16827, 16827, false) }, owner, true, lists.utility);
     CHECK(missingTable.origin == SnapshotOrigin::PetSpell);
     CHECK(!missingTable.allowDefaultOn);
     CHECK(!missingTable.writeAllowed);
@@ -211,6 +245,28 @@ void CheckLoadDecisions()
     CHECK(orphans.size() == 1u);
     CHECK(orphans[0] == 6u);
     CHECK(OrphanPetNumbers({ 5 }, { 1 }, false).empty());
+
+    LoadDecision const nullCache = DecideLoad(
+        SchemaProbe::Present, DatabaseRead::Failed, {}, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
+    CHECK(nullCache.origin == SnapshotOrigin::Unavailable);
+    CHECK(nullCache.chains.empty());
+    CHECK(!nullCache.allowDefaultOn);
+    CHECK(!nullCache.writeAllowed);
+    CHECK(!nullCache.deleteStoredCache);
+    CHECK(PlanApply(nullCache.chains, petSpell, lists, nullCache.allowDefaultOn).empty());
+
+    LoadDecision const nullPetSpell = DecideLoad(
+        SchemaProbe::Present, DatabaseRead::Ok, {}, DatabaseRead::Failed, {}, owner, false, lists.utility);
+    CHECK(nullPetSpell.origin == SnapshotOrigin::Unavailable);
+    CHECK(!nullPetSpell.allowDefaultOn);
+    CHECK(!nullPetSpell.writeAllowed);
+
+    LoadDecision const unknownSchema = DecideLoad(
+        SchemaProbe::Unknown, DatabaseRead::Ok, { cached }, DatabaseRead::Ok, petSpell, owner, true, lists.utility);
+    CHECK(unknownSchema.origin == SnapshotOrigin::Unavailable);
+    CHECK(!unknownSchema.allowDefaultOn);
+    CHECK(!unknownSchema.deleteStoredCache);
+    CHECK(unknownSchema.chains.empty());
 }
 
 void CheckPlans()
@@ -334,7 +390,7 @@ void CheckTameDefaultsNewDamageOnly()
         Spell(61684, 61684, false),
         Spell(24604, 24604, false),
     };
-    LoadDecision const born = DecideLoad(true, DatabaseRead::Ok, {}, DatabaseRead::Ok, savedDefaults, owner, true, lists.utility);
+    LoadDecision const born = DecideLoad(SchemaProbe::Present, DatabaseRead::Ok, {}, DatabaseRead::Ok, savedDefaults, owner, true, lists.utility);
     CHECK(born.origin == SnapshotOrigin::NewLife);
     CHECK(born.chains.empty());
     CHECK(born.allowDefaultOn);
@@ -394,21 +450,31 @@ void CheckIdentityAndOrder()
             CHECK(eventTime > loading.snapshotEventTime);
     }
     CHECK(loading.finished);
-    CHECK(loading.applies > 1u);
+    CHECK(loading.applies == MaxApplies);
     CHECK(eventTime >= loading.snapshotEventTime + IpWorstCaseMs);
+    OrderStep const loadAgain = AdvanceOrder(loading, false, eventTime + 1000);
+    CHECK(!loadAgain.apply);
+    CHECK(!loadAgain.requeue);
+    CHECK(loading.applies == MaxApplies);
 
     OrderState fast;
     OrderStep const snap = AdvanceOrder(fast, false, 50);
     CHECK(snap.snapshot);
     CHECK(!snap.apply);
     OrderStep const tooSoon = AdvanceOrder(fast, false, 100);
-    CHECK(tooSoon.apply);
+    CHECK(!tooSoon.apply);
     CHECK(tooSoon.requeue);
     CHECK(!fast.finished);
+    CHECK(fast.applies == 0u);
     OrderStep const afterIp = AdvanceOrder(fast, false, 50 + NormalCoverMs);
     CHECK(afterIp.apply);
     CHECK(fast.finished);
+    CHECK(fast.applies == MaxApplies);
     CHECK(fast.loadPumps == 0u);
+    OrderStep const second = AdvanceOrder(fast, false, 50 + NormalCoverMs + CoverTickMs);
+    CHECK(!second.apply);
+    CHECK(!second.requeue);
+    CHECK(fast.applies == MaxApplies);
 
     std::vector<DueKind> const lag = DueThisTick(1000, { { 0, DueKind::Snapshot }, { 200, DueKind::IpCheck }, { 201, DueKind::Apply } });
     CHECK(lag.size() == 3u);
@@ -465,6 +531,252 @@ void CheckLiveBookKeepsSavedRankChoice()
     decision.writeAllowed = false;
     CHECK(!PlanCacheCommit(decision, afterIp, lists).commit);
 }
+
+void CheckUtilityPreferenceFlag()
+{
+    ChainLists off = Defaults();
+    CHECK(!off.restoreUtility);
+    ChainLists on = off;
+    on.restoreUtility = true;
+
+    std::vector<SourceSpell> const before = {
+        Spell(2649, 2649, true),
+        Spell(1742, 1742, false),
+        Spell(17253, 17253, true),
+    };
+    std::map<uint32_t, bool> const snapOff = CollapseChains(before, off.utility, off.restoreUtility);
+    std::map<uint32_t, bool> const snapOn = CollapseChains(before, on.utility, on.restoreUtility);
+    CHECK(snapOff.find(2649) == snapOff.end());
+    CHECK(snapOff.find(1742) == snapOff.end());
+    CHECK(snapOff.at(17253));
+    CHECK(snapOn.at(2649));
+    CHECK(snapOn.at(1742) == false);
+    CHECK(snapOn.at(17253));
+
+    std::vector<SourceSpell> const after = {
+        Spell(2649, 14927, false),
+        Spell(1742, 1742, true),
+        Spell(61684, 61684, false),
+        Spell(17253, 27050, false),
+    };
+    std::vector<ApplyAction> const untouched = PlanApply(snapOff, after, off, true);
+    for (ApplyAction const& action : untouched)
+    {
+        CHECK(action.chainFirst != 2649u);
+        CHECK(action.chainFirst != 1742u);
+        CHECK(action.chainFirst != 61684u);
+    }
+    std::map<uint32_t, bool> const offRows = VerifiedCacheRows(snapOff, after, off, true);
+    CHECK(offRows.find(2649) == offRows.end());
+    CHECK(offRows.find(1742) == offRows.end());
+    CHECK(offRows.find(61684) == offRows.end());
+    CHECK(PlanReconcile(snapOff, after, off, true).size() >= 1u);
+    for (ReconcileTarget const& target : PlanReconcile(snapOff, after, off, true))
+        CHECK(!ContainsId(off.utility, target.chainFirst));
+
+    std::vector<ApplyAction> const restored = PlanApply(snapOn, after, on, true);
+    bool growlOn = false;
+    bool cowerOff = false;
+    bool dash = false;
+    for (ApplyAction const& action : restored)
+    {
+        CHECK(action.chainFirst != 61684u);
+        if (action.chainFirst == 2649u)
+            growlOn = action.desiredOn && action.kind == ApplyKind::Restore && action.spellId == 14927u;
+        if (action.chainFirst == 1742u)
+            cowerOff = !action.desiredOn && action.kind == ApplyKind::Restore;
+        if (action.chainFirst == 61684u)
+            dash = true;
+    }
+    CHECK(growlOn);
+    CHECK(cowerOff);
+    CHECK(!dash);
+    CHECK(!EligibleForDefaultOn(2649, on));
+    CHECK(EligibleForPreferenceRestore(2649, on));
+    CHECK(!EligibleForPreferenceRestore(2649, off));
+    CHECK(EligibleForDefaultOn(17253, off));
+    std::map<uint32_t, bool> const written = VerifiedCacheRows(snapOn, after, on, true);
+    CHECK(written.at(2649));
+    CHECK(written.at(1742) == false);
+    CHECK(written.find(61684) == written.end());
+    std::vector<ApplyAction> const newUtility = PlanApply({}, { Spell(61684, 61684, false), Spell(2649, 2649, false) }, on, true);
+    CHECK(newUtility.empty());
+    CHECK(PlanApply({}, { Spell(61684, 61684, false) }, off, true).empty());
+}
+
+void CheckReconcileLeavesOtherSpells()
+{
+    ChainLists lists = Defaults();
+    std::map<uint32_t, bool> snapshot;
+    snapshot[17253] = true;
+    std::vector<SourceSpell> const book = {
+        Spell(17253, 27050, false),
+        Spell(17253, 17261, true, true),
+        Spell(2649, 2649, true),
+        Spell(24604, 24604, true),
+        Spell(99901, 99901, true),
+    };
+    std::vector<ReconcileTarget> const targets = PlanReconcile(snapshot, book, lists, true);
+    CHECK(targets.size() == 1u);
+    CHECK(targets[0].chainFirst == 17253u);
+    CHECK(targets[0].spellId == 27050u);
+    CHECK(targets[0].desiredOn);
+
+    LiveAutocastState state;
+    state.activeBySpell[27050] = false;
+    state.activeBySpell[2649] = true;
+    state.activeBySpell[24604] = true;
+    state.activeBySpell[99901] = true;
+    state.autospells = { 17261, 27050, 2649, 24604, 99901 };
+    LiveAutocastState const after = ApplyReconcileModel(state, book, targets);
+    CHECK(after.activeBySpell.at(27050));
+    CHECK(after.activeBySpell.at(2649));
+    CHECK(after.activeBySpell.at(24604));
+    CHECK(after.activeBySpell.at(99901));
+    CHECK(std::find(after.autospells.begin(), after.autospells.end(), 2649u) != after.autospells.end());
+    CHECK(std::find(after.autospells.begin(), after.autospells.end(), 24604u) != after.autospells.end());
+    CHECK(std::find(after.autospells.begin(), after.autospells.end(), 99901u) != after.autospells.end());
+    CHECK(std::find(after.autospells.begin(), after.autospells.end(), 17261u) == after.autospells.end());
+
+    lists.restoreUtility = true;
+    std::map<uint32_t, bool> utilitySnap;
+    utilitySnap[2649] = false;
+    std::vector<ReconcileTarget> const utilityTargets = PlanReconcile(utilitySnap, book, lists, false);
+    bool growl = false;
+    bool other = false;
+    for (ReconcileTarget const& target : utilityTargets)
+    {
+        if (target.chainFirst == 2649u)
+            growl = !target.desiredOn;
+        if (target.chainFirst == 24604u || target.chainFirst == 99901u)
+            other = true;
+    }
+    CHECK(growl);
+    CHECK(!other);
+    LiveAutocastState utilityState = state;
+    LiveAutocastState const utilityAfter = ApplyReconcileModel(utilityState, book, utilityTargets);
+    CHECK(utilityAfter.activeBySpell.at(2649) == false);
+    CHECK(utilityAfter.activeBySpell.at(24604));
+    CHECK(utilityAfter.activeBySpell.at(99901));
+    CHECK(utilityAfter.activeBySpell.at(27050) == false);
+    CHECK(std::find(utilityAfter.autospells.begin(), utilityAfter.autospells.end(), 24604u) != utilityAfter.autospells.end());
+    CHECK(std::find(utilityAfter.autospells.begin(), utilityAfter.autospells.end(), 99901u) != utilityAfter.autospells.end());
+}
+
+void CheckCoverClickDismissAndRelog()
+{
+    CoverClickResult const during = ClickDuringCoverBeforeApply();
+    CHECK(during.singleApplyUsesSnapshot);
+    CHECK(!during.clickPreserved);
+    CHECK(during.blockedModuleOnly);
+
+    OrderState cover;
+    CHECK(AdvanceOrder(cover, false, 1000).snapshot);
+    OrderStep const mid = AdvanceOrder(cover, false, 1000 + 100);
+    CHECK(!mid.apply);
+    CHECK(cover.applies == 0u);
+    CHECK(!MayPersistChoiceBeforeSingleApply(cover.applies));
+    CHECK(!DismissBeforeApplyPreservesChoice());
+    OrderStep const once = AdvanceOrder(cover, false, 1000 + NormalCoverMs);
+    CHECK(once.apply);
+    CHECK(cover.applies == MaxApplies);
+    CHECK(cover.finished);
+    CoverClickResult const after = ClickAfterSingleApply(cover.applies);
+    CHECK(after.clickPreserved);
+    CHECK(!after.singleApplyUsesSnapshot);
+    CHECK(!after.blockedModuleOnly);
+    CHECK(!AdvanceOrder(cover, false, 1000 + NormalCoverMs + 500).apply);
+
+    ChainLists const lists = Defaults();
+    std::map<uint32_t, bool> const snapshot = { { 17253, true } };
+    std::vector<SourceSpell> const clickedOff = { Spell(17253, 27050, false) };
+    std::vector<ApplyAction> const overwrite = PlanApply(snapshot, clickedOff, lists, false);
+    CHECK(overwrite.size() == 1u);
+    CHECK(overwrite[0].desiredOn);
+    CHECK(overwrite[0].kind == ApplyKind::Restore);
+    CHECK(!MayApplyFromPlayerSave());
+
+    OwnerProof owner;
+    owner.lookup = OwnerLookup::Unique;
+    owner.creatureEntry = 42719;
+    owner.createdBySpell = 1515;
+    owner.savetime = 80;
+    StoredCacheRow stale = {};
+    stale.chainFirst = 17253;
+    stale.on = true;
+    stale.creatureEntry = 42719;
+    stale.createdBySpell = 1515;
+    stale.seenSavetime = 50;
+    std::vector<SourceSpell> const savedOff = { Spell(17253, 17253, false) };
+    LoadDecision const dismissed = DecideLoad(
+        SchemaProbe::Present, DatabaseRead::Ok, { stale }, DatabaseRead::Ok, savedOff, owner, false, lists.utility);
+    CHECK(dismissed.origin == SnapshotOrigin::PetSpell);
+    CHECK(dismissed.chains.at(17253) == false);
+    CHECK(!dismissed.deleteStoredCache);
+
+    StoredCacheRow kept = stale;
+    kept.on = false;
+    kept.seenSavetime = 80;
+    LoadDecision const relog = DecideLoad(
+        SchemaProbe::Present, DatabaseRead::Ok, { kept }, DatabaseRead::Ok, { Spell(17253, 17253, true) }, owner, false, lists.utility);
+    CHECK(relog.origin == SnapshotOrigin::ModuleCache);
+    CHECK(relog.chains.at(17253) == false);
+    CHECK(relog.chains.find(2649) == relog.chains.end());
+    std::vector<SourceSpell> const relogBook = { Spell(17253, 27050, true), Spell(2649, 2649, false), Spell(61684, 61684, false) };
+    std::vector<ApplyAction> const relogActions = PlanApply(relog.chains, relogBook, lists, relog.allowDefaultOn);
+    CHECK(relogActions.size() == 1u);
+    CHECK(relogActions[0].chainFirst == 17253u);
+    CHECK(!relogActions[0].desiredOn);
+    for (ApplyAction const& action : relogActions)
+        CHECK(!ContainsId(lists.utility, action.chainFirst));
+}
+
+void CheckSameEntryRecycleFailsClosedWhereItCan()
+{
+    CHECK(SameEntryRecycleAfterSavetimeRebindIsIndistinguishable());
+    ChainLists const lists = Defaults();
+    OwnerProof owner;
+    owner.lookup = OwnerLookup::Unique;
+    owner.creatureEntry = 42719;
+    owner.createdBySpell = 1515;
+    owner.savetime = 90;
+    StoredCacheRow row;
+    row.chainFirst = 17253;
+    row.on = true;
+    row.creatureEntry = 42719;
+    row.createdBySpell = 1515;
+    row.seenSavetime = 90;
+    std::vector<SourceSpell> const petSpell = { Spell(17253, 17253, false) };
+
+    StoredCacheRow otherEntry = row;
+    otherEntry.creatureEntry = 100;
+    LoadDecision const entryMiss = DecideLoad(
+        SchemaProbe::Present, DatabaseRead::Ok, { otherEntry }, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
+    CHECK(entryMiss.deleteStoredCache);
+    CHECK(entryMiss.origin == SnapshotOrigin::PetSpell);
+    CHECK(entryMiss.chains.at(17253) == false);
+
+    StoredCacheRow otherSpell = row;
+    otherSpell.createdBySpell = 9;
+    LoadDecision const spellMiss = DecideLoad(
+        SchemaProbe::Present, DatabaseRead::Ok, { otherSpell }, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
+    CHECK(spellMiss.deleteStoredCache);
+    CHECK(spellMiss.origin != SnapshotOrigin::ModuleCache);
+
+    StoredCacheRow otherTime = row;
+    otherTime.seenSavetime = 10;
+    LoadDecision const timeMiss = DecideLoad(
+        SchemaProbe::Present, DatabaseRead::Ok, { otherTime }, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
+    CHECK(!timeMiss.deleteStoredCache);
+    CHECK(timeMiss.origin == SnapshotOrigin::PetSpell);
+    CHECK(timeMiss.chains.at(17253) == false);
+
+    LoadDecision const collision = DecideLoad(
+        SchemaProbe::Present, DatabaseRead::Ok, { row }, DatabaseRead::Ok, petSpell, owner, false, lists.utility);
+    CHECK(collision.origin == SnapshotOrigin::ModuleCache);
+    CHECK(collision.chains.at(17253));
+    CHECK(!collision.deleteStoredCache);
+}
 } // namespace
 
 int main()
@@ -479,6 +791,10 @@ int main()
     CheckTameDefaultsNewDamageOnly();
     CheckIdentityAndOrder();
     CheckLiveBookKeepsSavedRankChoice();
+    CheckUtilityPreferenceFlag();
+    CheckReconcileLeavesOtherSpells();
+    CheckCoverClickDismissAndRelog();
+    CheckSameEntryRecycleFailsClosedWhereItCan();
 
     if (g_failures != 0)
     {

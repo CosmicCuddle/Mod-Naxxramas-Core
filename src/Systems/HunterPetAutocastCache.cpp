@@ -6,8 +6,14 @@
  * waits until !isBeingLoaded(), then reads character_pet and pet_spell.
  * Cache rows are accepted only for that same character_pet life.
  *
- * The characters table is created by data/sql/db-characters/
- * 2026_10_20_00_hunter_pet_autocast_cache.sql. This file does not apply it.
+ * The characters table is described by docs/install/manual_hunter_pet_autocast_cache.sql.
+ * That file is outside data/sql. This file does not apply it.
+ *
+ * A null QueryResult is not an empty read. COUNT(*) distinguishes a
+ * verified zero from a failed statement. CommitTransaction and
+ * DirectCommitTransaction do not report success to the caller.
+ * AsyncCommitTransaction's callback bool is the only success signal,
+ * and lastWritten / seen_savetime change only when that bool is true.
  */
 
 #include "HunterPetAutocastCache.h"
@@ -40,6 +46,15 @@ using namespace NaxxramasCore::HunterPetAutocastCache;
 
 static_assert(!CharmBarIsAuthoritativeSavedSpellbook(), "charm bar is not the saved spellbook");
 static_assert(!MayTouchDatabase(false), "disabled feature does not touch the database");
+static_assert(!NullQueryResultIsVerifiedEmpty(), "a null QueryResult is not an empty read");
+static_assert(!VoidCommitTransactionIsSuccessSignal(), "void CommitTransaction is not a success signal");
+static_assert(!DirectCommitExposesErrorCode(), "DirectCommitTransaction hides the error code");
+static_assert(AsyncCommitCallbackBoolIsSuccessSignal(), "the async callback bool is the success signal");
+static_assert(!PacketBeforeHandlerIsAcceptedChoice(), "packet-before-handler is not an accepted choice");
+static_assert(!MayApplyFromPlayerSave(), "player save does not reapply the snapshot");
+static_assert(!DismissBeforeApplyPreservesChoice(), "dismiss before the apply does not preserve the choice");
+static_assert(SameEntryRecycleAfterSavetimeRebindIsIndistinguishable(), "same-entry savetime rebind stays indistinguishable");
+static_assert(MaxApplies == 1u, "apply at most once");
 
 std::atomic<bool> FeatureEnabled{ false };
 std::atomic<uint8_t> CacheSchema{ 0 };
@@ -59,8 +74,13 @@ public:
     bool snapshotReady = false;
     bool suppressPlayerSave = false;
     bool needsSavetimeRefresh = false;
+    bool savetimeRefreshSubmitted = false;
+    bool writeVerified = false;
+    bool writeInFlight = false;
+    uint32_t writeEpoch = 0;
     LoadDecision decision;
     std::map<uint32_t, bool> lastWritten;
+    std::map<uint32_t, bool> lastSubmitted;
     ChainLists lists;
     OrderState order;
 };
@@ -131,6 +151,7 @@ ChainLists ListsFromConfig()
     lists.damage = ParseSpellIds(damage.c_str());
     lists.utility = ParseSpellIds(utility.c_str());
     lists.optionalOn = ParseSpellIds(optionalOn.c_str());
+    lists.restoreUtility = sConfigMgr->GetOption<bool>(RestoreUtilityKey, false);
     return lists;
 }
 
@@ -163,31 +184,39 @@ std::vector<SourceSpell> ReadBook(Pet* pet)
     return book;
 }
 
-bool CacheTablePresent()
+SchemaProbe ProbeSchema()
 {
     uint8_t const known = CacheSchema.load(std::memory_order_acquire);
     if (known == 1)
-        return true;
+        return SchemaProbe::Present;
     if (known == 2)
-        return false;
+        return SchemaProbe::Absent;
 
     QueryResult result = CharacterDatabase.Query(
         "SELECT COUNT(*) FROM information_schema.columns "
         "WHERE table_schema = DATABASE() AND table_name = '{}' "
         "AND column_name IN ('owner_guid','pet_number','creature_entry','created_by_spell','seen_savetime','spell_first','active')",
         CacheTableName);
-    bool present = false;
-    if (result)
-        present = result->Fetch()[0].Get<uint64>() == ExpectedCacheColumnCount;
-    CacheSchema.store(present ? 1 : 2, std::memory_order_release);
-    if (!present)
+    uint64_t const count = result ? result->Fetch()[0].Get<uint64>() : 0;
+    SchemaProbe const probe = InterpretSchemaCount(result != nullptr, count);
+    if (probe == SchemaProbe::Present)
+        CacheSchema.store(1, std::memory_order_release);
+    else if (probe == SchemaProbe::Absent)
+        CacheSchema.store(2, std::memory_order_release);
+    if (probe == SchemaProbe::Unknown)
+    {
+        LOG_WARN("module",
+            "Naxxramas Core: hunter pet autocast cache schema probe failed. "
+            "No pet is changed and no new damage chain is turned on.");
+    }
+    else if (probe == SchemaProbe::Absent)
     {
         LOG_WARN("module",
             "Naxxramas Core: hunter pet autocast cache table is missing or is not the revised 7-column shape. "
             "Saved pet_spell bits can still be restored. New damage chains are not turned on, and nothing is written. "
-            "The characters SQL file is not applied by this module.");
+            "The manual characters SQL file is not applied by this module.");
     }
-    return present;
+    return probe;
 }
 
 OwnerProof ReadOwner(uint32_t ownerLow, uint32_t petNumber)
@@ -196,31 +225,37 @@ OwnerProof ReadOwner(uint32_t ownerLow, uint32_t petNumber)
     if (ownerLow == 0 || petNumber == 0)
         return proof;
 
+    QueryResult countResult = CharacterDatabase.Query(
+        "SELECT COUNT(*) FROM `character_pet` WHERE `owner` = {} AND `id` = {}",
+        ownerLow, petNumber);
+    CountRead const counted = InterpretCountQuery(
+        countResult != nullptr, countResult ? countResult->Fetch()[0].Get<uint64>() : 0);
+    if (counted.status != DatabaseRead::Ok)
+        return proof;
+    if (counted.verifiedEmpty)
+    {
+        proof.lookup = OwnerLookup::Absent;
+        return proof;
+    }
+    if (counted.count != 1)
+    {
+        proof.lookup = OwnerLookup::Ambiguous;
+        return proof;
+    }
+
     QueryResult result = CharacterDatabase.Query(
         "SELECT `entry`, `CreatedBySpell`, `savetime` FROM `character_pet` WHERE `owner` = {} AND `id` = {}",
         ownerLow, petNumber);
     if (!result)
         return proof;
 
-    uint32_t rows = 0;
-    do
-    {
-        ++rows;
-        if (rows == 1)
-        {
-            Field* fields = result->Fetch();
-            proof.creatureEntry = fields[0].Get<uint32>();
-            proof.createdBySpell = fields[1].Get<uint32>();
-            proof.savetime = fields[2].Get<uint32>();
-        }
-    } while (result->NextRow());
-
-    if (rows == 1 && proof.creatureEntry != 0)
-        proof.lookup = OwnerLookup::Unique;
-    else if (rows > 1)
-        proof.lookup = OwnerLookup::Ambiguous;
-    else
-        proof.lookup = OwnerLookup::Unproven;
+    Field* fields = result->Fetch();
+    proof.creatureEntry = fields[0].Get<uint32>();
+    proof.createdBySpell = fields[1].Get<uint32>();
+    proof.savetime = fields[2].Get<uint32>();
+    if (proof.creatureEntry == 0)
+        return proof;
+    proof.lookup = OwnerLookup::Unique;
     return proof;
 }
 
@@ -231,13 +266,24 @@ std::vector<StoredCacheRow> ReadCache(uint32_t ownerLow, uint32_t petNumber, Dat
     if (ownerLow == 0 || petNumber == 0)
         return rows;
 
+    QueryResult countResult = CharacterDatabase.Query(
+        "SELECT COUNT(*) FROM `{}` WHERE `owner_guid` = {} AND `pet_number` = {}",
+        CacheTableName, ownerLow, petNumber);
+    CountRead const counted = InterpretCountQuery(
+        countResult != nullptr, countResult ? countResult->Fetch()[0].Get<uint64>() : 0);
+    status = counted.status;
+    if (status != DatabaseRead::Ok || counted.verifiedEmpty)
+        return rows;
+
     QueryResult result = CharacterDatabase.Query(
         "SELECT `spell_first`, `active`, `creature_entry`, `created_by_spell`, `seen_savetime` "
         "FROM `{}` WHERE `owner_guid` = {} AND `pet_number` = {}",
         CacheTableName, ownerLow, petNumber);
-    status = DatabaseRead::Ok;
     if (!result)
+    {
+        status = DatabaseRead::Failed;
         return rows;
+    }
 
     do
     {
@@ -261,11 +307,21 @@ std::vector<SourceSpell> ReadPetSpell(uint32_t petNumber, DatabaseRead& status)
     if (petNumber == 0)
         return rows;
 
+    QueryResult countResult = CharacterDatabase.Query(
+        "SELECT COUNT(*) FROM `pet_spell` WHERE `guid` = {}", petNumber);
+    CountRead const counted = InterpretCountQuery(
+        countResult != nullptr, countResult ? countResult->Fetch()[0].Get<uint64>() : 0);
+    status = counted.status;
+    if (status != DatabaseRead::Ok || counted.verifiedEmpty)
+        return rows;
+
     QueryResult result = CharacterDatabase.Query(
         "SELECT `spell`, `active` FROM `pet_spell` WHERE `guid` = {}", petNumber);
-    status = DatabaseRead::Ok;
     if (!result)
+    {
+        status = DatabaseRead::Failed;
         return rows;
+    }
 
     do
     {
@@ -279,20 +335,29 @@ std::vector<SourceSpell> ReadPetSpell(uint32_t petNumber, DatabaseRead& status)
     return rows;
 }
 
-void DeleteStoredCache(uint32_t ownerLow, uint32_t petNumber)
+void SubmitUnverified(Player* player, CharacterDatabaseTransaction trans)
 {
-    if (ownerLow == 0 || petNumber == 0)
+    if (!player || !player->GetSession())
+        return;
+    player->GetSession()->AddTransactionCallback(CharacterDatabase.AsyncCommitTransaction(trans)).AfterComplete([](bool /*success*/)
+    {
+    });
+}
+
+void DeleteStoredCache(Player* player, uint32_t ownerLow, uint32_t petNumber)
+{
+    if (!player || ownerLow == 0 || petNumber == 0)
         return;
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     trans->Append(
         "DELETE FROM `{}` WHERE `owner_guid` = {} AND `pet_number` = {}",
         CacheTableName, ownerLow, petNumber);
-    CharacterDatabase.CommitTransaction(trans);
+    SubmitUnverified(player, trans);
 }
 
-void DeleteOrphans(uint32_t ownerLow)
+void DeleteOrphans(Player* player, uint32_t ownerLow)
 {
-    if (ownerLow == 0)
+    if (!player || ownerLow == 0)
         return;
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     trans->Append(
@@ -300,13 +365,34 @@ void DeleteOrphans(uint32_t ownerLow)
         "LEFT JOIN `character_pet` p ON p.`id` = c.`pet_number` AND p.`owner` = c.`owner_guid` "
         "WHERE c.`owner_guid` = {} AND p.`id` IS NULL",
         CacheTableName, ownerLow);
-    CharacterDatabase.CommitTransaction(trans);
+    SubmitUnverified(player, trans);
 }
 
-void WriteCache(uint32_t ownerLow, uint32_t petNumber, LoadDecision const& decision, std::map<uint32_t, bool> const& rows)
+void QueueRefreshEvent(Pet* pet, ObjectGuid owner, PetAutocastCacheCycle& cycle);
+
+void PersistDecision(Player* player, PetAutocastCacheCycle& cycle, std::vector<SourceSpell> const& book)
 {
-    if (ownerLow == 0 || petNumber == 0 || decision.creatureEntry == 0)
+    if (!player || !player->GetSession() || !cycle.decision.writeAllowed)
         return;
+    CacheCommit const batch = PlanCacheCommit(cycle.decision, book, cycle.lists);
+    if (!batch.commit)
+        return;
+    if (cycle.writeVerified && batch.rows == cycle.lastWritten)
+        return;
+    if (cycle.writeInFlight && batch.rows == cycle.lastSubmitted)
+        return;
+
+    cycle.lastSubmitted = batch.rows;
+    cycle.writeInFlight = true;
+    cycle.writeVerified = false;
+    uint32_t const epoch = ++cycle.writeEpoch;
+    uint32_t const ownerLow = player->GetGUID().GetCounter();
+    uint32_t const petNumber = cycle.petNumber;
+    LoadDecision const decision = cycle.decision;
+    std::map<uint32_t, bool> const rows = batch.rows;
+    ObjectGuid const owner = player->GetGUID();
+    uint64_t const petGuid = cycle.petGuid;
+    uint32_t const generation = cycle.generation;
 
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     trans->Append(
@@ -320,22 +406,70 @@ void WriteCache(uint32_t ownerLow, uint32_t petNumber, LoadDecision const& decis
             CacheTableName, ownerLow, petNumber, decision.creatureEntry, decision.createdBySpell,
             decision.seenSavetime, entry.first, entry.second ? 1 : 0);
     }
-    CharacterDatabase.CommitTransaction(trans);
+
+    player->GetSession()->AddTransactionCallback(CharacterDatabase.AsyncCommitTransaction(trans)).AfterComplete(
+        [owner, petGuid, generation, epoch, rows](bool success)
+        {
+            Player* found = ObjectAccessor::FindPlayer(owner);
+            Pet* livePet = found ? found->GetPet() : nullptr;
+            if (!livePet || GuidRaw(livePet->GetGUID()) != petGuid)
+                return;
+            PetAutocastCacheCycle* live = livePet->CustomData.Get<PetAutocastCacheCycle>(CycleKey);
+            if (!live || live->generation != generation || live->writeEpoch != epoch)
+                return;
+            live->writeInFlight = false;
+            if (!MarkWriteVerified(true, success))
+                return;
+            live->lastWritten = rows;
+            live->writeVerified = true;
+            live->needsSavetimeRefresh = true;
+            live->savetimeRefreshSubmitted = false;
+            if (!live->pending)
+                QueueRefreshEvent(livePet, owner, *live);
+        });
 }
 
-void RefreshSavetime(uint32_t ownerLow, uint32_t petNumber, LoadDecision const& decision)
+void SubmitSavetimeRefresh(Player* player, PetAutocastCacheCycle& cycle)
 {
-    OwnerProof const proof = ReadOwner(ownerLow, petNumber);
+    if (!player || !player->GetSession() || cycle.savetimeRefreshSubmitted || !cycle.decision.writeAllowed)
+        return;
+
+    uint32_t const ownerLow = player->GetGUID().GetCounter();
+    OwnerProof const proof = ReadOwner(ownerLow, cycle.petNumber);
+    cycle.savetimeRefreshSubmitted = true;
     if (proof.lookup != OwnerLookup::Unique)
         return;
-    if (proof.creatureEntry != decision.creatureEntry || proof.createdBySpell != decision.createdBySpell)
+    if (proof.creatureEntry != cycle.decision.creatureEntry || proof.createdBySpell != cycle.decision.createdBySpell)
         return;
+
+    uint32_t const newSavetime = proof.savetime;
+    ObjectGuid const owner = player->GetGUID();
+    uint64_t const petGuid = cycle.petGuid;
+    uint32_t const generation = cycle.generation;
+    uint32_t const petNumber = cycle.petNumber;
+    uint32_t const creatureEntry = cycle.decision.creatureEntry;
+    uint32_t const createdBySpell = cycle.decision.createdBySpell;
+
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     trans->Append(
         "UPDATE `{}` SET `seen_savetime` = {} "
         "WHERE `owner_guid` = {} AND `pet_number` = {} AND `creature_entry` = {} AND `created_by_spell` = {}",
-        CacheTableName, proof.savetime, ownerLow, petNumber, decision.creatureEntry, decision.createdBySpell);
-    CharacterDatabase.CommitTransaction(trans);
+        CacheTableName, newSavetime, ownerLow, petNumber, creatureEntry, createdBySpell);
+    player->GetSession()->AddTransactionCallback(CharacterDatabase.AsyncCommitTransaction(trans)).AfterComplete(
+        [owner, petGuid, generation, newSavetime](bool success)
+        {
+            if (!MarkSavetimeRebound(true, success))
+                return;
+            Player* found = ObjectAccessor::FindPlayer(owner);
+            Pet* livePet = found ? found->GetPet() : nullptr;
+            if (!livePet || GuidRaw(livePet->GetGUID()) != petGuid)
+                return;
+            PetAutocastCacheCycle* live = livePet->CustomData.Get<PetAutocastCacheCycle>(CycleKey);
+            if (!live || live->generation != generation)
+                return;
+            live->decision.seenSavetime = newSavetime;
+            live->needsSavetimeRefresh = false;
+        });
 }
 
 bool ApplyReconcile(Player* player, Pet* pet, std::vector<ReconcileTarget> const& targets)
@@ -385,17 +519,6 @@ bool ApplyReconcile(Player* player, Pet* pet, std::vector<ReconcileTarget> const
     return changed;
 }
 
-void PersistDecision(Player* player, Pet* pet, PetAutocastCacheCycle& cycle, std::vector<SourceSpell> const& book)
-{
-    if (!cycle.decision.writeAllowed)
-        return;
-    CacheCommit const batch = PlanCacheCommit(cycle.decision, book, cycle.lists);
-    if (!batch.commit || batch.rows == cycle.lastWritten)
-        return;
-    WriteCache(player->GetGUID().GetCounter(), cycle.petNumber, cycle.decision, batch.rows);
-    cycle.lastWritten = batch.rows;
-}
-
 class HunterPetAutocastCacheEvent : public BasicEvent
 {
 public:
@@ -422,8 +545,7 @@ public:
         if (cycle->finished)
         {
             if (cycle->needsSavetimeRefresh && cycle->decision.writeAllowed)
-                RefreshSavetime(player->GetGUID().GetCounter(), cycle->petNumber, cycle->decision);
-            cycle->needsSavetimeRefresh = false;
+                SubmitSavetimeRefresh(player, *cycle);
             return true;
         }
 
@@ -473,22 +595,16 @@ public:
 
         OrderStep const step = AdvanceOrder(cycle->order, pet->isBeingLoaded(), eventTime);
         if (step.snapshot)
-            TakeSnapshot(player, pet, *cycle);
+            TakeSnapshot(player, *cycle);
 
-        if (step.apply && cycle->snapshotReady)
+        if (step.apply && cycle->snapshotReady && cycle->order.applies == MaxApplies)
         {
             std::vector<SourceSpell> const book = ReadBook(pet);
             std::vector<ReconcileTarget> const targets = PlanReconcile(
                 cycle->decision.chains, book, cycle->lists, cycle->decision.allowDefaultOn);
             ApplyReconcile(player, pet, targets);
             if (AllowCacheWrite(WriteCause::VerifiedRestore, true))
-                PersistDecision(player, pet, *cycle, book);
-        }
-
-        if (cycle->needsSavetimeRefresh && !pet->isBeingLoaded() && cycle->decision.writeAllowed)
-        {
-            RefreshSavetime(player->GetGUID().GetCounter(), cycle->petNumber, cycle->decision);
-            cycle->needsSavetimeRefresh = false;
+                PersistDecision(player, *cycle, book);
         }
 
         if (cycle->order.finished || (!step.requeue && !step.snapshot && !step.apply))
@@ -508,34 +624,54 @@ public:
     }
 
 private:
-    static void TakeSnapshot(Player* player, Pet* pet, PetAutocastCacheCycle& cycle)
+    static void TakeSnapshot(Player* player, PetAutocastCacheCycle& cycle)
     {
         uint32_t const ownerLow = player->GetGUID().GetCounter();
-        bool const tablePresent = CacheTablePresent();
+        SchemaProbe const probe = ProbeSchema();
+        if (probe == SchemaProbe::Unknown)
+        {
+            cycle.decision = LoadDecision();
+            cycle.snapshotReady = true;
+            return;
+        }
+
         OwnerProof const owner = ReadOwner(ownerLow, cycle.petNumber);
         DatabaseRead cacheRead = DatabaseRead::NotRun;
         std::vector<StoredCacheRow> cache;
-        if (tablePresent && owner.lookup == OwnerLookup::Unique)
+        if (probe == SchemaProbe::Present && owner.lookup == OwnerLookup::Unique)
             cache = ReadCache(ownerLow, cycle.petNumber, cacheRead);
 
         DatabaseRead petSpellRead = DatabaseRead::NotRun;
         std::vector<SourceSpell> petSpell;
-        if (owner.lookup == OwnerLookup::Unique)
+        bool const cacheFailed = probe == SchemaProbe::Present && cacheRead != DatabaseRead::Ok;
+        if (owner.lookup == OwnerLookup::Unique && !cacheFailed)
             petSpell = ReadPetSpell(cycle.petNumber, petSpellRead);
 
         cycle.decision = DecideLoad(
-            tablePresent, cacheRead, cache, petSpellRead, petSpell, owner, cycle.bornThisSession, cycle.lists.utility);
+            probe, cacheRead, cache, petSpellRead, petSpell, owner, cycle.bornThisSession,
+            cycle.lists.utility, cycle.lists.restoreUtility);
         cycle.snapshotReady = true;
-        if (cycle.decision.deleteStoredCache && tablePresent)
-            DeleteStoredCache(ownerLow, cycle.petNumber);
-        if (tablePresent && owner.lookup == OwnerLookup::Unique)
-            DeleteOrphans(ownerLow);
+        if (probe == SchemaProbe::Present && owner.lookup == OwnerLookup::Absent)
+            DeleteStoredCache(player, ownerLow, cycle.petNumber);
+        else if (cycle.decision.deleteStoredCache && probe == SchemaProbe::Present)
+            DeleteStoredCache(player, ownerLow, cycle.petNumber);
+        if (probe == SchemaProbe::Present && owner.lookup == OwnerLookup::Unique)
+            DeleteOrphans(player, ownerLow);
     }
 
     ObjectGuid _owner;
     uint64_t _petGuid = 0;
     uint32_t _generation = 0;
 };
+
+void QueueRefreshEvent(Pet* pet, ObjectGuid owner, PetAutocastCacheCycle& cycle)
+{
+    if (!pet)
+        return;
+    pet->m_Events.AddEvent(
+        new HunterPetAutocastCacheEvent(owner, cycle.petGuid, cycle.generation),
+        pet->m_Events.CalculateTime(SameUpdateGuardMs));
+}
 
 void QueueEvent(Player* player, Pet* pet, PetAutocastCacheCycle& cycle)
 {
@@ -571,8 +707,13 @@ void QueueWatch(Player* player, Pet* pet)
     cycle->snapshotReady = false;
     cycle->suppressPlayerSave = false;
     cycle->needsSavetimeRefresh = false;
+    cycle->savetimeRefreshSubmitted = false;
+    cycle->writeVerified = false;
+    cycle->writeInFlight = false;
+    cycle->writeEpoch = 0;
     cycle->decision = LoadDecision();
     cycle->lastWritten.clear();
+    cycle->lastSubmitted.clear();
     cycle->lists = ListsFromConfig();
     cycle->order = OrderState();
     QueueEvent(player, pet, *cycle);
@@ -648,7 +789,7 @@ public:
 
     void OnPlayerSave(Player* player) override
     {
-        if (!MayTouchDatabase(IsFeatureEnabled()) || !IsEligibleHumanHunter(player) || !player)
+        if (!MayTouchDatabase(IsFeatureEnabled()) || !player || !IsEligibleHumanHunter(player))
             return;
 
         Pet* pet = player->GetPet();
@@ -660,38 +801,17 @@ public:
             return;
         if (cycle->petNumber == 0 || PetNumberOf(pet) != cycle->petNumber)
             return;
+        if (!MayPersistChoiceBeforeSingleApply(cycle->order.applies))
+            return;
+        if (!AllowCacheWrite(WriteCause::PlayerSave, false) || !cycle->decision.writeAllowed)
+            return;
 
-        bool const restoreActive = cycle->pending && !cycle->finished;
-        std::vector<SourceSpell> const book = ReadBook(pet);
         bool const previousDefault = cycle->decision.allowDefaultOn;
-        if (restoreActive)
-        {
-            std::vector<ReconcileTarget> const targets = PlanReconcile(
-                cycle->decision.chains, book, cycle->lists, cycle->decision.allowDefaultOn);
-            ApplyReconcile(player, pet, targets);
-            if (!AllowCacheWrite(WriteCause::VerifiedRestore, true))
-                return;
-            PersistDecision(player, pet, *cycle, ReadBook(pet));
-        }
-        else
-        {
-            if (!AllowCacheWrite(WriteCause::PlayerSave, false) || !cycle->decision.writeAllowed)
-                return;
-            cycle->decision.chains = PlayerToggleRows(book, cycle->lists.utility);
-            cycle->decision.allowDefaultOn = false;
-            PersistDecision(player, pet, *cycle, book);
-            cycle->decision.allowDefaultOn = previousDefault;
-        }
-        if (cycle->decision.writeAllowed)
-        {
-            cycle->needsSavetimeRefresh = true;
-            if (!cycle->pending)
-            {
-                pet->m_Events.AddEvent(
-                    new HunterPetAutocastCacheEvent(player->GetGUID(), cycle->petGuid, cycle->generation),
-                    pet->m_Events.CalculateTime(SameUpdateGuardMs));
-            }
-        }
+        std::vector<SourceSpell> const book = ReadBook(pet);
+        cycle->decision.chains = PlayerToggleRows(book, cycle->lists.utility, cycle->lists.restoreUtility);
+        cycle->decision.allowDefaultOn = false;
+        PersistDecision(player, *cycle, book);
+        cycle->decision.allowDefaultOn = previousDefault;
     }
 
     void OnPlayerBeforeLogout(Player* player) override

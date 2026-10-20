@@ -278,19 +278,24 @@ NaxxramasCore.HunterPetAutocastRestore.Enabled = 0
 
 # Separate from HunterPetAutocastRestore. Default off. Does nothing until
 # set to 1 only after the owner has backed up the characters database and
-# applied data/sql/db-characters/2026_10_20_00_hunter_pet_autocast_cache.sql.
-# This module does not apply that file. While the seven-column table is
-# absent, an enabled module can still restore characters.pet_spell bits and
-# will not turn new damage chains on.
+# manually applied docs/install/manual_hunter_pet_autocast_cache.sql.
+# This module does not apply that file. It lives outside data/sql, so the
+# character DB updater does not discover it. While the seven-column table is
+# verified absent, an enabled module can still restore characters.pet_spell
+# bits for non-utility chains and will not turn new damage chains on. A
+# failed schema or row count is not treated as absent or empty: no pet
+# changes and no default-on.
 #
 # OnPetAddToWorld runs before _LoadSpells. The hook only queues a pet event.
 # The event does not read the spellbook or the charm bar while the pet is
-# still loading. After load it requires one character_pet row for this owner
-# and pet number, then reads pet_spell. The charm bar is not the saved book.
-# Re-apply follows that event clock: no load-time pumps, cover is 201ms after
-# the snapshot tick (IP's first delay is 200ms). If a load-time pump was
-# observed, cover is IP's full 2200ms retry budget. Utility chains are never
-# written. There is no migration: a saved off bit stays off.
+# still loading. After load it requires one proven character_pet row for this
+# owner and pet number, then reads pet_spell. The charm bar is not the saved
+# book. The snapshot is applied once, after the cover (201ms when no
+# load-time pump was seen, otherwise IP's 2200ms budget). It is not applied
+# again, including from the player save hook. A click during that cover has
+# no accepted-choice source in this module. With RestoreUtility left at 0,
+# utility chains are not read, written, or toggled. There is no migration:
+# a saved off bit stays off. A newly learned utility ability is never turned on.
 #
 # 0 = do nothing, and do not query (default)
 # 1 = queue the event for human hunters
@@ -316,6 +321,16 @@ NaxxramasCore.HunterPet.AutocastCache.DamageSpellIds = "17253,16827,49966,24844,
 # Call of the Wild, Taunt, Thunderstomp (26094), Warp.
 # Default: the utility list below
 NaxxramasCore.HunterPet.AutocastCache.UtilitySpellIds = "2649,1742,61684,23145,61685,24450,26064,53517,53480,53401,53476,53478,55709,53434,53477,26094,35346"
+
+# Separate from Enabled. Default 0, which is the approved behaviour:
+# utility chains are not restored and are not written. Setting this to 1
+# restores an explicit ON or OFF that was already in the pre-reset snapshot.
+# A utility chain that was not in that snapshot is never turned on.
+# This does not record a decision about whether the flag should be enabled.
+# 0 = utility untouched (default)
+# 1 = restore utility bits from the pre-reset snapshot only
+# Default: 0
+NaxxramasCore.HunterPet.AutocastCache.RestoreUtility = 0
 
 # Optional first ranks. Empty by default, so a NEW chain is not turned on.
 # A saved on/off already in the snapshot is still restored.

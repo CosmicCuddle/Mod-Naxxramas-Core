@@ -20,7 +20,9 @@ RESEARCH = (ROOT / "docs/research/a02-s4-hunter-pet-autocast-cache.md").read_tex
 LOADER = (ROOT / "src/NaxxramasCore_loader.cpp").read_text(encoding="utf-8")
 CONF = (ROOT / "conf/mod_naxxramas_core.conf.dist").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github/workflows/a02-s4-hunter-pet-autocast-cache.yml").read_text(encoding="utf-8")
-SQL = (ROOT / "data/sql/db-characters/2026_10_20_00_hunter_pet_autocast_cache.sql").read_text(encoding="utf-8")
+SQL_PATH = ROOT / "docs/install/manual_hunter_pet_autocast_cache.sql"
+SQL = SQL_PATH.read_text(encoding="utf-8")
+TABLE = "mod_naxxramas_hunter_pet_autocast"
 POLICY = ROOT / "tests/a02_s4_hunter_pet_autocast_cache_policy_tests.cpp"
 
 IP_SHA = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
@@ -84,6 +86,9 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
         self.assertIn("NaxxramasCore.HunterPet.AutocastCache.Enabled = 0\n", CONF)
         self.assertNotIn("NaxxramasCore.HunterPet.AutocastCache.Enabled = 1", CONF)
         self.assertIn("NaxxramasCore.HunterPet.AutocastCache.OptionalSpellIds = \"\"", CONF)
+        self.assertIn("NaxxramasCore.HunterPet.AutocastCache.RestoreUtility = 0\n", CONF)
+        self.assertNotIn("NaxxramasCore.HunterPet.AutocastCache.RestoreUtility = 1", CONF)
+        self.assertIn("GetOption<bool>(RestoreUtilityKey, false)", SOURCE)
         self.assertIn('GetOption<bool>(EnabledConfigKey, false)', SOURCE)
         self.assertIn("void AddHunterPetAutocastCacheScripts();", LOADER)
         self.assertEqual(LOADER.count("AddHunterPetAutocastCacheScripts();"), 2)
@@ -110,8 +115,15 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
             "character_pet",
             "information_schema.columns",
             "BeginTransaction",
-            "CommitTransaction",
+            "AsyncCommitTransaction",
+            "AddTransactionCallback",
+            "AfterComplete",
+            "InterpretCountQuery",
+            "InterpretSchemaCount",
+            "MarkWriteVerified",
+            "MarkSavetimeRebound",
             "CacheTableName",
+            "docs/install/manual_hunter_pet_autocast_cache.sql",
             "CharmBarIsAuthoritativeSavedSpellbook",
             "MayTouchDatabase",
         ):
@@ -131,8 +143,18 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
         self.assertNotIn("IndividualProgression.h", SOURCE)
         self.assertNotIn("Playerbots.h", SOURCE)
         self.assertNotIn("CanPacketReceive", SOURCE)
+        self.assertNotIn("CharacterDatabase.CommitTransaction", SOURCE)
+        self.assertNotIn("DirectCommitTransaction(", SOURCE)
+        self.assertNotIn("data/sql/db-characters", SOURCE)
+        self.assertNotIn("data/sql/db-characters", HEADER)
+        save = SOURCE.split("void OnPlayerSave", 1)[1].split("void OnPlayerBeforeLogout", 1)[0]
+        self.assertNotIn("ApplyReconcile", save)
+        self.assertNotIn("PlanReconcile", save)
+        self.assertNotIn("ToggleAutocast", save)
 
-    def test_sql_is_present_and_not_applied(self):
+    def test_sql_is_manual_and_not_applied(self):
+        self.assertTrue(SQL_PATH.is_file())
+        self.assertNotIn("data/sql", SQL_PATH.as_posix())
         self.assertIn("CREATE TABLE IF NOT EXISTS `mod_naxxramas_hunter_pet_autocast`", SQL)
         self.assertIn("`pet_number`", SQL)
         self.assertIn("`creature_entry`", SQL)
@@ -143,14 +165,30 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
         self.assertIn("DO NOT APPLY", SQL)
         self.assertIn("back up", SQL.lower())
         self.assertIn("character_pet", SQL)
+        self.assertIn("data/sql", SQL)
         self.assertNotIn("INSERT INTO `pet_spell`", SQL)
         self.assertNotIn("UPDATE `pet_spell`", SQL)
         for path in (ROOT / "scripts").rglob("*"):
             if not path.is_file():
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
-            if "mod_naxxramas_hunter_pet_autocast" in text:
+            if TABLE in text:
                 self.fail(path.name)
+        sql_root = ROOT / "data" / "sql"
+        self.assertTrue(sql_root.is_dir())
+        for path in sql_root.rglob("*.sql"):
+            text = path.read_text(encoding="utf-8", errors="replace").lower()
+            if TABLE.lower() in text:
+                self.fail(str(path))
+        for path in sql_root.rglob("*"):
+            if not path.is_dir():
+                continue
+            if "characters" not in path.name.lower():
+                continue
+            for nested in path.rglob("*.sql"):
+                text = nested.read_text(encoding="utf-8", errors="replace").lower()
+                if TABLE.lower() in text:
+                    self.fail(str(nested))
 
     def test_workflow_reads_contents_and_pins_both_cores(self):
         self.assertIn("contents: read", WORKFLOW)
@@ -161,6 +199,9 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
         self.assertIn(IP_SHA, WORKFLOW)
         self.assertIn("HunterPetAutocastCache.cpp", WORKFLOW)
         self.assertIn("NaxxramasCore.HunterPet.AutocastCache.Enabled = 0", WORKFLOW)
+        self.assertIn("docs/install/manual_hunter_pet_autocast_cache.sql", WORKFLOW)
+        self.assertNotIn("data/sql/db-characters/2026_10_20_00_hunter_pet_autocast_cache.sql", WORKFLOW)
+        self.assertNotIn("upload-artifact", WORKFLOW)
 
     def test_research_labels_and_boundaries(self):
         for label in ("VERIFIED", "POTENTIAL ISSUE", "UNKNOWN", "NOT TESTED"):
@@ -168,6 +209,12 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
         self.assertIn("default off", RESEARCH.lower())
         self.assertIn("DO NOT APPLY", RESEARCH)
         self.assertIn("no one-time migration", RESEARCH.lower())
+        self.assertNotIn("Michael", RESEARCH)
+        self.assertIn("BLOCKED", RESEARCH)
+        self.assertIn("docs/install/manual_hunter_pet_autocast_cache.sql", RESEARCH)
+        self.assertIn("RestoreUtility", RESEARCH)
+        self.assertIn("eligible_for_preference_restore", RESEARCH.lower())
+        self.assertIn("eligible_for_default_on", RESEARCH.lower())
         self.assertIn("charm bar is not", RESEARCH.lower())
         self.assertIn("OnPetAddToWorld", RESEARCH)
         self.assertIn("Bad Manner", RESEARCH)
@@ -193,6 +240,34 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
         self.assertIn("BadAttitudeFirstRank = 50433", HEADER)
         self.assertIn("Bad Manner has no 3.3.5a spell", HEADER)
         self.assertNotIn("93433", HEADER)
+        self.assertIn("EligibleForPreferenceRestore", HEADER)
+        self.assertIn("EligibleForDefaultOn", HEADER)
+        self.assertIn("MaxApplies = 1", HEADER)
+
+    def test_pinned_updater_would_discover_characters_sql(self):
+        # Source only. The SQL file is not executed.
+        updater_url = (
+            "https://raw.githubusercontent.com/Grimfeather/azerothcore-wotlk/{sha}/"
+            "src/server/database/Updater/UpdateFetcher.cpp"
+        )
+        db_url = (
+            "https://raw.githubusercontent.com/Grimfeather/azerothcore-wotlk/{sha}/"
+            "src/server/database/Updater/DBUpdater.cpp"
+        )
+        texts = []
+        for sha in (CORE_OLD, CORE_NEW):
+            with urllib.request.urlopen(updater_url.format(sha=sha), timeout=60) as response:
+                updater = response.read().decode("utf-8")
+            with urllib.request.urlopen(db_url.format(sha=sha), timeout=60) as response:
+                database = response.read().decode("utf-8")
+            texts.append(updater)
+            self.assertIn("static uint32 const MAX_DEPTH = 10;", updater)
+            self.assertIn("FillFileListRecursively(entry.path, files, entry.state, 1);", updater)
+            self.assertIn('"/modules/" + moduleName + "/data/sql/"', updater)
+            self.assertIn("if (dirName.find(_dbModuleName) == std::string::npos)", updater)
+            self.assertIn("ApplyUpdateFile(availableQuery);", updater)
+            self.assertIn('return "characters";', database)
+        self.assertEqual(texts[0], texts[1])
 
 
 if __name__ == "__main__":
