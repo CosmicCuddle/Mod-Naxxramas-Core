@@ -7,6 +7,7 @@
 - Old Grimfeather/AzerothCore: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7.
 - Prospective newer Grimfeather/AzerothCore: 8daffdabe9202c228e45d833c9a1d399597a15cd.
 - Exact paths: src/server/game/Handlers/PetHandler.cpp, src/server/game/Scripting/ScriptDefines/PetScript.h, src/server/game/Entities/Player/Player.cpp.
+- Additional full-file pinned read-only Git blob identity at BOTH core refs: `PetHandler.cpp` `34f3070074e75cc6a83df3f0d7e74fe8a6fd6043`, `PetScript.h` `f1455f20ca3a83e3fc38f0ba9c7dbff9d2faef46`, and `Player.cpp` `138e7eab4905ec366338a54cc18e6cfe749a3670`. Their identity is checked BEFORE the narrower lexical source analysis and a changed file forces independent re-review. These are content identity fingerprints, not trusted authentication.
 - These source revisions have not been verified against the operator's installed binary.
 
 ## Both accepted ways of changing pet autocast
@@ -21,7 +22,7 @@ Observing a client packet BEFORE a handler validates it does not prove acceptanc
 
 ## Source contract and negative tests
 
-scripts/check_a02_post_accepted_autocast_hooks.py checks both handler bodies, their guards/writes, the currently enumerated PetScript hook surface, both direct lower-level Pet/Charm setters and RemovePet direct-save order in the TWO exact pinned core trees. Full Pet.cpp / CharmInfo.cpp Git blob identity is checked before source-body interpretation. tests/test_a02_post_accepted_autocast_hooks.py provides synthetic missing-handler, changed-validation, new callback inside a low-level setter, changed setter, unknown core/source blob, new PetScript hook, and reordered-dismiss fixtures. Any changed source must fail closed and prompt fresh review.
+scripts/check_a02_post_accepted_autocast_hooks.py checks both handler bodies, their guards/writes, the currently enumerated PetScript hook surface, both direct lower-level Pet/Charm setters and RemovePet direct-save order in the TWO exact pinned core trees. Full Git blob identity for ALL FIVE inspected source files (PetHandler.cpp, PetScript.h, Player.cpp, Pet.cpp, CharmInfo.cpp) is checked before interpreting the narrower method-body/source-shape contract; synthetic unbraced-handler guard, comment-only file drift, unknown core ref and new callback tests fail closed. Calling a lexical helper independently, without the production CLI's prior full-file fingerprint check, is NOT a verified pinned-source conclusion. tests/test_a02_post_accepted_autocast_hooks.py provides synthetic missing-handler, changed-validation, new callback inside a low-level setter, changed setter, unknown core/source blob, new PetScript hook, and reordered-dismiss fixtures. Any changed source must fail closed and prompt fresh review.
 
 A successful run proves the hazard persists at the selected pinned source SHAs, NOT that the Hunter cache is safe. These tests do not compile a Worldserver, execute SQL, replay packets, connect to a DB, change a pet, or perform live gameplay.
 
