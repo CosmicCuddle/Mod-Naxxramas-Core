@@ -15,23 +15,100 @@
  *     AzerothCore: counter > 21
  *     Naxxramas Core: counter > 14
  *
+ * Optional solo fire path (default off):
+ *     With NaxxramasCore.HallowsEnd.SoloFire.Enabled = 1 and exactly
+ *     one real player nearby, bots are omitted from the existing
+ *     CastFires count and a 42074 poll may stretch that aura's next
+ *     interval. Multiplier 1 does not write the timer. A solo poll
+ *     that finds no 42074 effect on a known trigger drops that watch.
+ *     The poll does not cast a splash and does not remove the fire aura.
+ *
  * All other Shade of the Horseman behaviour is preserved
- * from the server's existing Hallow's End script.
+ * from the server's existing Hallow's End script when the option is off,
+ * when no real player is nearby, or when two or more real players are nearby.
  */
 
 #include "CellImpl.h"
+#include "Config.h"
 #include "Containers.h"
 #include "CreatureScript.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "HallowsEndSoloFire.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptedCreature.h"
+#include "SpellAuraEffects.h"
 #include "TaskScheduler.h"
+
+#if __has_include("Playerbots.h")
+#include "Playerbots.h"
+#define NAXXRAMAS_CORE_HALLOWS_SHADE_HAS_PLAYERBOTS 1
+#else
+#define NAXXRAMAS_CORE_HALLOWS_SHADE_HAS_PLAYERBOTS 0
+#endif
 
 #include <algorithm>
 #include <list>
+#include <optional>
+#include <string>
+#include <unordered_map>
 #include <vector>
+
+namespace
+{
+    std::string ReadSoloFireConfigRaw(
+        char const* key,
+        char const* fallback)
+    {
+        return sConfigMgr->GetOption<std::string>(
+            key,
+            fallback,
+            false);
+    }
+
+    int32 ReadHallowsEndSoloFireEnabled()
+    {
+        return NaxxramasCore::HallowsEndSoloFire::EnabledFromRaw(
+            ReadSoloFireConfigRaw(
+                NaxxramasCore::HallowsEndSoloFire::EnabledConfigKey,
+                NaxxramasCore::HallowsEndSoloFire::DefaultEnabledRaw));
+    }
+
+    std::optional<int32> ReadHallowsEndSoloFireMultiplier()
+    {
+        return NaxxramasCore::HallowsEndSoloFire::MultiplierFromRaw(
+            ReadSoloFireConfigRaw(
+                NaxxramasCore::HallowsEndSoloFire::MultiplierConfigKey,
+                NaxxramasCore::HallowsEndSoloFire::DefaultMultiplierRaw));
+    }
+
+    bool IsHallowsEndShadePlayerBot(Player* player)
+    {
+        if (!player)
+            return false;
+
+#if NAXXRAMAS_CORE_HALLOWS_SHADE_HAS_PLAYERBOTS
+        return GET_PLAYERBOT_AI(player) != nullptr;
+#else
+        return false;
+#endif
+    }
+
+    uint32 CountRealHallowsPlayers(
+        std::list<Player*> const& players)
+    {
+        uint32 realPlayers = 0;
+
+        for (Player* player : players)
+        {
+            if (player && !IsHallowsEndShadePlayerBot(player))
+                ++realPlayers;
+        }
+
+        return realPlayers;
+    }
+}
 
 enum NaxxramasHallowsEndShade
 {
@@ -89,6 +166,8 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
     uint32 counter;
 
     GuidList unitList;
+
+    std::unordered_map<ObjectGuid::LowType, NaxxramasCore::HallowsEndSoloFire::WatchState> soloFireWatches;
 
     int32 pos;
 
@@ -195,6 +274,8 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
     {
         playerCount = 0;
 
+        soloFireWatches.clear();
+
         unitList.clear();
 
         std::list<Creature*> temp;
@@ -249,6 +330,8 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
         {
             return;
         }
+
+        PollSoloFires();
 
         switch (events.ExecuteEvent())
         {
@@ -392,6 +475,132 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
         });
     }
 
+    void CollectNearbyHallowsPlayers(
+        std::list<Player*>& players) const
+    {
+        Acore::AnyPlayerInObjectRangeCheck checker(
+            me,
+            60.0f);
+
+        Acore::PlayerListSearcher<
+            Acore::AnyPlayerInObjectRangeCheck>
+            searcher(
+                me,
+                players,
+                checker);
+
+        Cell::VisitObjects(
+            me,
+            searcher,
+            60.0f);
+    }
+
+    bool SoloFirePathActive(
+        std::list<Player*> const& players) const
+    {
+        return NaxxramasCore::HallowsEndSoloFire::SoloPathActive(
+            ReadHallowsEndSoloFireEnabled(),
+            CountRealHallowsPlayers(players));
+    }
+
+    void DisarmSoloFireWatches()
+    {
+        for (auto& entry : soloFireWatches)
+        {
+            entry.second =
+                NaxxramasCore::HallowsEndSoloFire::DisarmWatch(
+                    entry.second);
+        }
+    }
+
+    void PollSoloFires()
+    {
+        if (ReadHallowsEndSoloFireEnabled() != 1)
+        {
+            DisarmSoloFireWatches();
+            return;
+        }
+
+        std::list<Player*> players;
+
+        CollectNearbyHallowsPlayers(players);
+
+        if (!SoloFirePathActive(players))
+        {
+            DisarmSoloFireWatches();
+            return;
+        }
+
+        std::optional<int32> multiplier =
+            ReadHallowsEndSoloFireMultiplier();
+
+        for (ObjectGuid const& guid : unitList)
+        {
+            ObjectGuid::LowType id = guid.GetCounter();
+
+            Unit* trigger = ObjectAccessor::GetUnit(
+                *me,
+                guid);
+
+            bool triggerUsable =
+                trigger &&
+                trigger->GetEntry() == NPC_FIRE_TRIGGER;
+
+            AuraEffect* aura = nullptr;
+
+            if (triggerUsable)
+            {
+                aura = trigger->GetAuraEffect(
+                    NaxxramasCore::HallowsEndSoloFire::FireAuraSpellId,
+                    NaxxramasCore::HallowsEndSoloFire::FireAuraEffectIndex);
+            }
+
+            /*
+             * A missing trigger or a missing 42074 effect drops the
+             * watch. Keeping the old tick and amount would treat the
+             * next aura on this GUID as the same fire.
+             */
+            if (NaxxramasCore::HallowsEndSoloFire::RetentionForObservation(
+                    triggerUsable,
+                    aura != nullptr) !=
+                NaxxramasCore::HallowsEndSoloFire::WatchRetention::Keep)
+            {
+                soloFireWatches.erase(id);
+                continue;
+            }
+
+            NaxxramasCore::HallowsEndSoloFire::WatchState previous;
+            auto found = soloFireWatches.find(id);
+
+            if (found != soloFireWatches.end())
+                previous = found->second;
+
+            NaxxramasCore::HallowsEndSoloFire::PollResult result =
+                NaxxramasCore::HallowsEndSoloFire::PollActiveTrigger(
+                    previous,
+                    multiplier.has_value(),
+                    multiplier.value_or(0),
+                    aura->GetAmount(),
+                    trigger->GetObjectScale(),
+                    aura->GetTickNumber(),
+                    aura->GetAmplitude());
+
+            if (result.scale.writeScale)
+            {
+                trigger->SetObjectScale(
+                    result.scale.scale);
+            }
+
+            if (result.timer.writeTimer)
+            {
+                aura->SetPeriodicTimer(
+                    result.timer.timerValue);
+            }
+
+            soloFireWatches[id] = result.watch;
+        }
+    }
+
     void CastFires(bool initial)
     {
         std::vector<Unit*> tmpList;
@@ -416,21 +625,18 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
 
         std::list<Player*> players;
 
-        Acore::AnyPlayerInObjectRangeCheck checker(
-            me,
-            60.0f);
+        CollectNearbyHallowsPlayers(players);
 
-        Acore::PlayerListSearcher<
-            Acore::AnyPlayerInObjectRangeCheck>
-            searcher(
-                me,
-                players,
-                checker);
+        if (players.empty())
+            return;
 
-        Cell::VisitObjects(
-            me,
-            searcher,
-            60.0f);
+        if (SoloFirePathActive(players))
+        {
+            players.remove_if([](Player* player)
+            {
+                return IsHallowsEndShadePlayerBot(player);
+            });
+        }
 
         if (players.empty())
             return;
