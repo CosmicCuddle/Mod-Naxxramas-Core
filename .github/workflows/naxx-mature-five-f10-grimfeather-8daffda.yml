@@ -10,6 +10,8 @@ on:
       - 'tests/f10_s2_solo_fire_policy_tests.cpp'
       - 'tests/test_f10_hallows_end_solo_fire_s1.py'
       - 'tests/test_f10_hallows_end_solo_fire_s2.py'
+      - 'docs/research/F10-hallows-end-solo-fire-S1.md'
+      - '.github/workflows/f10-s2-source-pin.yml'
       - 'src/Systems/BotRaidConsumables.cpp'
       - 'src/Systems/GreaterFireProtectionOneShot.h'
       - 'conf/mod_naxxramas_core.conf.dist'
@@ -109,6 +111,11 @@ jobs:
           python3 -m unittest discover -s "$root/tests" -p 'test_quest_loot_protection.py' -v
           python3 -m unittest discover -s "$root/tests" -p 'test_hunter_ammo_consumables.py' -v
           python3 -m unittest discover -s "$root/tests" -p 'test_mc_gfpp_one_shot.py' -v
+          # These tests depend on the original F10 S1 research document and
+          # branch-scoped S2 source workflow, now copied unchanged from #52.
+          # Pinned-old-core-only cases may skip here; #56 has separate old/new C++ evidence.
+          python3 -m unittest discover -s "$root/tests" -p 'test_f10_hallows_end_solo_fire_s1.py' -v
+          python3 -m unittest discover -s "$root/tests" -p 'test_f10_hallows_end_solo_fire_s2.py' -v
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -I"$root/src/Systems" "$root/tests/hunter_ammo_selection.cpp" -o /tmp/naxx_mature_hunter_ammo_model
           /tmp/naxx_mature_hunter_ammo_model
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -I"$root/src/Events" "$root/tests/f10_s2_solo_fire_policy_tests.cpp" -o /tmp/naxx_mature_f10_policy
@@ -168,6 +175,9 @@ jobs:
           grep -Fq 'AddHallowsEndShadeOfTheHorsemanScripts()' /tmp/naxx_mature_archive_symbols.txt
           grep -Fq 'AddHallowsEndShadeOfTheHorsemanScripts()' /tmp/naxx_mature_binary_symbols.txt
           grep -aFq 'NaxxramasCore.HallowsEnd.SoloFire.Enabled' "$binary"
+          grep -aFq 'NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier' "$binary"
+          # The symbol already existed before F10; both config strings distinguish
+          # the new optional solo-fire runtime path, not its in-game correctness.
           sha256sum "$binary"
           echo "PASS: Hunter Ammo, Quest Loot, EP, GFPP and corrected F10 retained in ONE linked Worldserver."
       - name: State provisional dependency and no-release boundary
