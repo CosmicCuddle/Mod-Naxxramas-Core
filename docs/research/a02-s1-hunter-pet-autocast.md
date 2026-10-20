@@ -1,8 +1,8 @@
 # A02 S1 — Human Hunter pet autocast persistence
 
-Research only. This document does not implement a fix, does not change Individual Progression, AzerothCore, or Playerbots, and is not an owner decision.
+Research only. This document does not implement a fix, does not change Individual Progression, AzerothCore, or Playerbots, and is not an owner decision. S2 stays blocked pending CS01 and owner direction.
 
-**Headline: NO SAFE MODULE HOOK.** An upstream IP change is indispensable for an atomic preserve of the player's explicit autocast choice. No S2 module code is included.
+**Headline: no safe module-owned synchronous hook is source-proven** at IP's rank unlearn/relearn boundary. Editing IP is only a possible separately owner-approved alternative, and it is not permitted under the module-only rule. No S2 module code is included. Section 5 records a module-only save/restore idea as research. It is **FEASIBLE WITH CAVEATS** and **NOT TESTED**. It is not an implementation, and it does not reopen S2.
 
 | Label | Meaning in this document |
 | --- | --- |
@@ -95,11 +95,17 @@ Inside the callback, still on this pet, the order is:
 - the player has not passed `PROGRESSION_TBC_TIER_5` (`:47`)
 - `player->GetPet()` has a creature family (`:50-67`)
 
-`isBotAccount` is `std::regex_match` of the account name against `IndividualProgression.BotAccountsRegex`, default `^RNDBOT.*` (`IndividualProgression.cpp:351-360`, `:1070`). It is not a Playerbots API call. **VERIFIED** as the gate. **UNKNOWN** whether every non-human account on the owner's server matches that regex. Accounts that do not match are treated as human and are reconciled.
+`isBotAccount` (`IndividualProgression.cpp:351-360`) loads the account name and `std::regex_match`es it against the member `botAccountsRegex`. That member is filled by `sConfigMgr->GetOption("IndividualProgression.BotAccountsRegex", "^RNDBOT.*")` (`IndividualProgression.cpp:1070`). The same default is in `conf/individualProgression.conf.dist:513`. The conf comment says that default excludes randombots, and that any other account is added by changing the expression (`:508-509`). The literal is the config default. It is not hardcoded inside `isBotAccount`, and `isBotAccount` is not a Playerbots API call.
 
-The only caller is `DelayedPetSpellCheck::Execute` (`IndividualProgressionSpells.cpp:1341`). IP's `PetScript` schedules that event from `OnPetAddToWorld` and `OnInitStatsForLevel` (`:1292-1309`), 200 ms out (`:1284-1286`), and its own comment says those hooks run before the async spell load (`:1276`). The event stores the owner GUID, not the pet (`:1315`). On fire it reads `player->GetPet()` again (`:1324`). While `isBeingLoaded()` and the attempt count is below 10, it requeues another 200 ms event (`:1328-1336`). It clears the pending flag before the hunter call (`:1339-1342`), including when the attempt cap is reached and the pet is still loading.
+**Any future exclusion in this module must reuse that configured behaviour.** It must call `isBotAccount`, or match the account name with the same `IndividualProgression.BotAccountsRegex` value IP loaded. It must not paste `^RNDBOT.*` into Naxx Core as a literal, and it must not treat every Playerbots-controlled player as the same kind of account. A random-bot name that matches the default, an altbot, and a bot account the owner named some other way are not equivalent. Accounts that do not match the configured expression fall through `IndividualProgressionSpells.cpp:41` and are reconciled. **VERIFIED** as the gate and the config load. **UNKNOWN** which account names on the owner's server match the live expression.
 
-**VERIFIED:** the normal success path runs only after `m_loading` is false, because the retry waits for that. **POTENTIAL ISSUE:** after 10 attempts (about two seconds) it calls `checkHunterPetSpells` even if loading is still true. That race was not executed. If it won, `addSpell` of a saved higher rank can then copy `active` from the rank IP just defaulted to OFF (`Pet.cpp:1855` overwrites the loaded byte). **NOT TESTED.**
+The only call of `checkHunterPetSpells` in the pinned IP tree is `DelayedPetSpellCheck::Execute` (`IndividualProgressionSpells.cpp:1342`). The declaration is `IndividualProgression.h:430` and the definition is `:36`. IP's `PetScript` schedules that event from `OnPetAddToWorld` and `OnInitStatsForLevel` (`:1292-1309`), at `CalculateTime(200)` on `pet->m_Events` (`:1284-1286`). Its comment says those hooks run before the async spell load (`:1276`), which matches `InitStatsForLevel` at `Pet.cpp:332` and `AddToMap` at `Pet.cpp:410`. `PendingPetSpellCheck` (`IndividualProgressionSpells.cpp:1252-1282`) makes the second hook return without queuing again. That object is stored with `CustomData.GetDefault` (`:1278`). `DataMap::Get` returns it only to a caller that names the stored type (`DataMap.h:29`). The class is not declared in `IndividualProgression.h`. A module cannot read `pending`.
+
+Two timing notes stay separate. Neither one is the rank-migration result below, and neither one has been watched on a server. Both are pending observation.
+
+**POTENTIAL ISSUE (owner GUID).** The event stores the owner GUID, not the pet number (`IndividualProgressionSpells.cpp:1315`). On fire it looks the player up and reads `player->GetPet()` again (`:1321-1324`). The event sits on `pet->m_Events`, so this pet's processor owns the callback, but the spell check uses whatever `GetPet()` returns then. Those can differ. Normal summon refuses to load a second pet while one exists (`Pet.cpp:237`), so this is not the ordinary dismiss-then-summon path. It was **NOT TESTED**. The explicit-ON to default-OFF path does not depend on it.
+
+**POTENTIAL ISSUE (still loading, 10 tries of 200 ms).** While `pet->isBeingLoaded()` and `_attempts < 10`, `Execute` queues another event at `CalculateTime(200)` and returns (`IndividualProgressionSpells.cpp:1328-1336`). `isBeingLoaded()` is `m_loading` (`Pet.h:65`). When the attempt cap is reached it still clears `pending` and calls the hunter check, including if the pet is still loading (`:1338-1342`). `CalculateTime` is `m_time + offset` (`EventProcessor.cpp:159-161`). `m_time` advances only inside `EventProcessor::Update` (`:40-43`). `Pet::Update` returns before `Creature::Update` while `m_loading` is set (`Pet.cpp:659-660`, `:736`). The pump is `WorldObject::Update` (`Object.cpp:1076` at both core SHAs), reached from `Unit::Update` (`Unit.cpp:517` at both) from the alive branch of `Creature::Update` (`Creature.cpp:777`). On that path, `pet->m_Events` does not run during the load flag. Whether any other caller pumps that processor during the async load is **UNKNOWN**. The retry was **NOT TESTED**. If a fire did land while `m_loading` was still true, `addSpell` of a saved higher rank can then copy `active` from the rank IP just defaulted to OFF (`Pet.cpp:1855` overwrites the loaded byte). That race is independent of the owner-GUID note.
 
 ### The lambda discards the old active byte
 
@@ -130,7 +136,7 @@ Dismiss, summon, logout, and relog all use this load path and then this delayed 
 
 Stabled pets are separate `character_pet` rows and separate `pet_spell` rows, keyed by pet number. The lambda closes over the `Pet*` from `GetPet()` at the start of the check and does not iterate the stable. A pet that is not summoned is not rewritten. **VERIFIED.**
 
-The delayed event does not close over that `Pet*`. It looks the current pet up again by owner. **POTENTIAL ISSUE** if the event runs on one pet object while `GetPet()` is another. Normal summon refuses to load a second pet while one exists (`Pet.cpp:237`), so the overlap is not the ordinary dismiss-then-summon path. It was **NOT TESTED**.
+The delayed event does not close over that `Pet*`. The owner-GUID note above is the separate timing issue for that lookup. It is not folded into the still-loading note.
 
 A module that stored a preference on the player, or on the spell family without the pet number, would spill across pets. The native rows do not.
 
@@ -153,7 +159,7 @@ List mismatches, all **VERIFIED** as text and **UNKNOWN** as DBC chains:
 
 ### Playerbots
 
-`TogglePetSpellAutoCastAction::Execute` (`PetsAction.cpp:342-395`) walks every known autocastable pet spell, skips a hard-coded denylist (Prowl, one Cower id, Leap, Spell Lock, Devour Magic, Spirit Wolf Leap), and calls `Pet::ToggleAutocast` when the bot policy disagrees. It does not call `SetSpellAutocast`. IP already returns before the lambda for accounts matching the bot regex, so this research's conclusion does not require a Playerbots change. A module that toggled pets of those accounts would fight this action. Non-matching bot accounts are not protected by the regex. **POTENTIAL ISSUE** for oddly named bot accounts. **NOT TESTED** against the owner's account list.
+`TogglePetSpellAutoCastAction::Execute` (`PetsAction.cpp:342-395`) walks every known autocastable pet spell, skips a hard-coded denylist (Prowl, one Cower id, Leap, Spell Lock, Devour Magic, Spirit Wolf Leap), and calls `Pet::ToggleAutocast` when the bot policy disagrees. It does not call `SetSpellAutocast`. IP already returns before the lambda for accounts `isBotAccount` accepts, so this research's conclusion does not require a Playerbots change. A module that toggled pets of those accounts would fight this action. Accounts that fail the configured regex are not skipped, including a Playerbots account whose name is outside `IndividualProgression.BotAccountsRegex`. That is the bot-exclusion rule above, not a second regex and not a "all Playerbots" switch. **POTENTIAL ISSUE** for bot accounts the configured expression does not match. **NOT TESTED** against the owner's account list.
 
 ## 3. Module hooks that actually exist
 
@@ -174,13 +180,13 @@ List mismatches, all **VERIFIED** as text and **UNKNOWN** as DBC chains:
 
 `m_spells` is a public member (`Pet.h:121`). Public visibility is not a hook. Nothing in `ScriptMgr` runs in the gap between `IndividualProgressionSpells.cpp:86` and `:90`. Those two calls are synchronous. `OnPlayerUpdate`, `OnUnitUpdate`, `OnPlayerSave`, and `OnPlayerBeforeLogout` can run later, on some other turn of the world loop. They are not ordered against the 200 ms event, they do not see the pre-unlearn byte at the moment it is discarded, and using them to call `ToggleAutocast` again is the guessed timer the assignment excludes. A save that lands before the event persists the pre-IP book; IP can then dirty it with no second hook until some later save.
 
-**VERIFIED:** no module-usable hook fires atomically between the rank removal and the rank add. **NO SAFE MODULE HOOK.**
+**VERIFIED:** no module-owned synchronous hook is source-proven between the rank removal and the rank add. The two calls on lines 83-90 are synchronous. A later event is not that boundary.
 
 ## 4. Feasibility
 
-S2, a default-off module that restores the preference, is not available from these hooks. This branch adds no gameplay C++, no config key, and no SQL.
+S2, a default-off module that restores the preference, is not approved from these hooks. This branch adds no gameplay C++, no config key, and no SQL. S2 stays blocked pending CS01 and owner direction.
 
-An upstream change inside the existing lambda is the change that would make IP behave like `Pet::addSpell`'s rank copy. It is described here and was not applied:
+No safe module-owned synchronous hook is source-proven in the unlearn/relearn gap at either pinned core. An edit inside the existing lambda, so IP would copy `active` the way `Pet::addSpell` does, is one possible alternative. The module-only rule does not permit it, and the owner has not approved it. It is described here and was not applied:
 
 1. Keep every current gate, including `isBotAccount`, `VanillaHunterPets`, hunter class, and the TBC tier-5 return.
 2. On the `Pet*` already captured by the lambda, before the unlearn loop, look at listed ids the pet knows other than `keepId`.
@@ -188,25 +194,69 @@ An upstream change inside the existing lambda is the change that would make IP b
 4. If the pet already knows `keepId` and no other listed id is known, do not call `ToggleAutocast`.
 5. If exactly one other known id is the same rank chain as `keepId` (`SpellInfo::IsDifferentRankOf`) and both are `IsAutocastable()`, remember that spell's `active` byte and the bar slot index. Call `ToggleAutocast(old, false)` while the old spell is still known, so `m_autospells` drops the stale id that `removeSpell` leaves behind.
 6. Then run the existing unlearn and the existing conditional learn.
-7. If a new learn happened and a single chain state was captured, apply that byte to `keepId` only, on that same pet: `ToggleAutocast(keep, captured == ACT_ENABLED)` and `CharmInfo::SetSpellAutocast` for the same bool, then `PetSpellInitialize`. `ACT_DISABLED` must be applied on purpose. Matching the default by accident is not the preserve.
+7. If a new learn happened and a single chain state was captured, apply that byte to `keepId` only, on that same pet, then `PetSpellInitialize`. `ToggleAutocast(keep, true)` does write `ACT_ENABLED` when the id is not yet in `m_autospells` (`Pet.cpp:2260-2271`). `ToggleAutocast(keep, false)` does not write `ACT_DISABLED` unless that id is already in `m_autospells` (`Pet.cpp:2274-2285`). A rank `learnSpell` just added is not (`Pet.cpp:1889`). `CharmInfo::SetSpellAutocast` writes the bar type for that exact id (`CharmInfo.cpp:291-297`) and does not write `PetSpell.active`. So an edit that only calls `ToggleAutocast(keep, captured == ACT_ENABLED)` still gets OFF from the learn default. Explicit OFF has to be stored by writing the captured `ACT_DISABLED` byte on purpose. Matching the default by accident is not the preserve.
 8. If more than one unrelated known id would have to donate a state, change nothing about autocast. Do not copy across families, across pets, or onto a rank the player has not trained.
 9. Do not add another delay. Do not re-read `GetPet()` after a yield. A separate, still-upstream fix would make `DelayedPetSpellCheck` no-op when the current pet number is not the pet that queued the event.
 
-That is an IP edit. This module cannot place code inside that lambda. A core hook with the old spell, the new spell, and a synchronous callback between `unlearnSpell` and `learnSpell` does not exist at either pinned SHA, so a module-only S2 would be inventing the hook.
+That description is an IP edit. This module cannot place code inside that lambda, and this task does not. A synchronous module callback with the old spell, the new spell, and a call between `unlearnSpell` and `learnSpell` is not source-proven at either pinned SHA. Section 5 is a different idea: a later save/restore that does not sit in that gap. It is research, **FEASIBLE WITH CAVEATS**, and **NOT TESTED**. It is not S2.
 
-Owner-gated alternatives, none of which this branch does:
+Separately owner-gated alternatives, none of which this branch does:
 
-- A log-only line inside the lambda, printing counts of `ACT_ENABLED` / `ACT_DISABLED` before and after, with no character, pet, or spell id. That is the smallest instrument that can falsify the mechanism, and it is still an IP edit. A module counter on `OnCalculateMaxTalentPointsForLevel` can see only the pre-IP book.
+- A log-only line inside the lambda, printing counts of `ACT_ENABLED` / `ACT_DISABLED` before and after, with no character, pet, or spell id. That can falsify the mechanism, and it is still an IP edit. A module counter on `OnCalculateMaxTalentPointsForLevel` can see only the pre-IP book.
 - The existing read-only packet observer on draft #44, run by the owner on a restorable staging copy, comparing an explicit ON and an explicit OFF across summon and across a real legal-rank change. This research did not run it. **NOT TESTED.**
-- Doing nothing until the owner accepts an IP change. That is the source-safe module position.
+- Leave the preference unrestored until CS01 and the owner direct otherwise. An IP edit is not a required next step of this module. It remains one possible alternative, and only with separate owner approval.
 
-What would falsify the headline: a `ScriptMgr` call, at either pinned SHA, invoked from `Pet::unlearnSpell`, `Pet::learnSpell`, `Pet::addSpell`, `Pet::removeSpell`, or from the IP lambda, with the pet and both spell ids, before `learnSpell` returns. The citation set is the check. A new core commit that added that hook would reopen S2. `8daffda` does not add it (`PetScript.h` hash matches; `PETHOOK_END` is still the next enumerator).
+What would falsify the synchronous-hook headline: a `ScriptMgr` call, at either pinned SHA, invoked from `Pet::unlearnSpell`, `Pet::learnSpell`, `Pet::addSpell`, `Pet::removeSpell`, or from the IP lambda, with the pet and both spell ids, before `learnSpell` returns. The citation set is the check. A new core commit that added that hook would reopen that question. `8daffda` does not add it (`PetScript.h` hash matches; `PETHOOK_END` is still the next enumerator). The section 5 save/restore does not falsify the headline. It runs later, on another event, and it was not executed.
 
-## 5. Base branch
+## 5. Module-only save/restore alternative
+
+Research only. Nothing in this section is implemented, and no C++ was added for it. The idea is the one in issue #48 comment 6289517104. It was checked against core `a66f1be`, core `8daffda` (`Pet.cpp` is byte-identical; the other cited lines were read at both SHAs where the file is not), and IP `4ff4b5f`. Where the note and the pins disagree, the pins win. Label: **FEASIBLE WITH CAVEATS** / **NOT TESTED**. S2 stays blocked pending CS01 and owner direction.
+
+The idea is not a synchronous hook. It would snapshot autocast from `m_spells` before IP's delayed check, then after that check call `Pet::ToggleAutocast`, `CharmInfo::SetSpellAutocast`, and `owner->PetSpellInitialize()` only where the known rank changed. Explicit OFF has to be kept as rigorously as explicit ON. This write-up does not do that work.
+
+### What the pins support
+
+**VERIFIED.** `m_spells` and `m_autospells` are public (`Pet.h:121-122`). `Pet::isBeingLoaded()` returns `m_loading` (`Pet.h:65`). On the hunter load path, `_LoadSpells` runs inside the async callback (`Pet.cpp:435`) and passes `pet_spell.active` to `addSpell` as `PETSPELL_UNCHANGED` (`Pet.cpp:1567`). `LearnPetPassives`, `InitLevelupSpellsForLevel`, `CleanupActionBar`, and `PetSpellInitialize` all run before `m_loading = false` (`Pet.cpp:438-450`, `:496`). A snapshot taken once `!isBeingLoaded()` sees that post-cleanup book. It is not a raw unread of the column. `CleanupActionBar` can already have overwritten `active` from the bar (`Pet.cpp:2036`). That is the same bar-wins **POTENTIAL ISSUE** as section 1.
+
+**VERIFIED.** `Pet::removeSpell` (`Pet.cpp:1976-2024`) does not mention `m_autospells` and does not assign `.active`. A `PETSPELL_NEW` row is erased (`:1985-1986`). Any other row, including a spell loaded as `PETSPELL_UNCHANGED`, is marked `PETSPELL_REMOVED` (`:1988`) and left in the map with the byte it already had. `Pet::HasSpell` treats that row as unknown (`Pet.cpp:2332-2335`). `addSpell`'s rank loop skips `PETSPELL_REMOVED` (`Pet.cpp:1842-1843`), so the following `learnSpell(keepId)` takes `ACT_DECIDE` and stores `ACT_DISABLED` for an autocastable spell (`Pet.cpp:1810-1813`). The old row's `.active` is still the pre-unlearn byte until a save. That is the REMOVED-entry fallback, for a DB-loaded rank. It is not there for a `PETSPELL_NEW` row, because that row is erased. The note's range `1976-2023` stops one line short of `return true` at `:2024`.
+
+**VERIFIED.** `_SaveSpells` deletes every `pet_spell` row for the pet number, then erases each `PETSPELL_REMOVED` entry from `m_spells` and does not insert it (`Pet.cpp:1576-1591`). `SavePetToDB` returns immediately while `m_loading` (`Pet.cpp:510`). After the flag is clear, a save removes the fallback from memory and from the table. Whether a save runs between IP's check and a later restore is **NOT TESTED**. **POTENTIAL ISSUE:** that save wipes the REMOVED fallback.
+
+**VERIFIED.** The player autocast opcode sets both stores: `Pet::ToggleAutocast(spellInfo, packet.AutocastEnabled)` and then `CharmInfo::SetSpellAutocast(spellInfo, packet.AutocastEnabled)` (`PetHandler.cpp:1003` and `:1007`). `ToggleAutocast` (`Pet.cpp:2247-2286`) returns without writing when the spell is missing or not autocastable. ON inserts the id and sets `ACT_ENABLED` only when the id is absent from `m_autospells` (`:2260-2271`). OFF erases the id and sets `ACT_DISABLED` only when the id is already present (`:2274-2285`). A second call with the same bool does not change `m_autospells` or `.active`. That part is idempotent. `SetSpellAutocast` (`CharmInfo.cpp:291-297`) sets the bar type for a slot whose action equals that exact spell id. It does not search by chain. `Player::PetSpellInitialize` (`Player.cpp:9760-9829`) sends the bar and every non-REMOVED spell's `active` byte (`:9793-9796`). `learnSpell` already calls it when `!m_loading` (`Pet.cpp:1909-1914`), so IP's learn has already sent the default OFF before a later call would send the book again. The functions themselves do not know whether the rank changed. Calling them when the known rank did not change is a separate requirement of the idea, not a property of `ToggleAutocast`.
+
+**VERIFIED, and this corrects the note.** Those three calls do not preserve explicit OFF as rigorously as explicit ON. After the new rank is learned, its id is not in `m_autospells`, because `addSpell` calls `ToggleAutocast` with `active == ACT_ENABLED` (`Pet.cpp:1889`) and the false branch does nothing when the id is absent. `ToggleAutocast(newRank, false)` is then a no-op. It does not store `ACT_DISABLED`. The new row is OFF only because that is the `ACT_DECIDE` default (`Pet.cpp:1812-1813`), and the new bar type is OFF only because `AddSpellToActionBar` used that default (`CharmInfo.cpp:183`). `SetSpellAutocast(newRank, false)` writes the bar again when the id is on the bar. The note's snapshot shape, `{chain first rank -> ACT_ENABLED?}`, is a bool. Applied through `ToggleAutocast`, ON becomes a real `ACT_ENABLED` write and OFF becomes the no-op. A rigorous OFF preserve stores the active byte (`ACT_ENABLED` `0xC1` or `ACT_DISABLED` `0x81`) and writes `ACT_DISABLED` on purpose. Chain identity for that key is `SpellInfo::GetFirstRankSpell` / `SpellMgr::GetFirstSpellInChain` (`CharmInfo.cpp:154`, `:164`). Whether each IP wipe list is one DBC chain is still **UNKNOWN**. **NOT TESTED** in game for ON or for OFF.
+
+**VERIFIED.** `ToggleAutocast(newRank, true)` searches `m_autospells` for the new id only (`Pet.cpp:2258`). It does not remove the old id, and `removeSpell` did not either. Stale old-rank ids remain. That is existing core behaviour. **POTENTIAL ISSUE** for a restore, the same leftover IP already leaves. `PetAI` walks that list (`PetAI.cpp:247`). Whether it casts the stale id is **NOT TESTED**.
+
+**VERIFIED.** `EventProcessor` keeps events in a `std::multimap` keyed by exec time (`EventProcessor.h:93`). `Update` adds `p_time` to `m_time` and then always takes `begin()` while that key is due (`EventProcessor.cpp:43-50`). `CalculateTime(offset)` is `m_time + offset` (`:161`). Equal keys stay in insertion order. Once both events are queued, the smaller timestamp runs first, including when one world tick makes both due. That is an ordering fact about the processor. It is not a proof that a module offset of 100 ms runs before IP.
+
+### Timing claims that do not hold as stated
+
+The note queues one owner-GUID event from the same two hooks, snapshots at `100+200k` ms once `!isBeingLoaded()`, and says that lands before IP's `200+200k` tick because events run in time order. It then restores at least 150 ms after IP, only when the known rank changed, and reads `.active` from the REMOVED row if it is still there.
+
+**POTENTIAL ISSUE: dependence on IP's private 200 ms cadence and `PendingPetSpellCheck`.** The offset and the flag are private to IP. The class is local to `IndividualProgressionSpells.cpp:1252` and is fetched at `:1278`. It is not in `IndividualProgression.h`, so `DataMap::Get` cannot return it to this module. IP's second hook returns only because that flag is already set (`:1278-1280`). A module that hooks both without its own guard queues two events. The `100+200k` formula also needs the module and IP to share a retry count. They do not. The module cannot see IP's `_attempts`.
+
+**POTENTIAL ISSUE: this pet's update does not poll while the load flag is set.** The call chain is the still-loading note in section 2. `m_time` does not move while `EventProcessor::Update` is not called (`EventProcessor.cpp:43`). The note's picture of a sample every 200 ms during `isBeingLoaded()` is not what `Pet::Update` does. **UNKNOWN** whether another caller pumps `pet->m_Events` inside the async callback. **NOT TESTED.**
+
+**POTENTIAL ISSUE: a 10-try give-up leaves no saved byte to restore.** If a fire does happen while the flag is still true, IP stops after ten attempts and runs the check anyway (`IndividualProgressionSpells.cpp:1330-1342`). `_LoadSpells` is earlier in the same callback that clears the flag (`Pet.cpp:435`, `:496`), so a module that also stops has not seen the `pet_spell` book. The note says the snapshot is then empty and the restore does nothing. Doing nothing is the proposed fail-closed choice. An empty map was **NOT TESTED**. This is the same still-loading note as section 2, kept separate from the owner-GUID note, and still pending observation.
+
+**POTENTIAL ISSUE: a pet save between IP and the restore wipes the REMOVED fallback.** `_SaveSpells` does that (`Pet.cpp:1588-1591`). **NOT TESTED** that a save falls in the gap. The in-memory snapshot taken before IP, if it was actually taken, would not depend on that row. The fallback does.
+
+**POTENTIAL ISSUE: stale old-rank ids in `m_autospells`.** Cited above. The named restore does not clear them.
+
+**UNKNOWN: hook registration order between IP and this module.** These pins do not fix the order `ScriptMgr` uses across two loaded modules. Two different `CalculateTime` offsets taken from the same `m_time` are ordered by the timestamps, not by which `OnInitStatsForLevel` ran first. Registration order still decides equal timestamps, and it is **UNKNOWN** whether both modules read the same `m_time`. Nothing here proves the processor is idle between `Pet.cpp:332` and `Pet.cpp:410`. The note's sentence that the snapshot "lands before" IP is not source-proven. **NOT TESTED.**
+
+The note's optional cache is `OnPacketReceive` of `CMSG_PET_SPELL_AUTOCAST`. **Correction:** no pinned `PetScript` or `PlayerScript` hook has that name. The nearest receive hook is `ServerScript::CanPacketReceive(WorldSession*, WorldPacket const&)` (`ServerScript.h:75` at both cores). The handler that reaches the two autocast writes is `WorldSession::HandlePetSpellAutocastOpcode` (`PetHandler.cpp:955`). Whether `CanPacketReceive` observes that packet, and whether a module could cache explicit ON and explicit OFF from it, is **UNKNOWN** and **NOT TESTED**. A module SQL table was correctly left out. It would be owner-gated, and this research does not add one.
+
+### Verdict
+
+**FEASIBLE WITH CAVEATS. NOT TESTED.** The public spell map, the REMOVED row of a DB-loaded rank, and `ToggleAutocast(true)` are real core surfaces. A module could call them without editing IP. They do not run between the unlearn and the learn. They depend on IP's private timer. The named OFF call does not write `ACT_DISABLED`. Explicit OFF has to be preserved as rigorously as explicit ON, and this alternative does not yet show a source path that does so. This is research, not an implementation. S2 stays blocked pending CS01 and owner direction. No gameplay C++, no SQL, and no IP edit follows from this section.
+
+## 6. Base branch
 
 Workflows on `main` at `1f5f317c3991bbac66cc92a7112bbde3c929c232` were searched for `actions/upload-artifact` and `actions/upload`. There are no matches. The draft PR therefore targets `main`. The workflow added here has `contents: read` and does not upload artifacts.
 
-## 6. Local test run
+## 7. Local test run
 
 On 2026-10-20, before this branch was pushed:
 
@@ -215,11 +265,14 @@ python3 -m unittest tests/test_a02_s1_hunter_pet_autocast.py -v
 python3 scripts/a02_s1_hunter_pet_autocast.py
 ```
 
-The unit run was 18 tests, 17 ok, 1 skipped when the pinned checkouts were not in the environment. A second unit run with `A02_CORE_OLD`, `A02_CORE_NEW`, `A02_IP`, and `A02_PLAYERBOTS` pointing at the four pinned checkouts included the citation test and passed. The citation script, fetching raw GitHub rather than the local trees, reported `citations 79 OK` and the 26 / 89 / 22 family counts. That script run is **VERIFIED** for the line pins. It is **NOT TESTED** as gameplay.
+The first push of this branch, at `a029496eb8a9548375a513c3b33163ba563c058a`, reported 18 unit tests (17 ok, 1 skipped without pinned checkouts) and `citations 79 OK`. This docs revision was run the same way on 2026-10-20 before it was pushed: 25 unit tests, 24 ok, 1 skipped without pinned checkouts, and the citation script against raw GitHub reported `citations 129 OK` with the same 26 / 89 / 22 family counts. Those runs pin the lines. They are **NOT TESTED** as gameplay. The workflow on the new head is the run that applies to this text.
 
-## 7. Limits
+## 8. Limits
 
-- **NOT TESTED:** worldserver, client, summon, logout, stable swap, talent purchase, and any real `pet_spell` row.
-- **UNKNOWN:** which listed ids are autocastable in Spell.dbc, whether each wipe list is one `spell_chain`, and the owner's bot-account names.
-- **POTENTIAL ISSUE:** stale `m_autospells` ids, bar-versus-`pet_spell` divergence, the 10-attempt early check, the owner-GUID event, Dash's incomplete id list, and bot accounts outside `^RNDBOT.*`.
-- Source tests and this write-up do not show that a player has lost autocast on the live server. They show that the pinned IP function throws away the byte core would have copied, and that no module hook can catch it.
+- **NOT TESTED:** worldserver, client, summon, logout, stable swap, talent purchase, any real `pet_spell` row, and the section 5 save/restore.
+- **UNKNOWN:** which listed ids are autocastable in Spell.dbc, whether each wipe list is one `spell_chain`, the owner's bot-account names, and the `ScriptMgr` order between IP and this module.
+- **POTENTIAL ISSUE (owner GUID):** the delayed event looks up `GetPet()` by owner. Pending observation. Separate from the still-loading note, and not the ON-to-default-OFF mechanism.
+- **POTENTIAL ISSUE (still loading, 10 tries of 200 ms):** the retry and the give-up are in IP's event. Pending observation. Separate from the owner-GUID note. On the ordinary `Pet::Update` path the processor does not run while `m_loading` is set.
+- **POTENTIAL ISSUE:** stale `m_autospells` ids, bar-versus-`pet_spell` divergence, Dash's incomplete id list, and bot accounts outside the configured `IndividualProgression.BotAccountsRegex` (the default text is `^RNDBOT.*`; the exclusion must not hardcode it and must not treat all Playerbots as equivalent).
+- **FEASIBLE WITH CAVEATS / NOT TESTED:** the section 5 save/restore. Research only. S2 stays blocked pending CS01 and owner direction.
+- Source tests and this write-up do not show that a player has lost autocast on the live server. They show that the pinned IP function throws away the byte core would have copied, and that no module-owned synchronous hook is source-proven in that gap.

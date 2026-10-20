@@ -151,6 +151,57 @@ CITATIONS = (
     (IP_REPO, IP_SHA, "src/IndividualProgression.cpp", 1070, '^RNDBOT.*'),
     (PLAYERBOTS_REPO, PLAYERBOTS_SHA, "src/Ai/Base/Actions/PetsAction.cpp", 342, "TogglePetSpellAutoCastAction::Execute"),
     (PLAYERBOTS_REPO, PLAYERBOTS_SHA, "src/Ai/Base/Actions/PetsAction.cpp", 395, "pet->ToggleAutocast(spellInfo, shouldApply);"),
+    # Save/restore surfaces checked for issue #48 comment 6289517104.
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 332, "InitStatsForLevel(petlevel)"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 410, "map->AddToMap(ToCreature(), true)"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 438, "LearnPetPassives()"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 450, "owner->PetSpellInitialize()"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 659, "if (m_loading)"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 736, "Creature::Update(diff)"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 1567, "PETSPELL_UNCHANGED"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 1588, "itr->second.state == PETSPELL_REMOVED"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 1590, "m_spells.erase(itr)"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 1842, "petSpell.state == PETSPELL_REMOVED"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 1889, "newspell.active == ACT_ENABLED"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 1986, "m_spells.erase(itr)"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 1988, "itr->second.state = PETSPELL_REMOVED"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 2024, "return true"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 2258, "m_autospells.end(), spellInfo->Id"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 2276, "autospellItr != m_autospells.end()"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp", 2335, "itr->second.state != PETSPELL_REMOVED"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.h", 65, "isBeingLoaded() const override { return m_loading; }"),
+    (CORE_REPO, CORE_NEW, "src/server/game/Entities/Pet/Pet.h", 65, "isBeingLoaded() const override { return m_loading; }"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.h", 122, "AutoSpellList   m_autospells;"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Unit/CharmInfo.cpp", 154, "GetFirstRankSpell()->Id"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Unit/CharmInfo.cpp", 295, "spellInfo->Id == PetActionBar[i].GetAction()"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Handlers/PetHandler.cpp", 955, "HandlePetSpellAutocastOpcode"),
+    (CORE_REPO, CORE_NEW, "src/server/game/Handlers/PetHandler.cpp", 955, "HandlePetSpellAutocastOpcode"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Player/Player.cpp", 9793, "itr->second.state == PETSPELL_REMOVED"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Object/Object.cpp", 1076, "m_Events.Update(diff)"),
+    (CORE_REPO, CORE_NEW, "src/server/game/Entities/Object/Object.cpp", 1076, "m_Events.Update(diff)"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Unit/Unit.cpp", 517, "WorldObject::Update(p_time)"),
+    (CORE_REPO, CORE_NEW, "src/server/game/Entities/Unit/Unit.cpp", 517, "WorldObject::Update(p_time)"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Entities/Creature/Creature.cpp", 777, "Unit::Update(diff)"),
+    (CORE_REPO, CORE_NEW, "src/server/game/Entities/Creature/Creature.cpp", 777, "Unit::Update(diff)"),
+    (CORE_REPO, CORE_OLD, "src/common/Utilities/EventProcessor.h", 93, "std::multimap<uint64, BasicEvent*>"),
+    (CORE_REPO, CORE_NEW, "src/common/Utilities/EventProcessor.h", 93, "std::multimap<uint64, BasicEvent*>"),
+    (CORE_REPO, CORE_OLD, "src/common/Utilities/EventProcessor.cpp", 43, "m_time += p_time"),
+    (CORE_REPO, CORE_OLD, "src/common/Utilities/EventProcessor.cpp", 47, "m_events.begin()"),
+    (CORE_REPO, CORE_OLD, "src/common/Utilities/EventProcessor.cpp", 161, "return (m_time + t_offset)"),
+    (CORE_REPO, CORE_NEW, "src/common/Utilities/EventProcessor.cpp", 161, "return (m_time + t_offset)"),
+    (CORE_REPO, CORE_OLD, "src/common/Utilities/DataMap.h", 29, "template<class T> T* Get"),
+    (CORE_REPO, CORE_NEW, "src/common/Utilities/DataMap.h", 29, "template<class T> T* Get"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Scripting/ScriptDefines/ServerScript.h", 75, "CanPacketReceive"),
+    (CORE_REPO, CORE_NEW, "src/server/game/Scripting/ScriptDefines/ServerScript.h", 75, "CanPacketReceive"),
+    (CORE_REPO, CORE_OLD, "src/server/game/Scripting/ScriptDefines/PlayerScript.h", 302, "OnPlayerUpdate"),
+    (CORE_REPO, CORE_NEW, "src/server/game/Scripting/ScriptDefines/PlayerScript.h", 302, "OnPlayerUpdate"),
+    (IP_REPO, IP_SHA, "src/IndividualProgression.h", 430, "void checkHunterPetSpells(Player* player)"),
+    (IP_REPO, IP_SHA, "src/IndividualProgressionSpells.cpp", 1252, "class PendingPetSpellCheck"),
+    (IP_REPO, IP_SHA, "src/IndividualProgressionSpells.cpp", 1278, "GetDefault<PendingPetSpellCheck>"),
+    (IP_REPO, IP_SHA, "src/IndividualProgressionSpells.cpp", 1342, "checkHunterPetSpells(player)"),
+    (IP_REPO, IP_SHA, "src/IndividualProgression.cpp", 1070, "IndividualProgression.BotAccountsRegex"),
+    (IP_REPO, IP_SHA, "conf/individualProgression.conf.dist", 508, "randombots"),
+    (IP_REPO, IP_SHA, "conf/individualProgression.conf.dist", 513, 'IndividualProgression.BotAccountsRegex = "^RNDBOT.*"'),
 )
 
 
@@ -310,6 +361,47 @@ def levelup_decision(levelup_level: int, pet_level: int, hook_returns_true: bool
     return "learn"
 
 
+def removed_fallback(old_state: str, old_active: int) -> int | None:
+    """Pet::removeSpell on one row.
+
+    PETSPELL_NEW is erased. Any other state, including PETSPELL_UNCHANGED from
+    _LoadSpells, stays in the map and keeps .active. m_autospells is untouched.
+    """
+    if old_state == "new":
+        return None
+    return old_active
+
+
+def learn_rank_skipping_removed(fallback_active: int | None, autocastable: bool = True) -> int:
+    """addSpell's rank loop skips PETSPELL_REMOVED, so the old byte is not copied.
+
+    learnSpell then uses ACT_DECIDE. An autocastable spell becomes ACT_DISABLED.
+    """
+    if fallback_active is not None and fallback_active not in (ACT_ENABLED, ACT_DISABLED, ACT_PASSIVE, ACT_DECIDE):
+        raise ValueError(fallback_active)
+    if autocastable:
+        return ACT_DISABLED
+    return ACT_PASSIVE
+
+
+def toggle_autocast(active: int, in_autospells: bool, apply: bool) -> tuple[int, bool, str]:
+    """Pet::ToggleAutocast for one id.
+
+    OFF writes ACT_DISABLED only when the id is already in m_autospells.
+    A second call with the same bool is a no-op.
+    """
+    if apply and not in_autospells:
+        return ACT_ENABLED, True, "enabled"
+    if (not apply) and in_autospells:
+        return ACT_DISABLED, False, "disabled"
+    return active, in_autospells, "noop"
+
+
+def save_spell_rows(rows: dict[int, str]) -> dict[int, str]:
+    """_SaveSpells erases PETSPELL_REMOVED and does not insert those ids."""
+    return {spell_id: state for spell_id, state in rows.items() if state != "removed"}
+
+
 def hook_between_ip_unlearn_and_learn() -> tuple[str, ...]:
     start = SUMMON_EVENT_ORDER.index("ip_delayed_event_unlearn")
     end = SUMMON_EVENT_ORDER.index("ip_delayed_event_learn")
@@ -415,6 +507,25 @@ def verify_citations() -> list[str]:
             failures.append(f"growl ids inside hunter function {parsed['growl_present']}")
         if "623099, 623109, 623110" not in parsed["body"]:
             failures.append("dash sibling ids missing from the source comment")
+        if "\n".join(ip_rows).count("checkHunterPetSpells") != 2:
+            failures.append("checkHunterPetSpells count is not definition plus one call")
+
+    header_rows = loaded.get((IP_REPO, IP_SHA, "src/IndividualProgression.h"))
+    if header_rows is not None:
+        header_text = "\n".join(header_rows)
+        if "PendingPetSpellCheck" in header_text:
+            failures.append("PendingPetSpellCheck is visible from IndividualProgression.h")
+        if header_text.count("checkHunterPetSpells") != 1:
+            failures.append("IndividualProgression.h hunter-check declaration count")
+
+    for repo, sha, path in (
+        (CORE_REPO, CORE_OLD, "src/server/game/Scripting/ScriptDefines/PetScript.h"),
+        (CORE_REPO, CORE_OLD, "src/server/game/Scripting/ScriptDefines/PlayerScript.h"),
+        (CORE_REPO, CORE_NEW, "src/server/game/Scripting/ScriptDefines/PlayerScript.h"),
+    ):
+        rows = loaded.get((repo, sha, path))
+        if rows and any("OnPacketReceive" in row for row in rows):
+            failures.append(f"OnPacketReceive present in {path} @{sha[:12]}")
 
     old_pet = loaded.get((CORE_REPO, CORE_OLD, "src/server/game/Entities/Pet/Pet.cpp"))
     new_pet = loaded.get((CORE_REPO, CORE_NEW, "src/server/game/Entities/Pet/Pet.cpp"))

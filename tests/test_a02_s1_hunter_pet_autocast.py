@@ -26,10 +26,14 @@ from a02_s1_hunter_pet_autocast import (  # noqa: E402
     SavedPet,
     hook_between_ip_unlearn_and_learn,
     ip_reconcile,
+    learn_rank_skipping_removed,
     levelup_decision,
     cleanup_action_bar,
     load_saved_spell,
     native_rank_up,
+    removed_fallback,
+    save_spell_rows,
+    toggle_autocast,
     verify_citations,
 )
 
@@ -201,18 +205,67 @@ class HookWindowTests(unittest.TestCase):
         self.assertEqual(PET_SCRIPT_HOOKS[-1], "OnPetAddToWorld")
 
 
+class SaveRestoreSurfaceTests(unittest.TestCase):
+    """Control flow behind the section 5 save/restore note. Not a restore."""
+
+    def test_db_loaded_rank_keeps_active_when_marked_removed(self):
+        self.assertEqual(removed_fallback("unchanged", ACT_ENABLED), ACT_ENABLED)
+        self.assertEqual(removed_fallback("unchanged", ACT_DISABLED), ACT_DISABLED)
+        self.assertIsNone(removed_fallback("new", ACT_ENABLED))
+
+    def test_relearn_does_not_copy_the_removed_byte(self):
+        for old in (ACT_ENABLED, ACT_DISABLED):
+            fallback = removed_fallback("unchanged", old)
+            self.assertEqual(learn_rank_skipping_removed(fallback), ACT_DISABLED)
+        self.assertEqual(learn_rank_skipping_removed(None, autocastable=False), 0x01)
+
+    def test_save_drops_the_removed_fallback(self):
+        kept = save_spell_rows({17253: "removed", 27050: "new"})
+        self.assertNotIn(17253, kept)
+        self.assertEqual(kept[27050], "new")
+
+    def test_toggle_false_does_not_write_explicit_off_on_a_new_rank(self):
+        active, present, outcome = toggle_autocast(ACT_DISABLED, False, False)
+        self.assertEqual((active, present, outcome), (ACT_DISABLED, False, "noop"))
+
+    def test_toggle_true_writes_explicit_on_and_is_idempotent(self):
+        active, present, outcome = toggle_autocast(ACT_DISABLED, False, True)
+        self.assertEqual((active, present, outcome), (ACT_ENABLED, True, "enabled"))
+        again = toggle_autocast(active, present, True)
+        self.assertEqual(again, (ACT_ENABLED, True, "noop"))
+
+    def test_toggle_false_writes_off_only_when_the_id_is_already_listed(self):
+        active, present, outcome = toggle_autocast(ACT_ENABLED, True, False)
+        self.assertEqual((active, present, outcome), (ACT_DISABLED, False, "disabled"))
+        again = toggle_autocast(active, present, False)
+        self.assertEqual(again, (ACT_DISABLED, False, "noop"))
+
+
 class PinIdentityTests(unittest.TestCase):
     def test_research_doc_names_the_pins_and_the_verdict(self):
         doc = Path(__file__).resolve().parents[1].joinpath(
             "docs/research/a02-s1-hunter-pet-autocast.md").read_text()
         for pin in (CORE_OLD, CORE_NEW, IP_SHA, PLAYERBOTS_SHA):
             self.assertIn(pin, doc)
-        self.assertIn("NO SAFE MODULE HOOK", doc)
+        self.assertIn("no safe module-owned synchronous hook is source-proven", doc)
+        self.assertNotIn("indispensable", doc.lower())
+        self.assertIn("FEASIBLE WITH CAVEATS", doc)
+        self.assertIn("IndividualProgression.BotAccountsRegex", doc)
+        self.assertIn("must not treat every Playerbots-controlled player as the same kind of account", doc)
+        self.assertIn("POTENTIAL ISSUE (owner GUID)", doc)
+        self.assertIn("POTENTIAL ISSUE (still loading, 10 tries of 200 ms)", doc)
+        self.assertIn("S2 stays blocked pending CS01 and owner direction", doc)
         self.assertIn("VERIFIED", doc)
         self.assertIn("NOT TESTED", doc)
         self.assertIn("POTENTIAL ISSUE", doc)
         self.assertIn("UNKNOWN", doc)
-        self.assertIn("upstream IP change is indispensable", doc)
+
+    def test_workflow_is_contents_read_and_does_not_upload(self):
+        workflow = Path(__file__).resolve().parents[1].joinpath(
+            ".github/workflows/a02-s1-hunter-pet-autocast.yml").read_text()
+        self.assertIn("contents: read", workflow)
+        self.assertNotIn("upload-artifact", workflow)
+        self.assertNotIn("actions/upload", workflow)
 
     def test_citations_against_local_checkouts_when_configured(self):
         if not os.environ.get("A02_CORE_OLD"):
