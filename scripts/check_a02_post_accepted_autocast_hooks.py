@@ -116,6 +116,25 @@ def check_accepted_autocast_paths(pet_handler: str, pet_script: str,
 # write sites. Both files are IDENTICAL across these two pinned Grimfeather
 # source revisions; changing either file, even outside the method, requires
 # a new human source audit. Git SHA-1 here is content provenance, not trust.
+# Three additional externally observed acceptance/dismiss surfaces are also
+# byte-identical at both reviewed Grimfeather source revisions. An extra
+# unbraced early return, new script callback, or Player::RemovePet reordering
+# must invalidate a pinned "hazard persists" interpretation even if the
+# lexical source checker would still happen to find familiar substrings.
+PINNED_ENTRY_BLOBS = {
+    "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7": (
+        "34f3070074e75cc6a83df3f0d7e74fe8a6fd6043",
+        "f1455f20ca3a83e3fc38f0ba9c7dbff9d2faef46",
+        "138e7eab4905ec366338a54cc18e6cfe749a3670",
+    ),
+    "8daffdabe9202c228e45d833c9a1d399597a15cd": (
+        "34f3070074e75cc6a83df3f0d7e74fe8a6fd6043",
+        "f1455f20ca3a83e3fc38f0ba9c7dbff9d2faef46",
+        "138e7eab4905ec366338a54cc18e6cfe749a3670",
+    ),
+}
+
+
 PINNED_LOW_LEVEL_BLOBS = {
     "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7": (
         "8f81cb2af39e885cd34cd39f04abe0a84053224b",
@@ -172,6 +191,28 @@ def check_low_level_autocast_no_script_hook(
     }
 
 
+
+def verify_pinned_entry_blobs(
+    pet_handler: str, pet_script: str, player_cpp: str, core_sha: str
+) -> tuple[str, str, str]:
+    """Verify all three actual pinned handler/hook/dismiss source files.
+
+    Must be run BEFORE narrower lexical interpretation in the production
+    CLI. A caller using check_accepted_autocast_paths on its own does NOT
+    receive this source-pin guarantee. These Git blob SHA-1 digests are
+    *content identity* checks only, not file authenticity/trust.
+    """
+    expected = PINNED_ENTRY_BLOBS.get(core_sha)
+    if expected is None:
+        raise SourceContractChanged("Unreviewed core ref for accepted pet choices")
+    observed = tuple(map(git_blob_oid, (pet_handler, pet_script, player_cpp)))
+    if observed != expected:
+        raise SourceContractChanged(
+            "Pinned PetHandler.cpp/PetScript.h/Player.cpp source drift; "
+            f"expected {expected}, got {observed}")
+    return observed
+
+
 def verify_pinned_low_level_blobs(
     pet_cpp: str, charm_cpp: str, core_sha: str
 ) -> tuple[str, str]:
@@ -195,16 +236,21 @@ def main() -> None:
     parser.add_argument("--charm-cpp", type=Path, required=True)
     parser.add_argument("--core-sha", required=True)
     args = parser.parse_args()
-    facts = check_accepted_autocast_paths(
-        args.pet_handler.read_text(encoding="utf-8"),
-        args.pet_script.read_text(encoding="utf-8"),
-        args.player_cpp.read_text(encoding="utf-8"))
+    pet_handler = args.pet_handler.read_text(encoding="utf-8")
+    pet_script = args.pet_script.read_text(encoding="utf-8")
+    player_cpp = args.player_cpp.read_text(encoding="utf-8")
     pet_cpp = args.pet_cpp.read_text(encoding="utf-8")
     charm_cpp = args.charm_cpp.read_text(encoding="utf-8")
-    pinned_blobs = verify_pinned_low_level_blobs(
+    # All five full-file pinned blobs MUST match before we interpret methods.
+    pinned_entries = verify_pinned_entry_blobs(
+        pet_handler, pet_script, player_cpp, args.core_sha)
+    pinned_low_level = verify_pinned_low_level_blobs(
         pet_cpp, charm_cpp, args.core_sha)
+    facts = check_accepted_autocast_paths(
+        pet_handler, pet_script, player_cpp)
     low_level_facts = check_low_level_autocast_no_script_hook(pet_cpp, charm_cpp)
-    print("PINNED PET / CHARM SOURCES:", *pinned_blobs)
+    print("PINNED HANDLER / PETSCRIPT / PLAYER:", *pinned_entries)
+    print("PINNED PET / CHARM SOURCES:", *pinned_low_level)
     for key, value in low_level_facts.items():
         print(" ", f"{key}={str(value).lower()}")
     print("PINNED A02 ACCEPTED-CHOICE HOOK HAZARD:", args.core_sha)
