@@ -30,13 +30,13 @@ class ReadOnlyFiveFeaturePreflight(unittest.TestCase):
         for flag in FLAGS:
             with self.subTest(flag=flag):
                 matches = re.findall(
-                    rf"(?m)^\\s*{re.escape(flag)}\\s*=\\s*(\\d+)\\s*$", CONF
+                    rf"(?m)^\s*{re.escape(flag)}\s*=\s*(\d+)\s*$", CONF
                 )
                 self.assertEqual(matches, ["0"])
 
     def test_multiplier_is_config_value_not_an_enable_flag(self):
         self.assertRegex(
-            CONF, r"(?m)^NaxxramasCore\\.HallowsEnd\\.SoloFire\\.PeriodMultiplier\\s*=\\s*3\\s*$"
+            CONF, r"(?m)^NaxxramasCore\.HallowsEnd\.SoloFire\.PeriodMultiplier\s*=\s*3\s*$"
         )
         self.assertIn("one real player", DOC.lower())
 
@@ -61,8 +61,8 @@ class ReadOnlyFiveFeaturePreflight(unittest.TestCase):
         self.assertIn("npc_naxxramas_hallows_end_soh", SHADE)
         self.assertRegex(
             SHADE_SQL,
-            r"(?s)UPDATE `creature_template`\\s+SET `ScriptName`\\s*=\\s*"
-            r"'npc_naxxramas_hallows_end_soh'\\s+WHERE `entry`\\s*=\\s*23543\\s*;",
+            r"(?s)UPDATE `creature_template`\s+SET `ScriptName`\s*=\s*"
+            r"'npc_naxxramas_hallows_end_soh'\s+WHERE `entry`\s*=\s*23543\s*;",
         )
         self.assertNotIn("23686", SHADE_SQL)
 
