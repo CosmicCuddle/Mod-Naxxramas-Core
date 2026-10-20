@@ -268,12 +268,12 @@ enum class SnapshotOrigin : uint8_t
 };
 
 /* The action bar is loaded before _LoadSpells. It is not the saved book. */
-inline bool CharmBarIsAuthoritativeSavedSpellbook()
+inline constexpr bool CharmBarIsAuthoritativeSavedSpellbook()
 {
     return false;
 }
 
-inline bool MayTouchDatabase(bool featureEnabled)
+inline constexpr bool MayTouchDatabase(bool featureEnabled)
 {
     return featureEnabled;
 }
