@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 
 from check_nt1_grimfeather_two_core_reset_boundary import (
     SourceContractError, function_body, must_contain,
@@ -49,10 +50,15 @@ def check_direct_learn_risk(player_cpp: str, bot_cpp: str) -> dict[str, bool]:
     if "return;" not in learn[hook_guard:learn.index("TalentTabEntry", hook_guard)]:
         raise SourceContractError("LearnTalent hook veto return path changed")
 
-    # AddTalent success is not checked in this function. A source change
-    # could make rollback feasible; stop and require a new review.
-    if "if (!addTalent(" in learn or "bool added = addTalent(" in learn:
-        raise SourceContractError("LearnTalent now checks addTalent result: re-review")
+    # Baseline ignores addTalent's result. Flag changes that consume it.
+    # Covers bool const added = addTalent(...) and other assignment forms.
+    # This source tripwire is not a general C++ dataflow parser.
+    if re.search(
+        r"\bif\s*\(\s*!?\s*addTalent\s*\("
+        r"|\b(?:bool|auto)\s+(?:const\s+)?[A-Za-z_]\w*\s*=\s*addTalent\s*\(",
+        learn,
+    ):
+        raise SourceContractError("LearnTalent consumes addTalent result: re-review")
 
     must_contain(imported, [
         "for (TalentSelection const& selection : plan.Ordered)",
