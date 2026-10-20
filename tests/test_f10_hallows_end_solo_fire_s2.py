@@ -16,6 +16,7 @@ import test_f10_hallows_end_solo_fire_s1 as s1
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = (ROOT / "src/Events/HallowsEndShadeOfTheHorseman.cpp").read_text()
 HEADER = (ROOT / "src/Events/HallowsEndSoloFire.h").read_text()
+CONFIG_CPP = (ROOT / "src/Events/HallowsEndSoloFireConfig.cpp").read_text()
 CONF = (ROOT / "conf/mod_naxxramas_core.conf.dist").read_text()
 SQL = (ROOT / "data/sql/db-world/2026_09_21_00_event_script_overrides.sql").read_text()
 DOC = (ROOT / "docs/research/F10-hallows-end-solo-fire-S2.md").read_text()
@@ -527,12 +528,20 @@ class ShadeSourceContract(unittest.TestCase):
         self.assertIn("NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier = 3\n", CONF)
         self.assertEqual(CONF.count("HallowsEnd.SoloFire.Enabled"), 1)
         self.assertEqual(CONF.count("HallowsEnd.SoloFire.PeriodMultiplier"), 1)
-        reader = extract_function(MODULE, "std::string ReadSoloFireConfigRaw(")
-        self.assertEqual(MODULE.count("GetOption<std::string>"), 1)
-        self.assertIn("false);", reader)
-        self.assertNotIn("GetOption<bool>", MODULE)
-        self.assertNotIn("GetOption<int", MODULE)
-        self.assertNotIn("GetOption<uint", MODULE)
+        self.assertNotIn("GetOption<", MODULE)
+        self.assertEqual(CONFIG_CPP.count("GetOption<std::string>"), 2)
+        self.assertEqual(CONFIG_CPP.count("false);"), 2)
+        self.assertNotIn("GetOption<bool>", CONFIG_CPP)
+        self.assertNotIn("GetOption<int", CONFIG_CPP)
+        self.assertNotIn("GetOption<uint", CONFIG_CPP)
+        self.assertIn(
+            "NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireEnabledSetting()",
+            MODULE,
+        )
+        self.assertIn(
+            "NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireMultiplierSetting()",
+            MODULE,
+        )
         self.assertIn('inline constexpr char DefaultEnabledRaw[] = "0";', HEADER)
         self.assertIn('inline constexpr char DefaultMultiplierRaw[] = "3";', HEADER)
         self.assertNotIn("23686", SQL)
