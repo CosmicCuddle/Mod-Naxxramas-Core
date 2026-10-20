@@ -82,13 +82,15 @@ AUTOCACHE_TABLE_NAME = "mod_naxxramas_hunter_pet_autocast"
 
 
 def unsafe_autocast_auto_migrations(root: Path) -> list[Path]:
-    """Find A02 cache SQL within directories the pinned module updater discovers.
+    """Find A02 cache SQL in paths scanned by the pinned module updater.
 
-    At Grimfeather 8daffda, UpdateFetcher.cpp scans first-level module
-    data/sql subdirectories if their names contain the lowercase database
-    token ("characters" for DBUpdater<CharacterDatabaseConnection>).
-    This is intentionally scoped to the NOT-YET-APPROVED A02 schema.
-    A SQL comment saying DO NOT APPLY does not opt out of auto-updates.
+    Grimfeather 8daffda UpdateFetcher.cpp:157-185 initially selects module
+    data/sql first-level directories containing the lower-case database
+    token "characters"; GetFileList / FillFileListRecursively (approx. 70-104)
+    then searches their descendants to MAX_DEPTH=10. Scan ALL descendant
+    levels here conservatively, so a deeper future layout also fails closed.
+    The file's "DO NOT APPLY" comment cannot disable updater discovery.
+    This is A02-schema-specific, not a blanket SQL deployment validator.
     """
     sql_dir = root / "data" / "sql"
     if not sql_dir.is_dir():
@@ -97,10 +99,11 @@ def unsafe_autocast_auto_migrations(root: Path) -> list[Path]:
     for child in sql_dir.iterdir():
         if not child.is_dir() or "characters" not in child.name:
             continue
-        for sql in child.iterdir():
-            if sql.is_file() and sql.suffix == ".sql":
-                if AUTOCACHE_TABLE_NAME in sql.read_text(encoding="utf-8", errors="replace"):
-                    matches.append(sql)
+        for sql in child.rglob("*.sql"):
+            if sql.is_file() and AUTOCACHE_TABLE_NAME in sql.read_text(
+                encoding="utf-8", errors="replace"
+            ).lower():
+                matches.append(sql)
     return sorted(matches)
 
 
@@ -229,6 +232,41 @@ class ReadOnlyFiveFeaturePreflight(unittest.TestCase):
                     encoding="utf-8",
                 )
             self.assertEqual(len(unsafe_autocast_auto_migrations(root)), 2)
+
+    def test_auto_updater_recursively_discovers_unapproved_nested_sql(self):
+        # Pinned core's FillFileListRecursively scans nested MODULE updates.
+        # Old non-recursive test incorrectly returned [] for all examples.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            unsafe = (
+                "db-characters/updates/2026_10_20_cache.sql",
+                "db_characters/archive/2026/10/cache.sql",
+                "db-characters/updates/deep/one/two/three/four/cache.sql",
+            )
+            for relative in unsafe:
+                path = root / "data" / "sql" / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    "-- DO NOT APPLY\nCREATE TABLE " +
+                    AUTOCACHE_TABLE_NAME.upper() + " (id INT);\n",
+                    encoding="utf-8",
+                )
+            found = unsafe_autocast_auto_migrations(root)
+            self.assertEqual(
+                {p.relative_to(root / "data" / "sql").as_posix() for p in found},
+                set(unsafe),
+            )
+
+    def test_auto_updater_does_not_scan_unrelated_first_level_sql_db(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = root / "data" / "sql" / "db-world" / "updates"
+            parent.mkdir(parents=True)
+            (parent / "unrelated.sql").write_text(
+                "CREATE TABLE " + AUTOCACHE_TABLE_NAME + " (id INT);",
+                encoding="utf-8",
+            )
+            self.assertEqual(unsafe_autocast_auto_migrations(root), [])
 
     def test_owner_approved_manual_sql_location_is_not_auto_discovered(self):
         with tempfile.TemporaryDirectory() as tmp:
