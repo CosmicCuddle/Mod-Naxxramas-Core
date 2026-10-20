@@ -157,7 +157,7 @@ jobs:
           PY
       - name: Link one actual Worldserver containing all five candidates
         run: cmake --build acore-build --target worldserver --parallel 2
-      - name: Verify five integrated features in final executable
+      - name: Verify five integrated features in final executable (labelled evidence)
         run: |
           set -euo pipefail
           binary=acore-build/src/server/apps/worldserver
@@ -165,20 +165,48 @@ jobs:
           test -s "$archive" && test -s "$binary" && test -x "$binary"
           nm -C --defined-only "$archive" > /tmp/naxx_mature_archive_symbols.txt
           nm -C --defined-only "$binary" > /tmp/naxx_mature_binary_symbols.txt
-          grep -Fq 'NaxxramasHunterAmmo::TopUpHunterAmmo(' /tmp/naxx_mature_archive_symbols.txt
-          grep -Fq 'NaxxramasHunterAmmo::TopUpHunterAmmo(' /tmp/naxx_mature_binary_symbols.txt
-          grep -aFq 'NaxxramasQuestLootProtection' "$binary"
-          grep -aFq 'outdoorpvp_naxxramas_ep_lock' "$binary"
-          grep -Fq 'AddBotRaidConsumablesScripts()' /tmp/naxx_mature_archive_symbols.txt
-          grep -Fq 'AddBotRaidConsumablesScripts()' /tmp/naxx_mature_binary_symbols.txt
-          grep -aFq 'NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled' "$binary"
-          grep -Fq 'AddHallowsEndShadeOfTheHorsemanScripts()' /tmp/naxx_mature_archive_symbols.txt
-          grep -Fq 'AddHallowsEndShadeOfTheHorsemanScripts()' /tmp/naxx_mature_binary_symbols.txt
-          grep -aFq 'NaxxramasCore.HallowsEnd.SoloFire.Enabled' "$binary"
-          grep -aFq 'NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier' "$binary"
-          # The symbol already existed before F10; both config strings distinguish
-          # the new optional solo-fire runtime path, not its in-game correctness.
+
+          # Preserve the existing final-binary requirements, but report the
+          # exact absent feature instead of returning an unlabelled grep exit 1.
+          failures=0
+          check_marker() {
+            local label="$1" kind="$2" file="$3" literal="$4"
+            if [[ "$kind" == "binary-string" ]]; then
+              if grep -aFq -- "$literal" "$file"; then
+                echo "PASS: $label [$kind]"
+              else
+                echo "::error title=Five-feature binary verification::$label missing from $file (expected literal: $literal)"
+                failures=$((failures + 1))
+              fi
+            else
+              if grep -Fq -- "$literal" "$file"; then
+                echo "PASS: $label [$kind]"
+              else
+                echo "::error title=Five-feature symbol verification::$label missing from $file (expected symbol: $literal)"
+                failures=$((failures + 1))
+              fi
+            fi
+          }
+
+          check_marker "Hunter Ammo archive definition" symbol /tmp/naxx_mature_archive_symbols.txt 'NaxxramasHunterAmmo::TopUpHunterAmmo('
+          check_marker "Hunter Ammo Worldserver definition" symbol /tmp/naxx_mature_binary_symbols.txt 'NaxxramasHunterAmmo::TopUpHunterAmmo('
+          check_marker "Quest Loot runtime registration" binary-string "$binary" 'NaxxramasQuestLootProtection'
+          check_marker "EP outdoor PvP registration" binary-string "$binary" 'outdoorpvp_naxxramas_ep_lock'
+          check_marker "GFPP archive definition" symbol /tmp/naxx_mature_archive_symbols.txt 'AddBotRaidConsumablesScripts()'
+          check_marker "GFPP Worldserver definition" symbol /tmp/naxx_mature_binary_symbols.txt 'AddBotRaidConsumablesScripts()'
+          check_marker "GFPP config runtime" binary-string "$binary" 'NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled'
+          check_marker "F10 Shade archive definition" symbol /tmp/naxx_mature_archive_symbols.txt 'AddHallowsEndShadeOfTheHorsemanScripts()'
+          check_marker "F10 Shade Worldserver definition" symbol /tmp/naxx_mature_binary_symbols.txt 'AddHallowsEndShadeOfTheHorsemanScripts()'
+          check_marker "F10 SoloFire Enabled runtime config" binary-string "$binary" 'NaxxramasCore.HallowsEnd.SoloFire.Enabled'
+          check_marker "F10 SoloFire PeriodMultiplier runtime config" binary-string "$binary" 'NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier'
+
+          # Always include a binary fingerprint for a link that succeeded,
+          # even when one registration check fails; this is NOT acceptance.
           sha256sum "$binary"
+          if (( failures != 0 )); then
+            echo "::error title=Five-feature verification::$failures exact-binary evidence check(s) failed. Worldserver linking succeeded, but S4 final-binary acceptance is BLOCKED."
+            exit 1
+          fi
           echo "PASS: Hunter Ammo, Quest Loot, EP, GFPP and corrected F10 retained in ONE linked Worldserver."
       - name: State provisional dependency and no-release boundary
         if: always()
