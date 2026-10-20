@@ -13,7 +13,47 @@ No edit is made to Individual Progression, Playerbots, AzerothCore, SQL, or DBC.
 
 Pins: core `a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7` and `8daffdabe9202c228e45d833c9a1d399597a15cd` (Pet.cpp, Pet.h, PetScript.h, PlayerScript.h, ScriptMgr.h, CharmInfo.h, PetHandler.cpp, and PetDefines.h are byte-identical), IP `4ff4b5fcc1480348f058c632573143e62d4e3a41`, Playerbots `037c01418b5d01506917a3db9b44fd56ac5f965c`. Hook lines below were read on 2026-10-20.
 
-## What this revision changes
+## Revision 2 (CS01 review 5585418726)
+
+Head under review was `2abb7861e6a3a6cd8e1809472799be076db81192`. This revision answers the five remaining blockers. It is still not functional S2 completion.
+
+### 1. Cross-map state
+
+**VERIFIED** at both pinned cores (file blobs match): `MapUpdater::activate` starts one `std::thread` per worker (`MapUpdater.cpp`). `MapMgr::Update` schedules one `MapUpdateRequest` per map and then `m_updater.wait()` before it returns. `World::Update` calls `UpdateSessions` (`World.cpp:1227`) and only then `sMapMgr->Update` (`World.cpp:1254`).
+
+The previous `std::unordered_map PetMemories`, `PreferenceSequence`, and plain `bool FeatureEnabled` are gone. The cycle is `PetAutocastCycle` in `Pet::CustomData` (`GetDefault` / `Get` on key `naxx_a02_hunter_pet_autocast_restore`). Dismiss destroys the `Pet` and that object with it. Logout marks only `player->GetPet()` when that object's stored GUID is the live GUID. It does not scan a table. `FeatureEnabled` is `std::atomic<bool>`, stored with `memory_order_release` at config load and loaded with `memory_order_acquire`. The preference counter lives on that pet object.
+
+`PetLifetimeStore` in the policy tests summons and dismisses. Twelve dismiss/summon cycles leave `size() == 0` after the last dismiss, and a second live pet does not inherit the first pet's snapshot. **VERIFIED** as that model. **NOT TESTED** under a running MapUpdater or thread sanitizer.
+
+### 2. Choice source
+
+`BLOCKED: NO ATOMIC MODULE-ONLY CHOICE SOURCE`
+
+**VERIFIED** from the pinned sources. `Pet.cpp`, `PetHandler.cpp`, `CharmInfo.cpp`, `ServerScript.h`, `WorldSession.cpp`, `World.cpp`, `MapMgr.cpp`, and `MapUpdater.cpp` are the same blob at `a66f1be` and `8daffda`:
+
+- IP's reconcile is `unlearnSpell(id, false, true)` then `learnSpell(keepId)` (`IndividualProgressionSpells.cpp:83-90`). `clear_ab` true removes the action-bar slot (`CharmInfo.cpp` `RemoveSpellFromActionBar`). `learnSpell` goes through `addSpell` with `ACT_DECIDE`, and an autocastable spell is stored `ACT_DISABLED` (`Pet.cpp:1810-1813`). The removed old rank is skipped by the rank-copy loop (`Pet.cpp:1841-1842`), so the old ON byte is not copied.
+- `HandlePetSpellAutocastOpcode` (`PetHandler.cpp:955-1008`) calls `ToggleAutocast` then `SetSpellAutocast`. There is no `sScriptMgr` call in that function.
+- `ToggleAutocast(false)` changes a spell only when its id is already in `m_autospells` (`Pet.cpp:2274-2286`). A learn-default rank is not in that vector, so a later explicit OFF does not change `active`, the spell state, or `m_autospells`. `SetSpellAutocast(false)` writes `ACT_DISABLED`, which is already the learn-default action-bar type (`CharmInfo.cpp` `AddSpellToActionBar`, `ACT_DECIDE` becomes `ACT_DISABLED`).
+- `CanPacketReceive` (`ServerScript.h`, hook `SERVERHOOK_CAN_PACKET_RECEIVE`) runs before `opHandle->Call` (`WorldSession.cpp:461-463`). `OnPacketSent` is an outgoing hook. No post-handler receive hook exists in `ServerScript.h`.
+- `m_autospells` can still hold the old rank because `removeSpell` does not erase it (`Pet.cpp:1976-1988`). A later OFF on the new id does not remove the old id. That stale id is the same whether or not the player clicked OFF. `ToggleAutocast(false)` on the removed row can rewrite it to `PETSPELL_CHANGED` (`Pet.cpp:2279-2283`). This module does not call that.
+
+`AtomicModuleOnlyChoiceSourceExists()` is false. `DecideRestore` aborts with `NoAtomicChoiceSource` and an empty plan when a single chain would have been turned ON. `Execute` checks the same constant again before `ToggleAutocast`. No packet cache and no timer is used as the signal. **NOT TESTED** in game.
+
+### 3. Reconciliation flag the runtime does not have
+
+**MISMATCH.** `Execute` passes literal false to `TryCommitSnapshot`. `BookLooksPostReconcile` is true only while a `PETSPELL_REMOVED` autocast row is still in the book. `Pet::_SaveSpells` erases those rows (`Pet.cpp:1588-1591`) and does not write them. `RuntimeObservesIpReconciledFlag()` is false. `RunSequence` commits through `CommitSnapshotRuntime`, which has no reconcile argument.
+
+`RuntimeFaithfulIpSaveThenPoll` is that order: bind, load, IP swap, save, poll, restore. The poll commits the post-IP rank (the new id, autocast off). Explicit ON ends as `NoChange` with zero toggles. That `NoChange` means the post-save book matches the snapshot just taken. It is not a preserved player OFF. Forcing `ipAlreadyReconciled` true on that same post-save book returns `IpAlreadyRan` and does not commit. That forced call is not what `Execute` does. **VERIFIED** as the policy model. **NOT TESTED** on a worldserver.
+
+### 4. Cross-pet pending clear
+
+`ClearPendingAllowed` requires the same owner, live GUID, pet number, and generation. `Execute` returns before any `CustomData` write when `player->GetPet()` is missing or its GUID or pet number differs from the event. `ClearPendingIfBound` also requires `GuidRaw(pet->GetGUID()) != bound.petGuid` to fail closed. A generation mismatch does not clear. The policy test keeps pet B's `pending` set when the event is bound to pet A. **VERIFIED** as that model. **NOT TESTED** as two live summons.
+
+### 5. Multi-chain and stale autocast ids
+
+`DecideRestore` aborts with `AmbiguousBook` unless the snapshot and the book each contain exactly one autocast chain. A bite chain that would have been an ON write beside an unchanged growl chain produces no plan and no write. One chain is not a claim about every hunter pet ability. How many autocastable chains a live pet has is **UNKNOWN** (no Spell.dbc in this repo). Stale `m_autospells` ids are not removed. **NOT TESTED** in `PetAI`.
+
+## What the previous revision changed
 
 The previous head accepted an uncertain account, let `CanPacketReceive` store `CMSG_PET_SPELL_AUTOCAST` before the core handler, keyed memory by owner plus pet number, skipped explicit OFF, and treated a 50/200/350 ms story as ordering. Those paths are fail-closed in the policy tests.
 
@@ -34,7 +74,7 @@ A REMOVED row is not a preference. With no committed snapshot, `DecideRestore` r
 | explicit ON | new rank at learn-default OFF, no REMOVED row | `Abort` / `NoSnapshot` | none. The ON is not invented from the missing row. |
 | explicit OFF | new rank at learn-default OFF, no REMOVED row | `Abort` / `NoSnapshot` | none. The learn-default OFF is not recorded as a preserved explicit OFF. |
 
-**VERIFIED** as a policy-test outcome of that step list. **POTENTIAL ISSUE:** on a real server this order loses an explicit ON and does not prove an explicit OFF. **NOT TESTED** in game. The same abort is what a save-without-snapshot does inside `RunSequence`. A snapshot taken before IP can still apply one ON after that save, because the snapshot is not the REMOVED row. That path is a different step list and is not this counterexample.
+**VERIFIED** as a policy-test outcome of that step list. **POTENTIAL ISSUE:** on a real server this order loses an explicit ON and does not prove an explicit OFF. **NOT TESTED** in game. The same abort is what a save-without-snapshot does inside `RunSequence`. A snapshot taken before IP is a different step list. It still does not turn the new rank ON: `NoAtomicChoiceSource` aborts with zero writes. See revision 2 above.
 
 ## (b) Public hooks at the pinned SHAs
 
@@ -91,7 +131,7 @@ If some other pump does run IP's attempt 10 while the pet is still loading (`Ind
 
 The runtime does not treat 50 ms / 200 ms / 150 ms as proof. It snapshots only a loaded, in-world, not-being-removed pet whose book has no `PETSPELL_REMOVED` autocast row, then calls `DecideRestore`. IP first, a GUID change, logout, removal, an unknown chain, two REMOVED rows, a REMOVED byte that no longer matches the snapshot, or a missing snapshot produces no `ToggleAutocast`. **VERIFIED** in the policy tests. **NOT TESTED** as wall-clock order on a worldserver.
 
-**POTENTIAL ISSUE / documented blocker.** A post-swap explicit OFF that leaves the new rank at learn-default `ACT_DISABLED` looks the same as "IP just learned it OFF". If a pre-IP snapshot said ON, `DecideRestore` will plan one ON write. The visible conflicts abort: snapshot OFF with the new rank ON, and a REMOVED row whose ON/OFF byte disagrees with the snapshot. The invisible one is not fixed. **NOT TESTED** in game.
+`BLOCKED: NO ATOMIC MODULE-ONLY CHOICE SOURCE`. A post-swap explicit OFF that leaves the new rank at learn-default `ACT_DISABLED` looks the same as "IP just learned it OFF". `DecideRestore` does not plan an ON write for that book. The visible conflicts still abort: snapshot OFF with the new rank ON (`ExplicitOffConflict` on a single chain), a second autocast chain (`AmbiguousBook`), and a REMOVED row whose ON/OFF byte disagrees with the snapshot. **NOT TESTED** in game.
 
 **POTENTIAL ISSUE.** After a cycle is applied, refused, or abandoned, `ScheduleCycle` will not open a second cycle for that same live GUID. A later level-up on that same object does not start another restore. **NOT TESTED.**
 

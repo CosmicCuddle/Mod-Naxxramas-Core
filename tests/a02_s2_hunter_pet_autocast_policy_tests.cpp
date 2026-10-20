@@ -161,15 +161,18 @@ void CheckPacketAndOff()
     CHECK(honoured.plans.empty());
 
     std::map<uint32_t, Preference> explicitOn{ { 17253u, Pref(17253u, true) } };
+    /* Snapshot ON and the new rank OFF is both "IP learned the default"
+     * and "the player turned the new rank OFF". No public signal splits
+     * them, so the functional restore does not write.
+     */
     RestoreDecision const turnedOn = Restore(id, id, true, explicitOn, swappedOff);
-    CHECK(turnedOn.outcome == RestoreOutcome::ApplyOn);
-    CHECK(turnedOn.touchesPet);
+    CHECK(!AtomicModuleOnlyChoiceSourceExists());
+    CHECK(std::strcmp(ChoiceSourceBlocker, "BLOCKED: NO ATOMIC MODULE-ONLY CHOICE SOURCE") == 0);
+    CHECK(turnedOn.outcome == RestoreOutcome::Abort);
+    CHECK(turnedOn.reason == CycleAbort::NoAtomicChoiceSource);
+    CHECK(!turnedOn.touchesPet);
     CHECK(!turnedOn.writesOff);
-    CHECK(turnedOn.plans.size() == 1u);
-    CHECK(turnedOn.plans[0].oldSpellId == 17253u);
-    CHECK(turnedOn.plans[0].newSpellId == 17255u);
-    CHECK(turnedOn.plans[0].applyOn);
-    CHECK(turnedOn.plans[0].desiredOn);
+    CHECK(turnedOn.plans.empty());
 
     std::vector<BookSpell> twoRemoved{
         MakeSpell(17253u, 17253u, true, true),
@@ -187,7 +190,9 @@ void CheckPacketAndOff()
     CHECK(!Restore(id, id, false, {}, removedStillThere).touchesPet);
 
     std::vector<BookSpell> savedOff{ MakeSpell(17255u, 17253u, false) };
-    CHECK(Restore(id, id, true, explicitOn, savedOff).outcome == RestoreOutcome::ApplyOn);
+    CHECK(Restore(id, id, true, explicitOn, savedOff).reason == CycleAbort::NoAtomicChoiceSource);
+    CHECK(Restore(id, id, true, explicitOn, savedOff).plans.empty());
+    CHECK(!Restore(id, id, true, explicitOn, savedOff).touchesPet);
     CHECK(Restore(id, id, false, {}, savedOff).reason == CycleAbort::NoSnapshot);
 
     std::map<uint32_t, Preference> biteOn{ { 17253u, Pref(17253u, true) } };
@@ -208,10 +213,15 @@ void CheckPacketAndOff()
         MakeSpell(17255u, 17253u, false),
         MakeSpell(2649u, 2649u, true),
     };
+    /* Bite would have been an ON write and Growl is a second chain.
+     * That is a partial restore. The whole pet aborts.
+     */
     RestoreDecision const partial = Restore(id, id, true, both, growlUnchanged);
-    CHECK(partial.outcome == RestoreOutcome::ApplyOn);
-    CHECK(partial.plans.size() == 1u);
-    CHECK(partial.plans[0].chainFirst == 17253u);
+    CHECK(partial.outcome == RestoreOutcome::Abort);
+    CHECK(partial.reason == CycleAbort::AmbiguousBook);
+    CHECK(partial.plans.empty());
+    CHECK(!partial.touchesPet);
+    CHECK(!partial.writesOff);
 
     std::map<uint32_t, Preference> biteOffGrowlOn = both;
     biteOffGrowlOn[17253u].autocastOn = false;
@@ -222,9 +232,10 @@ void CheckPacketAndOff()
     };
     RestoreDecision const mixed = Restore(id, id, true, biteOffGrowlOn, biteForcedOn);
     CHECK(mixed.outcome == RestoreOutcome::Abort);
-    CHECK(mixed.reason == CycleAbort::ExplicitOffConflict);
+    CHECK(mixed.reason == CycleAbort::AmbiguousBook);
     CHECK(mixed.plans.empty());
     CHECK(!mixed.touchesPet);
+    CHECK(!mixed.writesOff);
 
     std::vector<BookSpell> removedDisagrees{
         MakeSpell(17253u, 17253u, false, true),
@@ -303,12 +314,13 @@ void CheckNoTouch(SimResult const& result)
     CHECK(result.outcome != RestoreOutcome::ApplyOn);
 }
 
-void CheckOn(SimResult const& result, uint64_t guid)
+void CheckChoiceBlocked(SimResult const& result, uint64_t guid)
 {
-    CHECK(result.outcome == RestoreOutcome::ApplyOn);
-    CHECK(result.toggles == 1u);
+    CHECK(result.outcome == RestoreOutcome::Abort);
+    CHECK(result.reason == CycleAbort::NoAtomicChoiceSource);
+    CHECK(result.toggles == 0u);
     CHECK(!result.wroteOff);
-    CHECK(result.touchedGuid == guid);
+    CHECK(result.touchedGuid == 0u);
     CHECK(result.snapshotCommitted);
     CHECK(result.snapshotGuid == guid);
 }
@@ -339,7 +351,7 @@ void CheckOrdering()
     };
     CheckNoTouch(RunSequence(ipFirst, on));
     CheckNoTouch(RunSequence(ipFirst, off));
-    CheckOn(RunSequence(moduleFirst, on), on.petGuid);
+    CheckChoiceBlocked(RunSequence(moduleFirst, on), on.petGuid);
 
     SimResult const honoured = RunSequence(moduleFirst, off);
     CHECK(honoured.outcome == RestoreOutcome::HonourOff);
@@ -355,7 +367,7 @@ void CheckOrdering()
         SimStep::IpCheck,
         SimStep::ModuleRestore,
     };
-    CheckOn(RunSequence(restoreBeforeIp, on), on.petGuid);
+    CheckChoiceBlocked(RunSequence(restoreBeforeIp, on), on.petGuid);
 
     std::vector<SimStep> const pollWhileLoading{
         SimStep::BindHook,
@@ -396,7 +408,7 @@ void CheckOrdering()
         SimStep::ModulePoll,
         SimStep::ModuleRestore,
     };
-    CheckOn(RunSequence(frozenThenModuleFirst, on), on.petGuid);
+    CheckChoiceBlocked(RunSequence(frozenThenModuleFirst, on), on.petGuid);
     CheckNoTouch(RunSequence(frozenThenIpFirst, on));
 
     std::vector<SimStep> const saveAfterSnapshot{
@@ -407,7 +419,7 @@ void CheckOrdering()
         SimStep::PetSave,
         SimStep::ModuleRestore,
     };
-    CheckOn(RunSequence(saveAfterSnapshot, on), on.petGuid);
+    CheckChoiceBlocked(RunSequence(saveAfterSnapshot, on), on.petGuid);
     SimResult const offAfterSave = RunSequence(saveAfterSnapshot, off);
     CHECK(offAfterSave.outcome == RestoreOutcome::HonourOff);
     CHECK(offAfterSave.toggles == 0u);
@@ -478,10 +490,11 @@ void CheckOrdering()
         SimStep::ModuleRestore,
     };
     SimResult const once = RunSequence(nested, on);
-    CHECK(once.toggles == 1u);
-    CHECK(once.touchedGuid == on.petGuid);
+    CHECK(once.toggles == 0u);
+    CHECK(once.touchedGuid == 0u);
     CHECK(!once.wroteOff);
     CHECK(once.reason == CycleAbort::NestedSchedule);
+    CHECK(once.outcome == RestoreOutcome::Abort);
 
     std::vector<SimStep> const duplicate{
         SimStep::BindHook,
@@ -492,7 +505,7 @@ void CheckOrdering()
         SimStep::ModuleRestore,
     };
     SimResult const kept = RunSequence(duplicate, on);
-    CheckOn(kept, on.petGuid);
+    CheckChoiceBlocked(kept, on.petGuid);
     CHECK(kept.duplicateIgnored);
     CHECK(kept.generation == 1u);
 
@@ -547,11 +560,100 @@ void CheckOrdering()
         SimStep::IpCheck,
         SimStep::ModuleRestore,
     };
-    CheckOn(RunSequence(packetDoesNotSteer, on), on.petGuid);
+    CheckChoiceBlocked(RunSequence(packetDoesNotSteer, on), on.petGuid);
     SimResult const packetOff = RunSequence(packetDoesNotSteer, off);
     CHECK(packetOff.outcome == RestoreOutcome::HonourOff);
     CHECK(packetOff.toggles == 0u);
     CHECK(!packetOff.wroteOff);
+}
+
+/* The reconcile flag is not an input. After IP and a save, the poll
+ * commits the post-IP rank. Explicit ON is not restored. The same
+ * post-save book passed to TryCommitSnapshot with the flag forced true
+ * would refuse; that call is not what Execute does.
+ */
+void CheckRuntimeFaithfulMismatch()
+{
+    CHECK(!RuntimeObservesIpReconciledFlag());
+    SimInput on;
+    on.explicitOn = true;
+    LivePetId const id = Pet(on.petGuid, on.petNumber);
+    std::vector<BookSpell> postSave{ MakeSpell(on.newId, on.chain, false) };
+    SnapshotCommit const oracle = TryCommitSnapshot(id, id, true, false, false, true, true, postSave, 1u);
+    CHECK(!oracle.committed);
+    CHECK(oracle.reason == CycleAbort::IpAlreadyRan);
+
+    SimResult const lostOn = RuntimeFaithfulIpSaveThenPoll(true);
+    CHECK(lostOn.snapshotCommitted);
+    CHECK(lostOn.capturedSpellId == on.newId);
+    CHECK(!lostOn.capturedOn);
+    CHECK(lostOn.toggles == 0u);
+    CHECK(!lostOn.wroteOff);
+    CHECK(lostOn.touchedGuid == 0u);
+    CHECK(lostOn.outcome == RestoreOutcome::NoChange);
+    CHECK(lostOn.reason == CycleAbort::None);
+
+    SimResult const lostOff = RuntimeFaithfulIpSaveThenPoll(false);
+    CHECK(lostOff.snapshotCommitted);
+    CHECK(lostOff.capturedSpellId == on.newId);
+    CHECK(!lostOff.capturedOn);
+    CHECK(lostOff.toggles == 0u);
+    CHECK(lostOff.outcome == RestoreOutcome::NoChange);
+}
+
+/* Dismiss drops the only copy of the cycle. A stale event bound to pet A
+ * does not clear pet B. A generation mismatch does not clear either.
+ */
+void CheckPetOwnedLifetime()
+{
+    PetLifetimeStore store;
+    LivePetId const first = Pet(100, 45);
+    LivePetId const other = Pet(200, 46);
+    CHECK(store.Summon(first));
+    CHECK(store.Summon(other));
+    PetOwnedCycle* cycleA = store.Find(first.petGuid);
+    PetOwnedCycle* cycleB = store.Find(other.petGuid);
+    CHECK(cycleA != nullptr);
+    CHECK(cycleB != nullptr);
+    CHECK(ScheduleCycle(cycleA->memory, first) == ScheduleResult::Started);
+    CHECK(ScheduleCycle(cycleB->memory, other) == ScheduleResult::Started);
+    cycleA->memory.snapshotCommitted = true;
+    cycleA->memory.snapshot[17253u] = Pref(17253u, true);
+
+    CHECK(!ClearPendingAllowed(first, cycleA->memory.generation, other, cycleB->memory.generation));
+    CHECK(!TryClearPending(cycleB->memory, other, first, cycleA->memory.generation));
+    CHECK(cycleB->memory.pending);
+    CHECK(cycleB->memory.generation == 1u);
+    CHECK(!cycleB->memory.snapshotCommitted);
+    CHECK(cycleB->memory.bound.petGuid == other.petGuid);
+
+    CHECK(!ClearPendingAllowed(first, 1u, first, 2u));
+    CHECK(TryClearPending(cycleA->memory, first, first, cycleA->memory.generation));
+    CHECK(!cycleA->memory.pending);
+    CHECK(cycleA->memory.snapshotCommitted);
+    CHECK(cycleA->memory.snapshot[17253u].autocastOn);
+
+    CHECK(store.Dismiss(first.petGuid));
+    CHECK(!store.Contains(first.petGuid));
+    CHECK(store.Contains(other.petGuid));
+    CHECK(store.size() == 1u);
+    CHECK(store.Find(other.petGuid)->memory.pending);
+    CHECK(!store.Find(other.petGuid)->memory.snapshotCommitted);
+
+    CHECK(store.Dismiss(other.petGuid));
+    CHECK(store.size() == 0u);
+    for (uint32_t i = 0; i < 12u; ++i)
+    {
+        LivePetId next = Pet(1000u + i, 45u);
+        CHECK(store.Summon(next));
+        CHECK(store.size() == 1u);
+        CHECK(store.Find(next.petGuid) != nullptr);
+        CHECK(!store.Find(next.petGuid)->memory.snapshotCommitted);
+        CHECK(store.Find(next.petGuid)->memory.generation == 0u);
+        CHECK(store.Dismiss(next.petGuid));
+        CHECK(store.size() == 0u);
+        CHECK(!store.Contains(next.petGuid));
+    }
 }
 
 } // namespace
@@ -563,6 +665,8 @@ int main()
     CheckPacketAndOff();
     CheckIdentity();
     CheckOrdering();
+    CheckRuntimeFaithfulMismatch();
+    CheckPetOwnedLifetime();
     if (g_failures != 0)
     {
         std::fprintf(stderr, "A02_S2_POLICY_FAIL %d\n", g_failures);

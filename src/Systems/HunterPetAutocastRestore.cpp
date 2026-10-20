@@ -3,22 +3,28 @@
  * restore. Module only. No Individual Progression, Playerbots, core, SQL,
  * or DBC edits.
  *
- * The script calls the policy in HunterPetAutocastRestore.h. It toggles a
- * pet only when DecideRestore returns ApplyOn for the live pet GUID captured
- * at schedule time. Explicit OFF is not written. Unvalidated autocast
- * packets are not read. A removed spell row is not a preference.
+ * The script calls the policy in HunterPetAutocastRestore.h. It does not
+ * toggle a pet. BLOCKED: NO ATOMIC MODULE-ONLY CHOICE SOURCE.
+ * DecideRestore does not return ApplyOn while that source is missing, and
+ * Execute checks the same constant again before ToggleAutocast.
  *
- * POTENTIAL ISSUE: stale old-rank ids stay in m_autospells. ToggleAutocast
- * (false) is not a public-API-safe removal: on a PETSPELL_REMOVED row it
- * rewrites the state to PETSPELL_CHANGED (Pet.cpp:2254-2283 at both pinned
- * cores). NOT TESTED in PetAI.
+ * Cycle state lives on the Pet via CustomData. Dismiss destroys the Pet
+ * and that state with it. There is no process-global pet map.
+ * FeatureEnabled is an atomic flag written at config load.
  *
- * POTENTIAL ISSUE / documented blocker: a post-swap explicit OFF that leaves
- * the new rank at the learn-default ACT_DISABLED is not distinguishable from
- * "IP just learned it OFF". An ON restore can overwrite that unseen choice.
- * A visible conflict (snapshot OFF, current rank ON, or a REMOVED row whose
- * byte no longer matches the snapshot) aborts with no write. NOT TESTED
- * in game.
+ * MISMATCH: ipAlreadyReconciled is not observed. TryCommitSnapshot is
+ * called with literal false. BookLooksPostReconcile only sees
+ * PETSPELL_REMOVED rows, and Pet::_SaveSpells (Pet.cpp:1572-1601 at both
+ * pinned cores) erases those rows. A poll after that save can commit the
+ * post-IP rank as the snapshot. The runtime-faithful model is
+ * RuntimeFaithfulIpSaveThenPoll. It has no reconcile flag.
+ *
+ * POTENTIAL ISSUE: stale old-rank ids stay in m_autospells.
+ * ToggleAutocast(false) is not a public-API-safe removal: on a
+ * PETSPELL_REMOVED row it rewrites the state to PETSPELL_CHANGED
+ * (Pet.cpp:2274-2283 at both pinned cores). This file does not call it.
+ * A book with more than one autocast chain aborts. A single chain is not
+ * every pet ability. NOT TESTED in PetAI.
  */
 
 #include "HunterPetAutocastRestore.h"
@@ -36,40 +42,45 @@
 #include "SpellMgr.h"
 #include "WorldSession.h"
 
+#include <atomic>
+#include <map>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace
 {
 using namespace NaxxramasCore::HunterPetAutocastRestore;
 
-bool FeatureEnabled = false;
-uint64_t PreferenceSequence = 1;
+std::atomic<bool> FeatureEnabled{false};
 
-char const* PendingKey = "naxx_a02_hunter_pet_autocast_restore";
+char const* CycleKey = "naxx_a02_hunter_pet_autocast_restore";
 
-class PendingAutocastRestore : public DataMap::Base
+class PetAutocastCycle : public DataMap::Base
 {
 public:
-    bool pending = false;
-    uint64_t petGuid = 0;
-    uint32_t generation = 0;
-};
-
-struct PetMemory
-{
     uint64_t ownerGuid = 0;
     uint64_t petGuid = 0;
     uint32_t petNumber = 0;
     uint32_t generation = 0;
+    uint64_t preferenceSequence = 1;
+    bool pending = false;
     bool snapshotCommitted = false;
     bool refused = false;
     bool applied = false;
     std::map<uint32_t, Preference> snapshot;
+
+    uint64_t NextSequence()
+    {
+        uint64_t const current = preferenceSequence == 0 ? 1u : preferenceSequence;
+        preferenceSequence = current + 1u;
+        return current;
+    }
 };
 
-std::unordered_map<uint64_t, PetMemory> PetMemories;
+bool IsFeatureEnabled()
+{
+    return FeatureEnabled.load(std::memory_order_acquire);
+}
 
 AccountVerdict ClassifyPlayer(Player* player)
 {
@@ -119,31 +130,32 @@ bool OwnerLoggingOut(Player* player)
     return !session || session->IsLoggingOut() || session->PlayerLogout();
 }
 
-MemoryView ViewOf(PetMemory const& memory)
+MemoryView ViewOf(PetAutocastCycle const& cycle)
 {
     MemoryView view;
-    view.bound.ownerGuid = memory.ownerGuid;
-    view.bound.petGuid = memory.petGuid;
-    view.bound.petNumber = memory.petNumber;
-    view.pending = memory.generation != 0 && !memory.applied && !memory.refused;
-    view.snapshotCommitted = memory.snapshotCommitted;
-    view.refused = memory.refused;
-    view.applied = memory.applied;
-    view.generation = memory.generation;
-    view.snapshot = memory.snapshot;
+    view.bound.ownerGuid = cycle.ownerGuid;
+    view.bound.petGuid = cycle.petGuid;
+    view.bound.petNumber = cycle.petNumber;
+    view.pending = cycle.generation != 0 && !cycle.applied && !cycle.refused;
+    view.snapshotCommitted = cycle.snapshotCommitted;
+    view.refused = cycle.refused;
+    view.applied = cycle.applied;
+    view.generation = cycle.generation;
+    view.snapshot = cycle.snapshot;
     return view;
 }
 
-void StoreView(PetMemory& memory, MemoryView const& view)
+void StoreView(PetAutocastCycle& cycle, MemoryView const& view)
 {
-    memory.ownerGuid = view.bound.ownerGuid;
-    memory.petGuid = view.bound.petGuid;
-    memory.petNumber = view.bound.petNumber;
-    memory.generation = view.generation;
-    memory.snapshotCommitted = view.snapshotCommitted;
-    memory.refused = view.refused;
-    memory.applied = view.applied;
-    memory.snapshot = view.snapshot;
+    cycle.ownerGuid = view.bound.ownerGuid;
+    cycle.petGuid = view.bound.petGuid;
+    cycle.petNumber = view.bound.petNumber;
+    cycle.generation = view.generation;
+    cycle.snapshotCommitted = view.snapshotCommitted;
+    cycle.refused = view.refused;
+    cycle.applied = view.applied;
+    cycle.pending = view.pending;
+    cycle.snapshot = view.snapshot;
 }
 
 std::vector<BookSpell> ReadBook(Pet* pet)
@@ -170,27 +182,35 @@ std::vector<BookSpell> ReadBook(Pet* pet)
     return book;
 }
 
-void ClearPending(Pet* pet)
+/* Clears pending only when this object is the event's bound pet and the
+ * generation still matches. A newly summoned pet is left alone.
+ */
+bool ClearPendingIfBound(Pet* pet, LivePetId const& bound, uint32_t eventGeneration)
 {
-    if (!pet)
-        return;
-    if (PendingAutocastRestore* pending = pet->CustomData.Get<PendingAutocastRestore>(PendingKey))
-        pending->pending = false;
-}
+    if (!pet || GuidRaw(pet->GetGUID()) != bound.petGuid)
+        return false;
 
-void ForgetOwner(uint64_t ownerGuid)
-{
-    for (auto it = PetMemories.begin(); it != PetMemories.end();)
-    {
-        if (it->second.ownerGuid == ownerGuid)
-            it = PetMemories.erase(it);
-        else
-            ++it;
-    }
+    PetAutocastCycle* cycle = pet->CustomData.Get<PetAutocastCycle>(CycleKey);
+    if (!cycle)
+        return false;
+
+    LivePetId live;
+    live.ownerGuid = cycle->ownerGuid;
+    live.petGuid = cycle->petGuid;
+    live.petNumber = cycle->petNumber;
+    if (live.petGuid != GuidRaw(pet->GetGUID()))
+        return false;
+    if (!ClearPendingAllowed(bound, eventGeneration, live, cycle->generation))
+        return false;
+
+    cycle->pending = false;
+    return true;
 }
 
 bool ApplyOn(Player* player, Pet* pet, RestoreDecision const& decision)
 {
+    if (!AtomicModuleOnlyChoiceSourceExists())
+        return false;
     if (decision.outcome != RestoreOutcome::ApplyOn || !decision.touchesPet || decision.writesOff || decision.plans.empty())
         return false;
 
@@ -229,30 +249,33 @@ public:
     {
         Player* player = ObjectAccessor::FindPlayer(_owner);
         Pet* pet = player ? player->GetPet() : nullptr;
-        auto memoryIt = PetMemories.find(_pet.petGuid);
-        if (memoryIt == PetMemories.end() || !EventGenerationMatches(_generation, memoryIt->second.generation))
-        {
-            ClearPending(pet);
+        /* player->GetPet() may already be a different summon. Do not
+         * touch that object's CustomData.
+         */
+        if (!pet || GuidRaw(pet->GetGUID()) != _pet.petGuid || PetNumberOf(pet) != _pet.petNumber)
             return true;
-        }
-        PetMemory& memory = memoryIt->second;
-        if (memory.applied || memory.refused)
+
+        PetAutocastCycle* cycle = pet->CustomData.Get<PetAutocastCycle>(CycleKey);
+        if (!cycle || !EventGenerationMatches(_generation, cycle->generation))
+            return true;
+
+        if (cycle->applied || cycle->refused)
         {
-            ClearPending(pet);
+            ClearPendingIfBound(pet, _pet, _generation);
             return true;
         }
 
-        if (!FeatureEnabled || !IsEligibleHumanHunter(player) || OwnerLoggingOut(player))
+        if (!IsFeatureEnabled() || !IsEligibleHumanHunter(player) || OwnerLoggingOut(player))
         {
-            memory.applied = true;
-            ClearPending(pet);
+            cycle->applied = true;
+            ClearPendingIfBound(pet, _pet, _generation);
             return true;
         }
 
-        if (!pet || pet->getPetType() != HUNTER_PET)
+        if (pet->getPetType() != HUNTER_PET)
         {
-            memory.applied = true;
-            ClearPending(pet);
+            cycle->applied = true;
+            ClearPendingIfBound(pet, _pet, _generation);
             return true;
         }
 
@@ -263,8 +286,8 @@ public:
         if (identity == CycleAbort::GuidMismatch || identity == CycleAbort::MissingPet ||
             identity == CycleAbort::BeingRemoved || identity == CycleAbort::OwnerLoggingOut)
         {
-            memory.applied = true;
-            ClearPending(pet);
+            cycle->applied = true;
+            ClearPendingIfBound(pet, _pet, _generation);
             return true;
         }
 
@@ -272,8 +295,8 @@ public:
         {
             if (_restorePhase || _offsetMs >= LastIpOpportunityMs())
             {
-                memory.applied = true;
-                ClearPending(pet);
+                cycle->applied = true;
+                ClearPendingIfBound(pet, _pet, _generation);
                 return true;
             }
             pet->m_Events.AddEvent(
@@ -284,8 +307,11 @@ public:
 
         if (!_restorePhase)
         {
-            if (!memory.snapshotCommitted)
+            if (!cycle->snapshotCommitted)
             {
+                /* Literal false: the module has no IP-reconcile observation.
+                 * See RuntimeFaithfulIpSaveThenPoll.
+                 */
                 SnapshotCommit const commit = TryCommitSnapshot(
                     _pet,
                     current,
@@ -295,17 +321,17 @@ public:
                     !pet->isBeingLoaded(),
                     false,
                     ReadBook(pet),
-                    ++PreferenceSequence);
+                    cycle->NextSequence());
                 if (!commit.committed)
                 {
                     if (commit.reason == CycleAbort::IpAlreadyRan || commit.reason == CycleAbort::AmbiguousBook)
-                        memory.refused = true;
-                    memory.applied = true;
-                    ClearPending(pet);
+                        cycle->refused = true;
+                    cycle->applied = true;
+                    ClearPendingIfBound(pet, _pet, _generation);
                     return true;
                 }
-                memory.snapshot = commit.chains;
-                memory.snapshotCommitted = true;
+                cycle->snapshot = commit.chains;
+                cycle->snapshotCommitted = true;
             }
 
             pet->m_Events.AddEvent(
@@ -321,15 +347,15 @@ public:
             pet->IsDuringRemoveFromWorld(),
             loggingOut,
             !pet->isBeingLoaded(),
-            memory.snapshotCommitted,
-            memory.snapshot,
+            cycle->snapshotCommitted,
+            cycle->snapshot,
             ReadBook(pet));
         if (decision.outcome == RestoreOutcome::NoChange)
         {
             if (_offsetMs >= LastIpOpportunityMs())
             {
-                memory.applied = true;
-                ClearPending(pet);
+                cycle->applied = true;
+                ClearPendingIfBound(pet, _pet, _generation);
                 return true;
             }
             pet->m_Events.AddEvent(
@@ -338,11 +364,15 @@ public:
             return true;
         }
 
-        if (decision.outcome == RestoreOutcome::ApplyOn)
+        /* ApplyOn stays unreachable while the choice source is missing.
+         * The call is still gated so a later true constant cannot write
+         * from this function by accident without the policy agreeing.
+         */
+        if (decision.outcome == RestoreOutcome::ApplyOn && AtomicModuleOnlyChoiceSourceExists())
             ApplyOn(player, pet, decision);
 
-        memory.applied = true;
-        ClearPending(pet);
+        cycle->applied = true;
+        ClearPendingIfBound(pet, _pet, _generation);
         return true;
     }
 
@@ -356,7 +386,7 @@ private:
 
 void Schedule(Pet* pet)
 {
-    if (!FeatureEnabled || !pet || pet->getPetType() != HUNTER_PET)
+    if (!IsFeatureEnabled() || !pet || pet->getPetType() != HUNTER_PET)
         return;
 
     Player* owner = pet->GetOwner();
@@ -366,22 +396,19 @@ void Schedule(Pet* pet)
         return;
 
     LivePetId const id = IdOf(owner, pet);
-    if (id.petGuid == 0 || id.petNumber == 0)
+    if (id.petGuid == 0 || id.petNumber == 0 || GuidRaw(pet->GetGUID()) != id.petGuid)
         return;
 
-    PetMemory& memory = PetMemories[id.petGuid];
-    MemoryView view = ViewOf(memory);
+    PetAutocastCycle* cycle = pet->CustomData.GetDefault<PetAutocastCycle>(CycleKey);
+    MemoryView view = ViewOf(*cycle);
     ScheduleResult const scheduled = ScheduleCycle(view, id);
     if (scheduled != ScheduleResult::Started)
         return;
 
-    StoreView(memory, view);
-    PendingAutocastRestore* pending = pet->CustomData.GetDefault<PendingAutocastRestore>(PendingKey);
-    pending->pending = true;
-    pending->petGuid = id.petGuid;
-    pending->generation = memory.generation;
+    StoreView(*cycle, view);
+    cycle->pending = true;
     pet->m_Events.AddEvent(
-        new HunterPetAutocastEvent(owner->GetGUID(), id, memory.generation, FirstPollDelayMs(), false),
+        new HunterPetAutocastEvent(owner->GetGUID(), id, cycle->generation, FirstPollDelayMs(), false),
         pet->m_Events.CalculateTime(FirstPollDelayMs()));
 }
 
@@ -395,7 +422,7 @@ public:
 
     void OnBeforeConfigLoad(bool /*reload*/) override
     {
-        FeatureEnabled = sConfigMgr->GetOption<bool>(EnabledConfigKey, false);
+        FeatureEnabled.store(sConfigMgr->GetOption<bool>(EnabledConfigKey, false), std::memory_order_release);
     }
 };
 
@@ -430,13 +457,24 @@ public:
     {
     }
 
+    /* Logout only marks the pet currently on this player. A dismissed pet
+     * has already destroyed its CustomData with the Pet object, so there
+     * is no table to sweep.
+     */
     void OnPlayerBeforeLogout(Player* player) override
     {
         if (!player)
             return;
-        if (Pet* pet = player->GetPet())
-            ClearPending(pet);
-        ForgetOwner(GuidRaw(player->GetGUID()));
+        Pet* pet = player->GetPet();
+        if (!pet)
+            return;
+        PetAutocastCycle* cycle = pet->CustomData.Get<PetAutocastCycle>(CycleKey);
+        if (!cycle)
+            return;
+        if (cycle->ownerGuid != GuidRaw(player->GetGUID()) || cycle->petGuid != GuidRaw(pet->GetGUID()))
+            return;
+        cycle->applied = true;
+        cycle->pending = false;
     }
 };
 } // namespace

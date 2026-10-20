@@ -257,15 +257,17 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
 #####################################
 
 # EXPERIMENTAL prototype, default off. Not a functional persistence fix.
-# When set to 1, a confirmed human hunter (account name present, and a
-# confirmed non-match of IndividualProgression.BotAccountsRegex) may have
-# a swapped rank turned ON for the same live pet GUID. A missing account
-# name, an empty or invalid pattern, a pet GUID change, logout, removal
-# from the world, or an explicit OFF the new rank does not already show
-# aborts with no write. Unvalidated client autocast packets are ignored.
-# Explicit OFF is not written. Stale old-rank autocast ids can remain.
+# BLOCKED: NO ATOMIC MODULE-ONLY CHOICE SOURCE.
+# The module cannot tell a player's latest explicit OFF from Individual
+# Progression's learn-default OFF, so it does not turn a rank ON.
+# Setting this to 1 still does not toggle a pet. A missing account name,
+# an empty or invalid pattern, a pet GUID change, logout, removal from
+# the world, more than one autocast chain, or an explicit OFF the new
+# rank does not already show aborts with no write. Unvalidated client
+# autocast packets are ignored. Explicit OFF is not written. Stale
+# old-rank autocast ids can remain.
 #
 # 0 = do nothing (default)
-# 1 = experimental fail-closed ON restore
+# 1 = experimental hooks only; functional ON restore stays closed
 # Default: 0
 NaxxramasCore.HunterPetAutocastRestore.Enabled = 0

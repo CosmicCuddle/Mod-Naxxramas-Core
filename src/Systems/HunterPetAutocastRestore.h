@@ -10,11 +10,22 @@
  * are not a preference source. Timer offsets are not treated as proof
  * that this module ran before Individual Progression.
  *
+ * BLOCKED: NO ATOMIC MODULE-ONLY CHOICE SOURCE
+ * A pre-IP ON snapshot plus a later ACT_DISABLED rank is not proof the
+ * player still wants ON. IP's learnSpell stores ACT_DISABLED
+ * (Pet.cpp:1810-1813) and HandlePetSpellAutocastOpcode's OFF path is a
+ * no-op on a spell that is not already in m_autospells
+ * (Pet.cpp:2274-2286, PetHandler.cpp:1002-1007). CanPacketReceive runs
+ * before opHandle->Call (WorldSession.cpp:461-463). There is no
+ * post-handler hook. The functional ON restore stays closed.
+ *
  * POTENTIAL ISSUE: stale old-rank ids can remain in m_autospells.
- * Pet::ToggleAutocast(spell, false) at Pet.cpp:2254-2283 finds a
+ * Pet::removeSpell (Pet.cpp:1976-1988) does not erase them.
+ * Pet::ToggleAutocast(spell, false) at Pet.cpp:2274-2283 finds a
  * PETSPELL_REMOVED row and, because that state is not PETSPELL_NEW,
- * rewrites it to PETSPELL_CHANGED (Pet.cpp:2282-2283). That can resurrect
- * the old rank on the next save. This policy never requests that call.
+ * rewrites it to PETSPELL_CHANGED. That can resurrect the old rank.
+ * This policy never requests that call, and a single-chain book is not
+ * treated as every pet ability.
  */
 #pragma once
 
@@ -121,6 +132,30 @@ inline constexpr bool UnvalidatedPacketDrivesToggle()
     return false;
 }
 
+/* Public APIs at cores a66f1be and 8daffda, IP 4ff4b5f, and Playerbots
+ * 037c014 do not expose an atomic player-choice bit that is distinct
+ * from IP's learn-default ACT_DISABLED. See ChoiceSourceBlocker.
+ */
+inline constexpr char const* ChoiceSourceBlocker = "BLOCKED: NO ATOMIC MODULE-ONLY CHOICE SOURCE";
+
+inline constexpr bool AtomicModuleOnlyChoiceSourceExists()
+{
+    return false;
+}
+
+/* Execute passes literal false. This flag is not a runtime observation.
+ * Pet::_SaveSpells erases PETSPELL_REMOVED rows (Pet.cpp:1588-1591), so
+ * BookLooksPostReconcile can miss a reconcile that already saved.
+ */
+inline constexpr bool RuntimeObservesIpReconciledFlag()
+{
+    return false;
+}
+
+static_assert(!AtomicModuleOnlyChoiceSourceExists(), "functional ON restore stays closed");
+static_assert(!RuntimeObservesIpReconciledFlag(), "no runtime IP-reconcile oracle");
+static_assert(ChoiceSourceBlocker[0] == 'B', "blocker text is present");
+
 enum class EventPump : uint8_t
 {
     PetUpdateWhileLoading = 0,
@@ -199,6 +234,7 @@ enum class CycleAbort : uint8_t
     StaleSnapshot,
     AmbiguousBook,
     ExplicitOffConflict,
+    NoAtomicChoiceSource,
     InterveningChange,
     IpAlreadyRan,
     UnvalidatedPacketIgnored,
@@ -271,6 +307,87 @@ inline bool EventGenerationMatches(uint32_t eventGeneration, uint32_t memoryGene
     return eventGeneration != 0u && eventGeneration == memoryGeneration;
 }
 
+/* An event may run only against the pet it was bound to. A later pet
+ * with another GUID, number, owner, or generation keeps its pending bit.
+ */
+inline bool ClearPendingAllowed(
+    LivePetId const& bound,
+    uint32_t eventGeneration,
+    LivePetId const& live,
+    uint32_t liveGeneration)
+{
+    if (bound.ownerGuid == 0 || bound.petGuid == 0 || bound.petNumber == 0)
+        return false;
+    if (live.ownerGuid != bound.ownerGuid || live.petGuid != bound.petGuid || live.petNumber != bound.petNumber)
+        return false;
+    return EventGenerationMatches(eventGeneration, liveGeneration);
+}
+
+inline bool TryClearPending(
+    MemoryView& liveMemory,
+    LivePetId const& live,
+    LivePetId const& bound,
+    uint32_t eventGeneration)
+{
+    if (liveMemory.bound.petGuid != live.petGuid)
+        return false;
+    if (!ClearPendingAllowed(bound, eventGeneration, live, liveMemory.generation))
+        return false;
+    liveMemory.pending = false;
+    return true;
+}
+
+/* Model of pet-owned state. Dismiss erases the object. Nothing here is a
+ * process-global map that outlives the pet.
+ */
+struct PetOwnedCycle
+{
+    LivePetId id{};
+    MemoryView memory;
+};
+
+class PetLifetimeStore
+{
+public:
+    bool Summon(LivePetId const& id)
+    {
+        if (id.ownerGuid == 0 || id.petGuid == 0 || id.petNumber == 0)
+            return false;
+        if (_alive.find(id.petGuid) != _alive.end())
+            return false;
+        PetOwnedCycle cycle;
+        cycle.id = id;
+        _alive.emplace(id.petGuid, cycle);
+        return true;
+    }
+
+    PetOwnedCycle* Find(uint64_t petGuid)
+    {
+        auto found = _alive.find(petGuid);
+        if (found == _alive.end())
+            return nullptr;
+        return &found->second;
+    }
+
+    bool Contains(uint64_t petGuid) const
+    {
+        return _alive.find(petGuid) != _alive.end();
+    }
+
+    bool Dismiss(uint64_t petGuid)
+    {
+        return _alive.erase(petGuid) == 1;
+    }
+
+    std::size_t size() const
+    {
+        return _alive.size();
+    }
+
+private:
+    std::map<uint64_t, PetOwnedCycle> _alive;
+};
+
 inline bool BookLooksPostReconcile(std::vector<BookSpell> const& book)
 {
     for (BookSpell const& spell : book)
@@ -313,6 +430,11 @@ struct SnapshotCommit
     std::map<uint32_t, Preference> chains;
 };
 
+/* ipAlreadyReconciled is not observed by the runtime. Execute passes
+ * literal false. A true value here is only a direct unit-test input.
+ * BookLooksPostReconcile misses the reconcile after Pet::_SaveSpells
+ * erases PETSPELL_REMOVED rows (Pet.cpp:1588-1591).
+ */
 inline SnapshotCommit TryCommitSnapshot(
     LivePetId const& bound,
     LivePetId const& current,
@@ -369,6 +491,22 @@ inline SnapshotCommit TryCommitSnapshot(
     return commit;
 }
 
+/* The call Execute actually makes. There is no IP-reconcile argument. */
+inline SnapshotCommit CommitSnapshotRuntime(
+    LivePetId const& bound,
+    LivePetId const& current,
+    bool inWorld,
+    bool beingRemoved,
+    bool ownerLoggingOut,
+    bool loaded,
+    std::vector<BookSpell> const& book,
+    uint64_t sequence)
+{
+    static_assert(!RuntimeObservesIpReconciledFlag(), "runtime commit has no oracle");
+    return TryCommitSnapshot(
+        bound, current, inWorld, beingRemoved, ownerLoggingOut, loaded, false, book, sequence);
+}
+
 struct ChainPlan
 {
     uint32_t chainFirst = 0;
@@ -408,8 +546,11 @@ inline RestoreDecision RejectUnvalidatedPacket()
 /* Packet preferences are not an argument. A REMOVED row is not a donor.
  * Explicit OFF is honoured only when the new rank is already OFF, and then
  * nothing is written. A new rank that is ON while the snapshot says OFF
- * aborts the whole pet: ToggleAutocast(false) is not a safe OFF write on a
- * rank that was just learned, and a partial ON apply is not used instead.
+ * aborts the whole pet: ToggleAutocast(false) is not a safe OFF write.
+ * More than one autocast chain is AmbiguousBook. A single chain is not
+ * every pet ability, and this function does not read m_autospells.
+ * A plan that would turn a new rank ON aborts with NoAtomicChoiceSource
+ * while AtomicModuleOnlyChoiceSourceExists() is false.
  */
 inline RestoreDecision DecideRestore(
     LivePetId const& bound,
@@ -469,6 +610,17 @@ inline RestoreDecision DecideRestore(
             groups[spell.chainFirst].removed.push_back(&spell);
         else
             groups[spell.chainFirst].current.push_back(&spell);
+    }
+
+    /* One chain is the only book this policy will even classify.
+     * Two chains would be a partial restore if only one were written.
+     */
+    if (snapshot.size() != 1u || groups.size() != 1u)
+    {
+        decision.outcome = RestoreOutcome::Abort;
+        decision.reason = CycleAbort::AmbiguousBook;
+        decision.plans.clear();
+        return decision;
     }
 
     for (auto const& grouped : groups)
@@ -562,6 +714,15 @@ inline RestoreDecision DecideRestore(
 
     if (anyOn)
     {
+        if (!AtomicModuleOnlyChoiceSourceExists())
+        {
+            decision.outcome = RestoreOutcome::Abort;
+            decision.reason = CycleAbort::NoAtomicChoiceSource;
+            decision.plans.clear();
+            decision.touchesPet = false;
+            decision.writesOff = false;
+            return decision;
+        }
         decision.outcome = RestoreOutcome::ApplyOn;
         decision.reason = CycleAbort::None;
         decision.touchesPet = true;
@@ -625,6 +786,8 @@ struct SimResult
     uint64_t snapshotGuid = 0;
     bool duplicateIgnored = false;
     uint32_t generation = 0;
+    uint32_t capturedSpellId = 0;
+    bool capturedOn = false;
 };
 
 struct SimWorld
@@ -635,7 +798,6 @@ struct SimWorld
     bool beingRemoved = false;
     bool loggingOut = false;
     bool loading = true;
-    bool ipReconciled = false;
     uint8_t ipAttempts = 0;
     std::vector<BookSpell> book;
     MemoryView memory;
@@ -758,14 +920,13 @@ inline SimResult RunSequence(std::vector<SimStep> const& steps, SimInput const& 
                     world.reason = CycleAbort::DuplicateResetBlocked;
                     break;
                 }
-                SnapshotCommit const commit = TryCommitSnapshot(
+                SnapshotCommit const commit = CommitSnapshotRuntime(
                     world.memory.bound,
                     world.pet,
                     world.inWorld,
                     world.beingRemoved,
                     world.loggingOut,
                     !world.loading,
-                    world.ipReconciled,
                     world.book,
                     1u);
                 world.reason = commit.reason;
@@ -791,10 +952,7 @@ inline SimResult RunSequence(std::vector<SimStep> const& steps, SimInput const& 
                     break;
                 }
                 if (exec.hunterCheckRan)
-                {
-                    world.ipReconciled = true;
                     SwapRankIfPresent(world);
-                }
                 break;
             }
             case SimStep::PetSave:
@@ -852,7 +1010,6 @@ inline SimResult RunSequence(std::vector<SimStep> const& steps, SimInput const& 
                     IpExecution const exec = IpDelayedCheckOnPump(EventPump::ProcessorAdvanced, true, attempt);
                     if (!exec.hunterCheckRan)
                         continue;
-                    world.ipReconciled = true;
                     world.ipAttempts = IpLoadingAttemptCap;
                     SwapRankIfPresent(world);
                 }
@@ -884,6 +1041,12 @@ inline SimResult RunSequence(std::vector<SimStep> const& steps, SimInput const& 
     result.snapshotGuid = world.memory.snapshotCommitted ? world.memory.bound.petGuid : 0u;
     result.duplicateIgnored = world.duplicateIgnored;
     result.generation = world.memory.generation;
+    if (result.snapshotCommitted && world.memory.snapshot.size() == 1u)
+    {
+        Preference const& captured = world.memory.snapshot.begin()->second;
+        result.capturedSpellId = captured.spellId;
+        result.capturedOn = captured.autocastOn;
+    }
     return result;
 }
 
@@ -893,6 +1056,30 @@ inline SimResult RunSequence(std::vector<SimStep> const& steps, SimInput const& 
  * abort. Nothing is written, including no invented ON and no claim that
  * the learn-default OFF was the player's explicit OFF.
  */
+/* Runtime-faithful order: IP learn-default, then Pet::_SaveSpells erases
+ * the REMOVED row, then the module polls. CommitSnapshotRuntime has no
+ * reconcile flag. The post-IP rank can be stored as the snapshot, and
+ * the pre-IP ON is not restored. This is not an oracle simulation.
+ */
+inline SimResult RuntimeFaithfulIpSaveThenPoll(bool explicitOn)
+{
+    static_assert(!RuntimeObservesIpReconciledFlag(), "faithful model has no oracle");
+    SimInput input;
+    input.explicitOn = explicitOn;
+    input.startLoading = true;
+    input.spellsLoadedAtStart = false;
+    return RunSequence(
+        {
+            SimStep::BindHook,
+            SimStep::LoadCompletes,
+            SimStep::IpCheck,
+            SimStep::PetSave,
+            SimStep::ModulePoll,
+            SimStep::ModuleRestore,
+        },
+        input);
+}
+
 inline SimResult CounterexampleDelayedLoadThenSave(bool explicitOn)
 {
     SimInput input;
