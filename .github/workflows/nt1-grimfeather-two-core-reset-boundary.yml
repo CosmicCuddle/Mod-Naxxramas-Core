@@ -4,14 +4,18 @@ on:
   pull_request:
     paths:
       - 'scripts/check_nt1_grimfeather_two_core_reset_boundary.py'
+      - 'scripts/check_nt1_direct_learn_partial_failure.py'
       - 'tests/test_nt1_grimfeather_two_core_reset_boundary.py'
+      - 'tests/test_nt1_direct_learn_partial_failure.py'
       - '.github/workflows/nt1-grimfeather-two-core-reset-boundary.yml'
   push:
     branches:
       - research/nt1-two-grimfeather-reset-boundary-2026-10-20
     paths:
       - 'scripts/check_nt1_grimfeather_two_core_reset_boundary.py'
+      - 'scripts/check_nt1_direct_learn_partial_failure.py'
       - 'tests/test_nt1_grimfeather_two_core_reset_boundary.py'
+      - 'tests/test_nt1_direct_learn_partial_failure.py'
       - '.github/workflows/nt1-grimfeather-two-core-reset-boundary.yml'
   workflow_dispatch:
 
@@ -54,12 +58,17 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git -C pinned-core rev-parse HEAD)" = "${{ matrix.core_sha }}"
           python3 -m unittest discover -s tests -p 'test_nt1_grimfeather_two_core_reset_boundary.py' -v
+          python3 -m unittest discover -s tests -p 'test_nt1_direct_learn_partial_failure.py' -v
       - name: Assert published core still has unsafe reset/offhand path
         run: |
           set -euo pipefail
           python3 scripts/check_nt1_grimfeather_two_core_reset_boundary.py \
             --player-cpp pinned-core/src/server/game/Entities/Player/Player.cpp \
             --player-h pinned-core/src/server/game/Entities/Player/Player.h \
+            --reference-sha '${{ matrix.core_sha }}'
+          python3 scripts/check_nt1_direct_learn_partial_failure.py \
+            --player-cpp pinned-core/src/server/game/Entities/Player/Player.cpp \
+            --module-cpp src/Systems/BotTalentImport.cpp \
             --reference-sha '${{ matrix.core_sha }}'
           echo 'This is a verified RISK, NOT approval for changed-build Altbot talent Apply.'
           echo 'No Worldserver, player data, database, artifact uploads, upstream patches or release.'
