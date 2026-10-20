@@ -83,7 +83,7 @@ jobs:
             docs/research/F10-hallows-end-one-bucket-S2.md \
             .github/workflows/f10-s2-one-bucket.yml
           do
-            test -s "$root/$file" && test -s "$donor/$file"
+            test -s "$donor/$file"
             cp "$donor/$file" "$root/$file"
             cmp "$root/$file" "$donor/$file"
           done
