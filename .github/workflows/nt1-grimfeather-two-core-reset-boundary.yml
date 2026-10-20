@@ -1,0 +1,65 @@
+name: NT1 two-Grimfeather no-gear-reset source boundary
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/check_nt1_grimfeather_two_core_reset_boundary.py'
+      - 'tests/test_nt1_grimfeather_two_core_reset_boundary.py'
+      - '.github/workflows/nt1-grimfeather-two-core-reset-boundary.yml'
+  push:
+    branches:
+      - research/nt1-two-grimfeather-reset-boundary-2026-10-20
+    paths:
+      - 'scripts/check_nt1_grimfeather_two_core_reset_boundary.py'
+      - 'tests/test_nt1_grimfeather_two_core_reset_boundary.py'
+      - '.github/workflows/nt1-grimfeather-two-core-reset-boundary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nt1-known-unsafe-reset:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: old
+            core_sha: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          - label: proposed-new
+            core_sha: 8daffdabe9202c228e45d833c9a1d399597a15cd
+    name: Confirm old/new core reset remains unsafe / ${{ matrix.label }}
+    steps:
+      - name: Checkout exact module read-only verifier
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Checkout one pinned Grimfeather core's exact Player sources
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ matrix.core_sha }}
+          path: pinned-core
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Entities/Player/Player.h
+      - name: Verify exact Git SHAs, plus seven fail-closed model fixtures
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "${{ matrix.core_sha }}"
+          python3 -m unittest discover -s tests -p 'test_nt1_grimfeather_two_core_reset_boundary.py' -v
+      - name: Assert published core still has unsafe reset/offhand path
+        run: |
+          set -euo pipefail
+          python3 scripts/check_nt1_grimfeather_two_core_reset_boundary.py \
+            --player-cpp pinned-core/src/server/game/Entities/Player/Player.cpp \
+            --player-h pinned-core/src/server/game/Entities/Player/Player.h \
+            --reference-sha '${{ matrix.core_sha }}'
+          echo 'This is a verified RISK, NOT approval for changed-build Altbot talent Apply.'
+          echo 'No Worldserver, player data, database, artifact uploads, upstream patches or release.'
