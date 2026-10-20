@@ -1,0 +1,109 @@
+name: F10 S2 pinned native Shade compilation (old + newer core)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - '.github/workflows/f10-s2-shade-native-pinned.yml'
+      - 'src/Events/HallowsEndShadeOfTheHorseman.cpp'
+      - 'src/Events/HallowsEndSoloFire.h'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/f10_s2_solo_fire_policy_tests.cpp'
+      - 'tests/test_f10_hallows_end_solo_fire_s2.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-f10-shade-native-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-shade-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: old-grimfeather
+            core_sha: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          - name: prospective-new-grimfeather
+            core_sha: 8daffdabe9202c228e45d833c9a1d399597a15cd
+    name: Native Shade / ${{ matrix.name }}
+    steps:
+      - name: Checkout pinned Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ matrix.core_sha }}
+          path: acore
+          persist-credentials: false
+      - name: Checkout historical pinned Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout historical pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact S2 draft plus CI probe
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Require four Git SHAs and F10 disabled baseline
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "${{ matrix.core_sha }}"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = 037c01418b5d01506917a3db9b44fd56ac5f965c
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          grep -Fqx 'NaxxramasCore.HallowsEnd.SoloFire.Enabled = 0' acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          grep -Fqx 'NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier = 3' acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+      - name: Install exact native compiler prerequisites
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure entire historical module matrix
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile actual changed Shade C++ translation unit against pinned core
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import shlex
+          import subprocess
+
+          path = Path("acore-build/compile_commands.json")
+          commands = json.loads(path.read_text(encoding="utf-8"))
+          matched = [x for x in commands if x["file"].endswith("/src/Events/HallowsEndShadeOfTheHorseman.cpp")]
+          assert len(matched) == 1, f"Expected exactly one actual Shade TU: {len(matched)}"
+          entry = matched[0]
+          raw = entry.get("arguments") or shlex.split(entry["command"])
+          print("Compiling exact Shade module translation unit", entry["file"], flush=True)
+          subprocess.run(raw, cwd=entry["directory"], timeout=360, check=True)
+          print("PASS: actual F10 S2 Shade C++ TU compiled with pinned core + Playerbots/IP headers")
+          PY
+      - name: State incomplete final link and gameplay boundary
+        if: always()
+        run: |
+          echo "S3 NATIVE TU ONLY; this DOES NOT compile/link a whole Worldserver or verify a final executable."
+          echo "S2 source lifecycle bug and missing-aura review still require CS02 fixes and new SHA."
+          echo "No Worldserver launch, SQL/DBC, database, config activation, character/item edits or release."
