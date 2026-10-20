@@ -105,6 +105,30 @@ class NT1DirectLearnHazard(unittest.TestCase):
                 IMPORT_FIXTURE,
             )
 
+    def test_every_nonstandalone_addtalent_form_fails_closed(self):
+        # Any unfamiliar invocation must force a human source review.
+        original = "addTalent(spellId, GetActiveSpecMask(), currentTalentRank);"
+        variants = (
+            "bool added{addTalent(spellId, GetActiveSpecMask(), currentTalentRank)};",
+            "auto result{addTalent(spellId, GetActiveSpecMask(), currentTalentRank)};",
+            "added = addTalent(spellId, GetActiveSpecMask(), currentTalentRank);",
+            "return addTalent(spellId, GetActiveSpecMask(), currentTalentRank);",
+            "ASSERT(addTalent(spellId, GetActiveSpecMask(), currentTalentRank));",
+            "this->addTalent(spellId, GetActiveSpecMask(), currentTalentRank);",
+            "Player::addTalent(spellId, GetActiveSpecMask(), currentTalentRank);",
+            "call(addTalent(spellId, GetActiveSpecMask(), currentTalentRank));",
+            "addTalent(spellId, GetActiveSpecMask(), currentTalentRank); extraCall();",
+            "addTalent(spellId, GetActiveSpecMask(), currentTalentRank);\n"
+            "    addTalent(spellId, GetActiveSpecMask(), currentTalentRank);",
+        )
+        for variant in variants:
+            with self.subTest(variant=variant):
+                with self.assertRaises(SourceContractError):
+                    check_direct_learn_risk(
+                        CORE_FIXTURE.replace(original, variant),
+                        IMPORT_FIXTURE,
+                    )
+
     def test_changed_importer_sequence_fails_closed(self):
         with self.assertRaises(SourceContractError):
             check_direct_learn_risk(
