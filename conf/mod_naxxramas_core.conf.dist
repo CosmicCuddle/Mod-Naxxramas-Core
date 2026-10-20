@@ -251,3 +251,19 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptGMs = 1
 # Preserve Playerbots queues based on IndividualProgression.BotAccountsRegex.
 # Default: 1
 NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
+
+#####################################
+# Human hunter pet autocast restore
+#####################################
+
+# After Individual Progression swaps a human hunter pet's spell rank,
+# turn the new rank ON when that chain was ON. A newly learned rank is
+# already OFF, and ToggleAutocast(false) does not write that byte.
+# Bots matched by IndividualProgression.BotAccountsRegex are left alone.
+# Nothing is written to a new table. An ON restore is kept by the core's
+# ordinary pet save.
+#
+# 0 = leave IP's post-swap autocast state unchanged (default)
+# 1 = turn ON a chain whose saved state was ON and whose rank changed
+# Default: 0
+NaxxramasCore.HunterPetAutocastRestore.Enabled = 0
