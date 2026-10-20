@@ -1,0 +1,71 @@
+name: A02 accepted autocast source boundaries (read-only)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/check_a02_post_accepted_autocast_hooks.py'
+      - 'tests/test_a02_post_accepted_autocast_hooks.py'
+      - 'docs/research/a02-post-accepted-autocast-hook-boundary-2026-10-20.md'
+      - '.github/workflows/a02-accepted-autocast-paths-source-pin.yml'
+  push:
+    branches:
+      - research/a02-two-accepted-autocast-paths-2026-10-20
+    paths:
+      - 'scripts/check_a02_post_accepted_autocast_hooks.py'
+      - 'tests/test_a02_post_accepted_autocast_hooks.py'
+      - 'docs/research/a02-post-accepted-autocast-hook-boundary-2026-10-20.md'
+      - '.github/workflows/a02-accepted-autocast-paths-source-pin.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  two-pinned-source-hazard-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        core_sha:
+          - a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          - 8daffdabe9202c228e45d833c9a1d399597a15cd
+    steps:
+      - name: Checkout exact draft test commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Checkout one verified Grimfeather source pin
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ matrix.core_sha }}
+          path: pinned-core
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Handlers/PetHandler.cpp
+            src/server/game/Scripting/ScriptDefines/PetScript.h
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Entities/Pet/Pet.cpp
+            src/server/game/Entities/Unit/CharmInfo.cpp
+
+      - name: Verify exact source revisions and run negative models
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "${{ matrix.core_sha }}"
+          python3 -m unittest discover -s tests -p 'test_a02_post_accepted_autocast_hooks.py' -v
+
+      - name: Confirm accepted handler, Pet and Charm source writes and dismissal save
+        run: |
+          set -euo pipefail
+          python3 scripts/check_a02_post_accepted_autocast_hooks.py \
+            --pet-handler pinned-core/src/server/game/Handlers/PetHandler.cpp \
+            --pet-script pinned-core/src/server/game/Scripting/ScriptDefines/PetScript.h \
+            --player-cpp pinned-core/src/server/game/Entities/Player/Player.cpp \
+            --pet-cpp pinned-core/src/server/game/Entities/Pet/Pet.cpp \
+            --charm-cpp pinned-core/src/server/game/Entities/Unit/CharmInfo.cpp \
+            --core-sha '${{ matrix.core_sha }}'
+          echo 'RISK STILL PRESENT; NOT a safe Hunter cache or linked Worldserver.'
