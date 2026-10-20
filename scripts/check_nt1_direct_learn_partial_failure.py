@@ -74,6 +74,18 @@ def check_direct_learn_risk(player_cpp: str, bot_cpp: str) -> dict[str, bool]:
         raise SourceContractError(
             "LearnTalent addTalent call lacks a standalone statement boundary: re-review")
 
+    # function_body() returns the INTERIOR of LearnTalent, excluding its
+    # enclosing braces. At the pinned direct call, every prior nested
+    # conditional/loop scope is closed. Even if the preceding physical
+    # character is '{', a newly inserted if/while/lambda block must require
+    # a fresh source review. Deliberately fail closed on any unexpected
+    # brace nesting; this is a narrow pinned-source contract, not a C++
+    # parser (comments/strings containing braces may also require review).
+    depth = prefix.count("{") - prefix.count("}")
+    if depth != 0:
+        raise SourceContractError(
+            "LearnTalent addTalent call is nested in a new braced context: re-review")
+
     must_contain(imported, [
         "for (TalentSelection const& selection : plan.Ordered)",
         "bot->LearnTalent(selection.Id, selection.Rank - 1);",
