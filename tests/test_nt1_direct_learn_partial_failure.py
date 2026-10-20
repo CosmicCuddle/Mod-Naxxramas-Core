@@ -169,6 +169,24 @@ class NT1DirectLearnHazard(unittest.TestCase):
                     check_direct_learn_risk(
                         CORE_FIXTURE.replace(original, variant), IMPORT_FIXTURE)
 
+    def test_balanced_control_blocks_before_addtalent_fail_closed(self):
+        # A balanced block can return or otherwise alter control flow while
+        # leaving brace nesting zero before the original mutation call.
+        original = "    addTalent(spellId, GetActiveSpecMask(), currentTalentRank);"
+        variants = (
+            "    if (blocked) { return; }\n" + original,
+            "    if (blocked)\n    {\n        return;\n    }\n" + original,
+            "    while (blocked) { break; }\n" + original,
+            "    {\n        doSomething();\n    }\n" + original,
+        )
+        for variant in variants:
+            with self.subTest(variant=variant):
+                with self.assertRaises(SourceContractError):
+                    check_direct_learn_risk(
+                        CORE_FIXTURE.replace(original, variant),
+                        IMPORT_FIXTURE,
+                    )
+
     def test_changed_importer_sequence_fails_closed(self):
         with self.assertRaises(SourceContractError):
             check_direct_learn_risk(
