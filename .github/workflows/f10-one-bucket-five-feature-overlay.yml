@@ -127,6 +127,25 @@ jobs:
           git -C "$root" diff --stat
           echo "TEMPORARY WORKTREE ONLY: no git add, no git commit, no branch merge."
 
+      - name: Run existing five-feature and new F10 source regressions inside same overlay
+        run: |
+          set -euo pipefail
+          root=acore/modules/mod-naxxramas-core
+          for pattern in \
+            test_hunter_ammo_consumables.py \
+            test_quest_loot_protection.py \
+            test_ep_tower_module_only.py \
+            test_mc_gfpp_one_shot.py \
+            test_f10_hallows_end_solo_fire_s1.py \
+            test_f10_hallows_end_solo_fire_s2.py \
+            test_f10_hallows_end_one_bucket_s2.py
+          do
+            echo "READ-ONLY MODULE SOURCE TESTS: $pattern"
+            F10_CORE_NEW="$(pwd)/acore" python3 -m unittest discover \
+              -s "$root/tests" -p "$pattern" -v
+          done
+          echo "PASS: five existing and new one-bucket source/test suites in the same ephemeral overlay."
+
       - name: Run standalone F10 policy model without server or DB
         run: |
           set -euo pipefail
