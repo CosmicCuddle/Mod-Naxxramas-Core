@@ -48,6 +48,41 @@ jobs:
           path: acore/modules/mod-individual-progression
           persist-credentials: false
 
+      - name: Checkout pinned OLD Grimfeather source for two-core F10 regression coverage
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: pinned-old-core
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/scripts/Events/hallows_end.cpp
+            src/server/game/Spells/SpellEffects.cpp
+            src/server/game/Spells/Spell.cpp
+            src/server/game/Spells/Auras/SpellAuraEffects.h
+            src/server/game/Spells/Auras/SpellAuraEffects.cpp
+            src/server/game/Spells/Auras/SpellAuras.h
+            src/server/game/Scripting/ScriptDefines/AllSpellScript.h
+            src/server/game/Scripting/ScriptDefines/AllSpellScript.cpp
+            src/server/game/Entities/Unit/Unit.h
+            src/server/game/Entities/Creature/Creature.h
+            src/server/game/Entities/Object/Object.h
+            src/server/game/Grids/Notifiers/GridNotifiers.h
+            src/server/game/AI/CoreAI/UnitAI.h
+            src/server/game/AI/CoreAI/PassiveAI.h
+            src/server/game/Quests/QuestDef.h
+            src/server/game/Time/GameTime.h
+            src/server/shared/SharedDefines.h
+            src/common/Configuration/Config.cpp
+            data/sql/base/db_world/spell_script_names.sql
+            data/sql/base/db_world/creature_template.sql
+            data/sql/base/db_world/spell_dbc.sql
+            data/sql/base/db_world/spell_linked_spell.sql
+            data/sql/base/db_world/spell_scripts.sql
+            data/sql/base/db_world/spell_pet_auras.sql
+            data/sql/base/db_world/quest_template.sql
+
       - name: Checkout immutable previously linked five-feature source
         uses: actions/checkout@v4
         with:
@@ -66,6 +101,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C pinned-old-core rev-parse HEAD)" = a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
           test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = 037c01418b5d01506917a3db9b44fd56ac5f965c
           test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = 4ff4b5fcc1480348f058c632573143e62d4e3a41
           test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = 146fad73a82729c5cde88e531f59725dff04ee24
@@ -131,6 +167,16 @@ jobs:
         run: |
           set -euo pipefail
           root=acore/modules/mod-naxxramas-core
+          export F10_CORE_OLD="$(pwd)/pinned-old-core"
+          export F10_CORE_NEW="$(pwd)/acore"
+          export F10_PLAYERBOTS="$(pwd)/acore/modules/mod-playerbots"
+          export F10_IP="$(pwd)/acore/modules/mod-individual-progression"
+          export F10_PLAYERBOTS_H="$F10_PLAYERBOTS/src/Script/Playerbots.h"
+          test "$(git -C "$F10_CORE_OLD" rev-parse HEAD)" = a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          test "$(git -C "$F10_CORE_NEW" rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test -s "$F10_PLAYERBOTS_H"
+          test -s "$F10_CORE_OLD/src/server/scripts/Events/hallows_end.cpp"
+          test -s "$F10_CORE_OLD/data/sql/base/db_world/quest_template.sql"
           for pattern in \
             test_hunter_ammo_consumables.py \
             test_quest_loot_protection.py \
@@ -141,10 +187,20 @@ jobs:
             test_f10_hallows_end_one_bucket_s2.py
           do
             echo "READ-ONLY MODULE SOURCE TESTS: $pattern"
-            F10_CORE_NEW="$(pwd)/acore" python3 -m unittest discover \
-              -s "$root/tests" -p "$pattern" -v
+            logfile="/tmp/f10_overlay_$pattern.log"
+            python3 -m unittest discover -s "$root/tests" -p "$pattern" -v \
+              2>&1 | tee "$logfile"
+            if grep -Eq '(^|[[:space:]])(skipped=[1-9]|skipped .*[1-9])' "$logfile"; then
+              echo "::error::Source suite had skipped tests: $pattern"
+              exit 1
+            fi
+            if grep -Fq 'Ran 0 tests' "$logfile"; then
+              echo "::error::Source suite discovered no tests: $pattern"
+              exit 1
+            fi
+            grep -Eq '^Ran [1-9][0-9]* tests?' "$logfile"
           done
-          echo "PASS: five existing and new one-bucket source/test suites in the same ephemeral overlay."
+          echo "PASS: seven source suites, ZERO SKIPS, both pinned cores, pinned Playerbots/IP and same runner overlay."
 
       - name: Run standalone F10 policy model without server or DB
         run: |
