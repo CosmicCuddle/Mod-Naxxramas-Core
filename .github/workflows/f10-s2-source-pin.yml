@@ -1,0 +1,135 @@
+name: F10 S2 Hallow's End source pin
+on:
+  pull_request:
+    paths:
+      - 'src/Events/HallowsEndShadeOfTheHorseman.cpp'
+      - 'src/Events/HallowsEndSoloFire.h'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'docs/research/F10-hallows-end-solo-fire-S2.md'
+      - 'tests/test_f10_hallows_end_solo_fire_s1.py'
+      - 'tests/test_f10_hallows_end_solo_fire_s2.py'
+      - 'tests/f10_s2_solo_fire_policy_tests.cpp'
+      - '.github/workflows/f10-s2-source-pin.yml'
+  push:
+    branches:
+      - cs02/f10-s2-shade-module-2026-10-20
+    paths:
+      - 'src/Events/HallowsEndShadeOfTheHorseman.cpp'
+      - 'src/Events/HallowsEndSoloFire.h'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'docs/research/F10-hallows-end-solo-fire-S2.md'
+      - 'tests/test_f10_hallows_end_solo_fire_s1.py'
+      - 'tests/test_f10_hallows_end_solo_fire_s2.py'
+      - 'tests/f10_s2_solo_fire_policy_tests.cpp'
+      - '.github/workflows/f10-s2-source-pin.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  pin-reviewed-sources:
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/cs02/f10-s2-shade-module-2026-10-20') ||
+      (github.event_name == 'pull_request' && github.head_ref == 'cs02/f10-s2-shade-module-2026-10-20')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out this module commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Check out pinned Grimfeather core
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: core-a66f1be
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/scripts/Events/hallows_end.cpp
+            src/server/game/Spells/Auras/SpellAuraEffects.h
+            src/server/game/Spells/Auras/SpellAuraEffects.cpp
+            src/server/game/Spells/Auras/SpellAuras.h
+            src/server/game/Spells/Auras/SpellAuras.cpp
+            src/server/game/Time/GameTime.h
+            src/server/game/AI/CoreAI/UnitAI.h
+            src/server/game/AI/CoreAI/PassiveAI.h
+            src/server/game/Entities/Unit/Unit.h
+            src/server/game/Entities/Object/Object.h
+            src/server/game/Grids/Notifiers/GridNotifiers.h
+            src/server/game/Quests/QuestDef.h
+            src/server/game/Spells/Spell.cpp
+            src/server/shared/SharedDefines.h
+            src/common/Configuration/Config.h
+            src/common/Configuration/Config.cpp
+            data/sql/base/db_world/spell_script_names.sql
+            data/sql/base/db_world/creature_template.sql
+            data/sql/base/db_world/quest_template.sql
+
+      - name: Check out prospective Grimfeather core
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: core-8daffda
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/scripts/Events/hallows_end.cpp
+            src/server/game/Spells/Auras/SpellAuraEffects.h
+            src/server/game/Spells/Auras/SpellAuraEffects.cpp
+            src/server/game/Spells/Auras/SpellAuras.h
+            src/server/game/Spells/Auras/SpellAuras.cpp
+            src/server/game/Time/GameTime.h
+            src/server/game/AI/CoreAI/UnitAI.h
+            src/server/game/AI/CoreAI/PassiveAI.h
+            src/server/game/Entities/Unit/Unit.h
+            src/server/game/Entities/Object/Object.h
+            src/server/game/Grids/Notifiers/GridNotifiers.h
+            src/server/game/Quests/QuestDef.h
+            src/server/game/Spells/Spell.cpp
+            src/server/shared/SharedDefines.h
+            src/common/Configuration/Config.h
+            src/common/Configuration/Config.cpp
+            data/sql/base/db_world/spell_script_names.sql
+            data/sql/base/db_world/creature_template.sql
+            data/sql/base/db_world/quest_template.sql
+
+      - name: Check out pinned Grimfeather Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: individual-progression
+          persist-credentials: false
+
+      - name: Check out pinned Playerbots header
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: playerbots
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/Script/Playerbots.h
+
+      - name: Verify the reviewed commits
+        run: |
+          set -euo pipefail
+          test "$(git -C core-a66f1be rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
+          test "$(git -C core-8daffda rev-parse HEAD)" = "8daffdabe9202c228e45d833c9a1d399597a15cd"
+          test "$(git -C individual-progression rev-parse HEAD)" = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
+          test "$(git -C playerbots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
+          echo "Source pin only. No worldserver, SQL, DBC, or gameplay run."
+
+      - name: Run the offline source model and core pins
+        env:
+          F10_CORE_OLD: ${{ github.workspace }}/core-a66f1be
+          F10_CORE_NEW: ${{ github.workspace }}/core-8daffda
+          F10_IP: ${{ github.workspace }}/individual-progression
+          F10_PLAYERBOTS_H: ${{ github.workspace }}/playerbots/src/Script/Playerbots.h
+        run: python3 -m unittest discover -s tests -p 'test_f10_hallows_end_solo_fire_s*.py' -v
