@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import hashlib
 import re
 
 from check_nt1_grimfeather_two_core_reset_boundary import (
@@ -21,6 +22,42 @@ IMPORT_SIGNATURE = (
     "bool LearnValidated(Player* bot, ValidatedBuild const& plan,\n"
     "        std::string& error)"
 )
+
+
+# Source-only tripwire. The full Player.cpp Git blob is identical at both
+# independently reviewed Grimfeather refs. Git SHA-1 here is a CONTENT
+# fingerprint of a public source file, not a security/authentication check.
+# This intentionally fails closed even on changes outside LearnTalent:
+# any changed pinned core file requires fresh independent risk review.
+PINNED_PLAYER_CPP_BLOBS = {
+    "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7":
+        "138e7eab4905ec366338a54cc18e6cfe749a3670",
+    "8daffdabe9202c228e45d833c9a1d399597a15cd":
+        "138e7eab4905ec366338a54cc18e6cfe749a3670",
+}
+
+
+def git_blob_oid(source: str) -> str:
+    """Content identity only; the core pin is separately verified by CI."""
+    payload = source.encode("utf-8")
+    return hashlib.sha1(
+        f"blob {len(payload)}\0".encode("ascii") + payload
+    ).hexdigest()
+
+
+def verify_pinned_player_cpp_blob(source: str, reference_sha: str) -> str:
+    """Reject edited, mixed-pin, or unreviewed Player.cpp content wholesale."""
+    expected = PINNED_PLAYER_CPP_BLOBS.get(reference_sha)
+    if expected is None:
+        raise SourceContractError(
+            "Unknown Grimfeather Player.cpp reference: require source review")
+    observed = git_blob_oid(source)
+    if observed != expected:
+        raise SourceContractError(
+            "Pinned Player.cpp blob changed: review all new LearnTalent "
+            "control-flow paths before interpreting the read-only hazard "
+            f"(expected {expected}, observed {observed})")
+    return observed
 
 
 def check_direct_learn_risk(player_cpp: str, bot_cpp: str) -> dict[str, bool]:
@@ -129,10 +166,13 @@ def main() -> None:
     parser.add_argument("--module-cpp", required=True, type=Path)
     parser.add_argument("--reference-sha", required=True)
     args = parser.parse_args()
+    player_cpp = args.player_cpp.read_text(encoding="utf-8")
+    observed_blob = verify_pinned_player_cpp_blob(player_cpp, args.reference_sha)
     risk = check_direct_learn_risk(
-        args.player_cpp.read_text(encoding="utf-8"),
+        player_cpp,
         args.module_cpp.read_text(encoding="utf-8"),
     )
+    print("EXACT PINNED PLAYER.CPP GIT BLOB:", observed_blob)
     print("PINNED NT1 DIRECT LEARN PARTIAL-MUTATION RISK:", args.reference_sha)
     for k, v in risk.items():
         print(" ", k + "=" + str(v).lower())
