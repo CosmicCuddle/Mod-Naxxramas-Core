@@ -48,6 +48,8 @@ jobs:
             src/server/game/Handlers/PetHandler.cpp
             src/server/game/Scripting/ScriptDefines/PetScript.h
             src/server/game/Entities/Player/Player.cpp
+            src/server/game/Entities/Pet/Pet.cpp
+            src/server/game/Entities/Unit/CharmInfo.cpp
 
       - name: Verify exact source revisions and run negative models
         run: |
@@ -56,12 +58,14 @@ jobs:
           test "$(git -C pinned-core rev-parse HEAD)" = "${{ matrix.core_sha }}"
           python3 -m unittest discover -s tests -p 'test_a02_post_accepted_autocast_hooks.py' -v
 
-      - name: Confirm BOTH accepted toggle paths and direct dismissal save
+      - name: Confirm accepted handler, Pet and Charm source writes and dismissal save
         run: |
           set -euo pipefail
           python3 scripts/check_a02_post_accepted_autocast_hooks.py \
             --pet-handler pinned-core/src/server/game/Handlers/PetHandler.cpp \
             --pet-script pinned-core/src/server/game/Scripting/ScriptDefines/PetScript.h \
             --player-cpp pinned-core/src/server/game/Entities/Player/Player.cpp \
+            --pet-cpp pinned-core/src/server/game/Entities/Pet/Pet.cpp \
+            --charm-cpp pinned-core/src/server/game/Entities/Unit/CharmInfo.cpp \
             --core-sha '${{ matrix.core_sha }}'
           echo 'RISK STILL PRESENT; NOT a safe Hunter cache or linked Worldserver.'
