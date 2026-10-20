@@ -50,15 +50,19 @@ def check_direct_learn_risk(player_cpp: str, bot_cpp: str) -> dict[str, bool]:
     if "return;" not in learn[hook_guard:learn.index("TalentTabEntry", hook_guard)]:
         raise SourceContractError("LearnTalent hook veto return path changed")
 
-    # Baseline ignores addTalent's result. Flag changes that consume it.
-    # Covers bool const added = addTalent(...) and other assignment forms.
-    # This source tripwire is not a general C++ dataflow parser.
-    if re.search(
-        r"\bif\s*\(\s*!?\s*addTalent\s*\("
-        r"|\b(?:bool|auto)\s+(?:const\s+)?[A-Za-z_]\w*\s*=\s*addTalent\s*\(",
-        learn,
-    ):
-        raise SourceContractError("LearnTalent consumes addTalent result: re-review")
+    # In the pinned cores the one addTalent(...) call is a standalone
+    # expression statement. Fail closed on ANY changed use, including:
+    # assignment (typed/untyped), brace-init, return, macro/wrapper,
+    # qualification, or another call. Do not guess whether a refactored
+    # function is still unsafe; require another exact-source review.
+    # This single-line check is intentionally narrow, not a C++ parser.
+    expected_call = "addTalent(spellId, GetActiveSpecMask(), currentTalentRank);"
+    all_calls = re.findall(r"\baddTalent\s*\(", learn)
+    call_lines = [line.strip() for line in learn.splitlines()
+                  if re.search(r"\baddTalent\s*\(", line)]
+    if len(all_calls) != 1 or call_lines != [expected_call]:
+        raise SourceContractError(
+            "LearnTalent addTalent invocation is not exactly one standalone call: re-review")
 
     must_contain(imported, [
         "for (TalentSelection const& selection : plan.Ordered)",
