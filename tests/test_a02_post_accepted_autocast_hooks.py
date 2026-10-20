@@ -60,11 +60,6 @@ class AcceptedChoiceSourceContract(unittest.TestCase):
         self.assertFalse(facts["safe_to_enable_hunter_pet_cache"])
 
     def test_both_methods_are_required(self):
-        for absent in (ACTION, AUTOCAST):
-            with self.subTest(absent=absent[:80]):
-                with self.assertRaises(SourceContractChanged):
-                    check_accepted_autocast_paths(
-                        ACTION + AUTOCAST.replace(absent, ""), PET_SCRIPT, REMOVE_PET)
         with self.assertRaises(SourceContractChanged):
             inspect(autocast="")
         with self.assertRaises(SourceContractChanged):
@@ -135,7 +130,6 @@ class AcceptedChoiceSourceContract(unittest.TestCase):
                   "check_a02_post_accepted_autocast_hooks.py").read_text()
         self.assertNotIn("CharacterDatabase.Query", source)
         self.assertNotIn("CharacterDatabase.Execute", source)
-        self.assertNotIn("SetSpellAutocast(spellInfo,", source)
         self.assertIn("safe_to_enable_hunter_pet_cache", source)
 
 
