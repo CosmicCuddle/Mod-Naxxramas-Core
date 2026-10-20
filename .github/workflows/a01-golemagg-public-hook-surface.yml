@@ -1,0 +1,67 @@
+name: A01 Golemagg pinned public-hook surface (read-only)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/a01-golemagg-public-hook-surface.yml'
+      - 'scripts/check_a01_golemagg_public_hook_surface.py'
+      - 'tests/test_a01_golemagg_public_hook_surface.py'
+      - 'docs/research/a01-golemagg-public-hook-surface-2026-10-20.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-source-review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout this read-only safety research
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout exact pinned Playerbots source only
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: pinned-playerbots
+          persist-credentials: false
+          sparse-checkout: |
+            src/Bot/PlayerbotAI.h
+            src/Bot/Engine/Engine.h
+            src/Bot/Engine/AiObjectContext.h
+            src/Bot/Engine/NamedObjectContext.h
+            src/Ai/Raid/MC/MCStrategy.cpp
+          sparse-checkout-cone-mode: false
+      - name: Checkout exact pinned AzerothCore public script hooks only
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: pinned-core
+          persist-credentials: false
+          sparse-checkout: |
+            src/server/game/Scripting/ScriptDefines/MovementHandlerScript.h
+            src/server/game/Scripting/ScriptDefines/MovementHandlerScript.cpp
+            src/server/game/Scripting/ScriptDefines/PlayerScript.h
+            src/server/game/Scripting/ScriptDefines/UnitScript.h
+          sparse-checkout-cone-mode: false
+      - name: Verify exact source provenance and run negative regression models
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-playerbots rev-parse HEAD)" = 037c01418b5d01506917a3db9b44fd56ac5f965c
+          test "$(git -C pinned-core rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          python3 -m unittest discover -s tests -p 'test_a01_golemagg_public_hook_surface.py' -v
+          python3 scripts/check_a01_golemagg_public_hook_surface.py \
+            --playerbot pinned-playerbots/src/Bot/PlayerbotAI.h \
+            --engine pinned-playerbots/src/Bot/Engine/Engine.h \
+            --context pinned-playerbots/src/Bot/Engine/AiObjectContext.h \
+            --named pinned-playerbots/src/Bot/Engine/NamedObjectContext.h \
+            --mc pinned-playerbots/src/Ai/Raid/MC/MCStrategy.cpp \
+            --movement pinned-core/src/server/game/Scripting/ScriptDefines/MovementHandlerScript.h \
+            --movement-impl pinned-core/src/server/game/Scripting/ScriptDefines/MovementHandlerScript.cpp \
+            --player pinned-core/src/server/game/Scripting/ScriptDefines/PlayerScript.h \
+            --unit pinned-core/src/server/game/Scripting/ScriptDefines/UnitScript.h
+          echo 'PASS means researched public hook limitations persist; no action veto implemented.'
+          echo 'No Worldserver launch, Playerbots/core modifications, module movement change or live pilot.'
