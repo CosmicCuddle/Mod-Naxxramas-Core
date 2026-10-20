@@ -1,0 +1,1252 @@
+/*
+ * Naxxramas Core — hunter pet autocast cache.
+ *
+ * Default off. Module only. No AzerothCore, Individual Progression,
+ * Playerbots, or DBC edit. The characters SQL file is not applied here.
+ *
+ * Individual Progression's checkHunterPetSpells learns the kept rank with
+ * ACT_DECIDE, and Pet::addSpell stores an autocastable spell as
+ * ACT_DISABLED (Pet.cpp:1810-1816 at both pinned cores). The saved choice
+ * is read only after _LoadSpells, from characters.pet_spell once
+ * character_pet proves a single owner row. The charm bar is not that book.
+ * A fixed 3000ms wait is not the ordering proof. See AdvanceOrder.
+ * The snapshot is applied once. Utility stays out of that apply unless
+ * RestoreUtility is 1, and a new utility chain is never defaulted on.
+ *
+ * A human is IsRealPlayer on the Player* (mod-playerbots PlayerbotAI.h at
+ * 037c014). The account-name regex is only a second gate. No header means
+ * no pet mutation. Functional ON/OFF persistence is not complete: both
+ * accepted client toggles and RemovePet's direct SavePetToDB are BLOCKED
+ * module-only. This file does not add a timing workaround for either.
+ *
+ * State lives on the pet. This header has no process-global pet map.
+ */
+#pragma once
+
+#include <algorithm>
+#include <cstdint>
+#include <exception>
+#include <iterator>
+#include <map>
+#include <regex>
+#include <string>
+#include <vector>
+
+namespace NaxxramasCore::HunterPetAutocastCache
+{
+inline constexpr char const* EnabledConfigKey = "NaxxramasCore.HunterPet.AutocastCache.Enabled";
+inline constexpr char const* DefaultEnabledRaw = "0";
+inline constexpr char const* BotAccountsRegexKey = "NaxxramasCore.HunterPet.AutocastCache.BotAccountsRegex";
+inline constexpr char const* DefaultBotAccountsRegex = "^RNDBOT.*";
+inline constexpr char const* DamageSpellIdsKey = "NaxxramasCore.HunterPet.AutocastCache.DamageSpellIds";
+inline constexpr char const* UtilitySpellIdsKey = "NaxxramasCore.HunterPet.AutocastCache.UtilitySpellIds";
+inline constexpr char const* OptionalSpellIdsKey = "NaxxramasCore.HunterPet.AutocastCache.OptionalSpellIds";
+inline constexpr char const* DefaultOptionalSpellIdsRaw = "";
+inline constexpr char const* RestoreUtilityKey = "NaxxramasCore.HunterPet.AutocastCache.RestoreUtility";
+inline constexpr char const* DefaultRestoreUtilityRaw = "0";
+inline constexpr char const* CacheTableName = "mod_naxxramas_hunter_pet_autocast";
+inline constexpr char const* ManualCacheSqlPath = "docs/install/manual_hunter_pet_autocast_cache.sql";
+
+inline constexpr char const* PinnedCoreOldSha = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7";
+inline constexpr char const* PinnedCoreNewSha = "8daffdabe9202c228e45d833c9a1d399597a15cd";
+inline constexpr char const* PinnedIndividualProgressionSha = "4ff4b5fcc1480348f058c632573143e62d4e3a41";
+inline constexpr char const* PinnedPlayerbotsSha = "037c01418b5d01506917a3db9b44fd56ac5f965c";
+
+/* IP queues DelayedPetSpellCheck at CalculateTime(200) and, while
+ * isBeingLoaded() and attempts < 10, requeues at 200ms, then runs anyway.
+ * 200 * 11 = 2200. Pet event time does not move during m_loading because
+ * Pet::Update returns before WorldObject::Update. The normal cover is one
+ * millisecond past that first 200ms delay. The 2200ms cover is only for a
+ * load where something already pumped pet events.
+ * The snapshot is applied once, on the first tick at or after that cover,
+ * and never again. A click inside the cover has no module-visible
+ * accepted-choice source. Packet-before-handler inference is not one.
+ */
+inline constexpr uint32_t IpEventDelayMs = 200;
+inline constexpr uint8_t IpLoadingAttemptCap = 10;
+inline constexpr uint32_t IpWorstCaseMs = IpEventDelayMs * (static_cast<uint32_t>(IpLoadingAttemptCap) + 1u);
+inline constexpr uint32_t LoadPollMs = 200;
+inline constexpr uint32_t CoverTickMs = 50;
+inline constexpr uint32_t SameUpdateGuardMs = 1;
+inline constexpr uint32_t NormalCoverMs = IpEventDelayMs + SameUpdateGuardMs;
+inline constexpr uint32_t ExpectedCacheColumnCount = 7;
+inline constexpr uint32_t MaxApplies = 1;
+
+static_assert(IpWorstCaseMs == 2200u, "IP load retries end at 2200ms");
+static_assert(NormalCoverMs == 201u, "normal cover is the IP delay plus one millisecond");
+static_assert(SameUpdateGuardMs >= 1u, "a requeue of 0 would run again in this Update");
+static_assert(MaxApplies == 1u, "the snapshot is applied once");
+
+/* First ranks. Names were read from Wowhead WotLK tooltips on 2026-10-20.
+ * Chains were read from AzerothCore spell_ranks (same ids the 3.3.5 client uses).
+ * Screech and Demoralizing Screech are one chain: first rank 24423.
+ * Pummel is 26090. Thunderstomp is a different chain, first rank 26094.
+ * IP's gorilla comment calls 26090 Thunderstomp; the 3.3.5 tooltip name is Pummel.
+ */
+inline constexpr uint32_t DefaultDamageFirstRanks[] = {
+    17253, /* Bite */
+    16827, /* Claw */
+    49966, /* Smack */
+    24844, /* Lightning Breath */
+    34889, /* Fire Breath */
+    24640, /* Scorpid Poison */
+    35387, /* Poison Spit */
+    24423, /* Demoralizing Screech (Screech chain) */
+    55749, /* Acid Spit */
+    35290, /* Gore */
+    50518, /* Ravage */
+    56626, /* Sting */
+    50274, /* Spore Cloud */
+    50271, /* Tendon Rip */
+    50245, /* Pin */
+    54680, /* Monstrous Bite */
+    50498, /* Savage Rend */
+    57386, /* Stampede */
+    50541, /* Snatch */
+    50519, /* Sonic Blast */
+    50256, /* Swipe */
+    54706, /* Venom Web Spray */
+    54644, /* Froststorm Breath */
+    61193, /* Spirit Strike */
+    50285, /* Dust Cloud */
+    26090  /* Pummel */
+};
+
+inline constexpr uint32_t DefaultUtilityFirstRanks[] = {
+    2649,  /* Growl */
+    1742,  /* Cower */
+    61684, /* Dash */
+    23145, /* Dive */
+    61685, /* Charge */
+    24450, /* Prowl */
+    26064, /* Shell Shield */
+    53517, /* Roar of Recovery */
+    53480, /* Roar of Sacrifice */
+    53401, /* Rabid */
+    53476, /* Intervene */
+    53478, /* Last Stand */
+    55709, /* Heart of the Phoenix */
+    53434, /* Call of the Wild */
+    53477, /* Taunt */
+    26094, /* Thunderstomp */
+    35346  /* Warp */
+};
+
+/* Owner judgement. Out of the default-on list. Not utility, so a saved
+ * ON/OFF in the snapshot is still restored. A new chain stays untouched
+ * unless its id is added to OptionalSpellIds.
+ * Bad Manner has no 3.3.5a spell. Bad Attitude is 50433 and is not this list.
+ */
+inline constexpr uint32_t JudgementFirstRanks[] = {
+    24604, /* Furious Howl */
+    53508, /* Wolverine Bite */
+    4167,  /* Web */
+    58604  /* Lava Breath */
+};
+
+inline constexpr uint32_t BadAttitudeFirstRank = 50433;
+inline constexpr uint32_t RakeFirstRank = 59881;
+
+inline constexpr char const* DefaultDamageSpellIdsRaw =
+    "17253,16827,49966,24844,34889,24640,35387,24423,55749,35290,50518,56626,50274,50271,50245,54680,50498,57386,50541,50519,50256,54706,54644,61193,50285,26090";
+inline constexpr char const* DefaultUtilitySpellIdsRaw =
+    "2649,1742,61684,23145,61685,24450,26064,53517,53480,53401,53476,53478,55709,53434,53477,26094,35346";
+
+inline constexpr bool UsesProcessGlobalPetMap()
+{
+    return false;
+}
+
+inline bool EnabledFromRaw(char const* raw)
+{
+    if (!raw)
+        return false;
+
+    std::string text(raw);
+    std::size_t begin = 0;
+    while (begin < text.size() && (text[begin] == ' ' || text[begin] == '\t'))
+        ++begin;
+    std::size_t end = text.size();
+    while (end > begin && (text[end - 1] == ' ' || text[end - 1] == '\t'))
+        --end;
+    return text.compare(begin, end - begin, "1") == 0;
+}
+
+enum class AccountVerdict : uint8_t
+{
+    ConfirmedHuman = 0,
+    ConfirmedBot,
+    Ineligible
+};
+
+inline AccountVerdict ClassifyAccount(bool nameFound, char const* accountName, char const* pattern)
+{
+    if (!nameFound || !accountName || accountName[0] == '\0' || !pattern || pattern[0] == '\0')
+        return AccountVerdict::Ineligible;
+
+    try
+    {
+        std::regex compiled(pattern);
+        if (std::regex_match(accountName, compiled))
+            return AccountVerdict::ConfirmedBot;
+        return AccountVerdict::ConfirmedHuman;
+    }
+    catch (std::regex_error const&)
+    {
+        return AccountVerdict::Ineligible;
+    }
+}
+
+inline bool IsEligibleHumanAccount(AccountVerdict verdict)
+{
+    return verdict == AccountVerdict::ConfirmedHuman;
+}
+
+/* Primary gate is IsRealPlayer(Player*) from mod-playerbots
+ * src/Bot/PlayerbotAI.h at 037c014. The cpp implements it as
+ * `player && !GET_PLAYERBOT_AI(player)` and says SelfBots are included
+ * in that exclusion because a SelfBot has a PlayerbotAI.
+ * IsSelfBot is `GET_PLAYERBOT_AI(player) && master == player`.
+ * Unavailable is the no-header path. It is not a human.
+ * The account regex does not promote a bot, a SelfBot, or a missing
+ * header to ConfirmedHuman.
+ */
+enum class PlayerbotIdentity : uint8_t
+{
+    Unavailable = 0,
+    RealPlayer,
+    Playerbot,
+    SelfBot
+};
+
+inline constexpr bool IsRealPlayerAtPin(PlayerbotIdentity identity)
+{
+    return identity == PlayerbotIdentity::RealPlayer;
+}
+
+inline constexpr bool MissingPlayerbotApiMayMutatePet()
+{
+    return false;
+}
+
+inline bool MayMutateHunterPet(PlayerbotIdentity identity, AccountVerdict account)
+{
+    if (identity == PlayerbotIdentity::Unavailable || !IsRealPlayerAtPin(identity))
+        return false;
+    return account == AccountVerdict::ConfirmedHuman;
+}
+
+inline bool ContainsId(std::vector<uint32_t> const& ids, uint32_t id)
+{
+    for (uint32_t candidate : ids)
+    {
+        if (candidate == id)
+            return true;
+    }
+    return false;
+}
+
+inline std::vector<uint32_t> ParseSpellIds(char const* raw)
+{
+    std::vector<uint32_t> ids;
+    if (!raw || raw[0] == '\0')
+        return ids;
+
+    std::string text(raw);
+    std::string token;
+    auto flush = [&]()
+    {
+        if (token.empty())
+            return;
+        bool digits = true;
+        for (char ch : token)
+        {
+            if (ch < '0' || ch > '9')
+                digits = false;
+        }
+        if (digits)
+        {
+            try
+            {
+                unsigned long value = std::stoul(token);
+                if (value > 0ul && value <= 0xFFFFFFFFul && !ContainsId(ids, static_cast<uint32_t>(value)))
+                    ids.push_back(static_cast<uint32_t>(value));
+            }
+            catch (std::exception const&)
+            {
+            }
+        }
+        token.clear();
+    };
+
+    for (char ch : text)
+    {
+        if (ch == ',' || ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r')
+            flush();
+        else
+            token.push_back(ch);
+    }
+    flush();
+    return ids;
+}
+
+inline std::vector<uint32_t> DefaultDamageIds()
+{
+    return std::vector<uint32_t>(std::begin(DefaultDamageFirstRanks), std::end(DefaultDamageFirstRanks));
+}
+
+inline std::vector<uint32_t> DefaultUtilityIds()
+{
+    return std::vector<uint32_t>(std::begin(DefaultUtilityFirstRanks), std::end(DefaultUtilityFirstRanks));
+}
+
+struct SourceSpell
+{
+    uint32_t chainFirst = 0;
+    uint32_t spellId = 0;
+    bool autocastable = false;
+    bool removed = false;
+    bool autocastOn = false;
+};
+
+enum class SnapshotOrigin : uint8_t
+{
+    Unavailable = 0,
+    ModuleCache,
+    PetSpell,
+    EmptySaved,
+    NewLife
+};
+
+/* The action bar is loaded before _LoadSpells. It is not the saved book. */
+inline constexpr bool CharmBarIsAuthoritativeSavedSpellbook()
+{
+    return false;
+}
+
+inline constexpr bool MayTouchDatabase(bool featureEnabled)
+{
+    return featureEnabled;
+}
+
+struct SnapshotResult
+{
+    SnapshotOrigin origin = SnapshotOrigin::Unavailable;
+    std::map<uint32_t, bool> chains;
+};
+
+/* Drop removed and non-autocast rows. Utility is dropped unless
+ * restoreUtility is set. One chain: ON if any remaining row is ON.
+ * Default restoreUtility is false: utility is untouched.
+ */
+inline std::map<uint32_t, bool> CollapseChains(
+    std::vector<SourceSpell> const& rows,
+    std::vector<uint32_t> const& utility,
+    bool restoreUtility = false)
+{
+    std::map<uint32_t, bool> chains;
+    for (SourceSpell const& row : rows)
+    {
+        if (row.chainFirst == 0 || row.removed || !row.autocastable)
+            continue;
+        if (ContainsId(utility, row.chainFirst) && !restoreUtility)
+            continue;
+        auto found = chains.find(row.chainFirst);
+        if (found == chains.end())
+            chains.emplace(row.chainFirst, row.autocastOn);
+        else if (row.autocastOn)
+            found->second = true;
+    }
+    return chains;
+}
+
+enum class OwnerLookup : uint8_t
+{
+    Unproven = 0,
+    Absent,
+    Unique,
+    Ambiguous,
+    Mismatch
+};
+
+enum class DatabaseRead : uint8_t
+{
+    NotRun = 0,
+    Ok,
+    Failed
+};
+
+/* Pinned Query() returns nullptr both when mysql_query fails and when the
+ * statement succeeds with zero rows (MySQLConnection::_Query,
+ * DatabaseWorkerPool::Query). A null result is never a verified empty read.
+ * COUNT(*) is one row when the statement succeeds, including a count of 0.
+ */
+struct CountRead
+{
+    DatabaseRead status = DatabaseRead::Failed;
+    bool verifiedEmpty = false;
+    uint64_t count = 0;
+};
+
+inline CountRead InterpretCountQuery(bool hasRow, uint64_t count)
+{
+    CountRead read;
+    if (!hasRow)
+        return read;
+    read.status = DatabaseRead::Ok;
+    read.count = count;
+    read.verifiedEmpty = count == 0;
+    return read;
+}
+
+inline constexpr bool NullQueryResultIsVerifiedEmpty()
+{
+    return false;
+}
+
+enum class SchemaProbe : uint8_t
+{
+    Unknown = 0,
+    Present,
+    Absent
+};
+
+inline SchemaProbe InterpretSchemaCount(bool hasRow, uint64_t matchingColumns)
+{
+    if (!hasRow)
+        return SchemaProbe::Unknown;
+    if (matchingColumns == ExpectedCacheColumnCount)
+        return SchemaProbe::Present;
+    return SchemaProbe::Absent;
+}
+
+/* CommitTransaction is void and only enqueues. DirectCommitTransaction is
+ * void and does not return ExecuteTransaction's error code. The module-only
+ * success signal is AsyncCommitTransaction's TransactionCallback bool.
+ */
+inline constexpr bool VoidCommitTransactionIsSuccessSignal()
+{
+    return false;
+}
+
+inline constexpr bool DirectCommitExposesErrorCode()
+{
+    return false;
+}
+
+inline constexpr bool AsyncCommitCallbackBoolIsSuccessSignal()
+{
+    return true;
+}
+
+inline constexpr bool MarkWriteVerified(bool callbackInvoked, bool callbackSuccess)
+{
+    return callbackInvoked && callbackSuccess;
+}
+
+inline constexpr bool MarkSavetimeRebound(bool callbackInvoked, bool callbackSuccess)
+{
+    return callbackInvoked && callbackSuccess;
+}
+
+/* creatureEntry is pet->GetEntry(). createdBySpellAvailable is true only
+ * when the live object exposes a non-zero UNIT_CREATED_BY_SPELL. Both pins
+ * set that field in Pet::LoadPetFromDB (Pet.cpp:274) and Unit::InitTamedPet
+ * (Unit.cpp:13436).
+ */
+struct LivePetIdentity
+{
+    uint32_t creatureEntry = 0;
+    uint32_t createdBySpell = 0;
+    bool createdBySpellAvailable = false;
+};
+
+struct OwnerProof
+{
+    OwnerLookup lookup = OwnerLookup::Unproven;
+    uint32_t creatureEntry = 0;
+    uint32_t createdBySpell = 0;
+    uint32_t savetime = 0;
+    /* True only when the live entry and, if available, the live create
+     * spell were bound to this row. Cache and pet_spell stay closed
+     * until this is set.
+     */
+    bool liveBound = false;
+};
+
+/* One aggregate row. COUNT(*) is 0 when the statement succeeds and no
+ * character_pet row has that owner and number. entryMatchRows counts
+ * those rows whose entry equals the live pet. A null statement is not
+ * zero rows. Mismatch does not become Absent.
+ */
+inline OwnerProof InterpretOwnerAggregate(
+    bool statementOk,
+    uint64_t ownerNumberRows,
+    uint64_t entryMatchRows,
+    uint32_t matchedCreatedBySpell,
+    uint32_t matchedSavetime,
+    uint32_t observedEntry,
+    LivePetIdentity const& live)
+{
+    OwnerProof proof;
+    if (!statementOk || live.creatureEntry == 0)
+        return proof;
+
+    if (ownerNumberRows == 0)
+    {
+        proof.lookup = OwnerLookup::Absent;
+        return proof;
+    }
+    if (ownerNumberRows != 1)
+    {
+        proof.lookup = OwnerLookup::Ambiguous;
+        return proof;
+    }
+    if (entryMatchRows != 1 || observedEntry != live.creatureEntry)
+    {
+        proof.lookup = OwnerLookup::Mismatch;
+        proof.creatureEntry = observedEntry;
+        return proof;
+    }
+
+    proof.creatureEntry = live.creatureEntry;
+    proof.createdBySpell = matchedCreatedBySpell;
+    proof.savetime = matchedSavetime;
+    if (!live.createdBySpellAvailable || live.createdBySpell == 0 || live.createdBySpell != matchedCreatedBySpell)
+    {
+        proof.lookup = OwnerLookup::Mismatch;
+        return proof;
+    }
+
+    proof.lookup = OwnerLookup::Unique;
+    proof.liveBound = true;
+    return proof;
+}
+
+struct StoredCacheRow
+{
+    uint32_t chainFirst = 0;
+    bool on = false;
+    uint32_t creatureEntry = 0;
+    uint32_t createdBySpell = 0;
+    uint32_t seenSavetime = 0;
+};
+
+struct LoadDecision
+{
+    SnapshotOrigin origin = SnapshotOrigin::Unavailable;
+    std::map<uint32_t, bool> chains;
+    bool allowDefaultOn = false;
+    bool deleteStoredCache = false;
+    bool writeAllowed = false;
+    uint32_t creatureEntry = 0;
+    uint32_t createdBySpell = 0;
+    uint32_t seenSavetime = 0;
+};
+
+inline std::vector<SourceSpell> CacheAsSpells(std::vector<StoredCacheRow> const& rows)
+{
+    std::vector<SourceSpell> spells;
+    spells.reserve(rows.size());
+    for (StoredCacheRow const& row : rows)
+    {
+        SourceSpell spell;
+        spell.chainFirst = row.chainFirst;
+        spell.spellId = row.chainFirst;
+        spell.autocastable = true;
+        spell.autocastOn = row.on;
+        spells.push_back(spell);
+    }
+    return spells;
+}
+
+/* Cache bits are used only when the live pet was bound to one character_pet
+ * row (owner, number, entry, and the live create spell when that field is
+ * non-zero) and every stored row names that same life, including the
+ * savetime last bound. A failed statement is not an empty read. A live
+ * entry or create-spell mismatch does not accept cache or pet_spell and
+ * does not delete the cache. A verified miss falls through to a verified
+ * pet_spell read. The charm bar is not an input.
+ * Default-on requires a present table and a verified cache read. Utility
+ * rows enter the snapshot only when restoreUtility is true.
+ */
+inline LoadDecision DecideLoad(
+    SchemaProbe schema,
+    DatabaseRead cacheRead,
+    std::vector<StoredCacheRow> const& cache,
+    DatabaseRead petSpellRead,
+    std::vector<SourceSpell> const& petSpell,
+    OwnerProof const& owner,
+    bool bornThisSession,
+    std::vector<uint32_t> const& utility,
+    bool restoreUtility = false)
+{
+    LoadDecision decision;
+    if (schema == SchemaProbe::Unknown)
+        return decision;
+
+    if (owner.lookup != OwnerLookup::Unique || !owner.liveBound || owner.creatureEntry == 0)
+    {
+        decision.deleteStoredCache = schema == SchemaProbe::Present && owner.lookup == OwnerLookup::Absent && !cache.empty();
+        return decision;
+    }
+
+    decision.creatureEntry = owner.creatureEntry;
+    decision.createdBySpell = owner.createdBySpell;
+    decision.seenSavetime = owner.savetime;
+
+    if (schema == SchemaProbe::Present && cacheRead != DatabaseRead::Ok)
+        return decision;
+
+    bool const cacheReadable = schema == SchemaProbe::Present && cacheRead == DatabaseRead::Ok;
+    if (cacheReadable && !cache.empty())
+    {
+        bool sameLife = true;
+        uint32_t const seen = cache.front().seenSavetime;
+        for (StoredCacheRow const& row : cache)
+        {
+            if (row.creatureEntry != owner.creatureEntry || row.createdBySpell != owner.createdBySpell || row.seenSavetime != seen)
+                sameLife = false;
+        }
+        if (!sameLife)
+            decision.deleteStoredCache = true;
+        else if (seen != owner.savetime)
+            decision.deleteStoredCache = bornThisSession;
+        else
+        {
+            decision.chains = CollapseChains(CacheAsSpells(cache), utility, restoreUtility);
+            decision.origin = SnapshotOrigin::ModuleCache;
+            decision.allowDefaultOn = true;
+            decision.writeAllowed = true;
+            return decision;
+        }
+    }
+
+    if (bornThisSession && cacheReadable)
+    {
+        decision.origin = SnapshotOrigin::NewLife;
+        decision.allowDefaultOn = true;
+        decision.writeAllowed = true;
+        return decision;
+    }
+
+    if (petSpellRead != DatabaseRead::Ok)
+        return decision;
+
+    decision.chains = CollapseChains(petSpell, utility, restoreUtility);
+    decision.origin = decision.chains.empty() ? SnapshotOrigin::EmptySaved : SnapshotOrigin::PetSpell;
+    decision.allowDefaultOn = cacheReadable;
+    decision.writeAllowed = cacheReadable;
+    return decision;
+}
+
+/* Numbers whose character_pet row is gone. The caller has already proved
+ * the owner list. An unproven list must be passed as unproven=true and
+ * deletes nothing.
+ */
+inline std::vector<uint32_t> OrphanPetNumbers(
+    std::vector<uint32_t> const& cachedNumbers,
+    std::vector<uint32_t> const& liveNumbers,
+    bool ownerListProven)
+{
+    std::vector<uint32_t> orphans;
+    if (!ownerListProven)
+        return orphans;
+    for (uint32_t number : cachedNumbers)
+    {
+        if (number != 0 && !ContainsId(liveNumbers, number) && !ContainsId(orphans, number))
+            orphans.push_back(number);
+    }
+    return orphans;
+}
+
+/* The live book is what is in memory now. It is not a load snapshot.
+ * IP may already have stored ACT_DISABLED there. Load decisions use
+ * DecideLoad, which does not call this.
+ */
+inline std::map<uint32_t, bool> CollapseLiveBook(
+    std::vector<SourceSpell> const& book,
+    std::vector<uint32_t> const& utility,
+    bool restoreUtility = false)
+{
+    return CollapseChains(book, utility, restoreUtility);
+}
+
+enum class ApplyKind : uint8_t
+{
+    Restore = 0,
+    DefaultOn
+};
+
+struct ApplyAction
+{
+    uint32_t chainFirst = 0;
+    uint32_t spellId = 0;
+    bool desiredOn = false;
+    ApplyKind kind = ApplyKind::Restore;
+};
+
+struct ChainLists
+{
+    std::vector<uint32_t> damage;
+    std::vector<uint32_t> utility;
+    std::vector<uint32_t> optionalOn;
+    bool restoreUtility = false;
+};
+
+inline bool EligibleForDefaultOn(uint32_t chainFirst, ChainLists const& lists)
+{
+    if (chainFirst == 0 || ContainsId(lists.utility, chainFirst))
+        return false;
+    return ContainsId(lists.damage, chainFirst) || ContainsId(lists.optionalOn, chainFirst);
+}
+
+inline bool EligibleForPreferenceRestore(uint32_t chainFirst, ChainLists const& lists)
+{
+    if (chainFirst == 0)
+        return false;
+    if (ContainsId(lists.utility, chainFirst))
+        return lists.restoreUtility;
+    return true;
+}
+
+inline bool IsDefaultOnChain(uint32_t chainFirst, ChainLists const& lists)
+{
+    return EligibleForDefaultOn(chainFirst, lists);
+}
+
+/* Current non-removed autocastable ranks only. Utility is omitted unless
+ * lists.restoreUtility is set, and then only a chain already in the
+ * snapshot is restored. A utility chain is never eligible for default-on.
+ * Snapshot chains are restored to the saved bit. Chains absent from the
+ * snapshot are turned on only when they are on the damage allowlist or
+ * the optional list. Anything else, including judgement spells left at
+ * the default empty optional list, is left as the core stored it.
+ */
+inline std::vector<ApplyAction> PlanApply(
+    std::map<uint32_t, bool> const& snapshot,
+    std::vector<SourceSpell> const& book,
+    ChainLists const& lists,
+    bool allowDefaultOn = true)
+{
+    struct Current
+    {
+        uint32_t onSpellId = 0;
+        uint32_t offSpellId = 0;
+        bool anyOn = false;
+    };
+
+    std::map<uint32_t, Current> current;
+    for (SourceSpell const& row : book)
+    {
+        if (row.chainFirst == 0 || row.removed || !row.autocastable)
+            continue;
+        if (!EligibleForPreferenceRestore(row.chainFirst, lists))
+            continue;
+
+        Current& slot = current[row.chainFirst];
+        if (row.autocastOn)
+        {
+            slot.anyOn = true;
+            slot.onSpellId = row.spellId;
+        }
+        else
+            slot.offSpellId = row.spellId;
+    }
+
+    std::vector<ApplyAction> actions;
+    for (auto const& entry : current)
+    {
+        uint32_t const chain = entry.first;
+        Current const& slot = entry.second;
+        auto saved = snapshot.find(chain);
+        bool desiredOn = false;
+        ApplyKind kind = ApplyKind::Restore;
+        if (saved != snapshot.end())
+            desiredOn = saved->second;
+        else if (allowDefaultOn && EligibleForDefaultOn(chain, lists))
+        {
+            desiredOn = true;
+            kind = ApplyKind::DefaultOn;
+        }
+        else
+            continue;
+
+        if (slot.anyOn == desiredOn)
+            continue;
+
+        ApplyAction action;
+        action.chainFirst = chain;
+        action.desiredOn = desiredOn;
+        action.kind = kind;
+        action.spellId = desiredOn ? (slot.offSpellId != 0 ? slot.offSpellId : slot.onSpellId)
+                                    : (slot.onSpellId != 0 ? slot.onSpellId : slot.offSpellId);
+        if (action.spellId == 0)
+            continue;
+        actions.push_back(action);
+    }
+    return actions;
+}
+
+/* Cache rows are the decision, not a later read of a post-IP book.
+ * Snapshot bits are kept. A new damage chain is recorded ON because that
+ * is the decision, even if the book still says OFF when this is built.
+ */
+inline std::map<uint32_t, bool> VerifiedCacheRows(
+    std::map<uint32_t, bool> const& snapshot,
+    std::vector<SourceSpell> const& book,
+    ChainLists const& lists,
+    bool allowDefaultOn = true)
+{
+    std::map<uint32_t, bool> rows = snapshot;
+    for (SourceSpell const& row : book)
+    {
+        if (row.chainFirst == 0 || row.removed || !row.autocastable)
+            continue;
+        if (!EligibleForPreferenceRestore(row.chainFirst, lists))
+            continue;
+        if (snapshot.find(row.chainFirst) != snapshot.end())
+            continue;
+        if (allowDefaultOn && EligibleForDefaultOn(row.chainFirst, lists))
+            rows[row.chainFirst] = true;
+    }
+    return rows;
+}
+
+inline std::map<uint32_t, bool> PlayerToggleRows(
+    std::vector<SourceSpell> const& book,
+    std::vector<uint32_t> const& utility,
+    bool restoreUtility = false)
+{
+    return CollapseChains(book, utility, restoreUtility);
+}
+
+enum class WriteCause : uint8_t
+{
+    Snapshot = 0,
+    VerifiedRestore,
+    PlayerSave
+};
+
+inline bool AllowCacheWrite(WriteCause cause, bool restoreWindowOpen)
+{
+    if (cause == WriteCause::PlayerSave)
+        return !restoreWindowOpen;
+    return cause == WriteCause::Snapshot || cause == WriteCause::VerifiedRestore;
+}
+
+struct ReconcileTarget
+{
+    uint32_t chainFirst = 0;
+    uint32_t spellId = 0;
+    bool desiredOn = false;
+};
+
+struct AutocastEntry
+{
+    uint32_t spellId = 0;
+    uint32_t chainFirst = 0;
+    bool stillInBook = false;
+};
+
+/* Every chain this feature owns, including ones already at the saved bit.
+ * Stale ranks of those chains are removed from m_autospells. Utility is not
+ * owned, so its autocast ids are left in place.
+ */
+inline std::vector<ReconcileTarget> PlanReconcile(
+    std::map<uint32_t, bool> const& snapshot,
+    std::vector<SourceSpell> const& book,
+    ChainLists const& lists,
+    bool allowDefaultOn)
+{
+    struct Current
+    {
+        uint32_t spellId = 0;
+        bool anyOn = false;
+    };
+    std::map<uint32_t, Current> current;
+    for (SourceSpell const& row : book)
+    {
+        if (row.chainFirst == 0 || row.removed || !row.autocastable)
+            continue;
+        if (!EligibleForPreferenceRestore(row.chainFirst, lists))
+            continue;
+        Current& slot = current[row.chainFirst];
+        if (slot.spellId == 0 || row.autocastOn)
+            slot.spellId = row.spellId;
+        if (row.autocastOn)
+            slot.anyOn = true;
+    }
+
+    std::vector<ReconcileTarget> targets;
+    for (auto const& entry : current)
+    {
+        auto saved = snapshot.find(entry.first);
+        bool desiredOn = false;
+        bool owned = false;
+        if (saved != snapshot.end())
+        {
+            desiredOn = saved->second;
+            owned = true;
+        }
+        else if (allowDefaultOn && EligibleForDefaultOn(entry.first, lists))
+        {
+            desiredOn = true;
+            owned = true;
+        }
+        if (!owned || entry.second.spellId == 0)
+            continue;
+        ReconcileTarget target;
+        target.chainFirst = entry.first;
+        target.spellId = entry.second.spellId;
+        target.desiredOn = desiredOn;
+        targets.push_back(target);
+    }
+    return targets;
+}
+
+inline std::vector<uint32_t> StaleAutocastIds(
+    std::vector<AutocastEntry> const& autos,
+    std::vector<ReconcileTarget> const& targets)
+{
+    std::vector<uint32_t> stale;
+    for (AutocastEntry const& row : autos)
+    {
+        for (ReconcileTarget const& target : targets)
+        {
+            if (target.chainFirst != row.chainFirst)
+                continue;
+            bool const keep = target.desiredOn && row.stillInBook && row.spellId == target.spellId;
+            if (!keep && !ContainsId(stale, row.spellId))
+                stale.push_back(row.spellId);
+        }
+    }
+    return stale;
+}
+
+struct CacheCommit
+{
+    bool commit = false;
+    std::map<uint32_t, bool> rows;
+};
+
+inline CacheCommit PlanCacheCommit(
+    LoadDecision const& decision,
+    std::vector<SourceSpell> const& book,
+    ChainLists const& lists)
+{
+    CacheCommit batch;
+    if (!decision.writeAllowed)
+        return batch;
+    batch.rows = VerifiedCacheRows(decision.chains, book, lists, decision.allowDefaultOn);
+    batch.commit = true;
+    return batch;
+}
+
+struct Binding
+{
+    uint64_t ownerGuid = 0;
+    uint64_t petGuid = 0;
+    uint32_t petNumber = 0;
+};
+
+enum class IdentityResult : uint8_t
+{
+    Ok = 0,
+    UpdatedNumber,
+    Abort
+};
+
+/* Unit::InitTamedPet calls InitStatsForLevel before SetPetNumber
+ * (Unit.cpp:13429-13437 at both pins). The charm number may change
+ * before the window opens. After the window is open the number is fixed.
+ */
+inline IdentityResult CheckIdentity(
+    Binding& bound,
+    Binding const& live,
+    bool windowOpen,
+    bool inWorld,
+    bool beingRemoved,
+    bool loggingOut)
+{
+    if (loggingOut || beingRemoved || !inWorld)
+        return IdentityResult::Abort;
+    if (bound.ownerGuid == 0 || bound.petGuid == 0 || live.petGuid == 0)
+        return IdentityResult::Abort;
+    if (bound.ownerGuid != live.ownerGuid || bound.petGuid != live.petGuid)
+        return IdentityResult::Abort;
+    if (live.petNumber == 0)
+        return IdentityResult::Abort;
+    if (bound.petNumber != live.petNumber)
+    {
+        if (!windowOpen)
+        {
+            bound.petNumber = live.petNumber;
+            return IdentityResult::UpdatedNumber;
+        }
+        return IdentityResult::Abort;
+    }
+    return IdentityResult::Ok;
+}
+
+struct OrderState
+{
+    uint32_t loadPumps = 0;
+    bool snapshotted = false;
+    uint64_t snapshotEventTime = 0;
+    bool finished = false;
+    uint32_t applies = 0;
+};
+
+struct OrderStep
+{
+    bool snapshot = false;
+    bool apply = false;
+    bool requeue = false;
+    uint32_t delayMs = 0;
+};
+
+/* While isBeingLoaded(), do not snapshot and do not apply. The first
+ * loaded execution snapshots and requeues by at least 1ms, so that step
+ * cannot apply in the same EventProcessor::Update as an IP event that is
+ * already due (those still sit later in the multimap). Later executions
+ * wait. The snapshot is applied once, on the first tick at or after the
+ * cover, and the order is then finished. No load pumps: cover is 201ms
+ * after the snapshot tick, which is after IP's original +200. Any load
+ * pump: IP may have retried, so the cover is the full 2200ms budget.
+ * There is no second apply. OnPlayerSave does not apply.
+ */
+inline OrderStep AdvanceOrder(OrderState& state, bool beingLoaded, uint64_t eventTime)
+{
+    OrderStep step;
+    if (state.finished || state.applies >= MaxApplies)
+    {
+        state.finished = true;
+        return step;
+    }
+    if (beingLoaded)
+    {
+        state.loadPumps += 1u;
+        step.requeue = true;
+        step.delayMs = LoadPollMs;
+        return step;
+    }
+    if (!state.snapshotted)
+    {
+        state.snapshotted = true;
+        state.snapshotEventTime = eventTime;
+        step.snapshot = true;
+        step.requeue = true;
+        step.delayMs = SameUpdateGuardMs;
+        return step;
+    }
+
+    uint64_t const cover = state.loadPumps > 0 ? static_cast<uint64_t>(IpWorstCaseMs) : static_cast<uint64_t>(NormalCoverMs);
+    if (eventTime < state.snapshotEventTime + cover)
+    {
+        step.requeue = true;
+        step.delayMs = CoverTickMs;
+        return step;
+    }
+
+    step.apply = true;
+    state.applies += 1u;
+    state.finished = true;
+    return step;
+}
+
+enum class DueKind : uint8_t
+{
+    Snapshot = 1,
+    IpCheck,
+    Apply
+};
+
+struct DueEvent
+{
+    uint64_t at = 0;
+    DueKind kind = DueKind::Snapshot;
+};
+
+/* EventProcessor::Update runs due events in ascending exec time. Equal
+ * times keep insertion order. This is that due-set, without the running
+ * world.
+ */
+inline std::vector<DueKind> DueThisTick(uint64_t eventTime, std::vector<DueEvent> events)
+{
+    std::stable_sort(events.begin(), events.end(), [](DueEvent const& left, DueEvent const& right)
+    {
+        return left.at < right.at;
+    });
+    std::vector<DueKind> due;
+    for (DueEvent const& event : events)
+    {
+        if (event.at <= eventTime)
+            due.push_back(event.kind);
+    }
+    return due;
+}
+
+struct IpRetry
+{
+    uint8_t attempts = 0;
+    bool ranCheck = false;
+};
+
+/* Mirrors DelayedPetSpellCheck: while loading and attempts < 10, requeue.
+ * The next call runs the check even if the pet is still loading.
+ */
+inline bool PumpIpWhileLoading(IpRetry& ip, bool beingLoaded)
+{
+    if (ip.ranCheck)
+        return false;
+    if (beingLoaded && ip.attempts < IpLoadingAttemptCap)
+    {
+        ip.attempts = static_cast<uint8_t>(ip.attempts + 1u);
+        return false;
+    }
+    ip.ranCheck = true;
+    return true;
+}
+
+inline bool ScheduleReplacesOpenSnapshot()
+{
+    return false;
+}
+
+inline constexpr bool PacketBeforeHandlerIsAcceptedChoice()
+{
+    return false;
+}
+
+inline constexpr bool MayApplyFromPlayerSave()
+{
+    return false;
+}
+
+inline constexpr bool MayPersistChoiceBeforeSingleApply(uint32_t applies)
+{
+    return applies >= MaxApplies;
+}
+
+/* RemovePet calls SavePetToDB with no module hook in front of it
+ * (Player.cpp:9367, byte-identical on both pins). A dismiss before the
+ * single apply is not preserved by this module. No delay is added to
+ * race that call.
+ */
+inline constexpr bool DismissBeforeApplyPreservesChoice()
+{
+    return false;
+}
+
+/* Owner + pet number + entry + create spell + savetime. After a verified
+ * savetime rebind, a later life with that same tuple cannot be told apart
+ * from this one without a column on character_pet. The module does not
+ * fail closed on that tuple: doing so would also reject the pet it just
+ * saved. The case stays BLOCKED.
+ */
+inline constexpr bool SameEntryRecycleAfterSavetimeRebindIsIndistinguishable()
+{
+    return true;
+}
+
+inline constexpr char const* SameEntryRecycleBlocker =
+    "BLOCKED: same-entry recycled number and savetime are indistinguishable";
+
+/* BLOCKED module-only. Functional ON/OFF persistence is not complete.
+ * No timing workaround is added for either path.
+ *
+ * Accepted client toggles, PetHandler.cpp byte-identical on both pins:
+ *   HandlePetSetAction (line 696) reads CMSG_PET_SET_ACTION and dispatches
+ *   ACT_ENABLED (797-801) and ACT_DISABLED (815-819) to Pet::ToggleAutocast.
+ *   HandlePetSpellAutocastOpcode (line 955) validates the spell and
+ *   dispatches Pet::ToggleAutocast at line 1003.
+ * PetScript.h is byte-identical on both pins. PetHook ends at
+ * PETHOOK_ON_PET_ADD_TO_WORLD. There is no post-accepted-autocast hook.
+ * A packet observed before the handler is not an accepted choice.
+ *
+ * Player::RemovePet calls pet->SavePetToDB(mode) directly at
+ * Player.cpp:9367. OnPlayerSave does not run in front of that call.
+ * AsyncCommitTransaction can still commit after the pet is gone or
+ * after a later choice. The callback bool is not latest-choice authority.
+ */
+inline constexpr bool FunctionalOnOffPersistenceIsComplete()
+{
+    return false;
+}
+
+inline constexpr char const* FunctionalPersistenceBlocker =
+    "BLOCKED: functional ON/OFF persistence is not complete";
+
+struct CoverClickResult
+{
+    bool singleApplyUsesSnapshot = false;
+    bool clickPreserved = false;
+    bool blockedModuleOnly = false;
+};
+
+inline CoverClickResult ClickDuringCoverBeforeApply()
+{
+    CoverClickResult result;
+    result.singleApplyUsesSnapshot = true;
+    result.clickPreserved = false;
+    result.blockedModuleOnly = true;
+    return result;
+}
+
+inline CoverClickResult ClickAfterSingleApply(uint32_t applies)
+{
+    CoverClickResult result;
+    result.singleApplyUsesSnapshot = false;
+    result.clickPreserved = applies >= MaxApplies;
+    result.blockedModuleOnly = false;
+    return result;
+}
+
+struct LiveAutocastState
+{
+    std::map<uint32_t, bool> activeBySpell;
+    std::vector<uint32_t> autospells;
+};
+
+/* The C++ apply path toggles only ReconcileTarget::spellId and erases only
+ * StaleAutocastIds of those chains. This is that mutation, with no pet.
+ */
+inline LiveAutocastState ApplyReconcileModel(
+    LiveAutocastState state,
+    std::vector<SourceSpell> const& book,
+    std::vector<ReconcileTarget> const& targets)
+{
+    for (ReconcileTarget const& target : targets)
+    {
+        auto found = state.activeBySpell.find(target.spellId);
+        if (found == state.activeBySpell.end())
+            continue;
+        found->second = target.desiredOn;
+    }
+
+    std::vector<AutocastEntry> autos;
+    for (uint32_t spellId : state.autospells)
+    {
+        AutocastEntry entry;
+        entry.spellId = spellId;
+        for (SourceSpell const& row : book)
+        {
+            if (row.spellId != spellId)
+                continue;
+            entry.chainFirst = row.chainFirst;
+            entry.stillInBook = !row.removed;
+            break;
+        }
+        if (entry.chainFirst != 0)
+            autos.push_back(entry);
+    }
+    for (uint32_t spellId : StaleAutocastIds(autos, targets))
+    {
+        auto found = std::find(state.autospells.begin(), state.autospells.end(), spellId);
+        if (found != state.autospells.end())
+            state.autospells.erase(found);
+    }
+    return state;
+}
+} // namespace NaxxramasCore::HunterPetAutocastCache

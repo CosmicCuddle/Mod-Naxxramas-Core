@@ -188,9 +188,17 @@ class HunterPetAutocastRestoreTests(unittest.TestCase):
     def test_no_new_sql_under_the_module(self):
         sql_root = ROOT / "data" / "sql"
         self.assertTrue(sql_root.is_dir())
+        # The hunter pet autocast cache table is manual SQL under docs/install.
+        # Nothing that names it may sit under data/sql, at any depth.
         for path in sql_root.rglob("*"):
+            if not path.is_file():
+                continue
             if path.suffix == ".sql" and "autocast" in path.name.lower():
                 self.fail(path.name)
+            if path.suffix == ".sql" and "mod_naxxramas_hunter_pet_autocast" in path.read_text(
+                encoding="utf-8", errors="replace"
+            ).lower():
+                self.fail(str(path))
 
     def test_workflow_reads_contents_and_does_not_upload(self):
         self.assertIn("contents: read", WORKFLOW)

@@ -271,3 +271,91 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
 # 1 = experimental hooks only; functional ON restore stays closed
 # Default: 0
 NaxxramasCore.HunterPetAutocastRestore.Enabled = 0
+
+#####################################
+# Hunter pet autocast cache
+#####################################
+
+# Separate from HunterPetAutocastRestore. Default off. Does nothing until
+# set to 1 only after the owner has backed up the characters database and
+# manually applied docs/install/manual_hunter_pet_autocast_cache.sql.
+# This module does not apply that file. It lives outside data/sql, so the
+# character DB updater does not discover it. While the seven-column table is
+# verified absent, an enabled module can still restore characters.pet_spell
+# bits for non-utility chains and will not turn new damage chains on. A
+# failed schema or row count is not treated as absent or empty: no pet
+# changes and no default-on.
+#
+# OnPetAddToWorld runs before _LoadSpells. The hook only queues a pet event.
+# The event does not read the spellbook or the charm bar while the pet is
+# still loading. After load it requires one character_pet statement that
+# proves this owner, this pet number, and the live pet entry together.
+# The live create spell (UNIT_CREATED_BY_SPELL) must match when the pet
+# has one. A mismatch accepts neither the cache nor pet_spell. The charm
+# bar is not the saved book. The snapshot is applied once, after the cover
+# (201ms when no load-time pump was seen, otherwise IP's 2200ms budget).
+# That cover is the Individual Progression load budget. It is not a fix
+# for an accepted client toggle, and this module does not add another delay.
+#
+# BLOCKED: functional ON/OFF persistence is not complete.
+# Both pinned cores accept a client autocast in two places, and PetScript
+# has no post-accepted-autocast hook:
+#   PetHandler.cpp HandlePetSetAction (CMSG_PET_SET_ACTION) sends
+#   ACT_ENABLED and ACT_DISABLED to Pet::ToggleAutocast.
+#   PetHandler.cpp HandlePetSpellAutocastOpcode sends a second accepted
+#   toggle to Pet::ToggleAutocast.
+# Player::RemovePet calls SavePetToDB directly (Player.cpp:9367), so a
+# dismiss before the single apply is not caught by OnPlayerSave. An async
+# cache commit can still land after that dismiss or after a later choice.
+# Do not treat this draft as finished ON/OFF persistence.
+#
+# With RestoreUtility left at 0, utility chains are not read, written, or
+# toggled. There is no migration: a saved off bit stays off. A newly
+# learned utility ability is never turned on.
+#
+# 0 = do nothing, and do not query (default)
+# 1 = queue the event for human hunters
+# Default: 0
+NaxxramasCore.HunterPet.AutocastCache.Enabled = 0
+
+# Secondary gate only. The primary gate is IsRealPlayer(Player*) from
+# mod-playerbots src/Bot/PlayerbotAI.h (player && no PlayerbotAI, which
+# excludes SelfBots). A Playerbot or SelfBot is skipped even when the
+# account name does not match. A real hunter whose name matches is also
+# skipped. If PlayerbotAI.h is not visible at compile time, no pet is
+# changed: missing bot detection is not treated as a human.
+# Empty or invalid pattern fails closed (no restore).
+# Default: ^RNDBOT.*
+NaxxramasCore.HunterPet.AutocastCache.BotAccountsRegex = "^RNDBOT.*"
+
+# First-rank spell ids turned ON when the chain is new (tame, new ability).
+# A chain already in the snapshot keeps the saved on/off bit instead.
+# Comma-separated. An empty value turns the allowlist off.
+# Screech and Demoralizing Screech are 24423. Pummel is 26090.
+# Default: the 3.3.5a damage list below
+NaxxramasCore.HunterPet.AutocastCache.DamageSpellIds = "17253,16827,49966,24844,34889,24640,35387,24423,55749,35290,50518,56626,50274,50271,50245,54680,50498,57386,50541,50519,50256,54706,54644,61193,50285,26090"
+
+# First-rank ids the module never writes, even if they are also listed above.
+# Growl, Cower, Dash, Dive, Charge, Prowl, Shell Shield, Roar of Recovery,
+# Roar of Sacrifice, Rabid, Intervene, Last Stand, Heart of the Phoenix,
+# Call of the Wild, Taunt, Thunderstomp (26094), Warp.
+# Default: the utility list below
+NaxxramasCore.HunterPet.AutocastCache.UtilitySpellIds = "2649,1742,61684,23145,61685,24450,26064,53517,53480,53401,53476,53478,55709,53434,53477,26094,35346"
+
+# Separate from Enabled. Default 0, which is the approved behaviour:
+# utility chains are not restored and are not written. Setting this to 1
+# restores an explicit ON or OFF that was already in the pre-reset snapshot.
+# A utility chain that was not in that snapshot is never turned on.
+# This does not record a decision about whether the flag should be enabled.
+# 0 = utility untouched (default)
+# 1 = restore utility bits from the pre-reset snapshot only
+# Default: 0
+NaxxramasCore.HunterPet.AutocastCache.RestoreUtility = 0
+
+# Optional first ranks. Empty by default, so a NEW chain is not turned on.
+# A saved on/off already in the snapshot is still restored.
+# Owner judgement, out by default: Furious Howl 24604, Wolverine Bite 53508,
+# Web 4167, Lava Breath 58604. Bad Manner has no 3.3.5a id. Bad Attitude
+# (crocolisk) is 50433 and is not included.
+# Default: empty
+NaxxramasCore.HunterPet.AutocastCache.OptionalSpellIds = ""
