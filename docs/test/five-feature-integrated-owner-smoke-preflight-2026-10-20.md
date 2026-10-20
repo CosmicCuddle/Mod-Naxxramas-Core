@@ -14,7 +14,7 @@
 | S5 | Owner separately approves a backed-up deployment and opt-in test scope *after* matching their installed dependency SHAs and verifying scripts/SQL with read-only queries | All edge cases or production confidence |
 | S6 | Individual feature pilot results, negative cases and rollback verified in the owner's environment, with independent exact-head review | Automatic merger or broad publication |
 
-**Known historical evidence:** source tests passed on #65; #61 linked but **failed** two now-invalid full literal grep predicates; #66 is the corrected read-reader-symbol gate candidate. Do not retroactively mark #58, #59 or #61 CI green, and do not call #66 S4 PASSED without its completed named binary verifier. This smoke-plan CI cannot replace #66.
+**Known exact evidence:** source tests passed on #65; #61 linked but **failed** two now-invalid contiguous literal grep predicates. #66 exact `146fad73a82729c5cde88e531f59725dff04ee24` now **COMPLETED PASS** full pinned Worldserver compile/link 1,887 Ninja tasks and 13/13 actual reader/source linked feature checks, [CI #39434876269](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39434876269). Do not retroactively mark #58, #59 or #61 CI green. Pinned #66 compilation is **NOT** owner-installed runtime acceptance. This smoke-plan CI cannot replace #66.
 
 ## Step 0 — mandatory owner approval and backups (NOT authorised yet)
 
@@ -40,6 +40,12 @@ WHERE `TypeId` = 6;
 ```
 
 **EP is not automatically installed by a successful executable link.** The optional forward `docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql` is deliberately outside the module's auto-updater path and requires a **separate owner-approved** migration after backup. The narrowly scoped `docs/rollback/2026_10_13_00_ep_tower_lock_module_unbind.sql` only rebinds rows it installed; it is NOT universal DB restoration. The owner must approve any change after reviewing actual current row values.
+
+### Automatic character-database SQL hazard (new A02 exploratory cache is **NOT** included in #66)
+
+**P0 owner-approval gate:** At pinned Grimfeather `8daffdabe9202c228e45d833c9a1d399597a15cd`, `src/server/database/Updater/UpdateFetcher.cpp:157-185` scans module subdirectories of `data/sql/` and includes every directory whose name contains the lowercase DB token. `DBUpdater.cpp:194-199` returns `characters` for the Character database. Thus any optional `data/sql/db-characters/*.sql` containing a hunter-autocast cache `CREATE TABLE` can be **automatically applied** when character DB updates are enabled. A header comment reading "DO NOT APPLY" does **not** prevent this discovery. The current owner-approved request is for a **draft design only**, not automatic SQL installation.
+
+Before incorporating a future A02 cache PR, require its standalone SQL to live **outside** the module auto-updater tree, under a dedicated manual owner-approved `docs/install` path. Verify a restorable character-DB backup, the actual existing schema, and explicit permission before ever applying it. Do not accept a proposed cache indexed only by `owner_guid + pet_number` without proving safe lifetime identity: core `Pet::_SaveSpells` explicitly says pet numbers can be recycled. Do not accept separate unchecked `DELETE` and `INSERT` cache writes as atomic preservation. **Read-only negative source tests** in this PR reject any `mod_naxxramas_hunter_pet_autocast` SQL found inside an auto-discoverable module `data/sql` character directory; they do not execute SQL.
 
 ## Step 2 — initial config and dependency checks (before enabling anything)
 
@@ -73,7 +79,7 @@ Never present S4 acceptance as *complete module release acceptance* while those 
 | --- | --- | --- |
 | Owner approval for named commit and backup | Unrecorded | NOT STARTED |
 | Installed core / PB / IP / module SHAs | Unknown | BLOCKED |
-| Exact-head all-five S4 Worldserver binary | Await separate #66 CI final outcome | PENDING |
+| Exact-head all-five S4 Worldserver binary | #66 head `146fad7`, [CI #39434876269](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39434876269): 1,887 Ninja units; 13/13 markers; SHA-256 `04f5f7467ace71f31947415b83ed65f87ee999d83a93962278d8adbcfce9388d` | PASS for pinned build only |
 | World/character/auth backup and restore check | Not attempted | BLOCKED |
 | Shade script row 23543 and trigger 23686 SELECT | Not executed | BLOCKED |
 | EP handler TypeId 6 SELECT / approved bind | Not executed | BLOCKED |
