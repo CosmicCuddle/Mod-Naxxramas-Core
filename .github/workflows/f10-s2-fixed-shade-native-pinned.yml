@@ -26,12 +26,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pch: ['ON', 'OFF']
         include:
           - name: old-grimfeather
             core_sha: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+            pch: 'ON'
+          - name: old-grimfeather
+            core_sha: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+            pch: 'OFF'
           - name: prospective-new-grimfeather
             core_sha: 8daffdabe9202c228e45d833c9a1d399597a15cd
+            pch: 'ON'
+          - name: prospective-new-grimfeather
+            core_sha: 8daffdabe9202c228e45d833c9a1d399597a15cd
+            pch: 'OFF'
     name: Fixed Shade / ${{ matrix.name }} / PCH ${{ matrix.pch }}
     steps:
       - name: Checkout pinned Grimfeather AzerothCore
