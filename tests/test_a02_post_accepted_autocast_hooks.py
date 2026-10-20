@@ -6,6 +6,8 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from check_a02_post_accepted_autocast_hooks import (  # noqa: E402
     PET_HOOKS, SourceContractChanged, body_of, check_accepted_autocast_paths,
+    check_low_level_autocast_no_script_hook, verify_pinned_low_level_blobs,
+    PINNED_LOW_LEVEL_BLOBS, git_blob_oid,
 )
 
 ACTION = """
@@ -41,6 +43,33 @@ void Player::RemovePet(Pet* pet, PetSaveMode mode, bool returnreagent)
 {
     pet->SavePetToDB(mode);
     SetMinion(pet, false);
+}
+"""
+
+
+PET_TOGGLE_CPP = """
+void Pet::ToggleAutocast(SpellInfo const* spellInfo, bool apply)
+{
+    if (!spellInfo->IsAutocastable()) return;
+    auto itr = m_spells.find(spellInfo->Id);
+    if (apply)
+    {
+        m_autospells.push_back(spellInfo->Id);
+        itr->second.active = ACT_ENABLED;
+    }
+    else
+    {
+        m_autospells.erase(autospellItr);
+        itr->second.active = ACT_DISABLED;
+    }
+}
+"""
+CHARM_SET_CPP = """
+void CharmInfo::SetSpellAutocast(SpellInfo const* spellInfo, bool state)
+{
+    if (spellInfo->Id == PetActionBar[i].GetAction() &&
+        PetActionBar[i].IsActionBarForSpell())
+        PetActionBar[i].SetType(state ? ACT_ENABLED : ACT_DISABLED);
 }
 """
 
@@ -124,6 +153,60 @@ class AcceptedChoiceSourceContract(unittest.TestCase):
         with self.assertRaises(SourceContractChanged):
             body_of("void WorldSession::HandlePetSetAction() {",
                     "void WorldSession::HandlePetSetAction(")
+
+    def test_both_low_level_setters_confirm_scoped_callback_gap(self):
+        facts = check_low_level_autocast_no_script_hook(
+            PET_TOGGLE_CPP, CHARM_SET_CPP)
+        self.assertTrue(facts["pet_toggle_source_has_no_direct_script_callback"])
+        self.assertTrue(facts["charm_actionbar_setter_has_no_direct_script_callback"])
+        self.assertFalse(facts["universal_hook_absence_proven"])
+
+    def test_future_callback_inside_either_low_level_setter_fails_closed(self):
+        mutations = (
+            (
+                PET_TOGGLE_CPP.replace(
+                    "itr->second.active = ACT_ENABLED;",
+                    "itr->second.active = ACT_ENABLED;\n"
+                    "    sScriptMgr->OnPetAutocastChanged(this);"),
+                CHARM_SET_CPP,
+            ),
+            (
+                PET_TOGGLE_CPP,
+                CHARM_SET_CPP.replace(
+                    "PetActionBar[i].SetType(state ? ACT_ENABLED : ACT_DISABLED);",
+                    "PetActionBar[i].SetType(state ? ACT_ENABLED : ACT_DISABLED);\n"
+                    "    sScriptMgr->OnPlayerPetAutocastChanged(this);"),
+            ),
+        )
+        for pet_cpp, charm_cpp in mutations:
+            with self.subTest(pet=pet_cpp != PET_TOGGLE_CPP):
+                with self.assertRaises(SourceContractChanged):
+                    check_low_level_autocast_no_script_hook(pet_cpp, charm_cpp)
+
+    def test_low_level_setter_refactor_or_missing_method_requires_review(self):
+        for pet_cpp, charm_cpp in (
+            (PET_TOGGLE_CPP.replace("m_autospells.push_back", "newAutospells.insert"),
+             CHARM_SET_CPP),
+            (PET_TOGGLE_CPP,
+             CHARM_SET_CPP.replace("PetActionBar[i].SetType", "WriteOtherButton")),
+            ("", CHARM_SET_CPP),
+            (PET_TOGGLE_CPP, ""),
+        ):
+            with self.assertRaises(SourceContractChanged):
+                check_low_level_autocast_no_script_hook(pet_cpp, charm_cpp)
+
+    def test_changed_low_level_files_or_unknown_core_ref_fail_closed(self):
+        for core_sha in PINNED_LOW_LEVEL_BLOBS:
+            with self.subTest(core_sha=core_sha):
+                with self.assertRaises(SourceContractChanged):
+                    verify_pinned_low_level_blobs(
+                        PET_TOGGLE_CPP, CHARM_SET_CPP, core_sha)
+                self.assertNotEqual(
+                    git_blob_oid(PET_TOGGLE_CPP),
+                    PINNED_LOW_LEVEL_BLOBS[core_sha][0])
+        with self.assertRaises(SourceContractChanged):
+            verify_pinned_low_level_blobs(
+                PET_TOGGLE_CPP, CHARM_SET_CPP, "unreviewed-new-core")
 
     def test_script_is_source_only(self):
         source = (Path(__file__).resolve().parents[1] / "scripts" /
