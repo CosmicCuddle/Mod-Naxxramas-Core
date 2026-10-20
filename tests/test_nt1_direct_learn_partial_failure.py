@@ -129,6 +129,29 @@ class NT1DirectLearnHazard(unittest.TestCase):
                         IMPORT_FIXTURE,
                     )
 
+    def test_preceding_line_nonstandalone_addtalent_fails_closed(self):
+        # CS02 exact-head review found that checking only the call line
+        # missed assignments, return and unbraced control flow above it.
+        original = "    addTalent(spellId, GetActiveSpecMask(), currentTalentRank);"
+        variants = (
+            "    bool added =\n" + original,
+            "    added =\n" + original,
+            "    return\n" + original,
+            "    (void)\n" + original,
+            "    if (canLearn)\n" + original,
+            "    if (canLearn)\n        " + original.strip(),
+            "    doSomething(1),\n" + original,
+            "    SomeWrapper(\n" + original,
+            "    bool added{\n" + original,
+        )
+        for variant in variants:
+            with self.subTest(variant=variant):
+                with self.assertRaises(SourceContractError):
+                    check_direct_learn_risk(
+                        CORE_FIXTURE.replace(original, variant),
+                        IMPORT_FIXTURE,
+                    )
+
     def test_changed_importer_sequence_fails_closed(self):
         with self.assertRaises(SourceContractError):
             check_direct_learn_risk(
