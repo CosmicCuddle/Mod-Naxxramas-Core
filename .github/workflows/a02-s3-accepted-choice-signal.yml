@@ -1,0 +1,31 @@
+name: A02 S3 accepted choice signal
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - '.github/workflows/a02-s3-accepted-choice-signal.yml'
+      - 'docs/research/a02-s3-accepted-choice-signal.md'
+      - 'scripts/a02_s3_accepted_choice_signal.py'
+      - 'scripts/a02_s3_hook_manifest.py'
+      - 'tests/test_a02_s3_accepted_choice_signal.py'
+      - 'src/Systems/HunterPetAutocastRestore.h'
+      - 'src/Systems/HunterPetAutocastRestore.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-a02-s3-accepted-choice-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  model-and-source-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out this module commit
+        uses: actions/checkout@v4
+      - name: Run the adversarial model and the pinned source contract
+        run: python3 -m unittest discover -s tests -p 'test_a02_s3_accepted_choice_signal.py' -v
