@@ -1,0 +1,128 @@
+name: F10 S1 one-bucket design pin
+on:
+  pull_request:
+    paths:
+      - 'docs/research/F10-hallows-end-one-bucket-S1.md'
+      - 'tests/test_f10_hallows_end_one_bucket_s1.py'
+      - '.github/workflows/f10-s1-one-bucket.yml'
+  push:
+    branches:
+      - cs02/f10-s1-one-bucket-design-2026-10-20
+    paths:
+      - 'docs/research/F10-hallows-end-one-bucket-S1.md'
+      - 'tests/test_f10_hallows_end_one_bucket_s1.py'
+      - '.github/workflows/f10-s1-one-bucket.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  pin-reviewed-sources:
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/cs02/f10-s1-one-bucket-design-2026-10-20') ||
+      (github.event_name == 'pull_request' && github.head_ref == 'cs02/f10-s1-one-bucket-design-2026-10-20')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out this module commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Check out pinned Grimfeather core
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: core-a66f1be
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/scripts/Events/hallows_end.cpp
+            src/server/game/Spells/Spell.cpp
+            src/server/game/Spells/SpellEffects.cpp
+            src/server/game/Scripting/ScriptDefines/AllSpellScript.h
+            src/server/game/Scripting/ScriptDefines/AllSpellScript.cpp
+            src/server/game/Scripting/ScriptDefines/AllCreatureScript.h
+            src/server/game/Scripting/ScriptDefines/UnitScript.h
+            src/server/game/Scripting/ScriptDefines/PlayerScript.h
+            src/server/game/Scripting/ScriptDefines/SpellScriptLoader.h
+            src/server/game/Scripting/ScriptDefines/SpellScriptLoader.cpp
+            src/server/game/Scripting/ScriptDefines/CreatureScript.cpp
+            src/server/game/Scripting/ScriptObject.h
+            src/server/game/Scripting/ScriptMgr.h
+            src/server/game/Scripting/ScriptMgrMacros.h
+            src/server/game/AI/CreatureAISelector.cpp
+            src/server/game/Globals/ObjectMgr.h
+            src/server/game/Globals/ObjectMgr.cpp
+            data/sql/base/db_world/spell_script_names.sql
+            data/sql/base/db_world/creature_template.sql
+            data/sql/base/db_world/spell_dbc.sql
+            data/sql/base/db_world/spell_linked_spell.sql
+            data/sql/base/db_world/spell_scripts.sql
+
+      - name: Check out prospective Grimfeather core
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: core-8daffda
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/scripts/Events/hallows_end.cpp
+            src/server/game/Spells/Spell.cpp
+            src/server/game/Spells/SpellEffects.cpp
+            src/server/game/Scripting/ScriptDefines/AllSpellScript.h
+            src/server/game/Scripting/ScriptDefines/AllSpellScript.cpp
+            src/server/game/Scripting/ScriptDefines/AllCreatureScript.h
+            src/server/game/Scripting/ScriptDefines/UnitScript.h
+            src/server/game/Scripting/ScriptDefines/PlayerScript.h
+            src/server/game/Scripting/ScriptDefines/SpellScriptLoader.h
+            src/server/game/Scripting/ScriptDefines/SpellScriptLoader.cpp
+            src/server/game/Scripting/ScriptDefines/CreatureScript.cpp
+            src/server/game/Scripting/ScriptObject.h
+            src/server/game/Scripting/ScriptMgr.h
+            src/server/game/Scripting/ScriptMgrMacros.h
+            src/server/game/AI/CreatureAISelector.cpp
+            src/server/game/Globals/ObjectMgr.h
+            src/server/game/Globals/ObjectMgr.cpp
+            data/sql/base/db_world/spell_script_names.sql
+            data/sql/base/db_world/creature_template.sql
+            data/sql/base/db_world/spell_dbc.sql
+            data/sql/base/db_world/spell_linked_spell.sql
+            data/sql/base/db_world/spell_scripts.sql
+
+      - name: Check out pinned Grimfeather Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: individual-progression
+          persist-credentials: false
+
+      - name: Check out pinned Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: playerbots
+          persist-credentials: false
+
+      - name: Verify the reviewed commits
+        run: |
+          set -euo pipefail
+          test "$(git -C core-a66f1be rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
+          test "$(git -C core-8daffda rev-parse HEAD)" = "8daffdabe9202c228e45d833c9a1d399597a15cd"
+          test "$(git -C individual-progression rev-parse HEAD)" = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
+          test "$(git -C playerbots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
+          echo "Source pin only. No worldserver, SQL, DBC, or gameplay run."
+
+      - name: Run the one-bucket source contract and model
+        env:
+          F10_CORE_OLD: ${{ github.workspace }}/core-a66f1be
+          F10_CORE_NEW: ${{ github.workspace }}/core-8daffda
+          F10_IP: ${{ github.workspace }}/individual-progression
+          F10_PLAYERBOTS: ${{ github.workspace }}/playerbots
+        run: python3 -m unittest tests/test_f10_hallows_end_one_bucket_s1.py -v
