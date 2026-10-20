@@ -11,6 +11,7 @@ on:
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'tests/a02_s2_hunter_pet_autocast_policy_tests.cpp'
       - 'tests/test_a02_s2_hunter_pet_autocast.py'
+      - 'tests/a02_s2_known_unsafe_counterexamples.cpp'
   workflow_dispatch:
 
 permissions:
@@ -31,6 +32,14 @@ jobs:
         run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends g++
       - name: Compile the policy tests and pin DelayedPetSpellCheck
         run: python3 -m unittest discover -s tests -p 'test_a02_s2_hunter_pet_autocast.py' -v
+      - name: Reproduce adversarial known hazards without any pet writes
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -Isrc/Systems \
+            tests/a02_s2_known_unsafe_counterexamples.cpp \
+            -o /tmp/naxx_a02_s2_known_unsafe_counterexamples
+          /tmp/naxx_a02_s2_known_unsafe_counterexamples
+          echo 'These are documented RED FLAGS; a PASS never authorizes enabling S2.'
 
   native-module-file:
     runs-on: ubuntu-24.04
