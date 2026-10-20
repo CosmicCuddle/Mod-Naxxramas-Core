@@ -1,6 +1,7 @@
 """Source-only five-feature S5 preflight contract, NOT a Worldserver/DB test."""
 from pathlib import Path
 import re
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +25,32 @@ FLAGS = (
     "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled",
     "NaxxramasCore.HallowsEnd.SoloFire.Enabled",
 )
+
+AUTOCACHE_TABLE_NAME = "mod_naxxramas_hunter_pet_autocast"
+
+
+def unsafe_autocast_auto_migrations(root: Path) -> list[Path]:
+    """Find A02 cache SQL within directories the pinned module updater discovers.
+
+    At Grimfeather 8daffda, UpdateFetcher.cpp scans first-level module
+    data/sql subdirectories if their names contain the lowercase database
+    token ("characters" for DBUpdater<CharacterDatabaseConnection>).
+    This is intentionally scoped to the NOT-YET-APPROVED A02 schema.
+    A SQL comment saying DO NOT APPLY does not opt out of auto-updates.
+    """
+    sql_dir = root / "data" / "sql"
+    if not sql_dir.is_dir():
+        return []
+    matches = []
+    for child in sql_dir.iterdir():
+        if not child.is_dir() or "characters" not in child.name:
+            continue
+        for sql in child.iterdir():
+            if sql.is_file() and sql.suffix == ".sql":
+                if AUTOCACHE_TABLE_NAME in sql.read_text(encoding="utf-8", errors="replace"):
+                    matches.append(sql)
+    return sorted(matches)
+
 
 class ReadOnlyFiveFeaturePreflight(unittest.TestCase):
     def test_exact_optional_flags_start_disabled_in_candidate_dist(self):
@@ -79,6 +106,39 @@ class ReadOnlyFiveFeaturePreflight(unittest.TestCase):
         self.assertIn("SELECT `TypeId`, `ScriptName`", DOC)
         for forbidden in ("DELETE FROM", "DROP TABLE", "TRUNCATE TABLE", "INSERT INTO", "UPDATE `"):
             self.assertNotIn(forbidden, DOC)
+
+    def test_unapproved_hunter_cache_schema_not_automatically_discoverable(self):
+        self.assertEqual(
+            unsafe_autocast_auto_migrations(ROOT), [],
+            "A02 cache schema MUST stay outside module data/sql db-characters folders "
+            "until the owner has expressly approved a backed-up SQL migration.",
+        )
+
+    def test_auto_updater_finds_even_commented_no_apply_sql(self):
+        # The pinned UpdateFetcher only examines filesystem paths. Comments
+        # do NOT prevent the database updater from applying CREATE TABLE.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for dirname in ("db-characters", "db_characters"):
+                parent = root / "data" / "sql" / dirname
+                parent.mkdir(parents=True)
+                (parent / "never_auto.sql").write_text(
+                    "-- DO NOT APPLY\\n"
+                    "CREATE TABLE " + AUTOCACHE_TABLE_NAME + " (id INT);\\n",
+                    encoding="utf-8",
+                )
+            self.assertEqual(len(unsafe_autocast_auto_migrations(root)), 2)
+
+    def test_owner_approved_manual_sql_location_is_not_auto_discovered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = root / "docs" / "install"
+            parent.mkdir(parents=True)
+            (parent / "hunter_pet_autocast_cache_manual.sql").write_text(
+                "CREATE TABLE " + AUTOCACHE_TABLE_NAME + " (id INT);",
+                encoding="utf-8",
+            )
+            self.assertEqual(unsafe_autocast_auto_migrations(root), [])
 
     def test_no_s4_or_s5_signoff_is_implied(self):
         for phrase in (
