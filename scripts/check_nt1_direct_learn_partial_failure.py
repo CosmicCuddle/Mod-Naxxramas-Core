@@ -55,14 +55,24 @@ def check_direct_learn_risk(player_cpp: str, bot_cpp: str) -> dict[str, bool]:
     # assignment (typed/untyped), brace-init, return, macro/wrapper,
     # qualification, or another call. Do not guess whether a refactored
     # function is still unsafe; require another exact-source review.
-    # This single-line check is intentionally narrow, not a C++ parser.
+    # This source-specific check is intentionally narrow, not a C++ parser.
     expected_call = "addTalent(spellId, GetActiveSpecMask(), currentTalentRank);"
-    all_calls = re.findall(r"\baddTalent\s*\(", learn)
+    matches = list(re.finditer(r"\baddTalent\s*\(", learn))
     call_lines = [line.strip() for line in learn.splitlines()
                   if re.search(r"\baddTalent\s*\(", line)]
-    if len(all_calls) != 1 or call_lines != [expected_call]:
+    if len(matches) != 1 or call_lines != [expected_call]:
         raise SourceContractError(
             "LearnTalent addTalent invocation is not exactly one standalone call: re-review")
+
+    # A standalone line is insufficient: "return", assignment, a cast, or
+    # an unbraced if may be on the PREVIOUS physical line. In the pinned
+    # cores, the preceding completed statement ends with ';'. Accept only
+    # an unambiguous statement/block boundary and require re-review for
+    # any alternate multi-line expression or control-flow form.
+    prefix = learn[:matches[0].start()].rstrip()
+    if not prefix or prefix[-1] not in ";{}":
+        raise SourceContractError(
+            "LearnTalent addTalent call lacks a standalone statement boundary: re-review")
 
     must_contain(imported, [
         "for (TalentSelection const& selection : plan.Ordered)",
