@@ -1,0 +1,127 @@
+name: A02 S2 hunter pet autocast restore
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - '.github/workflows/a02-s2-hunter-pet-autocast.yml'
+      - 'src/Systems/HunterPetAutocastRestore.cpp'
+      - 'src/Systems/HunterPetAutocastRestore.h'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/a02_s2_hunter_pet_autocast_policy_tests.cpp'
+      - 'tests/test_a02_s2_hunter_pet_autocast.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-a02-s2-hunter-pet-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  policy-and-ip-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out this module commit
+        uses: actions/checkout@v4
+      - name: Install the policy-test compiler
+        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends g++
+      - name: Compile the policy tests and pin DelayedPetSpellCheck
+        run: python3 -m unittest discover -s tests -p 'test_a02_s2_hunter_pet_autocast.py' -v
+
+  native-module-file:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: old-grimfeather
+            core_sha: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          - name: prospective-new-grimfeather
+            core_sha: 8daffdabe9202c228e45d833c9a1d399597a15cd
+    name: Native TU / ${{ matrix.name }}
+    steps:
+      - name: Checkout pinned Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ matrix.core_sha }}
+          path: acore
+          persist-credentials: false
+      - name: Checkout pinned Playerbots headers
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout this module commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Require the four SHAs and the disabled default
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "${{ matrix.core_sha }}"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = 037c01418b5d01506917a3db9b44fd56ac5f965c
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          grep -Fqx 'NaxxramasCore.HunterPetAutocastRestore.Enabled = 0' \
+            acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+      - name: Install the native compiler prerequisites
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure the pinned core and the checked-out modules
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Pin DelayedPetSpellCheck against the checked-out IP commit
+        env:
+          A02_IP: acore/modules/mod-individual-progression
+        run: python3 -m unittest discover -s acore/modules/mod-naxxramas-core/tests -p 'test_a02_s2_hunter_pet_autocast.py' -v
+      - name: Compile the hunter pet autocast translation unit
+        run: |
+          python3 - <<'PY'
+          import json
+          import shlex
+          import subprocess
+          from pathlib import Path
+
+          commands = json.loads(Path("acore-build/compile_commands.json").read_text(encoding="utf-8"))
+          matched = [
+              entry for entry in commands
+              if entry["file"].endswith("/src/Systems/HunterPetAutocastRestore.cpp")
+          ]
+          if len(matched) != 1:
+              raise SystemExit(f"expected one hunter pet autocast TU, found {len(matched)}")
+          entry = matched[0]
+          raw = entry.get("arguments") or shlex.split(entry["command"])
+          print("Compiling", entry["file"], flush=True)
+          subprocess.run(raw, cwd=entry["directory"], timeout=360, check=True)
+          print("PASS: HunterPetAutocastRestore.cpp compiled against this pinned core")
+          PY
+      - name: State the compile boundary
+        if: always()
+        run: |
+          echo "Translation unit only. This does not link worldserver or start it."
+          echo "In-game summon, relog, and rank change were not run."
