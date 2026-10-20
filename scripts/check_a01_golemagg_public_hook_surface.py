@@ -8,6 +8,7 @@ Any material API change fails closed and requires a fresh developer review.
 from __future__ import annotations
 import argparse
 from pathlib import Path
+import re
 
 class SourceSurfaceChanged(RuntimeError):
     pass
@@ -17,6 +18,20 @@ def needs(source: str, needle: str, path: str) -> int:
     if count != 1:
         raise SourceSurfaceChanged(f"{path}: expected one {needle!r}, found {count}")
     return source.index(needle)
+
+def require_nearest_access(source: str, declaration: str, expected: str, path: str) -> None:
+    """Check the nearest preceding C++ access label at a pinned declaration.
+
+    The previous 'rfind(protected:)' check could be bypassed by inserting a
+    newer 'public:' label between the original protected label and member.
+    These checks are source guards, not general C++ scope parsers.
+    """
+    position = needs(source, declaration, path)
+    labels = list(re.finditer(r"(?m)^[ \\t]*(public|private|protected)[ \\t]*:", source[:position]))
+    if not labels or labels[-1].group(1) != expected:
+        raise SourceSurfaceChanged(
+            f"{path}: nearest access for {declaration!r} is not {expected}: re-review")
+
 
 def check_public_movement_surface(files: dict[str, str]) -> dict[str, bool]:
     p = files["playerbot"]
@@ -29,16 +44,19 @@ def check_public_movement_surface(files: dict[str, str]) -> dict[str, bool]:
     player = files["player"]
     unit = files["unit"]
 
-    selection = needs(p, "void ChangeStrategy(std::string const name, BotState type);", "PlayerbotAI.h")
-    boundary = p.rfind("protected:", 0, needs(p, "Engine* currentEngine;", "PlayerbotAI.h"))
-    if boundary <= selection or p.index("Engine* engines[BOT_STATE_MAX];", boundary) < boundary:
-        raise SourceSurfaceChanged("PlayerbotAI engine visibility boundary changed")
+    selection = "void ChangeStrategy(std::string const name, BotState type);"
+    needs(p, selection, "PlayerbotAI.h")
+    require_nearest_access(p, selection, "public", "PlayerbotAI.h")
+    require_nearest_access(p, "Engine* currentEngine;", "protected", "PlayerbotAI.h")
+    require_nearest_access(p, "Engine* engines[BOT_STATE_MAX];", "protected", "PlayerbotAI.h")
     needs(engine, "void AddActionExecutionListener(ActionExecutionListener* listener)", "Engine.h")
 
-    ctx_boundary = context.rfind("protected:", 0, needs(context, "NamedObjectContextList<Strategy> strategyContexts;", "AiObjectContext.h"))
-    private_boundary = context.rfind("private:", 0, needs(context, "static SharedNamedObjectContextList<Strategy> sharedStrategyContexts;", "AiObjectContext.h"))
-    if ctx_boundary < 0 or private_boundary < ctx_boundary:
-        raise SourceSurfaceChanged("AiObjectContext strategy visibility boundary changed")
+    require_nearest_access(
+        context, "NamedObjectContextList<Strategy> strategyContexts;",
+        "protected", "AiObjectContext.h")
+    require_nearest_access(
+        context, "static SharedNamedObjectContextList<Strategy> sharedStrategyContexts;",
+        "private", "AiObjectContext.h")
     needs(context, "static void BuildSharedStrategyContexts(SharedNamedObjectContextList<Strategy>& strategyContexts);", "AiObjectContext.h")
     needs(named, "std::unordered_map<std::string, ObjectCreator> const& creators;", "NamedObjectContext.h")
     needs(mc, "void RaidMcStrategy::InitMultipliers(std::vector<Multiplier*>& multipliers)", "MCStrategy.cpp")
