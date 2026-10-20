@@ -50,6 +50,26 @@
  * The Shade poll must not restart ticks. There is no amplitude setter.
  * A splash that removes the aura, and the 2-to-3 spread tick, stay inside
  * the core script. This policy cannot fake either one.
+ *
+ * While the solo path is active, a missing trigger or a missing 42074
+ * effect drops that GUID's watch. The next effect is a first sight and
+ * has no remembered amount. DisarmWatch is a different operation: the
+ * path going inactive keeps the amount so a later re-arm can still see
+ * a drop. A removal and a new cast that both finish between two polls
+ * are not observed. No public field identifies one Aura application:
+ *   Aura::GetApplyTime                 SpellAuras.h:129 at both SHAs
+ *     returns m_applyTime, whole seconds (SpellAuras.h:262)
+ *     set from GameTime::GetGameTime() SpellAuras.cpp:355 at the pinned SHA,
+ *                                      SpellAuras.cpp:362 at the prospective SHA
+ *   GameTime::GetGameTime              GameTime.h:30 at both SHAs, returns Seconds
+ *   GameTime::GetGameTimeMS            GameTime.h:33 at both SHAs, not stored on Aura
+ *   Aura::GetId                        SpellAuras.cpp:410 pinned, :417 prospective
+ *                                      returns the spell id, not an instance
+ *   AuraEffect::GetId                  SpellAuraEffects.cpp:432 at both SHAs
+ *                                      returns the spell id
+ *   AuraEffect::GetBase                SpellAuraEffects.h:49 at both SHAs
+ *                                      returns Aura*. The pointer does not
+ *                                      outlive the aura, so it is not stored.
  */
 
 #ifndef NAXXRAMAS_CORE_HALLOWS_END_SOLO_FIRE_H
@@ -217,6 +237,16 @@ enum class TimerEdge : uint8_t
     Rejected
 };
 
+/* Keep: this GUID resolved to entry 23686 and 42074 effect 0 is present.
+ * Drop: the trigger is missing, the entry is wrong, or the effect is absent.
+ * Drop removes the watch. It is not DisarmWatch.
+ */
+enum class WatchRetention : uint8_t
+{
+    Drop = 0,
+    Keep
+};
+
 struct WatchState
 {
     bool hasEdge = false;
@@ -245,6 +275,19 @@ struct PollResult
     TimerDecision timer;
     WatchState watch;
 };
+
+/* Solo-active observation gate. Both inputs have to be true to keep
+ * the watch. The next kept observation then starts from an empty watch
+ * when the previous one was dropped, which is first sight and no
+ * remembered amount. This does not see a 42074 that was removed and
+ * cast again entirely between two calls.
+ */
+inline WatchRetention RetentionForObservation(bool triggerUsable, bool auraPresent)
+{
+    if (triggerUsable && auraPresent)
+        return WatchRetention::Keep;
+    return WatchRetention::Drop;
+}
 
 /* One active-span observation of a single trigger.
  * Scale uses the last active amount and does not read the multiplier.
@@ -320,10 +363,12 @@ inline PollResult PollActiveTrigger(
     return result;
 }
 
-/* Same-event cleanup. The trigger stays known so the next active poll
- * re-arms instead of treating the elapsed ticks as a first sight.
- * The last amount is kept so a drop during the inactive gap can still
- * match scale on the next active poll. The timer itself is not written.
+/* Same-event cleanup when the solo path is inactive. The trigger stays
+ * known so the next active poll re-arms instead of treating the elapsed
+ * ticks as a first sight. The last amount is kept so a drop during the
+ * inactive gap can still match scale on the next active poll. The timer
+ * itself is not written. A missing 42074 while the path is active is
+ * not this function: that observation drops the watch.
  */
 inline WatchState DisarmWatch(WatchState watch)
 {

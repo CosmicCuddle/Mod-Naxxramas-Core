@@ -30,6 +30,210 @@ PLAYERBOTS = "037c01418b5d01506917a3db9b44fd56ac5f965c"
 INDIVIDUAL = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
 
 
+_POLICY_CACHE: dict[str, object] = {}
+
+
+def policy_program() -> dict[str, object]:
+    """Compile the policy binary once and run its default checks."""
+    if _POLICY_CACHE:
+        return _POLICY_CACHE
+    binary = Path("/tmp/f10_s2_solo_fire_policy_tests")
+    compile_cmd = [
+        "g++",
+        "-std=c++17",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-I",
+        str(ROOT / "src/Events"),
+        str(POLICY_SOURCE),
+        "-o",
+        str(binary),
+    ]
+    compiled = subprocess.run(compile_cmd, capture_output=True, text=True)
+    if compiled.returncode != 0:
+        raise AssertionError(compiled.stderr)
+    ran = subprocess.run([str(binary)], capture_output=True, text=True)
+    _POLICY_CACHE.update(
+        {
+            "path": binary,
+            "compile_cmd": compile_cmd,
+            "stdout": ran.stdout,
+            "stderr": ran.stderr,
+            "code": ran.returncode,
+        }
+    )
+    return _POLICY_CACHE
+
+
+def policy_query(args: list[str]) -> str:
+    program = policy_program()
+    ran = subprocess.run(
+        [str(program["path"]), *args],
+        capture_output=True,
+        text=True,
+    )
+    if ran.returncode != 0:
+        raise AssertionError(ran.stderr or ran.stdout)
+    return ran.stdout.strip()
+
+
+def policy_retain(trigger_usable: bool, aura_present: bool) -> str:
+    return policy_query(
+        [
+            "--retain",
+            "1" if trigger_usable else "0",
+            "1" if aura_present else "0",
+        ]
+    )
+
+
+def policy_poll(
+    watch: dict[str, object] | None,
+    accepted: bool,
+    multiplier: int,
+    amount: int,
+    scale: float,
+    tick: int,
+    amplitude: int,
+) -> dict[str, object]:
+    if watch is None:
+        remembered = ["0", "0", "0", "0", "0"]
+    else:
+        remembered = [
+            "1" if watch["hasEdge"] else "0",
+            "1" if watch["edgeArmed"] else "0",
+            str(watch["lastTick"]),
+            "1" if watch["hasAmount"] else "0",
+            str(watch["lastAmount"]),
+        ]
+    text = policy_query(
+        [
+            "--poll",
+            *remembered,
+            "1" if accepted else "0",
+            str(multiplier),
+            str(amount),
+            f"{scale:.6f}",
+            str(tick),
+            str(amplitude),
+        ]
+    )
+    parts = dict(item.split("=", 1) for item in text.split())
+    return {
+        "writeScale": parts["writeScale"] == "1",
+        "scale": float(parts["scale"]),
+        "edge": parts["edge"],
+        "writeTimer": parts["writeTimer"] == "1",
+        "timer": int(parts["timer"]),
+        "watch": {
+            "hasEdge": parts["hasEdge"] == "1",
+            "edgeArmed": parts["edgeArmed"] == "1",
+            "lastTick": int(parts["lastTick"]),
+            "hasAmount": parts["hasAmount"] == "1",
+            "lastAmount": int(parts["lastAmount"]),
+        },
+        "line": text,
+    }
+
+
+def _matching_paren(text: str, open_at: int) -> int:
+    depth = 0
+    for index in range(open_at, len(text)):
+        char = text[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    raise AssertionError("unbalanced parenthesis")
+
+
+def _brace_body(text: str, open_at: int) -> str:
+    depth = 0
+    for index in range(open_at, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_at + 1:index]
+    raise AssertionError("unbalanced brace")
+
+
+def retention_drop_body(poll: str) -> str | None:
+    """Body of the if that drops a watch when retention is not Keep.
+
+    Returns None when that branch does not erase the id and continue
+    before any timer or scale write. A bare 'erase' substring is not enough.
+    """
+    start = 0
+    marker = "RetentionForObservation("
+    found = None
+    while True:
+        at = poll.find("if (", start)
+        if at < 0:
+            break
+        open_paren = poll.find("(", at)
+        close_paren = _matching_paren(poll, open_paren)
+        condition = poll[open_paren + 1:close_paren]
+        rest = poll[close_paren + 1:].lstrip()
+        if rest.startswith("{") and marker in condition:
+            body_open = close_paren + 1 + (len(poll[close_paren + 1:]) - len(rest))
+            found = (condition, _brace_body(poll, body_open))
+            break
+        start = at + 3
+    if found is None:
+        return None
+    condition, body = found
+    if "triggerUsable" not in condition or "aura != nullptr" not in condition:
+        return None
+    collapsed = "".join(condition.split())
+    drop_comparison = "!=NaxxramasCore::HallowsEndSoloFire::WatchRetention::Keep"
+    if drop_comparison not in collapsed:
+        return None
+    erase_at = body.find("soloFireWatches.erase(id);")
+    continue_at = body.find("continue;")
+    if erase_at < 0 or continue_at < 0 or erase_at > continue_at:
+        return None
+    if "PollActiveTrigger" in body or "SetObjectScale" in body or "SetPeriodicTimer" in body:
+        return None
+    retain_at = poll.find(marker)
+    active_at = poll.find("PollActiveTrigger")
+    if retain_at < 0 or active_at < 0 or retain_at > active_at:
+        return None
+    return body
+
+
+def observe_source_poll(poll: str, watch: dict[str, object] | None, step: dict[str, object]):
+    """Apply one PollSoloFires iteration using the real missing-aura branch.
+
+    The retain/poll decisions are the compiled policy. Whether a dropped
+    observation erases the watch is taken from that branch's body.
+    """
+    retention = policy_retain(step["trigger_usable"], step["aura_present"])
+    if retention == "Drop":
+        if retention_drop_body(poll) is None:
+            return watch, {"erased": False, "skipped": True}
+        return None, {"erased": True, "skipped": False}
+    if retention != "Keep":
+        raise AssertionError(retention)
+    result = policy_poll(
+        watch,
+        True,
+        step["multiplier"],
+        step["amount"],
+        step["scale"],
+        step["tick"],
+        step["amplitude"],
+    )
+    result["erased"] = False
+    result["skipped"] = False
+    return result["watch"], result
+
+
 def extract_function(text: str, signature: str) -> str:
     start = text.index(signature)
     brace = text.index("{", start)
@@ -132,27 +336,11 @@ def s1_oracle_trace() -> list[str]:
 class PolicyBinary(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        binary = Path("/tmp/f10_s2_solo_fire_policy_tests")
-        compile_cmd = [
-            "g++",
-            "-std=c++17",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-I",
-            str(ROOT / "src/Events"),
-            str(POLICY_SOURCE),
-            "-o",
-            str(binary),
-        ]
-        compiled = subprocess.run(compile_cmd, capture_output=True, text=True)
-        if compiled.returncode != 0:
-            raise AssertionError(compiled.stderr)
-        ran = subprocess.run([str(binary)], capture_output=True, text=True)
-        cls.compile_cmd = compile_cmd
-        cls.binary_stdout = ran.stdout
-        cls.binary_stderr = ran.stderr
-        cls.binary_code = ran.returncode
+        program = policy_program()
+        cls.compile_cmd = program["compile_cmd"]
+        cls.binary_stdout = program["stdout"]
+        cls.binary_stderr = program["stderr"]
+        cls.binary_code = program["code"]
 
     def test_policy_binary_passes_and_matches_the_s1_model(self):
         self.assertEqual(
@@ -307,6 +495,7 @@ class ShadeSourceContract(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, poll)
         self.assertIn("GetAuraEffect", poll)
+        self.assertIsNotNone(retention_drop_body(poll))
         self.assertIn("GetTickNumber", poll)
         self.assertIn("GetAmplitude", poll)
         self.assertIn("GetAmount", poll)
@@ -402,6 +591,279 @@ class ShadeSourceContract(unittest.TestCase):
             self.assertIn("contents: read", text)
 
 
+class MissingAuraLifecycle(unittest.TestCase):
+    """The Shade missing-aura branch, executed, not searched for as text."""
+
+    @classmethod
+    def setUpClass(cls):
+        program = policy_program()
+        if program["code"] != 0:
+            raise AssertionError(program["stdout"] + program["stderr"])
+        cls.poll = extract_function(MODULE, "void PollSoloFires()")
+        cls.cases = {
+            line.split()[1]: line
+            for line in str(program["stdout"]).splitlines()
+            if line.startswith("CASE ")
+        }
+
+    def _final(self, steps: list[dict[str, object]]):
+        watch = None
+        result = None
+        for step in steps:
+            watch, result = observe_source_poll(self.poll, watch, step)
+        return watch, result
+
+    def test_same_tick_reignite_stretches_and_does_not_shrink(self):
+        self.assertIsNotNone(retention_drop_body(self.poll))
+        first = {
+            "trigger_usable": True,
+            "aura_present": True,
+            "multiplier": 3,
+            "amount": 3,
+            "scale": 2.0,
+            "tick": 0,
+            "amplitude": 1500,
+        }
+        watch, seen = observe_source_poll(self.poll, None, first)
+        self.assertEqual(seen["edge"], "FirstSight")
+        self.assertTrue(seen["writeTimer"])
+        self.assertEqual(seen["timer"], 4500)
+        self.assertFalse(seen["writeScale"])
+
+        stale = policy_poll(watch, True, 3, 1, 1.0, 0, 1500)
+        self.assertTrue(stale["writeScale"])
+        self.assertEqual(stale["scale"], 0.5)
+        self.assertEqual(stale["edge"], "SameTick")
+        self.assertFalse(stale["writeTimer"])
+
+        absent = {
+            "trigger_usable": True,
+            "aura_present": False,
+            "multiplier": 3,
+            "amount": 0,
+            "scale": 0.0,
+            "tick": 0,
+            "amplitude": 0,
+        }
+        watch, gone = observe_source_poll(self.poll, watch, absent)
+        self.assertTrue(gone["erased"])
+        self.assertIsNone(watch)
+
+        renewed = {
+            "trigger_usable": True,
+            "aura_present": True,
+            "multiplier": 3,
+            "amount": 1,
+            "scale": 1.0,
+            "tick": 0,
+            "amplitude": 1500,
+        }
+        watch, again = observe_source_poll(self.poll, watch, renewed)
+        self.assertFalse(again["writeScale"])
+        self.assertEqual(again["edge"], "FirstSight")
+        self.assertTrue(again["writeTimer"])
+        self.assertEqual(again["timer"], 4500)
+        self.assertEqual(watch["lastAmount"], 1)
+        self.assertEqual(watch["lastTick"], 0)
+        self.assertEqual(
+            self.cases["same-tick"],
+            "CASE same-tick writeScale=0 edge=FirstSight writeTimer=1 timer=4500",
+        )
+
+    def test_different_tick_reignite_is_first_sight_without_a_scale_drop(self):
+        steps = [
+            {
+                "trigger_usable": True,
+                "aura_present": True,
+                "multiplier": 3,
+                "amount": 3,
+                "scale": 2.0,
+                "tick": 0,
+                "amplitude": 1500,
+            },
+            {
+                "trigger_usable": True,
+                "aura_present": False,
+                "multiplier": 3,
+                "amount": 0,
+                "scale": 0.0,
+                "tick": 0,
+                "amplitude": 0,
+            },
+            {
+                "trigger_usable": True,
+                "aura_present": True,
+                "multiplier": 3,
+                "amount": 1,
+                "scale": 1.0,
+                "tick": 4,
+                "amplitude": 1500,
+            },
+        ]
+        watch, again = self._final(steps)
+        self.assertFalse(again["erased"])
+        self.assertFalse(again["writeScale"])
+        self.assertEqual(again["edge"], "FirstSight")
+        self.assertNotEqual(again["edge"], "TickChange")
+        self.assertTrue(again["writeTimer"])
+        self.assertEqual(again["timer"], 4500)
+        self.assertEqual(watch["lastTick"], 4)
+        self.assertEqual(watch["lastAmount"], 1)
+        stale = policy_poll(
+            {
+                "hasEdge": True,
+                "edgeArmed": True,
+                "lastTick": 0,
+                "hasAmount": True,
+                "lastAmount": 3,
+            },
+            True,
+            3,
+            1,
+            1.0,
+            4,
+            1500,
+        )
+        self.assertTrue(stale["writeScale"])
+        self.assertEqual(stale["scale"], 0.5)
+        self.assertEqual(stale["edge"], "TickChange")
+        self.assertEqual(
+            self.cases["different-tick"],
+            "CASE different-tick writeScale=0 edge=FirstSight writeTimer=1 timer=4500",
+        )
+
+    def test_missing_trigger_drops_the_watch_and_the_next_fire_is_first_sight(self):
+        steps = [
+            {
+                "trigger_usable": True,
+                "aura_present": True,
+                "multiplier": 3,
+                "amount": 3,
+                "scale": 2.0,
+                "tick": 2,
+                "amplitude": 1500,
+            },
+            {
+                "trigger_usable": False,
+                "aura_present": False,
+                "multiplier": 3,
+                "amount": 0,
+                "scale": 0.0,
+                "tick": 0,
+                "amplitude": 0,
+            },
+            {
+                "trigger_usable": True,
+                "aura_present": True,
+                "multiplier": 8,
+                "amount": 1,
+                "scale": 1.0,
+                "tick": 0,
+                "amplitude": 1500,
+            },
+        ]
+        watch = None
+        gone = None
+        again = None
+        for step in steps:
+            watch, result = observe_source_poll(self.poll, watch, step)
+            if step["trigger_usable"]:
+                again = result
+            else:
+                gone = result
+                self.assertIsNone(watch)
+        self.assertIsNotNone(gone)
+        self.assertTrue(gone["erased"])
+        self.assertFalse(again["writeScale"])
+        self.assertEqual(again["edge"], "FirstSight")
+        self.assertTrue(again["writeTimer"])
+        self.assertEqual(again["timer"], 12000)
+        self.assertEqual(watch["lastAmount"], 1)
+        self.assertEqual(
+            self.cases["missing-trigger"],
+            "CASE missing-trigger writeScale=0 edge=FirstSight writeTimer=1 timer=12000",
+        )
+
+    def test_multiplier_one_reignite_stores_first_sight_without_a_timer_write(self):
+        steps = [
+            {
+                "trigger_usable": True,
+                "aura_present": True,
+                "multiplier": 1,
+                "amount": 3,
+                "scale": 2.0,
+                "tick": 0,
+                "amplitude": 1500,
+            },
+            {
+                "trigger_usable": True,
+                "aura_present": False,
+                "multiplier": 1,
+                "amount": 0,
+                "scale": 0.0,
+                "tick": 0,
+                "amplitude": 0,
+            },
+            {
+                "trigger_usable": True,
+                "aura_present": True,
+                "multiplier": 1,
+                "amount": 1,
+                "scale": 1.0,
+                "tick": 0,
+                "amplitude": 1500,
+            },
+        ]
+        watch, again = self._final(steps)
+        self.assertEqual(again["edge"], "FirstSight")
+        self.assertFalse(again["writeTimer"])
+        self.assertFalse(again["writeScale"])
+        self.assertEqual(watch["lastAmount"], 1)
+        self.assertEqual(
+            self.cases["mult1-reignite"],
+            "CASE mult1-reignite writeScale=0 edge=FirstSight writeTimer=0 timer=0",
+        )
+
+    def test_a_fire_that_stays_present_still_corrects_a_real_amount_drop(self):
+        steps = [
+            {
+                "trigger_usable": True,
+                "aura_present": True,
+                "multiplier": 3,
+                "amount": 3,
+                "scale": 1.5,
+                "tick": 0,
+                "amplitude": 1500,
+            },
+            {
+                "trigger_usable": True,
+                "aura_present": True,
+                "multiplier": 3,
+                "amount": 1,
+                "scale": 1.5,
+                "tick": 0,
+                "amplitude": 1500,
+            },
+        ]
+        watch, dropped = self._final(steps)
+        self.assertFalse(dropped["erased"])
+        self.assertTrue(dropped["writeScale"])
+        self.assertEqual(dropped["scale"], 0.5)
+        self.assertEqual(dropped["edge"], "SameTick")
+        self.assertIsNotNone(watch)
+
+    def test_between_poll_replacement_stays_a_documented_limit(self):
+        self.assertIn("between two polls", DOC)
+        self.assertIn("POTENTIAL ISSUE", DOC)
+        self.assertIn("GetApplyTime", DOC)
+        self.assertIn("SpellAuras.h:129", DOC)
+        self.assertIn("SpellAuras.cpp:355", DOC)
+        self.assertIn("SpellAuras.cpp:362", DOC)
+        self.assertIn("GameTime.h:30", DOC)
+        self.assertIn("SpellAuraEffects.h:49", HEADER)
+        self.assertNotIn("GetApplyTime()", MODULE)
+
+
 class PinnedProvenanceLines(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -465,6 +927,47 @@ class PinnedProvenanceLines(unittest.TestCase):
         self.assertIn(
             "AnyPlayerInObjectRangeCheck(WorldObject const* obj, float range, bool reqAlive = true, bool disallowGM = false)",
             grid,
+        )
+
+    def test_public_aura_fields_do_not_identify_one_application(self):
+        for root in (self.old, self.new):
+            auras = self.line(root, "src/server/game/Spells/Auras/SpellAuras.h", 129)
+            self.assertIn("GetApplyTime() const { return m_applyTime; }", auras)
+            stored = self.line(root, "src/server/game/Spells/Auras/SpellAuras.h", 262)
+            self.assertIn("time_t const m_applyTime;", stored)
+            base = self.line(root, "src/server/game/Spells/Auras/SpellAuraEffects.h", 49)
+            self.assertIn("Aura* GetBase() const { return m_base; }", base)
+            clock = self.line(root, "src/server/game/Time/GameTime.h", 30)
+            self.assertIn("Seconds GetGameTime();", clock)
+            millis = self.line(root, "src/server/game/Time/GameTime.h", 33)
+            self.assertIn("Milliseconds GetGameTimeMS();", millis)
+            effect_id = self.line(root, "src/server/game/Spells/Auras/SpellAuraEffects.cpp", 432)
+            self.assertIn("uint32 AuraEffect::GetId() const", effect_id)
+            effect_body = self.line(root, "src/server/game/Spells/Auras/SpellAuraEffects.cpp", 434)
+            self.assertIn("return m_spellInfo->Id;", effect_body)
+        self.assertIn(
+            "Aura* GetAura(",
+            self.line(self.old, "src/server/game/Entities/Unit/Unit.h", 1447),
+        )
+        self.assertIn(
+            "Aura* GetAura(",
+            self.line(self.new, "src/server/game/Entities/Unit/Unit.h", 1448),
+        )
+        self.assertIn(
+            "m_applyTime(GameTime::GetGameTime().count())",
+            self.line(self.old, "src/server/game/Spells/Auras/SpellAuras.cpp", 355),
+        )
+        self.assertIn(
+            "m_applyTime(GameTime::GetGameTime().count())",
+            self.line(self.new, "src/server/game/Spells/Auras/SpellAuras.cpp", 362),
+        )
+        self.assertIn(
+            "return GetSpellInfo()->Id;",
+            self.line(self.old, "src/server/game/Spells/Auras/SpellAuras.cpp", 412),
+        )
+        self.assertIn(
+            "return GetSpellInfo()->Id;",
+            self.line(self.new, "src/server/game/Spells/Auras/SpellAuras.cpp", 419),
         )
 
 

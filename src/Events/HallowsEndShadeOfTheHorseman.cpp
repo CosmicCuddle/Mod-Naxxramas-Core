@@ -19,8 +19,9 @@
  *     With NaxxramasCore.HallowsEnd.SoloFire.Enabled = 1 and exactly
  *     one real player nearby, bots are omitted from the existing
  *     CastFires count and a 42074 poll may stretch that aura's next
- *     interval. Multiplier 1 does not write the timer. The poll does
- *     not cast a splash and does not remove the fire aura.
+ *     interval. Multiplier 1 does not write the timer. A solo poll
+ *     that finds no 42074 effect on a known trigger drops that watch.
+ *     The poll does not cast a splash and does not remove the fire aura.
  *
  * All other Shade of the Horseman behaviour is preserved
  * from the server's existing Hallow's End script when the option is off,
@@ -535,23 +536,40 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
 
         for (ObjectGuid const& guid : unitList)
         {
+            ObjectGuid::LowType id = guid.GetCounter();
+
             Unit* trigger = ObjectAccessor::GetUnit(
                 *me,
                 guid);
 
-            if (!trigger ||
-                trigger->GetEntry() != NPC_FIRE_TRIGGER)
-                continue;
+            bool triggerUsable =
+                trigger &&
+                trigger->GetEntry() == NPC_FIRE_TRIGGER;
 
-            AuraEffect* aura = trigger->GetAuraEffect(
-                NaxxramasCore::HallowsEndSoloFire::FireAuraSpellId,
-                NaxxramasCore::HallowsEndSoloFire::FireAuraEffectIndex);
+            AuraEffect* aura = nullptr;
 
-            if (!aura)
+            if (triggerUsable)
+            {
+                aura = trigger->GetAuraEffect(
+                    NaxxramasCore::HallowsEndSoloFire::FireAuraSpellId,
+                    NaxxramasCore::HallowsEndSoloFire::FireAuraEffectIndex);
+            }
+
+            /*
+             * A missing trigger or a missing 42074 effect drops the
+             * watch. Keeping the old tick and amount would treat the
+             * next aura on this GUID as the same fire.
+             */
+            if (NaxxramasCore::HallowsEndSoloFire::RetentionForObservation(
+                    triggerUsable,
+                    aura != nullptr) !=
+                NaxxramasCore::HallowsEndSoloFire::WatchRetention::Keep)
+            {
+                soloFireWatches.erase(id);
                 continue;
+            }
 
             NaxxramasCore::HallowsEndSoloFire::WatchState previous;
-            ObjectGuid::LowType id = guid.GetCounter();
             auto found = soloFireWatches.find(id);
 
             if (found != soloFireWatches.end())

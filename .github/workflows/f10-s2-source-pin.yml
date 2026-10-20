@@ -53,6 +53,8 @@ jobs:
             src/server/game/Spells/Auras/SpellAuraEffects.h
             src/server/game/Spells/Auras/SpellAuraEffects.cpp
             src/server/game/Spells/Auras/SpellAuras.h
+            src/server/game/Spells/Auras/SpellAuras.cpp
+            src/server/game/Time/GameTime.h
             src/server/game/AI/CoreAI/UnitAI.h
             src/server/game/AI/CoreAI/PassiveAI.h
             src/server/game/Entities/Unit/Unit.h
@@ -80,6 +82,8 @@ jobs:
             src/server/game/Spells/Auras/SpellAuraEffects.h
             src/server/game/Spells/Auras/SpellAuraEffects.cpp
             src/server/game/Spells/Auras/SpellAuras.h
+            src/server/game/Spells/Auras/SpellAuras.cpp
+            src/server/game/Time/GameTime.h
             src/server/game/AI/CoreAI/UnitAI.h
             src/server/game/AI/CoreAI/PassiveAI.h
             src/server/game/Entities/Unit/Unit.h

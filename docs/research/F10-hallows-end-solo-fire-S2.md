@@ -41,7 +41,9 @@ Scale matching does not read the multiplier. If the observed amount is lower tha
 
 Turning the path off mid-event writes nothing. Each per-trigger watch is disarmed and its stored tick is dropped. The watch stays known. The next active poll re-arms by storing the tick it sees then, with no timer write. A tick change after that re-arm is an ordinary edge. `Reset()` clears the map so a new event is not a re-arm of the previous one.
 
-The poll walks the trigger GUID list `Reset` already built. It re-checks entry 23686 and requires `GetAuraEffect(42074, 0)`. `EFFECT_0` is 0 (`SharedDefines.h:31`). It does not scan for triggers again. It does not call `RemoveAllAuras`. The failure path still clears the saved triggers.
+The poll walks the trigger GUID list `Reset` already built. It re-checks entry 23686 and reads `GetAuraEffect(42074, 0)`. `EFFECT_0` is 0 (`SharedDefines.h:31`). It does not scan for triggers again. It does not call `RemoveAllAuras`. The failure path still clears the saved triggers.
+
+While that poll is active, a GUID whose trigger is missing, whose entry is not 23686, or whose 42074 effect is absent is erased from the watch map. The next poll that sees the effect uses an empty watch: first sight, and no remembered amount, so a lower new amount is not treated as a bucket drop. Turning the path off still disarms instead of erasing. That keeps the re-arm rule for a fire that was only unobserved because the option or the player count changed.
 
 ## 3. Limitation — instant extinguish is not implemented
 
@@ -56,7 +58,13 @@ What this stage can do is the S1 approach A only: an edge-triggered longer count
 Other source limits, unchanged from S1 and not worked around here:
 
 - The poll sits after the existing `UNIT_STATE_CASTING` return. A cast that skips `UpdateAI`'s event switch also skips the poll. **POTENTIAL ISSUE** during a long cast. **NOT TESTED**.
-- A replaced 42074 whose new tick number equals the stored tick is not a new edge. A new aura that starts at 0 after a stored tick of 0 does not get a first-sight write. **POTENTIAL ISSUE**. **NOT TESTED**.
+- A solo poll that sees a known GUID without the 42074 effect erases that watch. The next real effect on that GUID is first sight for multipliers 2..8, and a lower starting amount is not written down as a scale correction. The same holds when the trigger itself is missing and later comes back. **VERIFIED** by the policy binary and by the source test that runs this branch. **NOT TESTED** on a worldserver.
+- A 42074 that is removed and cast again entirely between two polls is not seen as a gap. The watch then still holds the previous tick and amount. Public core fields were checked at both SHAs and do not identify one application safely:
+  - `Aura::GetApplyTime` (`SpellAuras.h:129`, both SHAs) returns `m_applyTime` (`SpellAuras.h:262`). The constructor stores `GameTime::GetGameTime().count()` (`SpellAuras.cpp:355` at `a66f1be`, `SpellAuras.cpp:362` at `8daffda`). `GetGameTime` returns `Seconds` (`GameTime.h:30`, both SHAs). Two casts in the same second share it. `GetGameTimeMS` (`GameTime.h:33`) is not stored on the aura.
+  - `Aura::GetId` (`SpellAuras.cpp:410` pinned, `:417` prospective) and `AuraEffect::GetId` (`SpellAuraEffects.cpp:432`, both) return the spell id.
+  - `AuraEffect::GetBase` (`SpellAuraEffects.h:49`, both) returns `Aura*`. That pointer does not outlive the aura. The Shade does not store it.
+  - `Unit::GetAura` (`Unit.h:1447` pinned, `Unit.h:1448` prospective) is the same kind of pointer.
+  This between-poll replacement stays a **POTENTIAL ISSUE**. The usual extinguish-then-later-reignite path is the one the erase covers, because the polls in between see the effect absent.
 - The matron `eventStarted >= 400 * IN_MILLISECONDS` window and the module `counter > 14` / 30s schedule are still both present. The ~400s versus ~483s acceptance risk from S1 is unchanged. **POTENTIAL ISSUE**. **NOT TESTED** as wall-clock time.
 - Spell.dbc amplitude and the 42339 missile speed are not in this git tree. **UNKNOWN**. The multiplier is a factor on `GetAmplitude()`, not a number of seconds.
 
@@ -86,6 +94,12 @@ Symbols the Shade calls, and the core symbols it deliberately does not replace:
 | `GetAmplitude` / `GetAmount` / `GetTickNumber` | `SpellAuraEffects.h:59`, `:64`, `:87`. |
 | `m_amplitude` private, no setter | `SpellAuraEffects.h:142`. |
 | `Unit::GetAuraEffect` | `Unit.h:1439` at the pinned SHA, `Unit.h:1440` at the prospective SHA. |
+| `Unit::GetAura` | `Unit.h:1447` at the pinned SHA, `Unit.h:1448` at the prospective SHA. Pointer, not stored. |
+| `Aura::GetApplyTime` | `SpellAuras.h:129` at both SHAs. Whole seconds. Not an instance id. |
+| `Aura::GetId` | `SpellAuras.cpp:410` pinned, `:417` prospective. Spell id. |
+| `AuraEffect::GetId` | `SpellAuraEffects.cpp:432` at both SHAs. Spell id. |
+| `AuraEffect::GetBase` | `SpellAuraEffects.h:49` at both SHAs. `Aura*`, not stored. |
+| `GameTime::GetGameTime` | `GameTime.h:30` at both SHAs. Returns `Seconds`. |
 | `GetObjectScale` / `SetObjectScale` | `Object.h:126` and `:127`. |
 | `AnyPlayerInObjectRangeCheck` | `GridNotifiers.h:1379`. |
 | `EFFECT_0 = 0` | `SharedDefines.h:31`. |
@@ -105,7 +119,7 @@ F10_IP=/tmp/f10-ip \
 python3 -m unittest discover -s tests -p 'test_f10_hallows_end_solo_fire_s*.py' -v
 ```
 
-Result: **VERIFIED** `Ran 55 tests in 1.411s` / `OK`. No skips. That run compiles `tests/f10_s2_solo_fire_policy_tests.cpp` with `g++ -std=c++17 -Wall -Wextra -Werror` and requires `F10_S2_POLICY_OK` plus a TRACE match against the S1 model. It does not compile `HallowsEndShadeOfTheHorseman.cpp`.
+Result: **VERIFIED** `Ran 62 tests in 1.561s` / `OK`. No skips. The 7 tests added for this correction are the missing-aura lifecycle cases and the public aura-identity line check. That run compiles `tests/f10_s2_solo_fire_policy_tests.cpp` with `g++ -std=c++17 -Wall -Wextra -Werror` and requires `F10_S2_POLICY_OK` plus a TRACE match against the S1 model. It does not compile `HallowsEndShadeOfTheHorseman.cpp`.
 
 These are source/model results only.
 
@@ -118,6 +132,9 @@ Covered by those tests:
 - same-event disarm drops the stored tick, and the next active poll re-arms without a timer write
 - a later tick change after re-arm writes again
 - scale moves to `amount / 2` only when the amount fell; a fresh SpellHit scale and a rising amount do not
+- an observed missing 42074, or a missing trigger, erases that watch; the next effect is first sight and is not scale-corrected from the old amount (amount 3 tick 0, then amount 1 tick 0; and the same with a different new tick)
+- a 42074 that stays present still scale-corrects a real drop, including a tick that core reset to the stored tick
+- multiplier 1 after that erase still does not write the timer
 - `events.Repeat(30s)` and `counter > 14` remain single code statements
 - the poll does not contain a splash cast, `RemoveAllAuras`, `SetAmount`, `ResetPeriodic`, or `CalculatePeriodic`
 - distributed config defaults are Enabled 0 and PeriodMultiplier 3
