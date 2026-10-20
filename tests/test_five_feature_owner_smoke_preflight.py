@@ -295,6 +295,39 @@ class ReadOnlyFiveFeaturePreflight(unittest.TestCase):
         )
         self.assertEqual(invalid_sql_statements_in_code_fences(sample), [])
 
+    def test_preflight_workflow_triggers_for_any_module_sql_directory(self):
+        # UpdateFetcher accepts first-level directory names containing
+        # "characters", not only exact db-characters or db_characters.
+        # A new folder or its deeper SQL updates must always rerun this
+        # SOURCE-ONLY guard before claiming a safe manual migration.
+        workflow = read(".github/workflows/five-feature-owner-smoke-preflight.yml")
+        self.assertIn("      - 'data/sql/**'", workflow)
+        self.assertNotIn("      - 'data/sql/db-characters/**'", workflow)
+        self.assertNotIn("      - 'data/sql/db_characters/**'", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertNotIn("upload-artifact", workflow)
+
+    def test_auto_updater_guard_recognises_other_character_database_folder_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = (
+                "db-characters-future/update_1.sql",
+                "db_characters_v2/updates/subdirectory/update_2.sql",
+                "not-characters-template/2026/updates/update_3.sql",
+            )
+            for relative in paths:
+                path = root / "data" / "sql" / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    "CREATE TABLE " + AUTOCACHE_TABLE_NAME + " (id INT);\n",
+                    encoding="utf-8",
+                )
+            found = unsafe_autocast_auto_migrations(root)
+            self.assertEqual(
+                {p.relative_to(root / "data" / "sql").as_posix() for p in found},
+                set(paths),
+            )
+
     def test_unapproved_hunter_cache_schema_not_automatically_discoverable(self):
         self.assertEqual(
             unsafe_autocast_auto_migrations(ROOT), [],
