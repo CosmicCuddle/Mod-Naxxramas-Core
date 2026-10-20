@@ -30,9 +30,32 @@ Normal path (no load-time pump): snapshot on the first loaded tick, wait, then a
 
 Load-time pumps observed: this module cannot read IP's attempt counter (`PendingPetSpellCheck` is a different RTTI type in IP's `CustomData`). The single apply then waits out the full 2200ms budget. **BLOCKED:** a click in that cover is still overwritten by the one apply. There is no module hook for an accepted client toggle. PR #67 showed packet-before-handler inference is unsound, and this module does not read packets (`PacketBeforeHandlerIsAcceptedChoice()` is false). **NOT TESTED** on a client.
 
+## Accepted choice, dismiss, and async commit
+
+**BLOCKED.** Functional ON/OFF persistence is not complete (`FunctionalOnOffPersistenceIsComplete()` is false). No timing workaround was added for these paths. The 201ms / 2200ms cover is only the Individual Progression load budget. It is not an accepted-choice source.
+
+**VERIFIED** at both pins. `PetHandler.cpp` is byte-identical (`34f3070074e75cc6a83df3f0d7e74fe8a6fd6043`). `Player.cpp` is byte-identical (`138e7eab4905ec366338a54cc18e6cfe749a3670`). `PetScript.h` is byte-identical (`f1455f20ca3a83e3fc38f0ba9c7dbff9d2faef46`). Read from draft PR #72 at `6b9500669259c73f83b70f8915f260dbf0f2b79a`.
+
+1. `HandlePetSetAction` (`PetHandler.cpp:696`) accepts `CMSG_PET_SET_ACTION`. `ACT_ENABLED` (`:797-801`) and `ACT_DISABLED` (`:815-819`) both call `Pet::ToggleAutocast`.
+2. `HandlePetSpellAutocastOpcode` (`PetHandler.cpp:955-1008`) validates a known autocastable spell and calls `ToggleAutocast` at `:1003`. That is a second accepted client path. `PetHandler.cpp:1002` in the older note is the charm-bar write beside the first path's toggle, not this opcode.
+3. `PetScript.h` `PetHook` is `PETHOOK_ON_INIT_STATS_FOR_LEVEL`, the unlearn and talent hooks, and `PETHOOK_ON_PET_ADD_TO_WORLD`. There is no post-accepted-autocast hook. A packet seen before either handler is not proof the handler accepted the choice.
+4. `Player::RemovePet` calls `pet->SavePetToDB(mode)` directly at `Player.cpp:9367`. `OnPlayerSave` does not run in front of that call. A dismiss or swap before the single apply can persist Individual Progression's reset. `DismissBeforeApplyPreservesChoice()` is false.
+
+`AsyncCommitTransaction`'s callback bool is the only write-success signal, and `lastWritten` changes only when that bool is true and the same pet generation and write epoch are still current. **BLOCKED:** that callback is not latest-choice authority. A transaction already handed to the database worker can commit after the pet is dismissed, or after a later saved choice, even when the callback can no longer bind the live pet. This module does not add a delay, a retry, or a second apply to paper over that window. **NOT TESTED** on a database.
+
 `OnPlayerSave` runs before `pet->SavePetToDB` (`PlayerStorage.cpp:7270` then `:7304-7305`). **VERIFIED** as source order. The save hook does not call the reconcile. Before the single apply it does not write a choice (`MayPersistChoiceBeforeSingleApply(0)` is false). After the single apply it records the live book and does not toggle. **NOT TESTED** as a real save.
 
-`RemovePet` calls `SavePetToDB` directly (`Player.cpp:9367`) with no module hook in front of it. **BLOCKED:** a dismiss or swap before the single apply can persist Individual Progression's reset. This module does not toggle and does not write a restored cache in that window (`DismissBeforeApplyPreservesChoice()` is false). A later login whose `character_pet.savetime` no longer matches `seen_savetime` does not apply the old cache. **NOT TESTED.**
+Dismiss and the async callback are the BLOCKED cases in the section above. A later login whose `character_pet.savetime` no longer matches `seen_savetime` does not apply the old cache. **NOT TESTED.**
+
+## Human and bot
+
+**VERIFIED** at mod-playerbots `037c01418b5d01506917a3db9b44fd56ac5f965c`. `src/Bot/PlayerbotAI.h` declares `bool IsRealPlayer(Player* player);` and `bool IsSelfBot(Player* player);`. `PlayerbotAI.cpp` implements `IsRealPlayer` as `player && !GET_PLAYERBOT_AI(player)` and states that this excludes SelfBots, because a SelfBot has a PlayerbotAI. `IsSelfBot` is that AI whose master is the same player. `GET_PLAYERBOT_AI` itself lives in `Playerbots.h`. This module calls the two public functions. It does not redefine the macro.
+
+The account-name regex (`^RNDBOT.*` by default) is a second gate only. A name that does not match is not a human. `MayMutateHunterPet` allows a pet change only when the identity is `RealPlayer` and `ClassifyAccount` is `ConfirmedHuman`.
+
+- **VERIFIED** as `MayMutateHunterPet` in the policy binary: a Playerbot on a nonmatching account name is refused; a SelfBot is refused; a real hunter whose account name matches the regex is refused; `PlayerbotIdentity::Unavailable` is refused. A real hunter whose name does not match is the only allow.
+- The translation unit includes `PlayerbotAI.h` when the compiler can see it, and calls `IsRealPlayer` on the `Player*`. The `#else` branch returns `Unavailable` and does not return `RealPlayer`. **VERIFIED** as that source layout. If the header is missing, config load logs and every hunter hook returns before a pet change. A missing API is not treated as a human (`MissingPlayerbotApiMayMutatePet()` is false).
+- **NOT TESTED** on a worldserver with a live Playerbot, SelfBot, or renamed Altbot.
 
 There is no module-only hook after `_LoadSpells` and before IP's event. The event-clock order above is the slot that exists. It is not a silent 3 second sleep.
 
@@ -44,7 +67,8 @@ There is no module-only hook after `_LoadSpells` and before IP's event. The even
 - `character_pet` is selected with `WHERE owner = ?`. The replace writes `id` and `owner`. Ownership is that pair. `pet_spell` has no owner column.
 - `MySQLConnection::_Query` returns false when `mysql_query` fails (`MySQLConnection.cpp:335-345`) and again when the result has zero rows (`:357-361`). `DatabaseWorkerPool::Query` turns both into a null `QueryResult` (`DatabaseWorkerPool.cpp:183-186`). **VERIFIED** from those lines. A null result is not a verified empty read (`NullQueryResultIsVerifiedEmpty()` is false).
 - `COUNT(*)` still produces one row when the count is 0, so a successful count survives `Query`. **VERIFIED** as that control flow plus the policy test `InterpretCountQuery`. A null count stays `DatabaseRead::Failed`. A count of 0 is `verifiedEmpty`. **NOT TESTED** on a database.
-- A failed owner count stays **Unproven**. It does not delete cache rows and it does not default-on. A verified count of 0 is **Absent** and that pet number's cache is deleted. More than one row is **Ambiguous**. No `pet_spell` read and no default-on.
+- The live pet entry is bound before any cache or `pet_spell` row is accepted. `TakeSnapshot` reads `pet->GetEntry()` and, when non-zero, `UNIT_CREATED_BY_SPELL` (`LiveIdentityOf`). One `character_pet` statement returns `COUNT(*)`, the count of rows whose `entry` equals that live entry, the matching create spell and savetime, and `MAX(entry)`. **VERIFIED** as `InterpretOwnerAggregate` plus that single `Query` in `ReadOwner`. A null result stays **Unproven**. A count of 0 is **Absent** and that pet number's cache is deleted. More than one row is **Ambiguous**. Entry A in the row while the live pet is entry B is **Mismatch**: no cache accept, no `pet_spell` accept, no default-on, no delete. The same refusal applies when the live create spell is missing or differs. **NOT TESTED** on a database.
+- **POTENTIAL ISSUE:** `ReadCache` and `ReadPetSpell` are later statements. They are not in the same snapshot as the owner aggregate, so a recycle between them is not atomic. **NOT TESTED.** The old count-then-select of `character_pet` is not used.
 - A failed cache count, or a row select that comes back null after a non-zero count, does not fall through to `pet_spell` and does not default-on. No pet changes. **VERIFIED** as `DecideLoad`. **NOT TESTED** on a database.
 - A failed `pet_spell` count after a verified empty cache does not default-on. A tame (`bornThisSession`) with a verified empty cache still default-ons damage chains, because those saved bits are `ACT_DECIDE` defaults rather than a proven failure.
 - The charm bar is not an input to `DecideLoad`. `CharmBarIsAuthoritativeSavedSpellbook()` is false. **VERIFIED** as a policy test.
@@ -55,7 +79,7 @@ There is no module-only hook after `_LoadSpells` and before IP's event. The even
 - Entry or create spell differs: delete the cache, do not apply it. **VERIFIED** as `DecideLoad`.
 - Savetime differs on a normal login: do not apply the cache. Fall through to `pet_spell`. Do not delete it unless this pet was born this session (tame). If the savetime refresh callback did not report success, `seen_savetime` stays at the previous value, so the next login takes this path. **POTENTIAL ISSUE:** a good cache is then ignored. **NOT TESTED.**
 - Abandon removes `character_pet` (`Pet::DeleteFromDB`, `Pet.cpp:599-616`). The orphan delete drops cache rows for numbers that owner no longer has, and only after a unique owner read. **VERIFIED** as `OrphanPetNumbers`. The delete itself is not marked verified. **NOT TESTED** as SQL.
-- **BLOCKED / POTENTIAL ISSUE:** same owner, same entry, same create spell, recycled number, and a savetime that this module already rebound to that row. `SameEntryRecycleAfterSavetimeRebindIsIndistinguishable()` is true. `DecideLoad` accepts that tuple. A module cannot add a generation column to `character_pet`. The generator above does not produce that recycle by itself.
+- **BLOCKED:** same owner, same entry, same create spell, recycled number, and a savetime that this module already rebound to that row. `SameEntryRecycleAfterSavetimeRebindIsIndistinguishable()` is true. `DecideLoad` accepts that tuple. It does not fail closed on it, because the legitimate pet it just saved has the same tuple. A module cannot add a generation column to `character_pet`. The generator above does not produce that recycle by itself. This is not claimed as solved.
 
 ## Writes
 

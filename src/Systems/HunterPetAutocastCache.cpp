@@ -14,6 +14,12 @@
  * DirectCommitTransaction do not report success to the caller.
  * AsyncCommitTransaction's callback bool is the only success signal,
  * and lastWritten / seen_savetime change only when that bool is true.
+ * That bool is not an accepted client toggle and not a dismiss barrier.
+ * Functional ON/OFF persistence is not complete. No extra delay is added
+ * for HandlePetSetAction, HandlePetSpellAutocastOpcode, or RemovePet.
+ *
+ * IsRealPlayer from PlayerbotAI.h is the human gate. The account regex
+ * is second. If that header is absent, no pet is mutated.
  */
 
 #include "HunterPetAutocastCache.h"
@@ -33,6 +39,13 @@
 #include "SharedDefines.h"
 #include "SpellMgr.h"
 #include "WorldSession.h"
+
+#if __has_include("PlayerbotAI.h")
+#include "PlayerbotAI.h"
+#define NAXXRAMAS_CORE_HAS_PLAYERBOT_AI 1
+#else
+#define NAXXRAMAS_CORE_HAS_PLAYERBOT_AI 0
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -54,6 +67,8 @@ static_assert(!PacketBeforeHandlerIsAcceptedChoice(), "packet-before-handler is 
 static_assert(!MayApplyFromPlayerSave(), "player save does not reapply the snapshot");
 static_assert(!DismissBeforeApplyPreservesChoice(), "dismiss before the apply does not preserve the choice");
 static_assert(SameEntryRecycleAfterSavetimeRebindIsIndistinguishable(), "same-entry savetime rebind stays indistinguishable");
+static_assert(!MissingPlayerbotApiMayMutatePet(), "a missing Playerbots header is not a human");
+static_assert(!FunctionalOnOffPersistenceIsComplete(), "ON/OFF persistence is not complete");
 static_assert(MaxApplies == 1u, "apply at most once");
 
 std::atomic<bool> FeatureEnabled{ false };
@@ -108,10 +123,39 @@ AccountVerdict ClassifyPlayer(Player* player)
     return ClassifyAccount(found, found ? accountName.c_str() : nullptr, pattern.c_str());
 }
 
+PlayerbotIdentity IdentityOf(Player* player)
+{
+#if NAXXRAMAS_CORE_HAS_PLAYERBOT_AI
+    if (!player)
+        return PlayerbotIdentity::Unavailable;
+    if (IsRealPlayer(player))
+        return PlayerbotIdentity::RealPlayer;
+    if (IsSelfBot(player))
+        return PlayerbotIdentity::SelfBot;
+    return PlayerbotIdentity::Playerbot;
+#else
+    (void)player;
+    return PlayerbotIdentity::Unavailable;
+#endif
+}
+
 bool IsEligibleHumanHunter(Player* player)
 {
-    return player && player->getClass() == CLASS_HUNTER &&
-        ClassifyPlayer(player) == AccountVerdict::ConfirmedHuman;
+    if (!player || player->getClass() != CLASS_HUNTER)
+        return false;
+    return MayMutateHunterPet(IdentityOf(player), ClassifyPlayer(player));
+}
+
+LivePetIdentity LiveIdentityOf(Pet* pet)
+{
+    LivePetIdentity live;
+    if (!pet)
+        return live;
+    live.creatureEntry = pet->GetEntry();
+    uint32_t const created = pet->GetUInt32Value(UNIT_CREATED_BY_SPELL);
+    live.createdBySpell = created;
+    live.createdBySpellAvailable = created != 0;
+    return live;
 }
 
 uint32_t PetNumberOf(Pet* pet)
@@ -219,44 +263,31 @@ SchemaProbe ProbeSchema()
     return probe;
 }
 
-OwnerProof ReadOwner(uint32_t ownerLow, uint32_t petNumber)
+OwnerProof ReadOwner(uint32_t ownerLow, uint32_t petNumber, LivePetIdentity const& live)
 {
-    OwnerProof proof;
-    if (ownerLow == 0 || petNumber == 0)
-        return proof;
-
-    QueryResult countResult = CharacterDatabase.Query(
-        "SELECT COUNT(*) FROM `character_pet` WHERE `owner` = {} AND `id` = {}",
-        ownerLow, petNumber);
-    CountRead const counted = InterpretCountQuery(
-        countResult != nullptr, countResult ? countResult->Fetch()[0].Get<uint64>() : 0);
-    if (counted.status != DatabaseRead::Ok)
-        return proof;
-    if (counted.verifiedEmpty)
-    {
-        proof.lookup = OwnerLookup::Absent;
-        return proof;
-    }
-    if (counted.count != 1)
-    {
-        proof.lookup = OwnerLookup::Ambiguous;
-        return proof;
-    }
+    if (ownerLow == 0 || petNumber == 0 || live.creatureEntry == 0)
+        return InterpretOwnerAggregate(false, 0, 0, 0, 0, 0, live);
 
     QueryResult result = CharacterDatabase.Query(
-        "SELECT `entry`, `CreatedBySpell`, `savetime` FROM `character_pet` WHERE `owner` = {} AND `id` = {}",
-        ownerLow, petNumber);
+        "SELECT COUNT(*), "
+        "COUNT(CASE WHEN `entry` = {} THEN 1 END), "
+        "COALESCE(MAX(CASE WHEN `entry` = {} THEN `CreatedBySpell` END), 0), "
+        "COALESCE(MAX(CASE WHEN `entry` = {} THEN `savetime` END), 0), "
+        "COALESCE(MAX(`entry`), 0) "
+        "FROM `character_pet` WHERE `owner` = {} AND `id` = {}",
+        live.creatureEntry, live.creatureEntry, live.creatureEntry, ownerLow, petNumber);
     if (!result)
-        return proof;
+        return InterpretOwnerAggregate(false, 0, 0, 0, 0, 0, live);
 
     Field* fields = result->Fetch();
-    proof.creatureEntry = fields[0].Get<uint32>();
-    proof.createdBySpell = fields[1].Get<uint32>();
-    proof.savetime = fields[2].Get<uint32>();
-    if (proof.creatureEntry == 0)
-        return proof;
-    proof.lookup = OwnerLookup::Unique;
-    return proof;
+    return InterpretOwnerAggregate(
+        true,
+        fields[0].Get<uint64>(),
+        fields[1].Get<uint64>(),
+        fields[2].Get<uint32>(),
+        fields[3].Get<uint32>(),
+        fields[4].Get<uint32>(),
+        live);
 }
 
 std::vector<StoredCacheRow> ReadCache(uint32_t ownerLow, uint32_t petNumber, DatabaseRead& status)
@@ -429,15 +460,15 @@ void PersistDecision(Player* player, PetAutocastCacheCycle& cycle, std::vector<S
         });
 }
 
-void SubmitSavetimeRefresh(Player* player, PetAutocastCacheCycle& cycle)
+void SubmitSavetimeRefresh(Player* player, Pet* pet, PetAutocastCacheCycle& cycle)
 {
-    if (!player || !player->GetSession() || cycle.savetimeRefreshSubmitted || !cycle.decision.writeAllowed)
+    if (!player || !pet || !player->GetSession() || cycle.savetimeRefreshSubmitted || !cycle.decision.writeAllowed)
         return;
 
     uint32_t const ownerLow = player->GetGUID().GetCounter();
-    OwnerProof const proof = ReadOwner(ownerLow, cycle.petNumber);
+    OwnerProof const proof = ReadOwner(ownerLow, cycle.petNumber, LiveIdentityOf(pet));
     cycle.savetimeRefreshSubmitted = true;
-    if (proof.lookup != OwnerLookup::Unique)
+    if (proof.lookup != OwnerLookup::Unique || !proof.liveBound)
         return;
     if (proof.creatureEntry != cycle.decision.creatureEntry || proof.createdBySpell != cycle.decision.createdBySpell)
         return;
@@ -545,7 +576,7 @@ public:
         if (cycle->finished)
         {
             if (cycle->needsSavetimeRefresh && cycle->decision.writeAllowed)
-                SubmitSavetimeRefresh(player, *cycle);
+                SubmitSavetimeRefresh(player, pet, *cycle);
             return true;
         }
 
@@ -595,7 +626,7 @@ public:
 
         OrderStep const step = AdvanceOrder(cycle->order, pet->isBeingLoaded(), eventTime);
         if (step.snapshot)
-            TakeSnapshot(player, *cycle);
+            TakeSnapshot(player, pet, *cycle);
 
         if (step.apply && cycle->snapshotReady && cycle->order.applies == MaxApplies)
         {
@@ -624,7 +655,7 @@ public:
     }
 
 private:
-    static void TakeSnapshot(Player* player, PetAutocastCacheCycle& cycle)
+    static void TakeSnapshot(Player* player, Pet* pet, PetAutocastCacheCycle& cycle)
     {
         uint32_t const ownerLow = player->GetGUID().GetCounter();
         SchemaProbe const probe = ProbeSchema();
@@ -635,16 +666,18 @@ private:
             return;
         }
 
-        OwnerProof const owner = ReadOwner(ownerLow, cycle.petNumber);
+        LivePetIdentity const live = LiveIdentityOf(pet);
+        OwnerProof const owner = ReadOwner(ownerLow, cycle.petNumber, live);
+        bool const ownerBound = owner.lookup == OwnerLookup::Unique && owner.liveBound;
         DatabaseRead cacheRead = DatabaseRead::NotRun;
         std::vector<StoredCacheRow> cache;
-        if (probe == SchemaProbe::Present && owner.lookup == OwnerLookup::Unique)
+        if (probe == SchemaProbe::Present && ownerBound)
             cache = ReadCache(ownerLow, cycle.petNumber, cacheRead);
 
         DatabaseRead petSpellRead = DatabaseRead::NotRun;
         std::vector<SourceSpell> petSpell;
         bool const cacheFailed = probe == SchemaProbe::Present && cacheRead != DatabaseRead::Ok;
-        if (owner.lookup == OwnerLookup::Unique && !cacheFailed)
+        if (ownerBound && !cacheFailed)
             petSpell = ReadPetSpell(cycle.petNumber, petSpellRead);
 
         cycle.decision = DecideLoad(
@@ -655,7 +688,7 @@ private:
             DeleteStoredCache(player, ownerLow, cycle.petNumber);
         else if (cycle.decision.deleteStoredCache && probe == SchemaProbe::Present)
             DeleteStoredCache(player, ownerLow, cycle.petNumber);
-        if (probe == SchemaProbe::Present && owner.lookup == OwnerLookup::Unique)
+        if (probe == SchemaProbe::Present && ownerBound)
             DeleteOrphans(player, ownerLow);
     }
 
@@ -739,6 +772,11 @@ public:
     {
         FeatureEnabled.store(sConfigMgr->GetOption<bool>(EnabledConfigKey, false), std::memory_order_release);
         CacheSchema.store(0, std::memory_order_release);
+#if !NAXXRAMAS_CORE_HAS_PLAYERBOT_AI
+        LOG_WARN("module",
+            "Naxxramas Core: hunter pet autocast cache cannot see PlayerbotAI.h. "
+            "No pet is changed. A missing bot API is not treated as a human.");
+#endif
     }
 };
 

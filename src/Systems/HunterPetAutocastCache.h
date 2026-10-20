@@ -13,6 +13,12 @@
  * The snapshot is applied once. Utility stays out of that apply unless
  * RestoreUtility is 1, and a new utility chain is never defaulted on.
  *
+ * A human is IsRealPlayer on the Player* (mod-playerbots PlayerbotAI.h at
+ * 037c014). The account-name regex is only a second gate. No header means
+ * no pet mutation. Functional ON/OFF persistence is not complete: both
+ * accepted client toggles and RemovePet's direct SavePetToDB are BLOCKED
+ * module-only. This file does not add a timing workaround for either.
+ *
  * State lives on the pet. This header has no process-global pet map.
  */
 #pragma once
@@ -44,6 +50,7 @@ inline constexpr char const* ManualCacheSqlPath = "docs/install/manual_hunter_pe
 inline constexpr char const* PinnedCoreOldSha = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7";
 inline constexpr char const* PinnedCoreNewSha = "8daffdabe9202c228e45d833c9a1d399597a15cd";
 inline constexpr char const* PinnedIndividualProgressionSha = "4ff4b5fcc1480348f058c632573143e62d4e3a41";
+inline constexpr char const* PinnedPlayerbotsSha = "037c01418b5d01506917a3db9b44fd56ac5f965c";
 
 /* IP queues DelayedPetSpellCheck at CalculateTime(200) and, while
  * isBeingLoaded() and attempts < 10, requeues at 200ms, then runs anyway.
@@ -195,6 +202,40 @@ inline bool IsEligibleHumanAccount(AccountVerdict verdict)
     return verdict == AccountVerdict::ConfirmedHuman;
 }
 
+/* Primary gate is IsRealPlayer(Player*) from mod-playerbots
+ * src/Bot/PlayerbotAI.h at 037c014. The cpp implements it as
+ * `player && !GET_PLAYERBOT_AI(player)` and says SelfBots are included
+ * in that exclusion because a SelfBot has a PlayerbotAI.
+ * IsSelfBot is `GET_PLAYERBOT_AI(player) && master == player`.
+ * Unavailable is the no-header path. It is not a human.
+ * The account regex does not promote a bot, a SelfBot, or a missing
+ * header to ConfirmedHuman.
+ */
+enum class PlayerbotIdentity : uint8_t
+{
+    Unavailable = 0,
+    RealPlayer,
+    Playerbot,
+    SelfBot
+};
+
+inline constexpr bool IsRealPlayerAtPin(PlayerbotIdentity identity)
+{
+    return identity == PlayerbotIdentity::RealPlayer;
+}
+
+inline constexpr bool MissingPlayerbotApiMayMutatePet()
+{
+    return false;
+}
+
+inline bool MayMutateHunterPet(PlayerbotIdentity identity, AccountVerdict account)
+{
+    if (identity == PlayerbotIdentity::Unavailable || !IsRealPlayerAtPin(identity))
+        return false;
+    return account == AccountVerdict::ConfirmedHuman;
+}
+
 inline bool ContainsId(std::vector<uint32_t> const& ids, uint32_t id)
 {
     for (uint32_t candidate : ids)
@@ -324,7 +365,8 @@ enum class OwnerLookup : uint8_t
     Unproven = 0,
     Absent,
     Unique,
-    Ambiguous
+    Ambiguous,
+    Mismatch
 };
 
 enum class DatabaseRead : uint8_t
@@ -407,13 +449,79 @@ inline constexpr bool MarkSavetimeRebound(bool callbackInvoked, bool callbackSuc
     return callbackInvoked && callbackSuccess;
 }
 
+/* creatureEntry is pet->GetEntry(). createdBySpellAvailable is true only
+ * when the live object exposes a non-zero UNIT_CREATED_BY_SPELL. Both pins
+ * set that field in Pet::LoadPetFromDB (Pet.cpp:274) and Unit::InitTamedPet
+ * (Unit.cpp:13436).
+ */
+struct LivePetIdentity
+{
+    uint32_t creatureEntry = 0;
+    uint32_t createdBySpell = 0;
+    bool createdBySpellAvailable = false;
+};
+
 struct OwnerProof
 {
     OwnerLookup lookup = OwnerLookup::Unproven;
     uint32_t creatureEntry = 0;
     uint32_t createdBySpell = 0;
     uint32_t savetime = 0;
+    /* True only when the live entry and, if available, the live create
+     * spell were bound to this row. Cache and pet_spell stay closed
+     * until this is set.
+     */
+    bool liveBound = false;
 };
+
+/* One aggregate row. COUNT(*) is 0 when the statement succeeds and no
+ * character_pet row has that owner and number. entryMatchRows counts
+ * those rows whose entry equals the live pet. A null statement is not
+ * zero rows. Mismatch does not become Absent.
+ */
+inline OwnerProof InterpretOwnerAggregate(
+    bool statementOk,
+    uint64_t ownerNumberRows,
+    uint64_t entryMatchRows,
+    uint32_t matchedCreatedBySpell,
+    uint32_t matchedSavetime,
+    uint32_t observedEntry,
+    LivePetIdentity const& live)
+{
+    OwnerProof proof;
+    if (!statementOk || live.creatureEntry == 0)
+        return proof;
+
+    if (ownerNumberRows == 0)
+    {
+        proof.lookup = OwnerLookup::Absent;
+        return proof;
+    }
+    if (ownerNumberRows != 1)
+    {
+        proof.lookup = OwnerLookup::Ambiguous;
+        return proof;
+    }
+    if (entryMatchRows != 1 || observedEntry != live.creatureEntry)
+    {
+        proof.lookup = OwnerLookup::Mismatch;
+        proof.creatureEntry = observedEntry;
+        return proof;
+    }
+
+    proof.creatureEntry = live.creatureEntry;
+    proof.createdBySpell = matchedCreatedBySpell;
+    proof.savetime = matchedSavetime;
+    if (!live.createdBySpellAvailable || live.createdBySpell == 0 || live.createdBySpell != matchedCreatedBySpell)
+    {
+        proof.lookup = OwnerLookup::Mismatch;
+        return proof;
+    }
+
+    proof.lookup = OwnerLookup::Unique;
+    proof.liveBound = true;
+    return proof;
+}
 
 struct StoredCacheRow
 {
@@ -452,10 +560,12 @@ inline std::vector<SourceSpell> CacheAsSpells(std::vector<StoredCacheRow> const&
     return spells;
 }
 
-/* Cache bits are used only when every stored row names this character_pet
- * life: one owner row, the same creature entry, the same create spell, and
- * the savetime we last bound. A failed count is not an empty read: no pet
- * changes and no default-on. A verified miss falls through to a verified
+/* Cache bits are used only when the live pet was bound to one character_pet
+ * row (owner, number, entry, and the live create spell when that field is
+ * non-zero) and every stored row names that same life, including the
+ * savetime last bound. A failed statement is not an empty read. A live
+ * entry or create-spell mismatch does not accept cache or pet_spell and
+ * does not delete the cache. A verified miss falls through to a verified
  * pet_spell read. The charm bar is not an input.
  * Default-on requires a present table and a verified cache read. Utility
  * rows enter the snapshot only when restoreUtility is true.
@@ -475,7 +585,7 @@ inline LoadDecision DecideLoad(
     if (schema == SchemaProbe::Unknown)
         return decision;
 
-    if (owner.lookup != OwnerLookup::Unique || owner.creatureEntry == 0)
+    if (owner.lookup != OwnerLookup::Unique || !owner.liveBound || owner.creatureEntry == 0)
     {
         decision.deleteStoredCache = schema == SchemaProbe::Present && owner.lookup == OwnerLookup::Absent && !cache.empty();
         return decision;
@@ -1019,8 +1129,10 @@ inline constexpr bool MayPersistChoiceBeforeSingleApply(uint32_t applies)
     return applies >= MaxApplies;
 }
 
-/* RemovePet calls SavePetToDB with no module hook in front of it.
- * A dismiss before the single apply is not preserved by this module.
+/* RemovePet calls SavePetToDB with no module hook in front of it
+ * (Player.cpp:9367, byte-identical on both pins). A dismiss before the
+ * single apply is not preserved by this module. No delay is added to
+ * race that call.
  */
 inline constexpr bool DismissBeforeApplyPreservesChoice()
 {
@@ -1029,12 +1141,42 @@ inline constexpr bool DismissBeforeApplyPreservesChoice()
 
 /* Owner + pet number + entry + create spell + savetime. After a verified
  * savetime rebind, a later life with that same tuple cannot be told apart
- * from this one without a column on character_pet.
+ * from this one without a column on character_pet. The module does not
+ * fail closed on that tuple: doing so would also reject the pet it just
+ * saved. The case stays BLOCKED.
  */
 inline constexpr bool SameEntryRecycleAfterSavetimeRebindIsIndistinguishable()
 {
     return true;
 }
+
+inline constexpr char const* SameEntryRecycleBlocker =
+    "BLOCKED: same-entry recycled number and savetime are indistinguishable";
+
+/* BLOCKED module-only. Functional ON/OFF persistence is not complete.
+ * No timing workaround is added for either path.
+ *
+ * Accepted client toggles, PetHandler.cpp byte-identical on both pins:
+ *   HandlePetSetAction (line 696) reads CMSG_PET_SET_ACTION and dispatches
+ *   ACT_ENABLED (797-801) and ACT_DISABLED (815-819) to Pet::ToggleAutocast.
+ *   HandlePetSpellAutocastOpcode (line 955) validates the spell and
+ *   dispatches Pet::ToggleAutocast at line 1003.
+ * PetScript.h is byte-identical on both pins. PetHook ends at
+ * PETHOOK_ON_PET_ADD_TO_WORLD. There is no post-accepted-autocast hook.
+ * A packet observed before the handler is not an accepted choice.
+ *
+ * Player::RemovePet calls pet->SavePetToDB(mode) directly at
+ * Player.cpp:9367. OnPlayerSave does not run in front of that call.
+ * AsyncCommitTransaction can still commit after the pet is gone or
+ * after a later choice. The callback bool is not latest-choice authority.
+ */
+inline constexpr bool FunctionalOnOffPersistenceIsComplete()
+{
+    return false;
+}
+
+inline constexpr char const* FunctionalPersistenceBlocker =
+    "BLOCKED: functional ON/OFF persistence is not complete";
 
 struct CoverClickResult
 {

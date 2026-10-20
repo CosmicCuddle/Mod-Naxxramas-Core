@@ -108,7 +108,17 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
             "AllowCacheWrite",
             "HUNTER_PET",
             "CLASS_HUNTER",
-            "AccountVerdict::ConfirmedHuman",
+            "IsRealPlayer(player)",
+            "IsSelfBot(player)",
+            "PlayerbotIdentity::Unavailable",
+            "MayMutateHunterPet",
+            "NAXXRAMAS_CORE_HAS_PLAYERBOT_AI",
+            "__has_include(\"PlayerbotAI.h\")",
+            "pet->GetEntry()",
+            "UNIT_CREATED_BY_SPELL",
+            "InterpretOwnerAggregate",
+            "COUNT(CASE WHEN `entry`",
+            "liveBound",
             "CustomData.GetDefault<PetAutocastCacheCycle>",
             "std::atomic<bool> FeatureEnabled",
             "pet_spell",
@@ -128,7 +138,7 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
             "MayTouchDatabase",
         ):
             self.assertIn(needle, SOURCE, needle)
-        for needle in ("PlanApply", "VerifiedCacheRows", "DecideLoad", "AdvanceOrder"):
+        for needle in ("PlanApply", "VerifiedCacheRows", "DecideLoad", "AdvanceOrder", "AccountVerdict::ConfirmedHuman"):
             self.assertIn(needle, HEADER, needle)
         self.assertNotIn("ReadCharm", SOURCE)
         self.assertNotIn("ChooseLoadSnapshot", SOURCE)
@@ -142,6 +152,14 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
         self.assertNotIn("GET_PLAYERBOT_AI", SOURCE)
         self.assertNotIn("IndividualProgression.h", SOURCE)
         self.assertNotIn("Playerbots.h", SOURCE)
+        self.assertIn("PlayerbotAI.h", SOURCE)
+        identity = SOURCE.split("PlayerbotIdentity IdentityOf", 1)[1].split("bool IsEligibleHumanHunter", 1)[0]
+        self.assertIn("#else", identity)
+        self.assertNotIn("PlayerbotIdentity::RealPlayer", identity.split("#else", 1)[1])
+        read_owner = SOURCE.split("OwnerProof ReadOwner", 1)[1].split("std::vector<StoredCacheRow> ReadCache", 1)[0]
+        self.assertEqual(read_owner.count("CharacterDatabase.Query"), 1)
+        self.assertNotIn("SELECT COUNT(*) FROM `character_pet` WHERE `owner`", read_owner)
+        self.assertNotIn("SELECT `entry`, `CreatedBySpell`, `savetime`", read_owner)
         self.assertNotIn("CanPacketReceive", SOURCE)
         self.assertNotIn("CharacterDatabase.CommitTransaction", SOURCE)
         self.assertNotIn("DirectCommitTransaction(", SOURCE)
@@ -222,6 +240,19 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
         self.assertIn("26094", RESEARCH)
         self.assertIn("Pet.cpp:1810", RESEARCH)
         self.assertIn("PetHandler.cpp:1002", RESEARCH)
+        self.assertIn("HandlePetSetAction", RESEARCH)
+        self.assertIn("HandlePetSpellAutocastOpcode", RESEARCH)
+        self.assertIn("CMSG_PET_SET_ACTION", RESEARCH)
+        self.assertIn("ACT_ENABLED", RESEARCH)
+        self.assertIn("ACT_DISABLED", RESEARCH)
+        self.assertIn("PETHOOK_ON_PET_ADD_TO_WORLD", RESEARCH)
+        self.assertIn("no post-accepted-autocast", RESEARCH.lower())
+        self.assertIn("Player.cpp:9367", RESEARCH)
+        self.assertIn("IsRealPlayer", RESEARCH)
+        self.assertIn("037c01418b5d01506917a3db9b44fd56ac5f965c", RESEARCH)
+        self.assertIn("functional on/off persistence is not complete", RESEARCH.lower())
+        self.assertIn("SelfBot", RESEARCH)
+        self.assertIn("live pet entry", RESEARCH.lower())
 
     def test_pinned_ip_still_resets_with_learn_default(self):
         source = load_ip_source()

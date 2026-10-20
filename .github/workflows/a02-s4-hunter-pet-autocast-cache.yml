@@ -79,6 +79,8 @@ jobs:
           set -euo pipefail
           test "$(git -C acore rev-parse HEAD)" = "${{ matrix.core_sha }}"
           test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = 037c01418b5d01506917a3db9b44fd56ac5f965c
+          grep -Fqx 'bool IsRealPlayer(Player* player);' \
+            acore/modules/mod-playerbots/src/Bot/PlayerbotAI.h
           test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = 4ff4b5fcc1480348f058c632573143e62d4e3a41
           test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           grep -Fqx 'NaxxramasCore.HunterPet.AutocastCache.Enabled = 0' \

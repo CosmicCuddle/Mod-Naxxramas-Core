@@ -288,23 +288,43 @@ NaxxramasCore.HunterPetAutocastRestore.Enabled = 0
 #
 # OnPetAddToWorld runs before _LoadSpells. The hook only queues a pet event.
 # The event does not read the spellbook or the charm bar while the pet is
-# still loading. After load it requires one proven character_pet row for this
-# owner and pet number, then reads pet_spell. The charm bar is not the saved
-# book. The snapshot is applied once, after the cover (201ms when no
-# load-time pump was seen, otherwise IP's 2200ms budget). It is not applied
-# again, including from the player save hook. A click during that cover has
-# no accepted-choice source in this module. With RestoreUtility left at 0,
-# utility chains are not read, written, or toggled. There is no migration:
-# a saved off bit stays off. A newly learned utility ability is never turned on.
+# still loading. After load it requires one character_pet statement that
+# proves this owner, this pet number, and the live pet entry together.
+# The live create spell (UNIT_CREATED_BY_SPELL) must match when the pet
+# has one. A mismatch accepts neither the cache nor pet_spell. The charm
+# bar is not the saved book. The snapshot is applied once, after the cover
+# (201ms when no load-time pump was seen, otherwise IP's 2200ms budget).
+# That cover is the Individual Progression load budget. It is not a fix
+# for an accepted client toggle, and this module does not add another delay.
+#
+# BLOCKED: functional ON/OFF persistence is not complete.
+# Both pinned cores accept a client autocast in two places, and PetScript
+# has no post-accepted-autocast hook:
+#   PetHandler.cpp HandlePetSetAction (CMSG_PET_SET_ACTION) sends
+#   ACT_ENABLED and ACT_DISABLED to Pet::ToggleAutocast.
+#   PetHandler.cpp HandlePetSpellAutocastOpcode sends a second accepted
+#   toggle to Pet::ToggleAutocast.
+# Player::RemovePet calls SavePetToDB directly (Player.cpp:9367), so a
+# dismiss before the single apply is not caught by OnPlayerSave. An async
+# cache commit can still land after that dismiss or after a later choice.
+# Do not treat this draft as finished ON/OFF persistence.
+#
+# With RestoreUtility left at 0, utility chains are not read, written, or
+# toggled. There is no migration: a saved off bit stays off. A newly
+# learned utility ability is never turned on.
 #
 # 0 = do nothing, and do not query (default)
 # 1 = queue the event for human hunters
 # Default: 0
 NaxxramasCore.HunterPet.AutocastCache.Enabled = 0
 
-# Account names that match are skipped, same idea as
-# IndividualProgression.BotAccountsRegex (IPSpells.cpp bot return).
-# No Playerbots dependency. Empty or invalid fails closed (no restore).
+# Secondary gate only. The primary gate is IsRealPlayer(Player*) from
+# mod-playerbots src/Bot/PlayerbotAI.h (player && no PlayerbotAI, which
+# excludes SelfBots). A Playerbot or SelfBot is skipped even when the
+# account name does not match. A real hunter whose name matches is also
+# skipped. If PlayerbotAI.h is not visible at compile time, no pet is
+# changed: missing bot detection is not treated as a human.
+# Empty or invalid pattern fails closed (no restore).
 # Default: ^RNDBOT.*
 NaxxramasCore.HunterPet.AutocastCache.BotAccountsRegex = "^RNDBOT.*"
 

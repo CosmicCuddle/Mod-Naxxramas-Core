@@ -52,6 +52,11 @@ void CheckConfigAndPins()
     CHECK(std::strcmp(PinnedCoreOldSha, "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7") == 0);
     CHECK(std::strcmp(PinnedCoreNewSha, "8daffdabe9202c228e45d833c9a1d399597a15cd") == 0);
     CHECK(std::strcmp(PinnedIndividualProgressionSha, "4ff4b5fcc1480348f058c632573143e62d4e3a41") == 0);
+    CHECK(std::strcmp(PinnedPlayerbotsSha, "037c01418b5d01506917a3db9b44fd56ac5f965c") == 0);
+    CHECK(!MissingPlayerbotApiMayMutatePet());
+    CHECK(!FunctionalOnOffPersistenceIsComplete());
+    CHECK(std::strcmp(FunctionalPersistenceBlocker, "BLOCKED: functional ON/OFF persistence is not complete") == 0);
+    CHECK(std::strcmp(SameEntryRecycleBlocker, "BLOCKED: same-entry recycled number and savetime are indistinguishable") == 0);
     CHECK(std::strcmp(EnabledConfigKey, "NaxxramasCore.HunterPet.AutocastCache.Enabled") == 0);
     CHECK(std::strcmp(DefaultEnabledRaw, "0") == 0);
     CHECK(!EnabledFromRaw("0"));
@@ -123,6 +128,18 @@ void CheckAccounts()
     CHECK(!IsEligibleHumanAccount(AccountVerdict::ConfirmedBot));
     CHECK(!IsEligibleHumanAccount(AccountVerdict::Ineligible));
     CHECK(IsEligibleHumanAccount(AccountVerdict::ConfirmedHuman));
+
+    CHECK(IsRealPlayerAtPin(PlayerbotIdentity::RealPlayer));
+    CHECK(!IsRealPlayerAtPin(PlayerbotIdentity::Playerbot));
+    CHECK(!IsRealPlayerAtPin(PlayerbotIdentity::SelfBot));
+    CHECK(!IsRealPlayerAtPin(PlayerbotIdentity::Unavailable));
+    CHECK(!MayMutateHunterPet(PlayerbotIdentity::Playerbot, AccountVerdict::ConfirmedHuman));
+    CHECK(!MayMutateHunterPet(PlayerbotIdentity::SelfBot, AccountVerdict::ConfirmedHuman));
+    CHECK(!MayMutateHunterPet(PlayerbotIdentity::SelfBot, AccountVerdict::ConfirmedBot));
+    CHECK(!MayMutateHunterPet(PlayerbotIdentity::RealPlayer, AccountVerdict::ConfirmedBot));
+    CHECK(!MayMutateHunterPet(PlayerbotIdentity::Unavailable, AccountVerdict::ConfirmedHuman));
+    CHECK(!MayMutateHunterPet(PlayerbotIdentity::RealPlayer, AccountVerdict::Ineligible));
+    CHECK(MayMutateHunterPet(PlayerbotIdentity::RealPlayer, AccountVerdict::ConfirmedHuman));
 }
 
 void CheckLists()
@@ -157,6 +174,7 @@ void CheckLoadDecisions()
     ChainLists const lists = Defaults();
     OwnerProof owner;
     owner.lookup = OwnerLookup::Unique;
+    owner.liveBound = true;
     owner.creatureEntry = 42719;
     owner.createdBySpell = 1515;
     owner.savetime = 50;
@@ -381,6 +399,7 @@ void CheckTameDefaultsNewDamageOnly()
     ChainLists const lists = Defaults();
     OwnerProof owner;
     owner.lookup = OwnerLookup::Unique;
+    owner.liveBound = true;
     owner.creatureEntry = 42719;
     owner.createdBySpell = 1515;
     owner.savetime = 9;
@@ -698,6 +717,7 @@ void CheckCoverClickDismissAndRelog()
 
     OwnerProof owner;
     owner.lookup = OwnerLookup::Unique;
+    owner.liveBound = true;
     owner.creatureEntry = 42719;
     owner.createdBySpell = 1515;
     owner.savetime = 80;
@@ -737,6 +757,7 @@ void CheckSameEntryRecycleFailsClosedWhereItCan()
     ChainLists const lists = Defaults();
     OwnerProof owner;
     owner.lookup = OwnerLookup::Unique;
+    owner.liveBound = true;
     owner.creatureEntry = 42719;
     owner.createdBySpell = 1515;
     owner.savetime = 90;
@@ -776,6 +797,82 @@ void CheckSameEntryRecycleFailsClosedWhereItCan()
     CHECK(collision.origin == SnapshotOrigin::ModuleCache);
     CHECK(collision.chains.at(17253));
     CHECK(!collision.deleteStoredCache);
+    CHECK(SameEntryRecycleAfterSavetimeRebindIsIndistinguishable());
+    CHECK(!FunctionalOnOffPersistenceIsComplete());
+}
+
+void CheckLiveEntryBind()
+{
+    ChainLists const lists = Defaults();
+    LivePetIdentity live;
+    live.creatureEntry = 200;
+    live.createdBySpell = 1515;
+    live.createdBySpellAvailable = true;
+
+    OwnerProof const failed = InterpretOwnerAggregate(false, 0, 0, 0, 0, 0, live);
+    CHECK(failed.lookup == OwnerLookup::Unproven);
+    CHECK(!failed.liveBound);
+
+    OwnerProof const absent = InterpretOwnerAggregate(true, 0, 0, 0, 0, 0, live);
+    CHECK(absent.lookup == OwnerLookup::Absent);
+    CHECK(!absent.liveBound);
+
+    OwnerProof const many = InterpretOwnerAggregate(true, 2, 1, 1515, 50, 200, live);
+    CHECK(many.lookup == OwnerLookup::Ambiguous);
+    CHECK(!many.liveBound);
+
+    OwnerProof const mismatch = InterpretOwnerAggregate(true, 1, 0, 0, 0, 100, live);
+    CHECK(mismatch.lookup == OwnerLookup::Mismatch);
+    CHECK(mismatch.creatureEntry == 100u);
+    CHECK(!mismatch.liveBound);
+
+    LivePetIdentity otherSpell = live;
+    otherSpell.createdBySpell = 999;
+    OwnerProof const spellMiss = InterpretOwnerAggregate(true, 1, 1, 1515, 50, 200, otherSpell);
+    CHECK(spellMiss.lookup == OwnerLookup::Mismatch);
+    CHECK(!spellMiss.liveBound);
+
+    LivePetIdentity noSpell = live;
+    noSpell.createdBySpell = 0;
+    noSpell.createdBySpellAvailable = false;
+    OwnerProof const unboundSpell = InterpretOwnerAggregate(true, 1, 1, 1515, 50, 200, noSpell);
+    CHECK(unboundSpell.lookup == OwnerLookup::Mismatch);
+    CHECK(!unboundSpell.liveBound);
+
+    LivePetIdentity noEntry;
+    OwnerProof const noLive = InterpretOwnerAggregate(true, 1, 1, 1515, 50, 200, noEntry);
+    CHECK(noLive.lookup == OwnerLookup::Unproven);
+
+    OwnerProof const unique = InterpretOwnerAggregate(true, 1, 1, 1515, 50, 200, live);
+    CHECK(unique.lookup == OwnerLookup::Unique);
+    CHECK(unique.liveBound);
+    CHECK(unique.creatureEntry == 200u);
+    CHECK(unique.createdBySpell == 1515u);
+    CHECK(unique.savetime == 50u);
+
+    StoredCacheRow cached;
+    cached.chainFirst = 17253;
+    cached.on = true;
+    cached.creatureEntry = 100;
+    cached.createdBySpell = 1515;
+    cached.seenSavetime = 50;
+    std::vector<SourceSpell> const petSpell = { Spell(17253, 17253, true), Spell(16827, 16827, true) };
+    LoadDecision const refused = DecideLoad(
+        SchemaProbe::Present, DatabaseRead::Ok, { cached }, DatabaseRead::Ok, petSpell, mismatch, false, lists.utility);
+    CHECK(refused.origin == SnapshotOrigin::Unavailable);
+    CHECK(refused.chains.empty());
+    CHECK(!refused.allowDefaultOn);
+    CHECK(!refused.writeAllowed);
+    CHECK(!refused.deleteStoredCache);
+    CHECK(PlanApply(refused.chains, petSpell, lists, refused.allowDefaultOn).empty());
+
+    OwnerProof unbound = unique;
+    unbound.liveBound = false;
+    LoadDecision const notBound = DecideLoad(
+        SchemaProbe::Present, DatabaseRead::Ok, { cached }, DatabaseRead::Ok, petSpell, unbound, false, lists.utility);
+    CHECK(notBound.origin == SnapshotOrigin::Unavailable);
+    CHECK(!notBound.allowDefaultOn);
+    CHECK(!notBound.writeAllowed);
 }
 } // namespace
 
@@ -795,6 +892,7 @@ int main()
     CheckReconcileLeavesOtherSpells();
     CheckCoverClickDismissAndRelog();
     CheckSameEntryRecycleFailsClosedWhereItCan();
+    CheckLiveEntryBind();
 
     if (g_failures != 0)
     {
