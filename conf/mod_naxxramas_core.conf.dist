@@ -276,3 +276,16 @@ NaxxramasCore.HallowsEnd.SoloFire.Enabled = 0
 # skips timer writes. Scale matching after a real amount drop still runs.
 # Default: 3
 NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier = 3
+
+# One accepted bucket may remove aura 42074 from the struck normal fire.
+# Requires SoloFire.Enabled = 1 as well. Either key off leaves stock splash
+# 42348 alone.
+# 1 = spell 42339 effect 0 hit on creature 23686 removes 42074 when that
+#     creature still has 42074, exactly one Shade 23543 owns it and has
+#     entered the fire cycle while still non-attackable, and the thrower
+#     is the only real player inside that Shade's 60 yard census.
+# 0 = do nothing in this hook.
+# Any value other than 1 is off. This does not cast 42348, does not grant
+# quest credit, and does not remove any aura other than 42074.
+# Default: 0
+NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 0

@@ -22,6 +22,8 @@ T ConfigMgr::GetOption(std::string const& name, T const& def, bool showLogs) con
         return T("1");
     if (name == "NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier")
         return T("4");
+    if (name == "NaxxramasCore.HallowsEnd.SoloFire.OneBucket")
+        return T("1");
     std::cerr << "unexpected config key\n";
     std::abort();
 }

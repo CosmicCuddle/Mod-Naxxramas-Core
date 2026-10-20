@@ -27,6 +27,10 @@ MULTIPLIER_SYMBOL = (
 )
 ENABLED_KEY = "NaxxramasCore.HallowsEnd.SoloFire.Enabled"
 MULTIPLIER_KEY = "NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier"
+ONE_BUCKET_KEY = "NaxxramasCore.HallowsEnd.SoloFire.OneBucket"
+ONE_BUCKET_SYMBOL = (
+    "NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireOneBucketSetting()"
+)
 
 
 def config_header() -> Path | None:
@@ -56,22 +60,27 @@ class SoloFireConfigMarker(unittest.TestCase):
             "std::optional<int32_t> ReadHallowsEndSoloFireMultiplierSetting();",
             HEADER,
         )
+        self.assertIn("int32_t ReadHallowsEndSoloFireOneBucketSetting();", HEADER)
         self.assertNotIn("inline int32_t ReadHallowsEndSoloFireEnabledSetting", HEADER)
         self.assertNotIn(
             "inline std::optional<int32_t> ReadHallowsEndSoloFireMultiplierSetting",
             HEADER,
         )
+        self.assertNotIn("inline int32_t ReadHallowsEndSoloFireOneBucketSetting", HEADER)
         self.assertNotIn("GetOption<", HEADER)
-        self.assertEqual(CONFIG_TEXT.count("__attribute__((noinline))"), 2)
-        self.assertEqual(CONFIG_TEXT.count("GetOption<std::string>"), 2)
+        self.assertEqual(CONFIG_TEXT.count("__attribute__((noinline))"), 3)
+        self.assertEqual(CONFIG_TEXT.count("GetOption<std::string>"), 3)
+        self.assertIn("OneBucketConfigKey", CONFIG_TEXT)
+        self.assertIn("OneBucketFromRaw", CONFIG_TEXT)
         self.assertIn("EnabledConfigKey", CONFIG_TEXT)
         self.assertIn("MultiplierConfigKey", CONFIG_TEXT)
         self.assertIn("EnabledFromRaw", CONFIG_TEXT)
         self.assertIn("MultiplierFromRaw", CONFIG_TEXT)
         self.assertIn("false);", CONFIG_TEXT)
         self.assertNotIn("namespace {", CONFIG_TEXT)
-        self.assertEqual(SHADE.count(ENABLED_SYMBOL), 2)
+        self.assertEqual(SHADE.count(ENABLED_SYMBOL), 3)
         self.assertEqual(SHADE.count(MULTIPLIER_SYMBOL), 1)
+        self.assertEqual(SHADE.count(ONE_BUCKET_SYMBOL), 1)
         self.assertNotIn("GetOption<", SHADE)
         workflow = (ROOT / ".github/workflows/f10-s2-source-pin.yml").read_text()
         self.assertIn("cs02/f10-s2-shade-module-2026-10-20", workflow)
@@ -188,6 +197,7 @@ class SoloFireConfigMarker(unittest.TestCase):
             ):
                 self.assertIn(ENABLED_SYMBOL, blob, label)
                 self.assertIn(MULTIPLIER_SYMBOL, blob, label)
+                self.assertIn(ONE_BUCKET_SYMBOL, blob, label)
 
             ran = subprocess.run(
                 [str(linked)],
@@ -198,6 +208,7 @@ class SoloFireConfigMarker(unittest.TestCase):
             self.assertEqual(ran.returncode, 0, ran.stderr or ran.stdout)
             self.assertIn(f"KEY={ENABLED_KEY} DEF=0 LOGS=0", ran.stdout)
             self.assertIn(f"KEY={MULTIPLIER_KEY} DEF=3 LOGS=0", ran.stdout)
+            self.assertIn(f"KEY={ONE_BUCKET_KEY} DEF=0 LOGS=0", ran.stdout)
             self.assertIn("F10_CONFIG_MARKER_OK", ran.stdout)
 
 
