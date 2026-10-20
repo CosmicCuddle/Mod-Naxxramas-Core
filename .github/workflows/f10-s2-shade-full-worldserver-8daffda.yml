@@ -1,0 +1,114 @@
+name: F10 corrected Shade full Worldserver newer Grimfeather pinned proof
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Events/HallowsEndShadeOfTheHorseman.cpp'
+      - 'src/Events/HallowsEndSoloFire.h'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/test_f10_hallows_end_solo_fire_s2.py'
+      - '.github/workflows/f10-s2-shade-full-worldserver-8daffda.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-f10-fixed-worldserver-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pinned-newer-core-full-worldserver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout target updated Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+      - name: Checkout historical pinned Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout historical pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact corrected F10 Shade S2 draft source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify exact four revisions and disabled F10 default
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = 037c01418b5d01506917a3db9b44fd56ac5f965c
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          grep -Fqx 'NaxxramasCore.HallowsEnd.SoloFire.Enabled = 0' acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          grep -Fqx 'NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier = 3' acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+      - name: Validate corrected Shade source and policy presence (S2 tests separately)
+        run: |
+          set -euo pipefail
+          grep -Fq 'RetentionForObservation(' acore/modules/mod-naxxramas-core/src/Events/HallowsEndShadeOfTheHorseman.cpp
+          grep -Fq 'soloFireWatches.erase(id);' acore/modules/mod-naxxramas-core/src/Events/HallowsEndShadeOfTheHorseman.cpp
+          grep -Fq 'RetentionForObservation' acore/modules/mod-naxxramas-core/src/Events/HallowsEndSoloFire.h
+          echo 'The 62 S2 policy/source tests ran on PR #52; this is the full native C++/Worldserver link gate.'
+      - name: Install pinned Worldserver compiler dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure full Worldserver with all module translation units
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Require real fixed Shade C++ translation unit entry
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          commands = json.loads(Path("acore-build/compile_commands.json").read_text())
+          matched = [entry for entry in commands if
+                     entry["file"].endswith("/src/Events/HallowsEndShadeOfTheHorseman.cpp")]
+          assert len(matched) == 1, f"Expected exactly one actual fixed Shade C++ compile command: {len(matched)}"
+          assert "acore/modules/mod-naxxramas-core" in matched[0]["file"]
+          print("PASS: corrected F10 Shade will compile as an actual AzerothCore module unit")
+          PY
+      - name: Compile and link one full Worldserver with corrected Shade solo-fire
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify corrected Shade module registration survives in linked Worldserver
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          archive=acore-build/modules/libmodules.a
+          test -s "$archive" && test -s "$binary" && test -x "$binary"
+          nm -C --defined-only "$archive" > /tmp/naxx_f10_archive_symbols.txt
+          nm -C --defined-only "$binary" > /tmp/naxx_f10_binary_symbols.txt
+          grep -Fq 'AddHallowsEndShadeOfTheHorsemanScripts()' /tmp/naxx_f10_archive_symbols.txt
+          grep -Fq 'AddHallowsEndShadeOfTheHorsemanScripts()' /tmp/naxx_f10_binary_symbols.txt
+          sha256sum "$binary"
+          echo "PASS: full Worldserver linked and corrected F10 Shade registration is defined in FINAL binary."
+      - name: State CI-only, default-off and no-release boundary
+        if: always()
+        run: |
+          echo "Uses newer Grimfeather core plus historical provisional Playerbots/IP CI pins."
+          echo "No owner's installed-source or future Playerbots/IP revisions verified."
+          echo "No Worldserver launched, SQL/DBC applied, F10 enabled, quests/characters changed, or S5/S6/S7 approved."
