@@ -1,27 +1,102 @@
-# A02 S2 — module-only hunter pet autocast restore
+# A02 S2 — experimental module-only hunter pet autocast restore
 
-Michael (owner) approved this module-only build. S1 at `a5afd65` still says the synchronous gap has no module hook and that S2 stayed blocked pending that approval. This branch is the approved build. It does not edit Individual Progression, core, Playerbots, SQL, or DBC. The config default is off.
+This branch is a **default-off EXPERIMENTAL prototype**. It is **not functional S2 completion**. Michael (owner) approved authoring a module-only S2 draft. That approval is **not CS01 acceptance**.
 
-Pinned sources checked while writing this: core `a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7` and `8daffdabe9202c228e45d833c9a1d399597a15cd` (`Pet.cpp`, `EventProcessor.cpp`, and `EventProcessor.h` are byte-identical; `WorldObject::Update` still calls `m_Events.Update` at `Object.cpp:1076` on both), IP `4ff4b5fcc1480348f058c632573143e62d4e3a41`.
+No edit is made to Individual Progression, Playerbots, AzerothCore, SQL, or DBC. The config default stays `NaxxramasCore.HunterPetAutocastRestore.Enabled = 0`. Nothing here was run on a worldserver or against a live pet. Labels mean:
 
-## What the restore does
+| Label | Meaning |
+| --- | --- |
+| VERIFIED | Read at the pinned SHA named in the sentence. |
+| POTENTIAL ISSUE | The source can behave this way. It was not executed on a server. |
+| UNKNOWN | Not determined from the pinned trees. |
+| NOT TESTED | No worldserver, no client, no character database. |
 
-A `PetScript` on `OnPetAddToWorld` and `OnInitStatsForLevel` queues one owner-GUID event for a hunter pet whose owner is not `isBotAccount`. The bot test reads `IndividualProgression.BotAccountsRegex` through `sConfigMgr->GetOption`. The fallback string is only the same default IP passes when the key is absent. It is not a second match list, and Playerbots control is not treated as the same thing.
+Pins: core `a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7` and `8daffdabe9202c228e45d833c9a1d399597a15cd` (Pet.cpp, Pet.h, PetScript.h, PlayerScript.h, ScriptMgr.h, CharmInfo.h, PetHandler.cpp, and PetDefines.h are byte-identical), IP `4ff4b5fcc1480348f058c632573143e62d4e3a41`, Playerbots `037c01418b5d01506917a3db9b44fd56ac5f965c`. Hook lines below were read on 2026-10-20.
 
-The event is `CalculateTime(50)` on `pet->m_Events`. IP's event is `CalculateTime(200)` from the same hooks. `EventProcessor` stores events in a `std::multimap` and runs the smaller key first (`EventProcessor.cpp:43-50`, `:159-161`). While `m_loading` is set, `Pet::Update` returns before `Creature::Update` (`Pet.cpp:659-660`, `:736`), so `m_time` does not advance on that path and neither event runs. After the load flag drops, the 50ms key is the snapshot and the 200ms key is IP's single check. The restore is queued when the snapshot runs, at `CalculateTime(300)`. If `m_time` is still on the 50ms key, that lands 150ms after IP's 200ms key. If one update jumps past both keys, the snapshot runs first in that flush and the restore is queued 300ms after the jumped `m_time`, so it is still after IP and is not due in the same flush.
+## What this revision changes
 
-IP's source still requeues every 200ms while `isBeingLoaded()` and `_attempts < 10`, and attempt 10 runs the check anyway (`IndividualProgressionSpells.cpp:1330-1342`). **VERIFIED** as source text. **VERIFIED** that ordinary `Pet::Update` does not enter that loop, because it does not pump `pet->m_Events` during the load flag. **UNKNOWN** whether any other caller pumps that processor inside the async callback. **NOT TESTED.**
+The previous head accepted an uncertain account, let `CanPacketReceive` store `CMSG_PET_SPELL_AUTOCAST` before the core handler, keyed memory by owner plus pet number, skipped explicit OFF, and treated a 50/200/350 ms story as ordering. Those paths are fail-closed in the policy tests.
 
-On restore, a chain is touched only when the known rank changed and the saved state was ON. The call is `ToggleAutocast(newRank, true)`, then `SetSpellAutocast(newRank, true)`, then one `PetSpellInitialize` if any chain was turned on. **VERIFIED** at `Pet.cpp:2260-2271` that ON writes `ACT_ENABLED` when the new id is absent from `m_autospells`. **VERIFIED** at `Pet.cpp:2274-2285` and `:1889` that `ToggleAutocast(false)` does not write `ACT_DISABLED` on a rank `learnSpell` just added. OFF is left as that learn default (`Pet.cpp:1812-1813`). This build does not call `ToggleAutocast(false)` and does not claim a separate OFF write.
+1. **Account.** `ClassifyAccount` returns `ConfirmedHuman`, `ConfirmedBot`, or `Ineligible`. A missing name, a failed lookup, an empty pattern, and a pattern that does not compile are `Ineligible`. Only `ConfirmedHuman` may schedule or restore. `Ineligible` is not "not a bot".
+2. **Packets.** The receive hook is not registered. `UnvalidatedPacketDrivesToggle()` is false. `DecideRestore` has no packet argument. An unverified ON does not plan a restore.
+3. **Identity.** The cycle stores the owner GUID, the live pet `ObjectGuid::GetRawValue()`, and the pet number captured at hook time. A later pet with the same number and a different GUID aborts (`StaleSnapshot`). Not in world, `IsDuringRemoveFromWorld()`, or session logout aborts. `ScheduleCycle` does not clear a snapshot when `OnPetAddToWorld` and `OnInitStatsForLevel` both run, or when a later schedule repeats.
+4. **Explicit OFF.** If the snapshot says OFF and the current rank is ON, the whole pet aborts (`ExplicitOffConflict`) and no chain is turned ON. If the snapshot says OFF and the new rank is already OFF, the outcome is `HonourOff` and nothing is written. `ToggleAutocast(false)` is not called.
+5. **Order.** `RunSequence` takes an explicit step list. IP first, module first, the same list as one flush, a load that outlasts IP's 10 retries, a save, relog, a different pet, a same-number resummon, and a second restore are each either one ON write on the bound GUID or an abort with zero writes.
 
-If the snapshot did not run, one REMOVED row of the same chain can still donate ON. A REMOVED row whose byte is OFF donates nothing. `removeSpell` keeps that byte until the next save (`Pet.cpp:1976-1988`, `_SaveSpells` at `:1588-1591`). **POTENTIAL ISSUE:** a save between IP and the restore erases the fallback. The in-memory snapshot does not depend on it.
+A REMOVED row is not a preference. With no committed snapshot, `DecideRestore` returns `NoSnapshot` even if a REMOVED row still says ON.
 
-`CanPacketReceive` on `CMSG_PET_SPELL_AUTOCAST` keeps an in-memory ON/OFF for that chain. There is no hook named `OnPacketReceive` at either core. A newer packet wins over the snapshot. An OFF packet suppresses a later ON restore. **UNKNOWN** / **NOT TESTED** that the hook actually sees the client packet.
+## (a) Delayed load, then save, then a hypothetical restore
 
-## Risks
+`CounterexampleDelayedLoadThenSave(explicitOn)` is the negative model. The steps are: bind the live GUID while the pet is loading, complete the load, run IP's learn-default OFF, save (the REMOVED row is erased), then restore. The module poll never runs, so there is no snapshot. Both calls abort.
 
-- **POTENTIAL ISSUE:** stale old-rank ids stay in `m_autospells`. `ToggleAutocast(true)` does not remove them, and this restore does not call `ToggleAutocast(false)` to try. Same leftover IP already leaves. **NOT TESTED** in `PetAI`.
-- **POTENTIAL ISSUE:** the 50ms and 200ms keys are ordered only if both modules sample the same `m_time`. Nothing here proves the processor is idle between the two hook bodies. **NOT TESTED.**
-- **POTENTIAL ISSUE:** the event stores the owner GUID and reads `GetPet()` again. A different current pet number is ignored.
-- **UNKNOWN:** which listed ids are autocastable, and whether each IP wipe list is one spell chain. A rank that is not the same chain is not copied.
-- **NOT TESTED:** worldserver link, in-game summon, relog, and a real rank change.
+| Player choice before the swap | Book after IP and the save | Model result | Pet writes |
+| --- | --- | --- | --- |
+| explicit ON | new rank at learn-default OFF, no REMOVED row | `Abort` / `NoSnapshot` | none. The ON is not invented from the missing row. |
+| explicit OFF | new rank at learn-default OFF, no REMOVED row | `Abort` / `NoSnapshot` | none. The learn-default OFF is not recorded as a preserved explicit OFF. |
+
+**VERIFIED** as a policy-test outcome of that step list. **POTENTIAL ISSUE:** on a real server this order loses an explicit ON and does not prove an explicit OFF. **NOT TESTED** in game. The same abort is what a save-without-snapshot does inside `RunSequence`. A snapshot taken before IP can still apply one ON after that save, because the snapshot is not the REMOVED row. That path is a different step list and is not this counterexample.
+
+## (b) Public hooks at the pinned SHAs
+
+Searched: both cores' `ScriptDefines/*.h` and `ScriptMgr.h`, every `sScriptMgr->` call in `Pet.cpp`, IP `IndividualProgression.h` plus `IndividualProgressionSpells.cpp`, and Playerbots headers at `037c014`. **No synchronous before/after IP rank-reconciliation hook exists.** No public hook supplies a saved-pet identity together with an incarnation counter.
+
+Pet.cpp's script calls, identical at both core SHAs, are only:
+
+| Call | Line | When |
+| --- | --- | --- |
+| `sScriptMgr->OnPetAddToWorld(this)` | `Pet.cpp:118` | `AddToWorld`, before the async spell load |
+| `sScriptMgr->OnPlayerBeforeLoadPetFromDB(...)` | `Pet.cpp:241` | before the pet object is created |
+| `sScriptMgr->OnPlayerBeforeGuardianInitStatsForLevel(...)` | `Pet.cpp:1060` | inside `InitStatsForLevel` |
+| `sScriptMgr->OnInitStatsForLevel(this, petlevel)` | `Pet.cpp:1434` | same, still before `_LoadSpells` |
+| `sScriptMgr->OnPlayerAfterGuardianInitStatsForLevel(...)` | `Pet.cpp:1442` | same |
+| `sScriptMgr->CanUnlearnSpellSet(...)` | `Pet.cpp:1930` | level-up spell list only |
+| `sScriptMgr->CanUnlearnSpellDefault(...)` | `Pet.cpp:1950` | level-up spell list only |
+| `sScriptMgr->CanResetTalents(this)` | `Pet.cpp:2057` | talent reset only |
+| `sScriptMgr->OnCalculateMaxTalentPointsForLevel(...)` | `Pet.cpp:2242` | talent points, including once after `_LoadSpells` and before IP |
+
+Callable module overrides, same line on both cores unless noted:
+
+- `virtual void OnInitStatsForLevel(Guardian* guardian, uint8 petlevel)` — `PetScript.h:43`, `ScriptMgr.h:678`
+- `virtual void OnCalculateMaxTalentPointsForLevel(Pet* pet, uint8 level, uint8& points)` — `PetScript.h:45`
+- `virtual bool CanUnlearnSpellSet(Pet* pet, uint32 level, uint32 spell)` — `PetScript.h:47`
+- `virtual bool CanUnlearnSpellDefault(Pet* pet, SpellInfo const* spellInfo)` — `PetScript.h:49`
+- `virtual bool CanResetTalents(Pet* pet)` — `PetScript.h:51`
+- `virtual void OnPetAddToWorld(Pet* pet)` — `PetScript.h:58`, `ScriptMgr.h:742`
+- `virtual void OnPlayerBeforeGuardianInitStatsForLevel(Player* player, Guardian* guardian, CreatureTemplate const* cinfo, PetType& petType)` — `PlayerScript.h:519`, `ScriptMgr.h:394`
+- `virtual void OnPlayerAfterGuardianInitStatsForLevel(Player* player, Guardian* guardian)` — `PlayerScript.h:522`, `ScriptMgr.h:395`
+- `virtual void OnPlayerBeforeLoadPetFromDB(Player* player, uint32& petentry, uint32& petnumber, bool& current, bool& forceLoadFromDB)` — `PlayerScript.h:525`, `ScriptMgr.h:396`
+- `virtual void OnPlayerBeforeLogout(Player* player)` — `PlayerScript.h:358`, `ScriptMgr.h:336`
+- `virtual void OnPlayerSave(Player* player)` — `PlayerScript.h:377`, `ScriptMgr.h:340`
+- `virtual bool CanPacketReceive(WorldSession* session, WorldPacket const& packet)` — `ServerScript.h:75`, `ScriptMgr.h:160`
+
+`CanPacketReceive` is a real hook. It runs before `HandlePetSpellAutocastOpcode` (`PetHandler.cpp:991` rejects a spell the pet does not have). It is not a validated autocast signal, and this module does not subscribe to it. **VERIFIED** the signatures. **NOT TESTED** that a live packet reaches the hook.
+
+Saved pet data is `PetStable::PetInfo` (`PetDefines.h:214`). The fields are name, action bar, `PetNumber` (`PetDefines.h:220`), creature, display, experience, health, mana, happiness, last save time, created-by spell, level, react, type, and renamed. There is no incarnation field. `CharmInfo::GetPetNumber()` (`CharmInfo.h:132`) is that same number. `Pet::LoadPetFromDB` allocates a new low GUID with `map->GenerateLowGuid<HighGuid::Pet>()` at `Pet.cpp:267`. A newly tamed pet does the same at `Pet.cpp:1017` and `sObjectMgr->GeneratePetNumber()` at `Pet.cpp:1018`. The live GUID is readable on the `Pet*` passed to `OnPetAddToWorld` and `OnInitStatsForLevel`, and those hooks still run before `_LoadSpells` (`Pet.cpp:435`) and before IP. That is this summon's object id, not a durable incarnation stored with the saved pet.
+
+IP's only hunter reconcile entry from this module's point of view is `void checkHunterPetSpells(Player* player)` at `IndividualProgression.h:430`. It is the reconcile itself, not a before/after wrapper. `IndividualProgressionSpells.cpp` contains no `sScriptMgr` call. **VERIFIED** by search of that file. The only caller is `DelayedPetSpellCheck::Execute` (`IndividualProgressionSpells.cpp:1342`), which reads `player->GetPet()` from the owner GUID (`:1321-1324`). **PendingPetSpellCheck is not a public hook.** The class is file-local at `IndividualProgressionSpells.cpp:1252` and is absent from `IndividualProgression.h`.
+
+Playerbots at `037c014` has no `PetScript`, no `OnPetAddToWorld`, and no `OnPlayerBeforeLoadPetFromDB` in its headers. **VERIFIED** by `git grep` of that commit. The autocast surface is an AI action, `bool TogglePetSpellAutoCastAction::Execute(Event event)` (`PetsAction.cpp:342`, declared at `PetsAction.h:30`). It is not a saved-pet incarnation signal and not an IP reconcile hook.
+
+## Stale autocast ids
+
+**POTENTIAL ISSUE.** `Pet::removeSpell` (`Pet.cpp:1976-1988`) does not erase `m_autospells`. `Pet::ToggleAutocast(SpellInfo const* spellInfo, bool apply)` (`Pet.cpp:2247-2287`) returns if `m_spells.find` misses. A `PETSPELL_REMOVED` row is still found. The OFF branch erases the id from `m_autospells` only when it is present, then if the row state is not `PETSPELL_NEW` it assigns `PETSPELL_CHANGED` (`Pet.cpp:2276-2283`). A removed row is not new, so the call would resurrect that rank for the next save. That is not a public-API-safe removal. This prototype does not call `ToggleAutocast(false)`. Stale old-rank ids stay in `m_autospells`. **NOT TESTED** in `PetAI`.
+
+`ToggleAutocast(true)` does write `ACT_ENABLED` when the new id is absent from `m_autospells` (`Pet.cpp:2260-2271`). A fresh autocastable learn stores `ACT_DISABLED` (`Pet.cpp:1810-1813`). `ToggleAutocast(false)` does not write that byte on an id that is not already in `m_autospells`. Honouring OFF in this prototype means "the new rank is already OFF, so do not write". It does not mean an explicit `ACT_DISABLED` store. **VERIFIED** as those source lines. **NOT TESTED** in game.
+
+## Ordering the runtime can actually see
+
+`Pet::Update` returns before the event processor while `m_loading` is set (`Pet.cpp:659-660`). `IpDelayedCheckOnPump(PetUpdateWhileLoading, ...)` does not run IP's check, including past attempt 10. **VERIFIED** as that model of the cited early return. **UNKNOWN** whether any other caller pumps `pet->m_Events` during the async callback. **NOT TESTED.**
+
+If some other pump does run IP's attempt 10 while the pet is still loading (`IndividualProgressionSpells.cpp:1330-1342`), the model refuses a later snapshot (`IpAlreadyRan`) and does not toggle. If the book was empty because `_LoadSpells` had not run, IP's one-shot check does not swap, the flag is cleared, and the module still refuses the snapshot because `ipReconciled` is set. **VERIFIED** as the model. **NOT TESTED** as server behaviour.
+
+The runtime does not treat 50 ms / 200 ms / 150 ms as proof. It snapshots only a loaded, in-world, not-being-removed pet whose book has no `PETSPELL_REMOVED` autocast row, then calls `DecideRestore`. IP first, a GUID change, logout, removal, an unknown chain, two REMOVED rows, a REMOVED byte that no longer matches the snapshot, or a missing snapshot produces no `ToggleAutocast`. **VERIFIED** in the policy tests. **NOT TESTED** as wall-clock order on a worldserver.
+
+**POTENTIAL ISSUE / documented blocker.** A post-swap explicit OFF that leaves the new rank at learn-default `ACT_DISABLED` looks the same as "IP just learned it OFF". If a pre-IP snapshot said ON, `DecideRestore` will plan one ON write. The visible conflicts abort: snapshot OFF with the new rank ON, and a REMOVED row whose ON/OFF byte disagrees with the snapshot. The invisible one is not fixed. **NOT TESTED** in game.
+
+**POTENTIAL ISSUE.** After a cycle is applied, refused, or abandoned, `ScheduleCycle` will not open a second cycle for that same live GUID. A later level-up on that same object does not start another restore. **NOT TESTED.**
+
+## Tests and limits
+
+The policy binary covers the five corrections: ineligible account, no restore from an unvalidated packet, explicit OFF abort-or-honour with no OFF write, live GUID mismatch abort, and no restore without a snapshot. It also covers the orders above, including `CounterexampleDelayedLoadThenSave` for explicit ON and explicit OFF. A pass is **NOT TESTED** as summon, relog, rank change, or worldserver link.
+
+**UNKNOWN:** which hunter pet spell ids are autocastable (no Spell.dbc here), whether each IP wipe list is one chain, and which account names the owner's live `IndividualProgression.BotAccountsRegex` matches.

@@ -256,14 +256,16 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
 # Human hunter pet autocast restore
 #####################################
 
-# After Individual Progression swaps a human hunter pet's spell rank,
-# turn the new rank ON when that chain was ON. A newly learned rank is
-# already OFF, and ToggleAutocast(false) does not write that byte.
-# Bots matched by IndividualProgression.BotAccountsRegex are left alone.
-# Nothing is written to a new table. An ON restore is kept by the core's
-# ordinary pet save.
+# EXPERIMENTAL prototype, default off. Not a functional persistence fix.
+# When set to 1, a confirmed human hunter (account name present, and a
+# confirmed non-match of IndividualProgression.BotAccountsRegex) may have
+# a swapped rank turned ON for the same live pet GUID. A missing account
+# name, an empty or invalid pattern, a pet GUID change, logout, removal
+# from the world, or an explicit OFF the new rank does not already show
+# aborts with no write. Unvalidated client autocast packets are ignored.
+# Explicit OFF is not written. Stale old-rank autocast ids can remain.
 #
-# 0 = leave IP's post-swap autocast state unchanged (default)
-# 1 = turn ON a chain whose saved state was ON and whose rank changed
+# 0 = do nothing (default)
+# 1 = experimental fail-closed ON restore
 # Default: 0
 NaxxramasCore.HunterPetAutocastRestore.Enabled = 0

@@ -17,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HEADER = (ROOT / "src/Systems/HunterPetAutocastRestore.h").read_text(encoding="utf-8")
 SOURCE = (ROOT / "src/Systems/HunterPetAutocastRestore.cpp").read_text(encoding="utf-8")
+RESEARCH = (ROOT / "docs/research/a02-s2-hunter-pet-autocast-restore.md").read_text(encoding="utf-8")
 LOADER = (ROOT / "src/NaxxramasCore_loader.cpp").read_text(encoding="utf-8")
 CONF = (ROOT / "conf/mod_naxxramas_core.conf.dist").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github/workflows/a02-s2-hunter-pet-autocast.yml").read_text(encoding="utf-8")
@@ -124,24 +125,40 @@ class HunterPetAutocastRestoreTests(unittest.TestCase):
         for needle in (
             "OnPetAddToWorld",
             "OnInitStatsForLevel",
-            "CanPacketReceive",
-            "CMSG_PET_SPELL_AUTOCAST",
             "ToggleAutocast(current, true)",
             "SetSpellAutocast(current, true)",
             "PetSpellInitialize",
             "PETSPELL_REMOVED",
-            "DecideSnapshotPoll",
-            "PlanRestores",
+            "DecideRestore",
+            "ClassifyAccount",
+            "CheckLiveIdentity",
+            "ScheduleCycle",
+            "IsDuringRemoveFromWorld",
+            "IsLoggingOut",
+            "GetRawValue",
             "FirstPollDelayMs",
             "BotAccountsRegexKey",
             "HUNTER_PET",
             "CLASS_HUNTER",
+            "AccountVerdict::ConfirmedHuman",
+            "RestoreOutcome::ApplyOn",
         ):
             self.assertIn(needle, SOURCE, needle)
+        apply_at = SOURCE.index("RestoreOutcome::ApplyOn")
+        toggle_at = SOURCE.index("ToggleAutocast(current, true)")
+        self.assertLess(apply_at, toggle_at)
         self.assertNotIn("ToggleAutocast(previous, false)", SOURCE)
         self.assertNotIn("ToggleAutocast(current, false)", SOURCE)
         self.assertNotIn("ToggleAutocast(current, plan.desiredOn)", SOURCE)
+        self.assertNotIn("CanPacketReceive", SOURCE)
+        self.assertNotIn("CMSG_PET_SPELL_AUTOCAST", SOURCE)
+        self.assertNotIn("PlanRestores", SOURCE)
+        self.assertNotIn("AccountIsBot", SOURCE)
+        self.assertNotIn("PetNumberMatches", SOURCE)
         self.assertIn('BotAccountsRegexKey = "IndividualProgression.BotAccountsRegex"', HEADER)
+        self.assertIn("enum class AccountVerdict", HEADER)
+        self.assertIn("UnvalidatedPacketDrivesToggle", HEADER)
+        self.assertIn("CounterexampleDelayedLoadThenSave", HEADER)
         self.assertIn("GetOption<std::string>(BotAccountsRegexKey, DefaultBotAccountsRegex)", SOURCE)
         self.assertNotIn('AccountIsBot(found, accountName.c_str(), "^RNDBOT.*")', SOURCE)
         self.assertNotIn("GET_PLAYERBOT_AI", SOURCE)
@@ -149,6 +166,8 @@ class HunterPetAutocastRestoreTests(unittest.TestCase):
         self.assertNotIn("CharacterDatabase", SOURCE)
         self.assertNotIn(".sql", SOURCE)
         self.assertNotIn("Playerbots.h", SOURCE)
+        self.assertNotIn("ServerScript.h", SOURCE)
+        self.assertNotIn("PetPackets.h", SOURCE)
 
     def test_no_new_sql_under_the_module(self):
         sql_root = ROOT / "data" / "sql"
@@ -181,6 +200,26 @@ class HunterPetAutocastRestoreTests(unittest.TestCase):
         self.assertEqual(contract["caller"], "DelayedPetSpellCheck::Execute")
         self.assertIn("constexpr uint32_t IpEventDelayMs = 200", HEADER)
         self.assertIn("constexpr uint8_t IpLoadingAttemptCap = 10", HEADER)
+
+    def test_research_records_counterexample_and_hook_search(self):
+        self.assertIn("EXPERIMENTAL", RESEARCH)
+        self.assertIn("not functional S2 completion", RESEARCH)
+        self.assertIn("not CS01 acceptance", RESEARCH)
+        self.assertIn("CounterexampleDelayedLoadThenSave", RESEARCH)
+        self.assertIn("explicit ON", RESEARCH)
+        self.assertIn("explicit OFF", RESEARCH)
+        self.assertIn("PendingPetSpellCheck is not a public hook", RESEARCH)
+        self.assertIn("No synchronous before/after IP rank-reconciliation hook exists", RESEARCH)
+        self.assertIn("void OnPetAddToWorld(Pet* pet)", RESEARCH)
+        self.assertIn("PetScript.h:58", RESEARCH)
+        self.assertIn("void checkHunterPetSpells(Player* player)", RESEARCH)
+        self.assertIn("IndividualProgression.h:430", RESEARCH)
+        self.assertIn("IndividualProgressionSpells.cpp:1252", RESEARCH)
+        self.assertIn("TogglePetSpellAutoCastAction::Execute", RESEARCH)
+        self.assertIn("PetsAction.cpp:342", RESEARCH)
+        self.assertIn("POTENTIAL ISSUE", RESEARCH)
+        self.assertIn("m_autospells", RESEARCH)
+        self.assertIn("NOT TESTED", RESEARCH)
 
     def test_contract_fails_when_the_cap_or_cadence_or_caller_changes(self):
         source = load_ip_source()
