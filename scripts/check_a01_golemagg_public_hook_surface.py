@@ -27,7 +27,7 @@ def require_nearest_access(source: str, declaration: str, expected: str, path: s
     These checks are source guards, not general C++ scope parsers.
     """
     position = needs(source, declaration, path)
-    labels = list(re.finditer(r"(?m)^[ \\t]*(public|private|protected)[ \\t]*:", source[:position]))
+    labels = list(re.finditer(r"(?m)^[ \t]*(public|private|protected)[ \t]*:", source[:position]))
     if not labels or labels[-1].group(1) != expected:
         raise SourceSurfaceChanged(
             f"{path}: nearest access for {declaration!r} is not {expected}: re-review")
