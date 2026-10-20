@@ -7,9 +7,13 @@ on:
       - '.github/workflows/naxx-mature-five-f10-grimfeather-8daffda.yml'
       - 'src/Events/HallowsEndShadeOfTheHorseman.cpp'
       - 'src/Events/HallowsEndSoloFire.h'
+      - 'src/Events/HallowsEndSoloFireConfig.cpp'
       - 'tests/f10_s2_solo_fire_policy_tests.cpp'
       - 'tests/test_f10_hallows_end_solo_fire_s1.py'
       - 'tests/test_f10_hallows_end_solo_fire_s2.py'
+      - 'tests/test_f10_hallows_end_solo_fire_s2_config_marker.py'
+      - 'tests/f10_s2_config_marker_driver.cpp'
+      - 'tests/f10_s2_config_mgr_stub.cpp'
       - 'docs/research/F10-hallows-end-solo-fire-S1.md'
       - '.github/workflows/f10-s2-source-pin.yml'
       - 'src/Systems/BotRaidConsumables.cpp'
@@ -116,6 +120,7 @@ jobs:
           # Pinned-old-core-only cases may skip here; #56 has separate old/new C++ evidence.
           python3 -m unittest discover -s "$root/tests" -p 'test_f10_hallows_end_solo_fire_s1.py' -v
           python3 -m unittest discover -s "$root/tests" -p 'test_f10_hallows_end_solo_fire_s2.py' -v
+          F10_CORE_NEW="$(pwd)/acore" python3 -m unittest discover -s "$root/tests" -p 'test_f10_hallows_end_solo_fire_s2_config_marker.py' -v
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -I"$root/src/Systems" "$root/tests/hunter_ammo_selection.cpp" -o /tmp/naxx_mature_hunter_ammo_model
           /tmp/naxx_mature_hunter_ammo_model
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -I"$root/src/Events" "$root/tests/f10_s2_solo_fire_policy_tests.cpp" -o /tmp/naxx_mature_f10_policy
@@ -153,6 +158,8 @@ jobs:
           assert 'NaxxramasHunterAmmo::TopUpHunterAmmo(' in source
           shade_units = [x for x in commands if x["file"].endswith("/src/Events/HallowsEndShadeOfTheHorseman.cpp")]
           assert len(shade_units) == 1, f"Expected exactly one corrected Shade C++ unit: {len(shade_units)}"
+          config_units = [x for x in commands if x["file"].endswith("/src/Events/HallowsEndSoloFireConfig.cpp")]
+          assert len(config_units) == 1, f"Expected exactly one F10 config-reader C++ unit: {len(config_units)}"
           print("PASS: MC GFPP/Hunter shared unit and F10 Shade each in full CMake compilation")
           PY
       - name: Link one actual Worldserver containing all five candidates
@@ -166,8 +173,8 @@ jobs:
           nm -C --defined-only "$archive" > /tmp/naxx_mature_archive_symbols.txt
           nm -C --defined-only "$binary" > /tmp/naxx_mature_binary_symbols.txt
 
-          # Preserve the existing final-binary requirements, but report the
-          # exact absent feature instead of returning an unlabelled grep exit 1.
+          # Preserve the nine prior valid final-binary requirements, report
+          # missing definitions individually, and add four real F10 readers.
           failures=0
           check_marker() {
             local label="$1" kind="$2" file="$3" literal="$4"
@@ -197,8 +204,15 @@ jobs:
           check_marker "GFPP config runtime" binary-string "$binary" 'NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled'
           check_marker "F10 Shade archive definition" symbol /tmp/naxx_mature_archive_symbols.txt 'AddHallowsEndShadeOfTheHorsemanScripts()'
           check_marker "F10 Shade Worldserver definition" symbol /tmp/naxx_mature_binary_symbols.txt 'AddHallowsEndShadeOfTheHorsemanScripts()'
-          check_marker "F10 SoloFire Enabled runtime config" binary-string "$binary" 'NaxxramasCore.HallowsEnd.SoloFire.Enabled'
-          check_marker "F10 SoloFire PeriodMultiplier runtime config" binary-string "$binary" 'NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier'
+          # GCC 13.3 -O3 constructs both config keys from noncontiguous
+          # constants. A raw binary grep for the full string is a false
+          # negative: verify the actual out-of-line config-reading functions
+          # (which call sConfigMgr->GetOption and parse the returned value)
+          # in both the archive and the final Worldserver instead.
+          check_marker "F10 Enabled reader archive definition" symbol /tmp/naxx_mature_archive_symbols.txt 'NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireEnabledSetting()'
+          check_marker "F10 Enabled reader Worldserver definition" symbol /tmp/naxx_mature_binary_symbols.txt 'NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireEnabledSetting()'
+          check_marker "F10 Multiplier reader archive definition" symbol /tmp/naxx_mature_archive_symbols.txt 'NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireMultiplierSetting()'
+          check_marker "F10 Multiplier reader Worldserver definition" symbol /tmp/naxx_mature_binary_symbols.txt 'NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireMultiplierSetting()'
 
           # Always include a binary fingerprint for a link that succeeded,
           # even when one registration check fails; this is NOT acceptance.

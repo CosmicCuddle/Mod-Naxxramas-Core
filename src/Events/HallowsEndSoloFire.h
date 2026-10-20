@@ -91,6 +91,13 @@ inline constexpr char MultiplierConfigKey[] =
 inline constexpr char DefaultEnabledRaw[] = "0";
 inline constexpr char DefaultMultiplierRaw[] = "3";
 
+/* Non-inline. HallowsEndSoloFireConfig.cpp reads the raw strings and
+ * applies EnabledFromRaw / MultiplierFromRaw. The Shade script calls
+ * these. They are the binary markers for the config read.
+ */
+int32_t ReadHallowsEndSoloFireEnabledSetting();
+std::optional<int32_t> ReadHallowsEndSoloFireMultiplierSetting();
+
 inline constexpr uint32_t FireAuraSpellId = 42074;
 inline constexpr uint8_t FireAuraEffectIndex = 0;
 inline constexpr int32_t MinAcceptedMultiplier = 1;

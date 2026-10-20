@@ -29,7 +29,6 @@
  */
 
 #include "CellImpl.h"
-#include "Config.h"
 #include "Containers.h"
 #include "CreatureScript.h"
 #include "GridNotifiers.h"
@@ -51,38 +50,11 @@
 #include <algorithm>
 #include <list>
 #include <optional>
-#include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace
 {
-    std::string ReadSoloFireConfigRaw(
-        char const* key,
-        char const* fallback)
-    {
-        return sConfigMgr->GetOption<std::string>(
-            key,
-            fallback,
-            false);
-    }
-
-    int32 ReadHallowsEndSoloFireEnabled()
-    {
-        return NaxxramasCore::HallowsEndSoloFire::EnabledFromRaw(
-            ReadSoloFireConfigRaw(
-                NaxxramasCore::HallowsEndSoloFire::EnabledConfigKey,
-                NaxxramasCore::HallowsEndSoloFire::DefaultEnabledRaw));
-    }
-
-    std::optional<int32> ReadHallowsEndSoloFireMultiplier()
-    {
-        return NaxxramasCore::HallowsEndSoloFire::MultiplierFromRaw(
-            ReadSoloFireConfigRaw(
-                NaxxramasCore::HallowsEndSoloFire::MultiplierConfigKey,
-                NaxxramasCore::HallowsEndSoloFire::DefaultMultiplierRaw));
-    }
-
     bool IsHallowsEndShadePlayerBot(Player* player)
     {
         if (!player)
@@ -499,7 +471,7 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
         std::list<Player*> const& players) const
     {
         return NaxxramasCore::HallowsEndSoloFire::SoloPathActive(
-            ReadHallowsEndSoloFireEnabled(),
+            NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireEnabledSetting(),
             CountRealHallowsPlayers(players));
     }
 
@@ -515,7 +487,7 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
 
     void PollSoloFires()
     {
-        if (ReadHallowsEndSoloFireEnabled() != 1)
+        if (NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireEnabledSetting() != 1)
         {
             DisarmSoloFireWatches();
             return;
@@ -531,8 +503,8 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
             return;
         }
 
-        std::optional<int32> multiplier =
-            ReadHallowsEndSoloFireMultiplier();
+        std::optional<int32_t> multiplier =
+            NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireMultiplierSetting();
 
         for (ObjectGuid const& guid : unitList)
         {
