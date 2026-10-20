@@ -6,6 +6,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from check_nt1_direct_learn_partial_failure import (  # noqa: E402
     SourceContractError, check_direct_learn_risk, model_sequential_learn,
+    git_blob_oid, verify_pinned_player_cpp_blob, PINNED_PLAYER_CPP_BLOBS,
 )
 
 CORE_FIXTURE = """
@@ -186,6 +187,42 @@ class NT1DirectLearnHazard(unittest.TestCase):
                         CORE_FIXTURE.replace(original, variant),
                         IMPORT_FIXTURE,
                     )
+
+    def test_exact_pinned_player_cpp_blob_guard_rejects_control_drift(self):
+        # The lexical checker can still accept this unbraced conditional.
+        # The production CLI must fingerprint the entire pinned Player.cpp
+        # before applying the narrower source contract to the risk.
+        original = "    addTalent(spellId, GetActiveSpecMask(), currentTalentRank);"
+        modified = CORE_FIXTURE.replace(
+            original, "    if (blocked) return;\n" + original)
+        self.assertTrue(check_direct_learn_risk(modified, IMPORT_FIXTURE))
+        for core_sha in PINNED_PLAYER_CPP_BLOBS:
+            with self.subTest(core_sha=core_sha):
+                with self.assertRaises(SourceContractError):
+                    verify_pinned_player_cpp_blob(modified, core_sha)
+                with self.assertRaises(SourceContractError):
+                    verify_pinned_player_cpp_blob(CORE_FIXTURE, core_sha)
+
+    def test_full_blob_fingerprint_changes_on_any_source_mutation(self):
+        original = git_blob_oid(CORE_FIXTURE)
+        for variant in (
+            CORE_FIXTURE + "// unrelated comment\n",
+            CORE_FIXTURE.replace("    learned = true;", "    learned = false;"),
+            CORE_FIXTURE.replace(
+                "    addTalent(spellId, GetActiveSpecMask(), currentTalentRank);",
+                "    goto missing_label;\n    "
+                "addTalent(spellId, GetActiveSpecMask(), currentTalentRank);"),
+            CORE_FIXTURE.replace(
+                "    addTalent(spellId, GetActiveSpecMask(), currentTalentRank);",
+                "    throw 1;\n    "
+                "addTalent(spellId, GetActiveSpecMask(), currentTalentRank);"),
+        ):
+            with self.subTest(variant=variant[-65:]):
+                self.assertNotEqual(git_blob_oid(variant), original)
+
+    def test_unknown_reference_denied_before_source_contract(self):
+        with self.assertRaises(SourceContractError):
+            verify_pinned_player_cpp_blob(CORE_FIXTURE, "unreviewed-or-mixed-pin")
 
     def test_changed_importer_sequence_fails_closed(self):
         with self.assertRaises(SourceContractError):
