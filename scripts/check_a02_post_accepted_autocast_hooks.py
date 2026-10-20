@@ -9,6 +9,7 @@ No networking, database, spell, pet, item, or character writes are done.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 from pathlib import Path
 
@@ -111,17 +112,101 @@ def check_accepted_autocast_paths(pet_handler: str, pet_script: str,
     }
 
 
+# Independent CS02 review identified another pair of actual post-validation
+# write sites. Both files are IDENTICAL across these two pinned Grimfeather
+# source revisions; changing either file, even outside the method, requires
+# a new human source audit. Git SHA-1 here is content provenance, not trust.
+PINNED_LOW_LEVEL_BLOBS = {
+    "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7": (
+        "8f81cb2af39e885cd34cd39f04abe0a84053224b",
+        "63b9b97fe8f31c0168edeeb47f8922676002527f",
+    ),
+    "8daffdabe9202c228e45d833c9a1d399597a15cd": (
+        "8f81cb2af39e885cd34cd39f04abe0a84053224b",
+        "63b9b97fe8f31c0168edeeb47f8922676002527f",
+    ),
+}
+
+
+def git_blob_oid(text: str) -> str:
+    data = text.encode("utf-8")
+    return hashlib.sha1(
+        f"blob {len(data)}\0".encode("ascii") + data
+    ).hexdigest()
+
+
+def check_low_level_autocast_no_script_hook(
+    pet_cpp: str, charm_cpp: str
+) -> dict[str, bool]:
+    """Confirm directly inspected Pet/Charm setters contain no script call.
+
+    Only the TWO named setters are checked for a script callback. More
+    layers may exist; do not claim a universal absence of all hooks.
+    """
+    toggle = body_of(pet_cpp, "void Pet::ToggleAutocast(")
+    action_bar = body_of(charm_cpp, "void CharmInfo::SetSpellAutocast(")
+    require(toggle, (
+        "spellInfo->IsAutocastable()",
+        "m_spells.find(spellInfo->Id)",
+        "m_autospells.push_back(spellInfo->Id);",
+        "m_autospells.erase(autospellItr);",
+        "itr->second.active = ACT_ENABLED;",
+        "itr->second.active = ACT_DISABLED;",
+    ), "Pet::ToggleAutocast")
+    require(action_bar, (
+        "PetActionBar[i].GetAction()",
+        "PetActionBar[i].IsActionBarForSpell()",
+        "PetActionBar[i].SetType(state ? ACT_ENABLED : ACT_DISABLED);",
+    ), "CharmInfo::SetSpellAutocast")
+    for name, body in (
+        ("Pet::ToggleAutocast", toggle),
+        ("CharmInfo::SetSpellAutocast", action_bar),
+    ):
+        if re.search(r"\bsScriptMgr\b|\b(?:OnPet|OnPlayer)[A-Z][A-Za-z0-9_]*\s*\(", body):
+            raise SourceContractChanged(
+                f"{name} contains a possible post-write script callback; re-review")
+    return {
+        "pet_toggle_source_has_no_direct_script_callback": True,
+        "charm_actionbar_setter_has_no_direct_script_callback": True,
+        "universal_hook_absence_proven": False,
+    }
+
+
+def verify_pinned_low_level_blobs(
+    pet_cpp: str, charm_cpp: str, core_sha: str
+) -> tuple[str, str]:
+    expected = PINNED_LOW_LEVEL_BLOBS.get(core_sha)
+    if expected is None:
+        raise SourceContractChanged("Unreviewed core ref for low-level pet writes")
+    observed = (git_blob_oid(pet_cpp), git_blob_oid(charm_cpp))
+    if observed != expected:
+        raise SourceContractChanged(
+            "Pinned Pet.cpp/CharmInfo.cpp source drift; "
+            f"expected {expected}, got {observed}")
+    return observed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pet-handler", type=Path, required=True)
     parser.add_argument("--pet-script", type=Path, required=True)
     parser.add_argument("--player-cpp", type=Path, required=True)
+    parser.add_argument("--pet-cpp", type=Path, required=True)
+    parser.add_argument("--charm-cpp", type=Path, required=True)
     parser.add_argument("--core-sha", required=True)
     args = parser.parse_args()
     facts = check_accepted_autocast_paths(
         args.pet_handler.read_text(encoding="utf-8"),
         args.pet_script.read_text(encoding="utf-8"),
         args.player_cpp.read_text(encoding="utf-8"))
+    pet_cpp = args.pet_cpp.read_text(encoding="utf-8")
+    charm_cpp = args.charm_cpp.read_text(encoding="utf-8")
+    pinned_blobs = verify_pinned_low_level_blobs(
+        pet_cpp, charm_cpp, args.core_sha)
+    low_level_facts = check_low_level_autocast_no_script_hook(pet_cpp, charm_cpp)
+    print("PINNED PET / CHARM SOURCES:", *pinned_blobs)
+    for key, value in low_level_facts.items():
+        print(" ", f"{key}={str(value).lower()}")
     print("PINNED A02 ACCEPTED-CHOICE HOOK HAZARD:", args.core_sha)
     for key, value in facts.items():
         print(" ", f"{key}={str(value).lower()}")
