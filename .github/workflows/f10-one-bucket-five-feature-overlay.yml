@@ -187,6 +187,15 @@ jobs:
           test -s "$F10_PLAYERBOTS_H"
           test -s "$F10_CORE_OLD/src/server/scripts/Events/hallows_end.cpp"
           test -s "$F10_CORE_OLD/data/sql/base/db_world/quest_template.sql"
+          # Verify the gate itself catches Python's ordinary OK (skipped=N)
+          # summary even when the SkipTest reason contains no digits.
+          deny_incomplete='skipped=[1-9][0-9]*|expected failures=[1-9][0-9]*|unexpected successes=[1-9][0-9]*'
+          printf '%s\n' 'Ran 3 tests in 0.001s' 'OK (skipped=2)' | grep -Eq "$deny_incomplete"
+          printf '%s\n' 'Ran 3 tests in 0.001s' 'OK (expected failures=1)' | grep -Eq "$deny_incomplete"
+          if printf '%s\n' 'Ran 3 tests in 0.001s' 'OK' | grep -Eq "$deny_incomplete"; then
+            echo "::error::Skip/expected failure guard rejected a clean test result"
+            exit 1
+          fi
           for pattern in \
             test_hunter_ammo_consumables.py \
             test_quest_loot_protection.py \
@@ -200,8 +209,8 @@ jobs:
             logfile="/tmp/f10_overlay_$pattern.log"
             python3 -m unittest discover -s "$root/tests" -p "$pattern" -v \
               2>&1 | tee "$logfile"
-            if grep -Eq '(^|[[:space:]])(skipped=[1-9]|skipped .*[1-9])' "$logfile"; then
-              echo "::error::Source suite had skipped tests: $pattern"
+            if grep -Eq "$deny_incomplete" "$logfile"; then
+              echo "::error::Source suite incomplete (skipped or expected/unexpected failure): $pattern"
               exit 1
             fi
             if grep -Fq 'Ran 0 tests' "$logfile"; then
