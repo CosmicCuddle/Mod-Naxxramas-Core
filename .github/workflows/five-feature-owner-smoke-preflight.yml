@@ -11,9 +11,10 @@ on:
       - 'src/Systems/BotRaidConsumables.cpp'
       - 'src/Systems/QuestLootProtection.cpp'
       - 'data/sql/db-world/2026_09_21_00_event_script_overrides.sql'
-      # Any new character DB migration could bypass a promised manual approval.
-      - 'data/sql/db-characters/**'
-      - 'data/sql/db_characters/**'
+      # Pinned UpdateFetcher scans ANY module data/sql/*characters* child,
+      # recursively. Watch the WHOLE SQL tree, not just two folder names.
+      # This must rerun for previously unseen db-characters-* prefixes.
+      - 'data/sql/**'
       - 'docs/install/*hunter*autocast*.sql'
       - 'docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql'
       - 'docs/rollback/2026_10_13_00_ep_tower_lock_module_unbind.sql'
