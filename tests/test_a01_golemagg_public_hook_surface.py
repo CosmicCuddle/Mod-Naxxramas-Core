@@ -58,6 +58,32 @@ class HookSurfaceEvidence(unittest.TestCase):
         with self.assertRaises(SourceSurfaceChanged):
             check_public_movement_surface(changed)
 
+    def test_inserted_public_labels_between_guard_and_member_fail_closed(self):
+        # CS02 review: rfind(protected:) missed a *closer* public: label.
+        cases = (
+            ("playerbot", "    Engine* currentEngine;",
+             "public:\n    Engine* currentEngine;"),
+            ("playerbot", "    Engine* engines[BOT_STATE_MAX];",
+             "public:\n    Engine* engines[BOT_STATE_MAX];"),
+            ("context", "    NamedObjectContextList<Strategy> strategyContexts;",
+             "public:\n    NamedObjectContextList<Strategy> strategyContexts;"),
+            ("context", "    static SharedNamedObjectContextList<Strategy> sharedStrategyContexts;",
+             "public:\n    static SharedNamedObjectContextList<Strategy> sharedStrategyContexts;"),
+        )
+        for key, needle, replacement in cases:
+            with self.subTest(member=needle):
+                changed = dict(FIXTURE)
+                changed[key] = changed[key].replace(needle, replacement)
+                with self.assertRaises(SourceSurfaceChanged):
+                    check_public_movement_surface(changed)
+
+    def test_strategy_selector_changed_to_protected_fails_closed(self):
+        changed = dict(FIXTURE)
+        changed["playerbot"] = changed["playerbot"].replace(
+            "    void ChangeStrategy", "protected:\n    void ChangeStrategy")
+        with self.assertRaises(SourceSurfaceChanged):
+            check_public_movement_surface(changed)
+
     def test_movement_handler_veto_signature_change_requires_new_review(self):
         changed = dict(FIXTURE)
         changed["movement"] = changed["movement"].replace(
