@@ -70,9 +70,14 @@ def check_direct_learn_risk(player_cpp: str, bot_cpp: str) -> dict[str, bool]:
     # an unambiguous statement/block boundary and require re-review for
     # any alternate multi-line expression or control-flow form.
     prefix = learn[:matches[0].start()].rstrip()
-    if not prefix or prefix[-1] not in ";{}":
+    # Both pinned Player.cpp versions end the directly preceding statement
+    # with ';' before the standalone addTalent call. A closing brace is NOT
+    # an acceptable boundary: inserted fully balanced if/while/try blocks
+    # can change the conditions under which the mutation is reached even
+    # though the earlier nesting-depth check still returns zero.
+    if not prefix or prefix[-1] != ";":
         raise SourceContractError(
-            "LearnTalent addTalent call lacks a standalone statement boundary: re-review")
+            "LearnTalent addTalent call does not follow the pinned statement boundary: re-review")
 
     # function_body() returns the INTERIOR of LearnTalent, excluding its
     # enclosing braces. At the pinned direct call, every prior nested
