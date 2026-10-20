@@ -63,6 +63,7 @@ jobs:
             src/server/game/Spells/Auras/SpellAuraEffects.h
             src/server/game/Spells/Auras/SpellAuraEffects.cpp
             src/server/game/Spells/Auras/SpellAuras.h
+            src/server/game/Spells/Auras/SpellAuras.cpp
             src/server/game/Scripting/ScriptDefines/AllSpellScript.h
             src/server/game/Scripting/ScriptDefines/AllSpellScript.cpp
             src/server/game/Entities/Unit/Unit.h
@@ -119,6 +120,7 @@ jobs:
             src/Events/HallowsEndSoloFire.h \
             src/Events/HallowsEndSoloFireConfig.cpp \
             tests/f10_s2_one_bucket_policy_tests.cpp \
+            tests/test_f10_hallows_end_solo_fire_s2.py \
             tests/test_f10_hallows_end_one_bucket_s2.py \
             docs/research/F10-hallows-end-one-bucket-S2.md \
             .github/workflows/f10-s2-one-bucket.yml
@@ -156,6 +158,14 @@ jobs:
           assert "new spell_naxxramas_hallows_end_one_bucket();" in shade
           assert "RemoveAurasDueToSpell(FireAuraSpellId)" in shade
           assert "ReadOneBucketCaster" in shade
+          # PR #71 updates the existing S2 regression contract to allow the
+          # third default-OFF one-bucket config reader and second S2 workflow;
+          # the original #66 test intentionally expects exactly TWO readers
+          # and ONE S2 workflow, and would false-fail on this reviewed addition.
+          updated_s2 = (root / "tests/test_f10_hallows_end_solo_fire_s2.py").read_text()
+          assert 'CONFIG_CPP.count("GetOption<std::string>"), 3' in updated_s2
+          assert 'self.assertIn("f10-s2-one-bucket.yml", names)' in updated_s2
+          print("PASS: exact reviewed #71 S2 test supersedes obsolete #66 two-reader contract.")
           loader = (root / "src/NaxxramasCore_loader.cpp").read_text()
           assert loader.count("AddHallowsEndShadeOfTheHorsemanScripts();") == 2
           print("PASS: runtime files exactly donor; legacy five flags remain OFF; new bucket also OFF.")
