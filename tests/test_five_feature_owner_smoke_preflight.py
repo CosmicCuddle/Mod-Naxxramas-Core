@@ -26,6 +26,28 @@ FLAGS = (
     "NaxxramasCore.HallowsEnd.SoloFire.Enabled",
 )
 
+def invalid_sql_statements_in_code_fences(markdown: str) -> list[str]:
+    """Inspect only executable SQL code fences; ignore prose and case.
+
+    README references to CREATE TABLE are explanatory, not commands. A future
+    operator guide may not quietly include mutating SQL in its SELECT section.
+    """
+    fences = re.findall(r"(?ms)^\x60\x60\x60sql[ \t]*\n(.*?)^\x60\x60\x60[ \t]*$", markdown)
+    forbidden = re.compile(
+        r"\b(?:INSERT|UPDATE|DELETE|DROP|TRUNCATE|CREATE|ALTER|REPLACE)\b",
+        re.IGNORECASE,
+    )
+    matches = []
+    for fence in fences:
+        sql = "\n".join(
+            line for line in fence.splitlines()
+            if not line.lstrip().startswith("--")
+        )
+        if forbidden.search(sql):
+            matches.append(sql)
+    return matches
+
+
 AUTOCACHE_TABLE_NAME = "mod_naxxramas_hunter_pet_autocast"
 
 
@@ -104,8 +126,27 @@ class ReadOnlyFiveFeaturePreflight(unittest.TestCase):
     def test_doc_has_read_only_queries_and_no_mutating_sql(self):
         self.assertIn("SELECT `entry`, `ScriptName`", DOC)
         self.assertIn("SELECT `TypeId`, `ScriptName`", DOC)
-        for forbidden in ("DELETE FROM", "DROP TABLE", "TRUNCATE TABLE", "INSERT INTO", "UPDATE `"):
-            self.assertNotIn(forbidden, DOC)
+        self.assertIn("SELECT", DOC)
+        self.assertEqual(invalid_sql_statements_in_code_fences(DOC), [])
+
+    def test_read_only_sql_guard_rejects_mixed_case_mutations(self):
+        for sql in (
+            "delete from pet_spell;",
+            "UPDATE `character_pet` SET `name` = 'x';",
+            "Insert Into bag VALUES (1);",
+            "CREATE table new_cache (id int);",
+            "drop TABLE cache;",
+        ):
+            with self.subTest(sql=sql):
+                sample = "```sql\n" + sql + "\n```\n"
+                self.assertNotEqual(
+                    invalid_sql_statements_in_code_fences(sample), [])
+
+    def test_read_only_sql_guard_ignores_explanatory_text(self):
+        sample = ("Discussion of CREATE TABLE and DELETE FROM is prose.\n"
+                  "```sql\n-- Do not run INSERT; read only\n"
+                  "select entry, ScriptName from creature_template;\n```\n")
+        self.assertEqual(invalid_sql_statements_in_code_fences(sample), [])
 
     def test_unapproved_hunter_cache_schema_not_automatically_discoverable(self):
         self.assertEqual(
