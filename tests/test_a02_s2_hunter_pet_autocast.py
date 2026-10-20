@@ -188,8 +188,10 @@ class HunterPetAutocastRestoreTests(unittest.TestCase):
     def test_no_new_sql_under_the_module(self):
         sql_root = ROOT / "data" / "sql"
         self.assertTrue(sql_root.is_dir())
+        # S4 adds its own characters table. S2's translation unit still has no SQL.
+        allowed = {"2026_10_20_00_hunter_pet_autocast_cache.sql"}
         for path in sql_root.rglob("*"):
-            if path.suffix == ".sql" and "autocast" in path.name.lower():
+            if path.suffix == ".sql" and "autocast" in path.name.lower() and path.name not in allowed:
                 self.fail(path.name)
 
     def test_workflow_reads_contents_and_does_not_upload(self):

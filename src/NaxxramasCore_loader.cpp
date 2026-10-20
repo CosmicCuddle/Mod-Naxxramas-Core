@@ -48,6 +48,7 @@ void AddMeetingStoneProgressionScripts();
 void AddBattlemasterQueueProgressionScripts();
 void AddNaxxramasEasternPlaguelandsTowerLockScripts();
 void AddHunterPetAutocastRestoreScripts();
+void AddHunterPetAutocastCacheScripts();
 
 void Addmod_naxxramas_coreScripts()
 {
@@ -94,4 +95,5 @@ void Addmod_naxxramas_coreScripts()
     AddBattlemasterQueueProgressionScripts();
     AddNaxxramasEasternPlaguelandsTowerLockScripts();
     AddHunterPetAutocastRestoreScripts();
+    AddHunterPetAutocastCacheScripts();
 }

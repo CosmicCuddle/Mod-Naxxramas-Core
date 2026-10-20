@@ -271,3 +271,53 @@ NaxxramasCore.BattlegroundQueue.ClassicMode.ExemptPlayerbots = 1
 # 1 = experimental hooks only; functional ON restore stays closed
 # Default: 0
 NaxxramasCore.HunterPetAutocastRestore.Enabled = 0
+
+#####################################
+# Hunter pet autocast cache
+#####################################
+
+# Separate from HunterPetAutocastRestore. Default off. Does nothing until
+# set to 1 AND the characters SQL file
+# data/sql/db-characters/2026_10_20_00_hunter_pet_autocast_cache.sql
+# has been backed up and applied by the owner. This module does not apply it.
+#
+# On hunter-pet load the module snapshots autocast by pet number and the
+# first spell in the chain: its own cache table, else characters.pet_spell
+# (spell, active), else the charm bar. It then re-applies that snapshot for
+# 3 seconds so it still wins if Individual Progression resets the rank up to
+# 2.2 seconds later. Chains that were not in the snapshot are new. Damage
+# chains on the list below are turned on. Utility chains are never written.
+# There is no migration: a pet whose saved book is already off stays off.
+#
+# 0 = do nothing (default)
+# 1 = snapshot and re-apply for human hunters
+# Default: 0
+NaxxramasCore.HunterPet.AutocastCache.Enabled = 0
+
+# Account names that match are skipped, same idea as
+# IndividualProgression.BotAccountsRegex (IPSpells.cpp bot return).
+# No Playerbots dependency. Empty or invalid fails closed (no restore).
+# Default: ^RNDBOT.*
+NaxxramasCore.HunterPet.AutocastCache.BotAccountsRegex = "^RNDBOT.*"
+
+# First-rank spell ids turned ON when the chain is new (tame, new ability).
+# A chain already in the snapshot keeps the saved on/off bit instead.
+# Comma-separated. An empty value turns the allowlist off.
+# Screech and Demoralizing Screech are 24423. Pummel is 26090.
+# Default: the 3.3.5a damage list below
+NaxxramasCore.HunterPet.AutocastCache.DamageSpellIds = "17253,16827,49966,24844,34889,24640,35387,24423,55749,35290,50518,56626,50274,50271,50245,54680,50498,57386,50541,50519,50256,54706,54644,61193,50285,26090"
+
+# First-rank ids the module never writes, even if they are also listed above.
+# Growl, Cower, Dash, Dive, Charge, Prowl, Shell Shield, Roar of Recovery,
+# Roar of Sacrifice, Rabid, Intervene, Last Stand, Heart of the Phoenix,
+# Call of the Wild, Taunt, Thunderstomp (26094), Warp.
+# Default: the utility list below
+NaxxramasCore.HunterPet.AutocastCache.UtilitySpellIds = "2649,1742,61684,23145,61685,24450,26064,53517,53480,53401,53476,53478,55709,53434,53477,26094,35346"
+
+# Optional first ranks. Empty by default, so a NEW chain is not turned on.
+# A saved on/off already in the snapshot is still restored.
+# Owner judgement, out by default: Furious Howl 24604, Wolverine Bite 53508,
+# Web 4167, Lava Breath 58604. Bad Manner has no 3.3.5a id. Bad Attitude
+# (crocolisk) is 50433 and is not included.
+# Default: empty
+NaxxramasCore.HunterPet.AutocastCache.OptionalSpellIds = ""
