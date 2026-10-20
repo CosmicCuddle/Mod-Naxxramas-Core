@@ -223,28 +223,30 @@ class DesignDocContract(unittest.TestCase):
         self.assertIn(PROSPECTIVE, WORKFLOW)
 
 
-class ModuleDoesNotImplementOneBucket(unittest.TestCase):
-    def test_shade_has_no_bucket_handler_and_the_poll_does_not_clear(self):
+class ModuleOneBucketBoundaries(unittest.TestCase):
+    """S1 forbade an implementation. S2 adds the hook beside these boundaries."""
+
+    def test_shade_has_no_spellhit_override_and_the_poll_does_not_clear(self):
         self.assertNotIn("void SpellHit", SHADE)
-        self.assertNotIn("42339", SHADE)
-        self.assertNotIn("42348", SHADE)
-        self.assertNotIn("OnDummyEffect", SHADE)
-        self.assertNotIn("OneBucket", SHADE)
+        self.assertIn("ApplyHallowsEndOneBucket", SHADE)
+        self.assertIn("ALLSPELLHOOK_ON_DUMMY_EFFECT_CREATURE", SHADE)
         poll = between(SHADE, "void PollSoloFires()", "void CastFires(")
         self.assertNotIn("RemoveAllAuras", poll)
         self.assertNotIn("SetAmount", poll)
+        self.assertNotIn("42339", poll)
+        self.assertNotIn("42348", poll)
         self.assertIn("SetPeriodicTimer", poll)
 
-    def test_sql_and_config_do_not_grow_a_one_bucket_switch(self):
+    def test_sql_does_not_bind_the_bucket_and_the_key_defaults_off(self):
         self.assertNotIn("23686", SQL)
         self.assertNotIn("42339", SQL)
         self.assertNotIn("42348", SQL)
         self.assertNotIn("42074", SQL)
         self.assertIn("npc_naxxramas_hallows_end_soh", SQL)
-        self.assertNotIn("OneBucket", CONF)
+        self.assertIn("NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 0", CONF)
         self.assertIn("NaxxramasCore.HallowsEnd.SoloFire.Enabled = 0", CONF)
-        self.assertNotIn("OnDummyEffect", HEADER)
-        self.assertNotIn("42339", HEADER)
+        self.assertIn("BucketLandSpellId = 42339", HEADER)
+        self.assertNotIn("RemoveAurasDueToSpell", HEADER)
 
 
 class AdversarialModel(unittest.TestCase):

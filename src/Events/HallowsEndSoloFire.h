@@ -4,7 +4,8 @@
  * Pure decisions for the module Shade AI. This header does not include
  * AzerothCore types and does not cast, extinguish, or resize anything.
  * HallowsEndShadeOfTheHorseman.cpp is the only caller that may write a
- * live aura timer or an object scale, and only when a decision here says so.
+ * live aura timer, an object scale, or remove spell 42074, and only when
+ * a decision here says so. DecideOneBucket does not itself remove an aura.
  *
  * Provenance, read from Grimfeather/azerothcore-wotlk (not upstream):
  *   pinned core       a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
@@ -88,18 +89,28 @@ inline constexpr char EnabledConfigKey[] =
     "NaxxramasCore.HallowsEnd.SoloFire.Enabled";
 inline constexpr char MultiplierConfigKey[] =
     "NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier";
+inline constexpr char OneBucketConfigKey[] =
+    "NaxxramasCore.HallowsEnd.SoloFire.OneBucket";
 inline constexpr char DefaultEnabledRaw[] = "0";
 inline constexpr char DefaultMultiplierRaw[] = "3";
+inline constexpr char DefaultOneBucketRaw[] = "0";
 
 /* Non-inline. HallowsEndSoloFireConfig.cpp reads the raw strings and
- * applies EnabledFromRaw / MultiplierFromRaw. The Shade script calls
- * these. They are the binary markers for the config read.
+ * applies EnabledFromRaw / MultiplierFromRaw / OneBucketFromRaw. The
+ * Shade script calls these. They are the binary markers for the config read.
  */
 int32_t ReadHallowsEndSoloFireEnabledSetting();
 std::optional<int32_t> ReadHallowsEndSoloFireMultiplierSetting();
+int32_t ReadHallowsEndSoloFireOneBucketSetting();
 
 inline constexpr uint32_t FireAuraSpellId = 42074;
 inline constexpr uint8_t FireAuraEffectIndex = 0;
+inline constexpr uint32_t BucketLandSpellId = 42339;
+inline constexpr uint32_t WaterSplashSpellId = 42348;
+inline constexpr uint8_t BucketLandEffectIndex = 0;
+inline constexpr uint32_t FireTriggerEntry = 23686;
+inline constexpr uint32_t TrainingFireEntry = 23537;
+inline constexpr uint32_t ShadeEntry = 23543;
 inline constexpr int32_t MinAcceptedMultiplier = 1;
 inline constexpr int32_t MaxAcceptedMultiplier = 8;
 inline constexpr int32_t MinWritableMultiplier = 2;
@@ -163,6 +174,18 @@ inline std::optional<int32_t> ParseStrictInt(std::string_view raw)
  * missing-key default of "0", is off. Values are not clamped.
  */
 inline int32_t EnabledFromRaw(std::string_view raw)
+{
+    std::optional<int32_t> parsed = ParseStrictInt(raw);
+    if (!parsed || *parsed != 1)
+        return 0;
+    return 1;
+}
+
+/* Exactly 1 arms the one-bucket hook. Every other token, including the
+ * missing-key default of "0", is off. Values are not clamped. The solo
+ * Enabled switch is a separate gate and is not implied by this one.
+ */
+inline int32_t OneBucketFromRaw(std::string_view raw)
 {
     std::optional<int32_t> parsed = ParseStrictInt(raw);
     if (!parsed || *parsed != 1)
@@ -382,6 +405,87 @@ inline WatchState DisarmWatch(WatchState watch)
     watch.edgeArmed = false;
     watch.lastTick = 0;
     return watch;
+}
+
+/* Accepted 42339 hit on one burning normal fire. Amount is not an input.
+ * removeFireAura is the only action. The caller removes spell 42074 and
+ * does not cast, credit, or clear any other aura or creature.
+ */
+enum class OneBucketReason : uint8_t
+{
+    RemoveFireAura = 0,
+    MissOrCancel,
+    WrongSpell,
+    WrongEffect,
+    WrongTarget,
+    OneBucketOff,
+    SoloEnabledOff,
+    NotPlayer,
+    BotCaster,
+    FireAuraAbsent,
+    ShadeCount,
+    Census
+};
+
+struct OneBucketFacts
+{
+    bool hitAccepted = false;
+    uint32_t spellId = 0;
+    uint8_t effectIndex = 0;
+    uint32_t targetEntry = 0;
+    bool targetHasFireAura = false;
+    int32_t oneBucket = 0;
+    int32_t soloEnabled = 0;
+    bool casterIsPlayer = false;
+    bool casterIsBot = false;
+    bool casterInCensus = false;
+    uint32_t realPlayersInCensus = 0;
+    uint32_t activeBurningShadeCount = 0;
+};
+
+struct OneBucketDecision
+{
+    OneBucketReason reason = OneBucketReason::MissOrCancel;
+    bool removeFireAura = false;
+};
+
+inline OneBucketDecision DecideOneBucket(OneBucketFacts const& facts)
+{
+    OneBucketDecision decision;
+
+    auto refuse = [&](OneBucketReason reason)
+    {
+        decision.reason = reason;
+        decision.removeFireAura = false;
+        return decision;
+    };
+
+    if (!facts.hitAccepted)
+        return refuse(OneBucketReason::MissOrCancel);
+    if (facts.spellId != BucketLandSpellId)
+        return refuse(OneBucketReason::WrongSpell);
+    if (facts.effectIndex != BucketLandEffectIndex)
+        return refuse(OneBucketReason::WrongEffect);
+    if (facts.targetEntry != FireTriggerEntry)
+        return refuse(OneBucketReason::WrongTarget);
+    if (facts.oneBucket != 1)
+        return refuse(OneBucketReason::OneBucketOff);
+    if (facts.soloEnabled != 1)
+        return refuse(OneBucketReason::SoloEnabledOff);
+    if (!facts.casterIsPlayer)
+        return refuse(OneBucketReason::NotPlayer);
+    if (facts.casterIsBot)
+        return refuse(OneBucketReason::BotCaster);
+    if (!facts.targetHasFireAura)
+        return refuse(OneBucketReason::FireAuraAbsent);
+    if (facts.activeBurningShadeCount != 1)
+        return refuse(OneBucketReason::ShadeCount);
+    if (!facts.casterInCensus || facts.realPlayersInCensus != 1)
+        return refuse(OneBucketReason::Census);
+
+    decision.reason = OneBucketReason::RemoveFireAura;
+    decision.removeFireAura = true;
+    return decision;
 }
 }
 

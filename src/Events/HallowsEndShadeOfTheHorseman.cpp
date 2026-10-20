@@ -23,6 +23,15 @@
  *     that finds no 42074 effect on a known trigger drops that watch.
  *     The poll does not cast a splash and does not remove the fire aura.
  *
+ * Optional one-bucket path (default off):
+ *     With both SoloFire.Enabled and SoloFire.OneBucket equal to 1,
+ *     an accepted spell 42339 effect 0 hit on fire trigger 23686 may
+ *     remove aura 42074 from that trigger only. The thrower has to be
+ *     the sole real player in the owning Shade's 60 yard census. The
+ *     Shade has to have entered the fire cycle and still be
+ *     non-attackable, and exactly one such Shade may own the trigger.
+ *     The hook does not cast 42348 and does not remove any other aura.
+ *
  * All other Shade of the Horseman behaviour is preserved
  * from the server's existing Hallow's End script when the option is off,
  * when no real player is nearby, or when two or more real players are nearby.
@@ -33,10 +42,12 @@
 #include "CreatureScript.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "AllSpellScript.h"
 #include "HallowsEndSoloFire.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptedCreature.h"
+#include "SharedDefines.h"
 #include "SpellAuraEffects.h"
 #include "TaskScheduler.h"
 
@@ -100,6 +111,7 @@ enum NaxxramasHallowsEndShade
     SPELL_HORSEMAN_CLEAVE               = 42587,
 
     // NPCs
+    NPC_SHADE_OF_HORSEMAN               = 23543,
     NPC_FIRE_TRIGGER                    = 23686,
 
     // Talks
@@ -119,6 +131,7 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
     {
         pos = 0;
         counter = 0;
+        fireCycleStarted = false;
         unitList.clear();
 
         me->CastSpell(
@@ -136,6 +149,7 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
 
     uint32 playerCount;
     uint32 counter;
+    bool fireCycleStarted;
 
     GuidList unitList;
 
@@ -245,6 +259,7 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
     void Reset() override
     {
         playerCount = 0;
+        fireCycleStarted = false;
 
         soloFireWatches.clear();
 
@@ -317,6 +332,8 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
 
             case 2:
             {
+                fireCycleStarted = true;
+
                 CastFires(true);
 
                 break;
@@ -324,6 +341,8 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
 
             case 3:
             {
+                fireCycleStarted = true;
+
                 bool checkBurningTriggers = false;
 
                 for (ObjectGuid const& guid : unitList)
@@ -465,6 +484,30 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
             me,
             searcher,
             60.0f);
+    }
+
+    /* Stock Reset sets UNIT_FLAG_NON_ATTACKABLE before any fire is cast
+     * (hallows_end.cpp:686-692 at both pinned cores). Event 2 and event 3
+     * are the fire cycle (hallows_end.cpp:719-722 and :724). Event 4
+     * clears the flag when combat starts (hallows_end.cpp:769-771).
+     * FinishEvent ends the burning phase (hallows_end.cpp:842).
+     * The flag alone is not the burning signal.
+     */
+    bool OneBucketFirePhaseActive() const
+    {
+        return fireCycleStarted &&
+            me->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
+    }
+
+    bool OwnsFireTrigger(ObjectGuid const& guid) const
+    {
+        for (ObjectGuid const& listed : unitList)
+        {
+            if (listed == guid)
+                return true;
+        }
+
+        return false;
     }
 
     bool SoloFirePathActive(
@@ -665,6 +708,8 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
 
     void FinishEvent(bool failed)
     {
+        fireCycleStarted = false;
+
         if (failed)
         {
             Talk(
@@ -790,8 +835,176 @@ struct npc_naxxramas_hallows_end_soh : public ScriptedAI
     }
 };
 
+namespace
+{
+    static_assert(EFFECT_0 == 0, "42339 dummy effect index");
+    static_assert(
+        static_cast<uint8_t>(EFFECT_0) ==
+        NaxxramasCore::HallowsEndSoloFire::BucketLandEffectIndex);
+
+    struct OneBucketOwnerCensus
+    {
+        uint32 activeBurningShadeCount = 0;
+        bool casterInCensus = false;
+        uint32 realPlayersInCensus = 0;
+    };
+
+    /* 100 yards matches the Shade Reset scan that builds unitList
+     * (this file and hallows_end.cpp:680). A Shade outside that radius
+     * is not treated as an owner.
+     */
+    OneBucketOwnerCensus CollectOneBucketOwnerCensus(
+        Creature* fire,
+        Player* caster)
+    {
+        OneBucketOwnerCensus census;
+
+        std::list<Creature*> shades;
+
+        fire->GetCreaturesWithEntryInRange(
+            shades,
+            100.0f,
+            NPC_SHADE_OF_HORSEMAN);
+
+        npc_naxxramas_hallows_end_soh* sole = nullptr;
+
+        for (Creature* shade : shades)
+        {
+            if (!shade || !shade->IsAlive())
+                continue;
+
+            auto* ai = dynamic_cast<npc_naxxramas_hallows_end_soh*>(
+                shade->AI());
+
+            if (!ai || !ai->OneBucketFirePhaseActive())
+                continue;
+
+            if (!ai->OwnsFireTrigger(fire->GetGUID()))
+                continue;
+
+            ++census.activeBurningShadeCount;
+            sole = ai;
+        }
+
+        if (census.activeBurningShadeCount != 1 || !sole || !caster)
+            return census;
+
+        std::list<Player*> players;
+
+        sole->CollectNearbyHallowsPlayers(players);
+
+        census.realPlayersInCensus = CountRealHallowsPlayers(players);
+
+        ObjectGuid guid = caster->GetGUID();
+
+        for (Player* player : players)
+        {
+            if (player && player->GetGUID() == guid)
+            {
+                census.casterInCensus = true;
+                break;
+            }
+        }
+
+        return census;
+    }
+
+    /* Called only from AllSpellScript::OnDummyEffect for a creature.
+     * That callback runs after the stock bucket script, on a validated
+     * hit (SpellEffects.cpp:694-695 and :798-800). A miss or a cancel
+     * does not enter here. 42074 is read before any removal. The only
+     * write is RemoveAurasDueToSpell(42074) on this creature.
+     */
+    void ApplyHallowsEndOneBucket(
+        WorldObject* caster,
+        uint32 spellId,
+        SpellEffIndex effIndex,
+        Creature* target)
+    {
+        using namespace NaxxramasCore::HallowsEndSoloFire;
+
+        if (!target)
+            return;
+
+        /* Wrong spell, effect, or creature never reads config and never
+         * searches. DecideOneBucket refuses those inputs the same way.
+         */
+        if (spellId != BucketLandSpellId ||
+            static_cast<uint8_t>(effIndex) != BucketLandEffectIndex ||
+            target->GetEntry() != FireTriggerEntry)
+            return;
+
+        OneBucketFacts facts;
+        facts.hitAccepted = true;
+        facts.spellId = spellId;
+        facts.effectIndex = static_cast<uint8_t>(effIndex);
+        facts.targetEntry = target->GetEntry();
+        facts.oneBucket =
+            NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireOneBucketSetting();
+        facts.soloEnabled =
+            NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireEnabledSetting();
+
+        Player* player = caster ? caster->ToPlayer() : nullptr;
+        facts.casterIsPlayer = player != nullptr;
+        facts.casterIsBot = IsHallowsEndShadePlayerBot(player);
+        facts.targetHasFireAura = target->HasAura(FireAuraSpellId);
+
+        bool const cheapGates =
+            facts.spellId == BucketLandSpellId &&
+            facts.effectIndex == BucketLandEffectIndex &&
+            facts.targetEntry == FireTriggerEntry &&
+            facts.oneBucket == 1 &&
+            facts.soloEnabled == 1 &&
+            facts.casterIsPlayer &&
+            !facts.casterIsBot &&
+            facts.targetHasFireAura;
+
+        if (cheapGates)
+        {
+            OneBucketOwnerCensus census =
+                CollectOneBucketOwnerCensus(target, player);
+            facts.activeBurningShadeCount = census.activeBurningShadeCount;
+            facts.casterInCensus = census.casterInCensus;
+            facts.realPlayersInCensus = census.realPlayersInCensus;
+        }
+
+        OneBucketDecision decision = DecideOneBucket(facts);
+
+        if (!decision.removeFireAura)
+            return;
+
+        target->RemoveAurasDueToSpell(FireAuraSpellId);
+    }
+}
+
+class spell_naxxramas_hallows_end_one_bucket : public AllSpellScript
+{
+public:
+    spell_naxxramas_hallows_end_one_bucket()
+        : AllSpellScript(
+            "spell_naxxramas_hallows_end_one_bucket",
+            { ALLSPELLHOOK_ON_DUMMY_EFFECT_CREATURE })
+    {
+    }
+
+    void OnDummyEffect(
+        WorldObject* caster,
+        uint32 spellId,
+        SpellEffIndex effIndex,
+        Creature* creatureTarget) override
+    {
+        ApplyHallowsEndOneBucket(
+            caster,
+            spellId,
+            effIndex,
+            creatureTarget);
+    }
+};
+
 void AddHallowsEndShadeOfTheHorsemanScripts()
 {
     RegisterCreatureAI(
         npc_naxxramas_hallows_end_soh);
+
+    new spell_naxxramas_hallows_end_one_bucket();
 }
