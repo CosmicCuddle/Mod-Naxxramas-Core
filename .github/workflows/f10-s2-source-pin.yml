@@ -4,23 +4,32 @@ on:
     paths:
       - 'src/Events/HallowsEndShadeOfTheHorseman.cpp'
       - 'src/Events/HallowsEndSoloFire.h'
+      - 'src/Events/HallowsEndSoloFireConfig.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'docs/research/F10-hallows-end-solo-fire-S2.md'
       - 'tests/test_f10_hallows_end_solo_fire_s1.py'
       - 'tests/test_f10_hallows_end_solo_fire_s2.py'
+      - 'tests/test_f10_hallows_end_solo_fire_s2_config_marker.py'
       - 'tests/f10_s2_solo_fire_policy_tests.cpp'
+      - 'tests/f10_s2_config_marker_driver.cpp'
+      - 'tests/f10_s2_config_mgr_stub.cpp'
       - '.github/workflows/f10-s2-source-pin.yml'
   push:
     branches:
       - cs02/f10-s2-shade-module-2026-10-20
+      - cs02/f10-s2-config-marker-2026-10-20
     paths:
       - 'src/Events/HallowsEndShadeOfTheHorseman.cpp'
       - 'src/Events/HallowsEndSoloFire.h'
+      - 'src/Events/HallowsEndSoloFireConfig.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'docs/research/F10-hallows-end-solo-fire-S2.md'
       - 'tests/test_f10_hallows_end_solo_fire_s1.py'
       - 'tests/test_f10_hallows_end_solo_fire_s2.py'
+      - 'tests/test_f10_hallows_end_solo_fire_s2_config_marker.py'
       - 'tests/f10_s2_solo_fire_policy_tests.cpp'
+      - 'tests/f10_s2_config_marker_driver.cpp'
+      - 'tests/f10_s2_config_mgr_stub.cpp'
       - '.github/workflows/f10-s2-source-pin.yml'
 
 permissions:
@@ -30,7 +39,9 @@ jobs:
   pin-reviewed-sources:
     if: >
       (github.event_name == 'push' && github.ref == 'refs/heads/cs02/f10-s2-shade-module-2026-10-20') ||
-      (github.event_name == 'pull_request' && github.head_ref == 'cs02/f10-s2-shade-module-2026-10-20')
+      (github.event_name == 'push' && github.ref == 'refs/heads/cs02/f10-s2-config-marker-2026-10-20') ||
+      (github.event_name == 'pull_request' && github.head_ref == 'cs02/f10-s2-shade-module-2026-10-20') ||
+      (github.event_name == 'pull_request' && github.head_ref == 'cs02/f10-s2-config-marker-2026-10-20')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
