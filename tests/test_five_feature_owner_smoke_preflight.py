@@ -27,26 +27,56 @@ FLAGS = (
 )
 
 def invalid_sql_statements_in_code_fences(markdown: str) -> list[str]:
-    """Inspect only executable SQL code fences; ignore prose and case.
+    """Reject mutating statements in SQL or unlabeled Markdown code fences.
 
-    README references to CREATE TABLE are explanatory, not commands. A future
-    operator guide may not quietly include mutating SQL in its SELECT section.
+    The owner preflight must remain read-only. Accept case-insensitive SQL
+    info strings, indented fences, both fence markers and longer fences.
+    A dangling SQL/unlabeled fence fails closed instead of hiding its content.
+    Explanatory text outside a fence and SQL comment-only lines are ignored.
+    This deliberately conservative guard is not a general SQL parser.
     """
-    fences = re.findall(r"(?ms)^\x60\x60\x60sql[ \t]*\n(.*?)^\x60\x60\x60[ \t]*$", markdown)
     forbidden = re.compile(
         r"\b(?:INSERT|UPDATE|DELETE|DROP|TRUNCATE|CREATE|ALTER|REPLACE)\b",
         re.IGNORECASE,
     )
-    matches = []
-    for fence in fences:
-        sql = "\n".join(
-            line for line in fence.splitlines()
-            if not line.lstrip().startswith("--")
+    opener = re.compile(r"^[ \t]*(?P<fence>(?:\x60{3,}|~{3,}))[ \t]*(?P<info>[^\r\n]*)$")
+    matches: list[str] = []
+    lines = markdown.splitlines()
+    index = 0
+    while index < len(lines):
+        match = opener.fullmatch(lines[index])
+        if not match:
+            index += 1
+            continue
+        fence = match.group("fence")
+        info = match.group("info").strip()
+        language = info.split(None, 1)[0].lower() if info else ""
+        check = language in ("", "sql", "mysql", "mariadb")
+        # Closing fence must use the same marker and at least the opening
+        # number of repeated characters, with only optional whitespace.
+        closing = re.compile(
+            r"^[ \t]*" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$"
         )
-        if forbidden.search(sql):
+        index += 1
+        content: list[str] = []
+        closed = False
+        while index < len(lines):
+            if closing.fullmatch(lines[index]):
+                index += 1
+                closed = True
+                break
+            content.append(lines[index])
+            index += 1
+        if not check:
+            continue
+        sql = "\n".join(
+            line for line in content if not line.lstrip().startswith("--")
+        )
+        if not closed:
+            matches.append("UNTERMINATED SQL FENCE:\n" + sql)
+        elif forbidden.search(sql):
             matches.append(sql)
     return matches
-
 
 AUTOCACHE_TABLE_NAME = "mod_naxxramas_hunter_pet_autocast"
 
@@ -141,6 +171,36 @@ class ReadOnlyFiveFeaturePreflight(unittest.TestCase):
                 sample = "```sql\n" + sql + "\n```\n"
                 self.assertNotEqual(
                     invalid_sql_statements_in_code_fences(sample), [])
+
+    def test_sql_guard_rejects_alternate_fence_case_and_indentation(self):
+        for sample in (
+            "\x60\x60\x60SQL\nDELETE FROM pet_spell;\n\x60\x60\x60\n",
+            "\x60\x60\x60Sql\nCrEaTe table x (id INT);\n\x60\x60\x60\n",
+            "   \x60\x60\x60sql\nALTER TABLE pet_spell ADD a INT;\n   \x60\x60\x60\n",
+            "\t\x60\x60\x60MYSQL\nDROP TABLE x;\n\t\x60\x60\x60\n",
+            "  ~~~~mariadb\nTRUNCATE TABLE pet_spell;\n  ~~~~\n",
+            "\x60\x60\x60\x60SQL\nUPDATE pet_spell SET active = 1;\n\x60\x60\x60\x60\n",
+            "\x60\x60\x60\nINSERT INTO pet_spell VALUES (1);\n\x60\x60\x60\n",
+        ):
+            with self.subTest(sample=sample):
+                self.assertNotEqual(invalid_sql_statements_in_code_fences(sample), [])
+
+    def test_sql_guard_fails_closed_on_unterminated_sql_fence(self):
+        for sample in (
+            "\x60\x60\x60SQL\nSELECT * FROM character_pet;\n",
+            "  ~~~mysql\nSELECT * FROM pet_spell;\n",
+        ):
+            with self.subTest(sample=sample):
+                self.assertNotEqual(invalid_sql_statements_in_code_fences(sample), [])
+
+    def test_sql_guard_allows_case_variant_select_only_and_prose(self):
+        sample = (
+            "Explanation: CREATE TABLE and DROP are mentioned in prose.\n"
+            "  \x60\x60\x60SQL\n-- NEVER UPDATE pet_spell\n"
+            "select spell, active from pet_spell;\n  \x60\x60\x60\n"
+            "~~~mysql\n-- delete from cache\nSELECT id FROM character_pet;\n~~~\n"
+        )
+        self.assertEqual(invalid_sql_statements_in_code_fences(sample), [])
 
     def test_read_only_sql_guard_ignores_explanatory_text(self):
         sample = ("Discussion of CREATE TABLE and DELETE FROM is prose.\n"
