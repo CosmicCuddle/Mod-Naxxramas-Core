@@ -84,6 +84,23 @@ class HookSurfaceEvidence(unittest.TestCase):
         with self.assertRaises(SourceSurfaceChanged):
             check_public_movement_surface(changed)
 
+    def test_tab_indented_closer_public_labels_fail_closed(self):
+        # A literal "\\\\t" in a raw regex meant 'backslash or t', not TAB;
+        # verify actual TAB prefixes are visible to the access-label parser.
+        cases = (
+            ("playerbot", "    Engine* currentEngine;"),
+            ("playerbot", "    Engine* engines[BOT_STATE_MAX];"),
+            ("context", "    NamedObjectContextList<Strategy> strategyContexts;"),
+            ("context", "    static SharedNamedObjectContextList<Strategy> sharedStrategyContexts;"),
+        )
+        for source_name, original in cases:
+            with self.subTest(symbol=original):
+                changed = dict(FIXTURE)
+                changed[source_name] = changed[source_name].replace(
+                    original, "\tpublic:\n" + original)
+                with self.assertRaises(SourceSurfaceChanged):
+                    check_public_movement_surface(changed)
+
     def test_movement_handler_veto_signature_change_requires_new_review(self):
         changed = dict(FIXTURE)
         changed["movement"] = changed["movement"].replace(
