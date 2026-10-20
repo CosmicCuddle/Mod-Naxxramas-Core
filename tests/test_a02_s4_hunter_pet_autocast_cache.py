@@ -93,13 +93,13 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
             "OnPetAddToWorld",
             "OnInitStatsForLevel",
             "isBeingLoaded",
-            "ToggleAutocast(info, action.desiredOn)",
-            "SetSpellAutocast(info, action.desiredOn)",
+            "ToggleAutocast(info, target.desiredOn)",
+            "SetSpellAutocast(info, target.desiredOn)",
             "PetSpellInitialize",
             "PLAYERHOOK_ON_SAVE",
-            "ChooseLoadSnapshot",
-            "PlanApply",
-            "VerifiedCacheRows",
+            "DecideLoad",
+            "PlanReconcile",
+            "PlanCacheCommit",
             "AllowCacheWrite",
             "HUNTER_PET",
             "CLASS_HUNTER",
@@ -107,11 +107,21 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
             "CustomData.GetDefault<PetAutocastCacheCycle>",
             "std::atomic<bool> FeatureEnabled",
             "pet_spell",
+            "character_pet",
+            "information_schema.columns",
+            "BeginTransaction",
+            "CommitTransaction",
             "CacheTableName",
+            "CharmBarIsAuthoritativeSavedSpellbook",
+            "MayTouchDatabase",
         ):
             self.assertIn(needle, SOURCE, needle)
-        toggle_at = SOURCE.index("ToggleAutocast(info, action.desiredOn)")
-        bar_at = SOURCE.index("SetSpellAutocast(info, action.desiredOn)")
+        for needle in ("PlanApply", "VerifiedCacheRows", "DecideLoad", "AdvanceOrder"):
+            self.assertIn(needle, HEADER, needle)
+        self.assertNotIn("ReadCharm", SOURCE)
+        self.assertNotIn("ChooseLoadSnapshot", SOURCE)
+        toggle_at = SOURCE.index("ToggleAutocast(info, target.desiredOn)")
+        bar_at = SOURCE.index("SetSpellAutocast(info, target.desiredOn)")
         init_at = SOURCE.index("PetSpellInitialize")
         self.assertLess(toggle_at, bar_at)
         self.assertLess(bar_at, init_at)
@@ -125,10 +135,14 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
     def test_sql_is_present_and_not_applied(self):
         self.assertIn("CREATE TABLE IF NOT EXISTS `mod_naxxramas_hunter_pet_autocast`", SQL)
         self.assertIn("`pet_number`", SQL)
+        self.assertIn("`creature_entry`", SQL)
+        self.assertIn("`created_by_spell`", SQL)
+        self.assertIn("`seen_savetime`", SQL)
         self.assertIn("`spell_first`", SQL)
         self.assertIn("`active`", SQL)
         self.assertIn("DO NOT APPLY", SQL)
         self.assertIn("back up", SQL.lower())
+        self.assertIn("character_pet", SQL)
         self.assertNotIn("INSERT INTO `pet_spell`", SQL)
         self.assertNotIn("UPDATE `pet_spell`", SQL)
         for path in (ROOT / "scripts").rglob("*"):
@@ -154,6 +168,8 @@ class HunterPetAutocastCacheTests(unittest.TestCase):
         self.assertIn("default off", RESEARCH.lower())
         self.assertIn("DO NOT APPLY", RESEARCH)
         self.assertIn("no one-time migration", RESEARCH.lower())
+        self.assertIn("charm bar is not", RESEARCH.lower())
+        self.assertIn("OnPetAddToWorld", RESEARCH)
         self.assertIn("Bad Manner", RESEARCH)
         self.assertIn("26090", RESEARCH)
         self.assertIn("26094", RESEARCH)

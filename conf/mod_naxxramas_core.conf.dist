@@ -277,20 +277,23 @@ NaxxramasCore.HunterPetAutocastRestore.Enabled = 0
 #####################################
 
 # Separate from HunterPetAutocastRestore. Default off. Does nothing until
-# set to 1 AND the characters SQL file
-# data/sql/db-characters/2026_10_20_00_hunter_pet_autocast_cache.sql
-# has been backed up and applied by the owner. This module does not apply it.
+# set to 1 only after the owner has backed up the characters database and
+# applied data/sql/db-characters/2026_10_20_00_hunter_pet_autocast_cache.sql.
+# This module does not apply that file. While the seven-column table is
+# absent, an enabled module can still restore characters.pet_spell bits and
+# will not turn new damage chains on.
 #
-# On hunter-pet load the module snapshots autocast by pet number and the
-# first spell in the chain: its own cache table, else characters.pet_spell
-# (spell, active), else the charm bar. It then re-applies that snapshot for
-# 3 seconds so it still wins if Individual Progression resets the rank up to
-# 2.2 seconds later. Chains that were not in the snapshot are new. Damage
-# chains on the list below are turned on. Utility chains are never written.
-# There is no migration: a pet whose saved book is already off stays off.
+# OnPetAddToWorld runs before _LoadSpells. The hook only queues a pet event.
+# The event does not read the spellbook or the charm bar while the pet is
+# still loading. After load it requires one character_pet row for this owner
+# and pet number, then reads pet_spell. The charm bar is not the saved book.
+# Re-apply follows that event clock: no load-time pumps, cover is 201ms after
+# the snapshot tick (IP's first delay is 200ms). If a load-time pump was
+# observed, cover is IP's full 2200ms retry budget. Utility chains are never
+# written. There is no migration: a saved off bit stays off.
 #
-# 0 = do nothing (default)
-# 1 = snapshot and re-apply for human hunters
+# 0 = do nothing, and do not query (default)
+# 1 = queue the event for human hunters
 # Default: 0
 NaxxramasCore.HunterPet.AutocastCache.Enabled = 0
 

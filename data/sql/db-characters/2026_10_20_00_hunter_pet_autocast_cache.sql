@@ -4,16 +4,31 @@
 -- Installing it does not read or rewrite pet_spell, and it does not turn any
 -- existing pet ability on. There is no one-time migration.
 --
--- AzerothCore stores the saved book in characters.pet_spell (guid = pet number,
--- spell, active). This table is the module's own pre-IP choice, keyed by the
--- player and the charm pet number plus the first rank. Pet numbers are recycled
--- by the core (Pet.cpp _SaveSpells). owner_guid keeps one player's rows off
--- another player's pet. A recycled number on the same account can still collide
--- until the next verified write replaces that pet's rows.
+-- This replaces the first draft shape (owner_guid, pet_number, spell_first,
+-- active). Do not apply that shape. The module probes information_schema for
+-- these seven columns and, if they are absent, does not default-on and does
+-- not write.
+--
+-- AzerothCore stores the saved book in characters.pet_spell (guid = pet
+-- number, spell, active). Ownership is characters.character_pet.owner and
+-- character_pet.id. pet_spell has no owner column. There is no table named
+-- character_pet_spell.
+--
+-- Identity is the player, the charm pet number, the creature entry, and the
+-- create spell, plus the character_pet.savetime last bound by this module.
+-- Pet::_SaveSpells says pet numbers are recycled. GeneratePetNumber on these
+-- pins is MAX(id)+1 then increment, so a live process does not hand an old
+-- id out again. Abandon deletes the character_pet row and this module's
+-- orphan delete drops cache rows whose number is gone. A number that comes
+-- back with a different entry or create spell deletes the old cache. A
+-- matching entry with a different savetime is not applied.
 
 CREATE TABLE IF NOT EXISTS `mod_naxxramas_hunter_pet_autocast` (
-    `owner_guid` INT UNSIGNED NOT NULL COMMENT 'Player GUID counter',
-    `pet_number` INT UNSIGNED NOT NULL COMMENT 'CharmInfo::GetPetNumber',
+    `owner_guid` INT UNSIGNED NOT NULL COMMENT 'Player GUID counter, character_pet.owner',
+    `pet_number` INT UNSIGNED NOT NULL COMMENT 'character_pet.id / CharmInfo::GetPetNumber',
+    `creature_entry` INT UNSIGNED NOT NULL COMMENT 'character_pet.entry',
+    `created_by_spell` INT UNSIGNED NOT NULL COMMENT 'character_pet.CreatedBySpell',
+    `seen_savetime` INT UNSIGNED NOT NULL COMMENT 'character_pet.savetime last bound',
     `spell_first` INT UNSIGNED NOT NULL COMMENT 'First rank spell id',
     `active` TINYINT UNSIGNED NOT NULL COMMENT '1 autocast on, 0 off',
     PRIMARY KEY (`owner_guid`, `pet_number`, `spell_first`)
