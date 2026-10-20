@@ -27,33 +27,63 @@ FLAGS = (
 )
 
 def invalid_sql_statements_in_code_fences(markdown: str) -> list[str]:
-    """Reject mutating statements in SQL or unlabeled Markdown code fences.
+    """Conservatively reject unsafe SQL and SQL-client commands in Markdown.
 
-    The owner preflight must remain read-only. Accept case-insensitive SQL
-    info strings, indented fences, both fence markers and longer fences.
-    A dangling SQL/unlabeled fence fails closed instead of hiding its content.
-    Explanatory text outside a fence and SQL comment-only lines are ignored.
-    This deliberately conservative guard is not a general SQL parser.
+    Only executable-looking Markdown contexts (fences, blockquoted fences,
+    four-space indented code) are scanned; explanatory prose is not.
+    This is a guardrail, not a general SQL parser. Dangling SQL/shell
+    fences fail closed.
     """
     forbidden = re.compile(
-        r"\b(?:INSERT|UPDATE|DELETE|DROP|TRUNCATE|CREATE|ALTER|REPLACE)\b",
+        r"\b(?:INSERT|UPDATE|DELETE|DROP|TRUNCATE|CREATE|ALTER|REPLACE|"
+        r"CALL|GRANT|REVOKE|RENAME|EXECUTE)\b|"
+        r"\bSET\s+(?:GLOBAL|PERSIST|PERSIST_ONLY|SESSION)\b|"
+        r"\bLOAD\s+DATA\b|\bINTO\s+(?:OUTFILE|DUMPFILE)\b|"
+        r"\b(?:LOCK|UNLOCK)\s+TABLES\b",
+        re.IGNORECASE,
+    )
+    client = re.compile(
+        r"(?<![A-Za-z0-9_])(?:mysql|mariadb)(?:admin)?"
+        r"(?=\s|$|[;<>|])",
         re.IGNORECASE,
     )
     opener = re.compile(r"^[ \t]*(?P<fence>(?:\x60{3,}|~{3,}))[ \t]*(?P<info>[^\r\n]*)$")
+    sql_languages = {"", "sql", "mysql", "mariadb"}
+    shell_languages = {"bash", "sh", "shell", "zsh", "fish", "console", "powershell", "ps1"}
+
+    def unwrap_quote(line: str) -> str:
+        # A blockquoted fenced SQL block is executable-looking, not prose.
+        while re.match(r"^[ \t]*>[ \t]?", line):
+            line = re.sub(r"^[ \t]*>[ \t]?", "", line, count=1)
+        return line
+
+    def executable_sql(text: str, *, shell: bool = False) -> bool:
+        # Ignore SQL comments and shell comments, not statements below.
+        source = "\n".join(
+            line for line in text.splitlines()
+            if not line.lstrip().startswith(("--", "#"))
+        )
+        return bool(forbidden.search(source) or (shell and client.search(source)))
+
     matches: list[str] = []
-    lines = markdown.splitlines()
+    lines = [unwrap_quote(line) for line in markdown.splitlines()]
     index = 0
     while index < len(lines):
         match = opener.fullmatch(lines[index])
         if not match:
+            line = lines[index]
+            # Ordinary paragraphs are ignored. Four-space indented
+            # Markdown code is treated as executable-looking instructions.
+            if (line.startswith("    ") or line.startswith("\t")) and (
+                executable_sql(line, shell=True)
+            ):
+                matches.append("INDENTED UNSAFE CODE: " + line)
             index += 1
             continue
         fence = match.group("fence")
         info = match.group("info").strip()
         language = info.split(None, 1)[0].lower() if info else ""
-        check = language in ("", "sql", "mysql", "mariadb")
-        # Closing fence must use the same marker and at least the opening
-        # number of repeated characters, with only optional whitespace.
+        check = language in sql_languages or language in shell_languages
         closing = re.compile(
             r"^[ \t]*" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$"
         )
@@ -69,14 +99,15 @@ def invalid_sql_statements_in_code_fences(markdown: str) -> list[str]:
             index += 1
         if not check:
             continue
-        sql = "\n".join(
-            line for line in content if not line.lstrip().startswith("--")
-        )
+        raw_code = "\n".join(content)
         if not closed:
-            matches.append("UNTERMINATED SQL FENCE:\n" + sql)
-        elif forbidden.search(sql):
-            matches.append(sql)
+            matches.append("UNTERMINATED SQL/SHELL FENCE:\n" + raw_code)
+        elif executable_sql(
+            raw_code, shell=(language in shell_languages)
+        ):
+            matches.append(raw_code)
     return matches
+
 
 AUTOCACHE_TABLE_NAME = "mod_naxxramas_hunter_pet_autocast"
 
@@ -209,6 +240,59 @@ class ReadOnlyFiveFeaturePreflight(unittest.TestCase):
         sample = ("Discussion of CREATE TABLE and DELETE FROM is prose.\n"
                   "```sql\n-- Do not run INSERT; read only\n"
                   "select entry, ScriptName from creature_template;\n```\n")
+        self.assertEqual(invalid_sql_statements_in_code_fences(sample), [])
+
+    def test_read_only_guard_rejects_extended_mysql_state_changes(self):
+        for sql in (
+            "SET GLOBAL general_log=ON;",
+            "SET PERSIST max_connections=200;",
+            "CALL dangerous_proc();",
+            "GRANT ALL ON *.* TO testuser;",
+            "REVOKE ALL PRIVILEGES ON *.* FROM testuser;",
+            "RENAME TABLE old TO new;",
+            "LOAD DATA INFILE '/tmp/x.csv' INTO TABLE character_pet;",
+            "SELECT id INTO OUTFILE '/tmp/export' FROM character_pet;",
+            "SELECT data INTO DUMPFILE '/tmp/export' FROM character_pet;",
+            "LOCK TABLES character_pet WRITE;",
+            "UNLOCK TABLES;",
+            "EXECUTE prepared_stmt;",
+        ):
+            with self.subTest(sql=sql):
+                self.assertNotEqual(
+                    invalid_sql_statements_in_code_fences(
+                        "\x60\x60\x60MySQL\n" + sql + "\n\x60\x60\x60\n"), [])
+
+    def test_read_only_guard_rejects_mysql_client_inside_shell_fences(self):
+        samples = (
+            '\x60\x60\x60bash\nmysql -e "SELECT 1"\n\x60\x60\x60\n',
+            '\x60\x60\x60sh\nsudo mariadb -e "DELETE FROM character_pet"\n\x60\x60\x60\n',
+            '\x60\x60\x60console\n$ mysqladmin flush-hosts\n\x60\x60\x60\n',
+            '\x60\x60\x60powershell\nmysql --execute "CALL risky()"\n\x60\x60\x60\n',
+            '\x60\x60\x60bash\n# Do not run mysql commands\nMYSQL -e "select 1";\n\x60\x60\x60\n',
+            '  > \x60\x60\x60BASH\n  > mysql -e "SELECT 1"\n  > \x60\x60\x60\n',
+            '    mysql -e "SELECT 1"\n',
+            '  >     SET GLOBAL general_log = ON;\n',
+        )
+        for sample in samples:
+            with self.subTest(sample=sample):
+                self.assertNotEqual(
+                    invalid_sql_statements_in_code_fences(sample), [])
+
+    def test_read_only_guard_rejects_unterminated_shell_examples(self):
+        self.assertNotEqual(
+            invalid_sql_statements_in_code_fences(
+                "\x60\x60\x60bash\nprintf 'read-only review'\n"), [])
+
+    def test_read_only_guard_accepts_non_executing_prose_and_select_examples(self):
+        sample = (
+            "A paragraph mentions SET GLOBAL, CALL, GRANT and mysql -e; "
+            "these are explanations, not runnable examples.\n"
+            "\x60\x60\x60SQL\n-- Never DROP DATABASE\nSELECT entry FROM creature_template;\n\x60\x60\x60\n"
+            "\x60\x60\x60bash\n# mysql -e 'DELETE FROM character_pet'\n"
+            "printf 'no database access'\n\x60\x60\x60\n"
+            "    SELECT TypeId FROM outdoorpvp_template;\n"
+            "> \x60\x60\x60sql\n> SELECT 1;\n> \x60\x60\x60\n"
+        )
         self.assertEqual(invalid_sql_statements_in_code_fences(sample), [])
 
     def test_unapproved_hunter_cache_schema_not_automatically_discoverable(self):
