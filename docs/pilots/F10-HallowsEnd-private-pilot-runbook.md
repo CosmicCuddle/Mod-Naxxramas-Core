@@ -1,0 +1,326 @@
+# F10 Hallow's End — private pilot runbook
+
+**Status: DRAFT. Nothing in this runbook is approved.** Each stage (A–F) needs Michael's separate explicit approval before that stage starts. Do not inventory a live server, take a backup, change config, fetch, build, bind SQL, restart, or enter the game on the strength of this file.
+
+Source proof is [PR #77](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/77) head `4dc63b3a0df11b35dea7035dae472d6aa947b506` on `pilot/f10-hallows-end-only-source-2026-10-21`. [CI run 39584426670](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39584426670) succeeded: 5/5 `test_f10_event_only_candidate.py` tests, marker `F10_ONE_BUCKET_POLICY_OK`, link `[1885/1885]`, runner-only `worldserver` sha256 `baf7eaf57d38a765a8c202f7b61b5e336407edb5bbfba55d83b09220789760b3`. That binary was not uploaded and is not a distributable build. **In-game behaviour is NOT TESTED.**
+
+`main` is `1f5f317c3991bbac66cc92a7112bbde3c929c232` and does not contain this F10 source. A normal `git pull` on `main` will not install it.
+
+Companion gate: [F10-HallowsEnd-private-acceptance.md](F10-HallowsEnd-private-acceptance.md). Installed paths, database names, credentials, supervisor roles, and live query results are **UNKNOWN** until Stage A fills them in. Use the placeholders below. Redact credentials in every record.
+
+CI pins (the run above, not the owner's install): core `8daffdabe9202c228e45d833c9a1d399597a15cd`, mod-playerbots `037c01418b5d01506917a3db9b44fd56ac5f965c`, mod-individual-progression `4ff4b5fcc1480348f058c632573143e62d4e3a41`.
+
+Dist defaults at this head (`conf/mod_naxxramas_core.conf.dist`), not live values:
+
+| Key | Dist default |
+|---|---|
+| `NaxxramasCore.HallowsEnd.SoloFire.Enabled` | `0` |
+| `NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier` | `3` |
+| `NaxxramasCore.HallowsEnd.SoloFire.OneBucket` | `0` |
+
+`Enabled` treats any value other than `1` as `0`. `OneBucket` is experimental and requires `Enabled = 1`.
+
+Creature `23543` registers in C++ as `npc_naxxramas_hallows_end_soh` (`RegisterCreatureAI` on that struct; same name in `data/sql/db-world/2026_09_21_00_event_script_overrides.sql`). Creature `23703` (Brewfest) is `npc_naxxramas_dark_iron_attack_generator` in that same file. The source comment names stock AzerothCore `npc_hallows_end_soh` as the script this module replaces. That comment is not a live reading. `<EXPECTED_OLD_SCRIPTNAME>` comes only from Stage A.
+
+This module has no `db-auth` SQL at this head. It has 12 world and 3 characters migrations. Do not edit those files. A hash change can make the updater apply them again. The only SQL this pilot may later apply is the Stage E template, and only with its own approval.
+
+## Stage A — read-only inventory
+
+No changes. No restart. No `git checkout`, `pull`, or `fetch`. SQL below is a template: run it only after Michael approves Stage A, against the databases Stage A has already identified by name.
+
+Record every row. Leave **UNKNOWN** rather than guessing.
+
+| Item | Value |
+|---|---|
+| `<MODULE_DIR>` | UNKNOWN |
+| Git remote(s) | UNKNOWN |
+| Branch | UNKNOWN |
+| Commit | UNKNOWN |
+| `git status --porcelain` | UNKNOWN |
+| Symlinks inside the module and server tree | UNKNOWN |
+| Core SHA (installed) | UNKNOWN |
+| Playerbots SHA (installed) | UNKNOWN |
+| Individual Progression SHA (installed) | UNKNOWN |
+| Other installed modules and SHAs | UNKNOWN |
+| Build directory | UNKNOWN |
+| Owner's build command | UNKNOWN |
+| `worldserver` binary path | UNKNOWN |
+| Active `worldserver.conf` path | UNKNOWN |
+| Active `mod_naxxramas_core.conf` path | UNKNOWN |
+| Active `playerbots.conf` path | UNKNOWN |
+| Effective `Updates.EnableDatabases` | UNKNOWN |
+| Effective `Playerbots.Updates.EnableDatabases` | UNKNOWN |
+| `AC_UPDATES_ENABLE_DATABASES` | UNKNOWN (value only; redact the rest of the environment) |
+| `AC_PLAYERBOTS_UPDATES_ENABLE_DATABASES` | UNKNOWN |
+| Which file or env wins for each updater flag | UNKNOWN |
+| `<AUTH_DB>` `<WORLD_DB>` `<CHARACTERS_DB>` `<PLAYERBOTS_DB>` | UNKNOWN |
+| `updates` rows for the 15 module files (name, hash, state) | UNKNOWN |
+| Pending or hash-mismatched updates | UNKNOWN |
+| `creature_template` ScriptName 23543 / 23703 / 23686 / 23537 | UNKNOWN |
+| `spell_script_names` for 42339 / 42348 | UNKNOWN |
+| tmux session(s), including whether `worldserver` exists | UNKNOWN |
+| PM2 list (index, name, script, cwd, restart policy) | UNKNOWN |
+| Which supervisor actually owns worldserver | UNKNOWN |
+| Watchdog / auto-restart | UNKNOWN |
+| Log path and uptime | UNKNOWN |
+| authserver process (record only) | UNKNOWN |
+
+Historical note only: the owner has used tmux session `worldserver` and PM2 index `0` (`pm2 stop 0` / `pm2 start 0`). Current roles are **UNKNOWN**. Do not treat index 0 or that session name as the worldserver.
+
+Manifest for **this commit only** (raw file SHA-1, the updater hash). Compare to the installed `updates` tables. Do not rewrite history to force a match. A missing name is a STOP, and a matching hash under a different name is also a STOP (the updater can treat a renamed file as already applied).
+
+| DB | File | Raw SHA-1 |
+|---|---|---|
+| characters | `2026_09_24_00_honor_reset.sql` | `d4c07bec79ccd143d3b0a5e452d0e3a819788282` |
+| characters | `2026_10_08_00_arcane_momentum.sql` | `0c21e8c55b1a154360a3bc24a3322e4de0b0fd84` |
+| characters | `2026_10_10_00_bot_talent_import.sql` | `7a19a342e90a03444556ace75d91a1b26b29c24b` |
+| world | `2026_09_19_00_mod_custom_class_spell.sql` | `45bc5b7233232957216a47b61c813c4ea42d089a` |
+| world | `2026_09_20_00_orc_blood_fury.sql` | `d539ae59ebda68ec6111897e3f77c3966252418f` |
+| world | `2026_09_20_01_troll_berserking.sql` | `b135152f7c0cc196206b04f5e05c50bef76384b6` |
+| world | `2026_09_20_02_blood_elf_mana_tap.sql` | `5385f5f4a39036c5a2d3db28c9589e281f9ccdac` |
+| world | `2026_09_20_03_blood_elf_arcane_torrent.sql` | `8143812623b9a43dec1594dca65765ee555a5bbb` |
+| world | `2026_09_21_00_event_script_overrides.sql` | `315746191db9f1f1091911e9a1671b37a1d14339` |
+| world | `2026_09_21_01_touch_of_the_grave.sql` | `fca7c2c07dde2f1480046c26364f282784fe731d` |
+| world | `2026_09_24_00_item_spell_overrides.sql` | `0da079c4ede250f8d39092e9e57323142ebbfd6c` |
+| world | `2026_09_29_00_brewfest_sober_gossip.sql` | `6be3e0b77d0376467e10b83d236b49629505e0cc` |
+| world | `2026_10_07_00_shaman_rockbiter.sql` | `ab73acd4824d2119a174a73f4dbc7c398366abd1` |
+| world | `2026_10_08_00_arcane_momentum.sql` | `d1af947fdaddc9daf6dab9637f1fe54416a13413` |
+| world | `2026_10_09_00_monthly_elemental_invasions.sql` | `ad5b4dae2955da5fcf9c8c1b7b74d4642f1a42a1` |
+
+Confirm the installed `updates` columns before trusting this. These 15 files are not the core, Playerbots, or Individual Progression migration inventory. List those directories too. Individual Progression's `data/sql` tree still has to be accounted for before any start.
+
+```sql
+-- TEMPLATE - DO NOT RUN without separate owner approval.
+-- Stage A, read-only. Repeat on <WORLD_DB> and <CHARACTERS_DB>.
+-- Add <PLAYERBOTS_DB> for that module's own updates table (not these 15 names).
+SELECT name, hash, state
+FROM updates
+WHERE name IN (
+    '2026_09_24_00_honor_reset.sql',
+    '2026_10_08_00_arcane_momentum.sql',
+    '2026_10_10_00_bot_talent_import.sql',
+    '2026_09_19_00_mod_custom_class_spell.sql',
+    '2026_09_20_00_orc_blood_fury.sql',
+    '2026_09_20_01_troll_berserking.sql',
+    '2026_09_20_02_blood_elf_mana_tap.sql',
+    '2026_09_20_03_blood_elf_arcane_torrent.sql',
+    '2026_09_21_00_event_script_overrides.sql',
+    '2026_09_21_01_touch_of_the_grave.sql',
+    '2026_09_24_00_item_spell_overrides.sql',
+    '2026_09_29_00_brewfest_sober_gossip.sql',
+    '2026_10_07_00_shaman_rockbiter.sql',
+    '2026_10_08_00_arcane_momentum.sql',
+    '2026_10_09_00_monthly_elemental_invasions.sql'
+)
+OR hash IN (
+    'd4c07bec79ccd143d3b0a5e452d0e3a819788282',
+    '0c21e8c55b1a154360a3bc24a3322e4de0b0fd84',
+    '7a19a342e90a03444556ace75d91a1b26b29c24b',
+    '45bc5b7233232957216a47b61c813c4ea42d089a',
+    'd539ae59ebda68ec6111897e3f77c3966252418f',
+    'b135152f7c0cc196206b04f5e05c50bef76384b6',
+    '5385f5f4a39036c5a2d3db28c9589e281f9ccdac',
+    '8143812623b9a43dec1594dca65765ee555a5bbb',
+    '315746191db9f1f1091911e9a1671b37a1d14339',
+    'fca7c2c07dde2f1480046c26364f282784fe731d',
+    '0da079c4ede250f8d39092e9e57323142ebbfd6c',
+    '6be3e0b77d0376467e10b83d236b49629505e0cc',
+    'ab73acd4824d2119a174a73f4dbc7c398366abd1',
+    'd1af947fdaddc9daf6dab9637f1fe54416a13413',
+    'ad5b4dae2955da5fcf9c8c1b7b74d4642f1a42a1'
+);
+```
+
+```sql
+-- TEMPLATE - DO NOT RUN without separate owner approval.
+-- Stage A, read-only, <WORLD_DB> only.
+SELECT entry, ScriptName
+FROM creature_template
+WHERE entry IN (23543, 23686, 23537, 23703);
+
+SELECT spell_id, ScriptName
+FROM spell_script_names
+WHERE spell_id IN (42339, 42348);
+```
+
+`spell_naxxramas_hallows_end_one_bucket` is a C++ `AllSpellScript` in the module binary. Do not insert a `spell_script_names` row for it.
+
+## Stage B — backups
+
+Requires its own approval, after Stage A. **STOP** if any backup or the isolated restore check fails. Do not continue to C.
+
+1. Copy the original worldserver binary. Record size and sha256.
+2. Record the module checkout: remote, branch, commit, and a clean worktree. Keep a copy of that tree, or a ref that can recreate it exactly.
+3. Byte-copy the three active conf files from Stage A (`worldserver.conf`, `mod_naxxramas_core.conf`, `playerbots.conf`). Record size and sha256 of each copy.
+4. Dump `<WORLD_DB>`, `<CHARACTERS_DB>`, and `<PLAYERBOTS_DB>` with `mysqldump` or `mariadb-dump --single-transaction --routines --triggers`. Include `<AUTH_DB>` when any component of this start may touch it; if that is still UNKNOWN, include auth. Put credentials in a mode-`0600` option file. Do not put the password on the command line. Record size and sha256 of each dump.
+5. Restore every dump into an **isolated** scratch instance whose database names are not the live ones. Re-run the Stage A SELECTs on the scratch world DB and confirm the same ScriptName values. Confirm dump sha256 before and after copy.
+
+```bash
+# Illustrative only. Finalise after Stage A. Do not run from this document.
+sha256sum <WORLDSERVER_BIN>
+cp -a <WORLDSERVER_BIN> <BACKUP_DIR>/worldserver.bin
+cp -a <WORLD_CONF> <MODULE_CONF> <PLAYERBOTS_CONF> <BACKUP_DIR>/
+# option file (mode 0600), not the command line:
+# [client]
+# user=<DB_USER>
+# password=<DB_PASSWORD>
+# host=<DB_HOST>
+mysqldump --defaults-extra-file=<CREDENTIALS_OPTION_FILE> \
+  --single-transaction --routines --triggers \
+  --result-file=<BACKUP_DIR>/<WORLD_DB>.sql \
+  <WORLD_DB>
+sha256sum <BACKUP_DIR>/<WORLD_DB>.sql
+# Repeat for <CHARACTERS_DB>, <PLAYERBOTS_DB>, and <AUTH_DB> when required.
+# mariadb-dump accepts the same flags. Restore only into a scratch instance.
+```
+
+## Stage C — updater containment (pilot worldserver only)
+
+Requires its own approval, after a verified Stage B. Target the pilot worldserver process only.
+
+Effective values that the next worldserver start will see:
+
+- `Updates.EnableDatabases = 0`
+- `Playerbots.Updates.EnableDatabases = 0`
+
+Playerbots has its own updater. At mod-playerbots `037c014` `src/Script/Playerbots.cpp`, `OnModuleDatabasesLoading()` reads `Playerbots.Updates.EnableDatabases` (dist default `1`) and can `Populate` / `Update` the Playerbots database while the core mask is `0`. `AC_UPDATES_ENABLE_DATABASES` and `AC_PLAYERBOTS_UPDATES_ENABLE_DATABASES` override the files. Record the Stage A originals, then make both **effective** values `0`, including the environment of the supervised process.
+
+This is not read-only database mode. Gameplay still writes. It is not a promise that the schema already matches the binary.
+
+Do not restart authserver. If Stage A found any other installed module with its own updater, **STOP**. A bounded source scan found no third updater hook in Individual Progression `4ff4b5fcc1480348f058c632573143e62d4e3a41` or this module at `4dc63b3`. Other installed modules and revisions are UNKNOWN.
+
+Do not leave a window where a watchdog can start worldserver on the new tree before both flags are `0`. If the restart policy is UNKNOWN, **STOP** before any stop, start, or live config edit.
+
+## Stage D — install on a temporary local branch
+
+Requires its own approval. Default route: no merge.
+
+`git pull` on local `main` will not deliver F10 (`main` is `1f5f317`). Do not run `git pull origin pilot/f10-hallows-end-only-source-2026-10-21` while on local `main`. That can merge the candidate into the working main branch.
+
+After Stage A shows a clean worktree, and after C is in effect for the process that is about to start:
+
+1. In `<MODULE_DIR>`, fetch the named pilot branch from the remote Stage A recorded. Do not assume the remote name.
+2. Require the fetched commit to be exactly `4dc63b3a0df11b35dea7035dae472d6aa947b506`. Any other hash: **STOP**.
+3. Create a temporary local branch at that commit, named so it cannot be mistaken for main (example: `pilot-f10-local`).
+4. Rebuild with the build command recorded in Stage A. Do not substitute the CI cmake line. The CI binary is runner-only.
+5. Planned stop, then start, of the worldserver process identified in Stage A, through that supervisor only. Do not `kill` by guess, do not `pm2 stop` an unconfirmed index, do not detach an unconfirmed tmux session, and do not restart authserver.
+6. On that first start, read the log. Core and Playerbots updater lines must show no populate and no update. Any updater activity: **STOP** and roll back. Do not "fix" a migration live.
+
+```bash
+# Illustrative only. Finalise names after Stage A. Do not run from this document.
+# Forbidden while on local main:
+#   git pull origin pilot/f10-hallows-end-only-source-2026-10-21
+git -C <MODULE_DIR> status --porcelain
+git -C <MODULE_DIR> fetch <REMOTE> pilot/f10-hallows-end-only-source-2026-10-21
+git -C <MODULE_DIR> rev-parse <REMOTE>/pilot/f10-hallows-end-only-source-2026-10-21
+# must print 4dc63b3a0df11b35dea7035dae472d6aa947b506
+git -C <MODULE_DIR> switch -c pilot-f10-local <REMOTE>/pilot/f10-hallows-end-only-source-2026-10-21
+git -C <MODULE_DIR> rev-parse HEAD
+# then the owner's recorded build command, then the identified supervisor stop/start
+```
+
+Alternative, only if Michael separately approves a real merge of PR #77: a later `git pull` on `main` can deliver F10. That merge is not approved by this runbook. Both routes still need stages A–C and the same start gate.
+
+## Stage E — conditional 23543 binding
+
+Requires its own approval. Skip this stage when Stage A already shows `23543` ScriptName = `npc_naxxramas_hallows_end_soh`.
+
+Run it only when Stage A shows a different ScriptName. Put that exact value in `<EXPECTED_OLD_SCRIPTNAME>`. If the SELECT failed or the name is ambiguous, **STOP**. Do not execute `2026_09_21_00_event_script_overrides.sql` and do not edit it. That file also updates Brewfest `23703`.
+
+Affected rows must be exactly 1. Any other count: `ROLLBACK` and **STOP**. The default last statement below is `ROLLBACK`. Change it to `COMMIT` only after the count is 1 and Michael has approved the commit. Do not touch `23703`.
+
+```sql
+-- TEMPLATE - DO NOT RUN without separate owner approval.
+-- Stage E, <WORLD_DB> only. One row. Does not mention entry 23703.
+START TRANSACTION;
+UPDATE creature_template
+SET ScriptName = 'npc_naxxramas_hallows_end_soh'
+WHERE entry = 23543
+  AND ScriptName = '<EXPECTED_OLD_SCRIPTNAME>';
+SELECT ROW_COUNT() AS affected_rows;
+-- Required: affected_rows = 1. Otherwise leave the ROLLBACK in place and STOP.
+ROLLBACK;
+-- COMMIT;
+```
+
+Compensating template (rollback of this stage only):
+
+```sql
+-- TEMPLATE - DO NOT RUN without separate owner approval.
+-- Reverse of Stage E. Same <EXPECTED_OLD_SCRIPTNAME> recorded before the forward update.
+START TRANSACTION;
+UPDATE creature_template
+SET ScriptName = '<EXPECTED_OLD_SCRIPTNAME>'
+WHERE entry = 23543
+  AND ScriptName = 'npc_naxxramas_hallows_end_soh';
+SELECT ROW_COUNT() AS affected_rows;
+-- Required: affected_rows = 1. Otherwise leave the ROLLBACK in place and STOP.
+ROLLBACK;
+-- COMMIT;
+```
+
+## Stage F — private acceptance
+
+Requires its own approval. Turn F10 switches on only for this stage, in the conf file the pilot worldserver actually loads. Leave `PeriodMultiplier` at the recorded original (dist default `3`) unless Michael approves another value in 2–8.
+
+- Solo-pace cases: `NaxxramasCore.HallowsEnd.SoloFire.Enabled = 1`, `OneBucket = 0`.
+- One-bucket case (b) only: `Enabled = 1` and `NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 1`.
+
+Record PASS, FAIL, or NOT RUN for each case, with a one-line note.
+
+| Case | What to do | Result |
+|---|---|---|
+| (a) | One real human plus bots. Solo pace. Bots do not count as the nearby player. | |
+| (b) | One real human. Normal fire `23686`, full-size aura `42074`, bucket spell `42339` on that fire. | |
+| (c) | Negatives, each must leave the fire aura in place: bot caster; two real humans; training fire `23537`; a fire this Shade did not light with `42132` this cycle, or a foreign fire; overlapping living Shades. | |
+| (d) | Stock splash `42348` unchanged. Unrelated auras unchanged. Quest credit unchanged (source quests `12135`, `12139`, `11131`, `11219`). | |
+| (e) | Event finish, event failure, and cleanup. | |
+
+**Roll back immediately** on any crash, any unexpected SQL applied at start or during play, wrong quest credit, or any change to Brewfest `23703`.
+
+## STOP
+
+Stop and do not improvise when any of these are true:
+
+- Fetched or checked-out module commit is not `4dc63b3a0df11b35dea7035dae472d6aa947b506`.
+- Installed core, Playerbots, or IP SHA is not the set Michael accepted from Stage A.
+- Worktree is dirty, or symlinks make the built tree differ from the recorded checkout.
+- Effective updater config or either `AC_*` override is UNKNOWN.
+- Any of the 15 history rows is missing, hash-mismatched, or not in the realm's already-applied state.
+- Any other pending module, core, IP, or Playerbots update would run on start.
+- `23703`, `23686`, `23537`, `42339`, or `42348` bindings differ from the Stage A record later, or Stage A could not read them.
+- Another installed module has its own updater.
+- The worldserver supervisor or its auto-restart policy is UNKNOWN.
+- A backup or the isolated restore check failed.
+- The startup log shows any updater populate/update activity.
+
+## Rollback
+
+Use the supervisor and paths recorded in A and B. Do not restart authserver.
+
+1. Stop worldserver through the identified supervisor.
+2. Set the F10 switches back off (`Enabled = 0`, `OneBucket = 0`; restore the recorded `PeriodMultiplier`).
+3. **First**, restore the original worldserver binary, the three conf byte-copies, and the module checkout. Return to the recorded original branch and commit. Delete the temporary branch (`pilot-f10-local` or whatever Stage D created).
+4. Reverse `23543` only if Stage E committed. Use the compensating template and the recorded `<EXPECTED_OLD_SCRIPTNAME>`.
+5. Restore a database from the Stage B dump only if that is required and Michael approves that restore. Restore into the live names only under that approval; the scratch instance is the rehearsal.
+6. Only after a pending-update risk review, put back the **recorded** effective updater values from Stage A. Restoring the original conf file can re-enable those values, so do not start until that review is done. If the review says the old values are unsafe, keep both effective flags at `0` and leave the original bytes in the backup. Do not "reset" to dist defaults `Updates.EnableDatabases = 7` or `Playerbots.Updates.EnableDatabases = 1`.
+7. Start worldserver through the same supervisor.
+8. Re-read the Stage A SELECTs. Confirm Shade `23543`, Brewfest `23703`, training `23537`, and stock spell rows for `42339` and `42348` match the pre-pilot record (or the Stage E reverse, if that ran). Confirm the log is a normal start with no updater apply.
+
+## Evidence record
+
+| Field | Value |
+|---|---|
+| Date (UTC) | |
+| Operator | |
+| Michael approval recorded for stages | |
+| Module commit before / pilot commit | |
+| Core / Playerbots / IP SHAs | |
+| Backup dir, sizes, sha256 | |
+| Scratch restore result | |
+| Effective updater values before / during / after | |
+| 23543 before / after (Stage E skipped: yes/no) | |
+| 23703 before / after (must match) | |
+| (a) (b) (c) (d) (e) | |
+| Rollback taken | |
+| Left the realm on which commit and which binary sha256 | |
