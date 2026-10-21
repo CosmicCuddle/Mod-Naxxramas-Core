@@ -20,6 +20,16 @@ interpreting familiar source tokens:
 | `src/Ai/Raid/MC/MCActions.cpp` | `3707c59f5f519561baea852d26d551a3d1e3ad77` |
 | `src/Ai/Raid/MC/MCHelpers.h` | `0c90fcd95f10181dc375c386d03c7089e90bd6ef` |
 
+Additional exact whole-file action hierarchy coverage from the SAME Playerbots
+revision:
+
+| Pinned base-action source | Git blob SHA-1 |
+| --- | --- |
+| `src/Ai/Base/Actions/MovementActions.h` | `3932cdfb602cfd438604966f19f603e6fecbb416` |
+| `src/Ai/Base/Actions/ReachTargetActions.h` | `26b96d36593ac4ffc9b6efc3a70bcad3aeec49f7` |
+| `src/Ai/Base/Actions/ReachTargetActions.cpp` | `c889265520c7cea621f2dc5953225f2b7ab47beb` |
+| `src/Ai/Base/Actions/AttackAction.h` | `2911924f00557891e5ab977986b71ca0d08d5fa2` |
+
 Git blob IDs are content fingerprints, not independent authentication or
 a claim about the versions installed on the operator's server.
 
@@ -43,13 +53,28 @@ a claim about the versions installed on the operator's server.
   Geddon but not in `GolemaggMultiplier`. This is a verifiable class-coverage
   distinction, not proof that an uncovered movement action occurred in the
   owner's raid or that every MovementAction would cause re-engagement.
+- **Concrete uncovered candidate narrowed by exact inheritance:** `ReachMeleeAction`
+  derives `ReachTargetAction` → `MovementAction` → `Action`. Separately,
+  `AttackAction` derives `MovementAction` and `MeleeAction` derives
+  `AttackAction`; `ReachMeleeAction` is **not** a subclass of `AttackAction`.
+  In `ReachTargetActions.cpp`, the shared `ReachTargetAction::Execute`
+  calls `ReachCombatTo` against the action's `current target`. The pinned
+  `GolemaggMultiplier` checks `AttackAction`, `MeleeAction`, and
+  `CastReachTargetSpellAction` but not `ReachTargetAction` or the generic
+  `MovementAction`, so **`reach melee` is not covered by that guard**.
+  This is a *substantive class coverage finding*, not observation that the
+  scheduler selected it while backed off. `CombatFormationMoveAction`,
+  `RearFlankAction` and `SetBehindTargetAction` also inherit movement
+  classes but may serve different safety/position purposes; never veto all
+  movement based on this document.
+
 - The inspection is scoped to this exact pinned version and these source
   files. It does not prove the absence of other safe hooks in the codebase.
 
 The source regression tests reject changed thresholds, missing action-category
 filters, new generic movement guards, unknown Playerbots source revisions and
-modified files. **A green test means the limitation persists, not that a fix
-exists.** The production checker verifies all four reviewed file blobs first;
+modified files. **A green test means this source class-coverage limitation persists, not that a fix
+exists.** The production checker verifies all eight reviewed file blobs first;
 the standalone lexical helper is not a source identity verification.
 
 ## Engineering gate before any movement mutation
