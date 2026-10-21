@@ -202,8 +202,9 @@ After Stage A shows a clean worktree, and after C is in effect for the process t
 1. In `<MODULE_DIR>`, fetch the named pilot branch from the remote Stage A recorded. Do not assume the remote name.
 2. Require the fetched commit to be exactly `4dc63b3a0df11b35dea7035dae472d6aa947b506`. Any other hash: **STOP**.
 3. Create a temporary local branch at that commit, named so it cannot be mistaken for main (example: `pilot-f10-local`).
-4. Rebuild with the build command recorded in Stage A. Do not substitute the CI cmake line. The CI binary is runner-only.
-5. **Do not start or restart Worldserver during Stage D.** Stage A's 23543 binding decision must first be resolved in Stage E; if it is missing, a separate owner-approved one-row correction is needed. Keep the actual supervisor's automatic restart safely controlled under the separately approved plan. Do not `kill` by guess, use an unconfirmed PM2 index or tmux session, or restart authserver.
+4. Rebuild with the build command recorded in Stage A. Do not substitute the CI cmake line. The CI binary is runner-only. **A successful compile does not prove which binary the installed supervisor starts.** Record the candidate built binary's exact path and SHA-256, the current service executable path and its preserved known-good backup; separately approve any required copy/install of the candidate executable and permissions.
+5. **Do not start or restart Worldserver during Stage D.** Before ANY future executable replacement, optional Stage E SQL change, or pilot startup, use the verified supervisor under a **separately authorised maintenance window** to stop the original Worldserver and inhibit automatic restart. Confirm it is actually stopped. If the process cannot be safely stopped or auto-restart cannot be controlled, **STOP** and do not stage the executable or write SQL. Do not `kill` by guess, use an unconfirmed PM2 index or tmux session, or restart authserver.
+6. Under separate installation permission and with the service verifiably stopped, stage the exact newly built binary where the real Worldserver launcher will load it, preserving original ownership, mode and known-good binary; then verify staged SHA-256 equals the candidate build hash. **Do not stage the binary until the Stage A–C checks and restore rehearsal have passed.** The Stage A 23543 binding decision must be resolved in Stage E before the first pilot startup.
 
 ```bash
 # Illustrative only. Finalise names after Stage A. Do not run from this document.
@@ -222,7 +223,7 @@ Alternative, only if the server owner separately approves a real merge of PR #77
 
 ## Stage E — conditional 23543 binding
 
-Requires its own approval. Skip this stage when Stage A already shows `23543` ScriptName = `npc_naxxramas_hallows_end_soh`.
+Requires its own approval. Skip this stage when Stage A already shows `23543` ScriptName = `npc_naxxramas_hallows_end_soh`. **If a SQL change is needed, it is prohibited while the current live Worldserver is still running**: require the Stage D identified Worldserver to be fully stopped with automatic restart safely inhibited, and verify the World/Characters/Playerbots backup and isolated restore first. No SQL is authorised merely by stopping the process.
 
 Run it only when Stage A shows a different **non-NULL** ScriptName. Put that exact verified value in `<EXPECTED_OLD_SCRIPTNAME>` with correct SQL quoting/escaping. If the SELECT failed, the value is **NULL**, quoting is uncertain or the existing binding is ambiguous, **STOP** and prepare a separately reviewed guarded NULL-safe design instead of copying the example. Do not execute `2026_09_21_00_event_script_overrides.sql` and do not edit it. That file also updates Brewfest `23703`.
 
@@ -262,7 +263,7 @@ ROLLBACK;
 
 Stage E must be recorded as **SKIPPED because 23543 was already correctly bound**, or **COMPLETED with a separately approved, verified one-row transaction** before any pilot Worldserver startup or Hallow's End gameplay. If a required binding fix is unapproved or fails, **STOP**; do not start with a known missing binding and expect the current process to reload a changed ScriptName automatically.
 
-Only after Stages A–E and a **separate startup/restart authorisation**, ensure the exact identified Worldserver supervisor cannot restart unexpectedly, confirm both effective automatic updater flags remain `0` (including environment overrides), and perform the planned controlled Worldserver start. Keep both optional Hallow's End features OFF initially. Do not restart authserver. Verify startup logs show no core or Playerbots updater populate/update; any activity or missing required schema means **STOP** and follow the separately approved rollback. Gameplay and optional feature activation still require Stage F approval.
+Only after Stages A–E and a **separate startup/restart authorisation**, ensure the exact identified Worldserver supervisor cannot restart unexpectedly, confirm the real launcher is configured to start the newly staged and SHA-256-verified pilot binary (not the old path or a second uncontrolled process), verify both effective automatic updater flags remain `0` (including environment overrides), and perform the planned controlled Worldserver start. Keep both optional Hallow's End features OFF initially. Do not restart authserver. Verify startup logs show no core or Playerbots updater populate/update; any activity or missing required schema means **STOP** and follow the separately approved rollback. Gameplay and optional feature activation still require Stage F approval.
 
 ## Stage F — private acceptance
 
@@ -296,6 +297,7 @@ Stop and do not improvise when any of these are true:
 - `23703`, `23686`, `23537`, `42339`, or `42348` bindings differ from the Stage A record later, or Stage A could not read them.
 - Another installed module has its own updater.
 - The worldserver supervisor or its auto-restart policy is UNKNOWN.
+- The Worldserver is still running when any optional Stage E SQL write or candidate binary replacement is proposed, or the runtime executable path/staged hash has not been verified.
 - A backup or the isolated restore check failed.
 - The startup log shows any updater populate/update activity.
 
