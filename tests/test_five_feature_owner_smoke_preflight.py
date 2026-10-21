@@ -83,6 +83,16 @@ def invalid_sql_statements_in_code_fences(markdown: str) -> list[str]:
         ).strip()
 
     def unsafe_sql(text: str) -> bool:
+        # MySQL/MariaDB executable comments are actual SQL, not comments:
+        # /*!50700 ... */ and /*M!100100 ... */ must fail closed BEFORE
+        # ordinary block comments are stripped or statement starts checked.
+        if re.search(r"/\\*(?:!|M!)", text, re.IGNORECASE):
+            return True
+        # SQL-client meta commands may execute external programs or source
+        # scripts; deny all backslash commands rather than guessing which
+        # subset is harmless (including \\!, \\., \\G).
+        if re.search(r"\\\\[^\\s]", text):
+            return True
         source = without_comment_lines(text)
         if not source:
             return False
@@ -103,6 +113,8 @@ def invalid_sql_statements_in_code_fences(markdown: str) -> list[str]:
         return False
 
     def unsafe_shell_or_unknown(text: str) -> bool:
+        if re.search(r"/\\*(?:!|M!)|\\\\[^\\s]", text, re.IGNORECASE):
+            return True
         source = without_comment_lines(text)
         return bool(client.search(source) or forbidden.search(source))
 
@@ -411,6 +423,41 @@ class ReadOnlyFiveFeaturePreflight(unittest.TestCase):
             with self.subTest(sample=sample):
                 self.assertNotEqual(
                     invalid_sql_statements_in_code_fences(sample), [])
+
+    def test_mysql_executable_comments_never_get_stripped_as_harmless(self):
+        examples = (
+            "SELECT 1 /*!50000 ; DROP TABLE characters */;",
+            "SELECT * FROM characters /*! INTO OUTFILE '/tmp/x' */;",
+            "SELECT 1 /*M!100100 ; DELETE FROM character_pet */;",
+            "/*!50700 SHUTDOWN */",
+            "SELECT 1 /* ordinary explanatory comment */ /*!50000 CALL foo() */;",
+        )
+        for sql in examples:
+            with self.subTest(sql=sql):
+                self.assertNotEqual(invalid_sql_statements_in_code_fences(
+                    "\x60\x60\x60sql\n" + sql + "\n\x60\x60\x60"), [])
+
+    def test_sql_client_commands_fail_closed_even_with_select_prefix(self):
+        examples = (
+            "SELECT 1\nsystem touch /tmp/x\n;",
+            r"SELECT 1 \! touch /tmp/x",
+            r"SELECT 1 \. /tmp/hidden.sql",
+            r"SELECT 1 \G",
+            r"SELECT 1 \T /tmp/server-output",
+        )
+        for sql in examples:
+            with self.subTest(sql=sql):
+                self.assertNotEqual(invalid_sql_statements_in_code_fences(
+                    "\x60\x60\x60mysql\n" + sql + "\n\x60\x60\x60"), [])
+
+    def test_mysql_executable_comment_and_backslash_in_unknown_fence(self):
+        examples = (
+            "\x60\x60\x60shell-session\nSELECT 1 /*!50000 DROP TABLE x */\n\x60\x60\x60",
+            "\x60\x60\x60mystery\nSELECT 1 \\! touch /tmp/x\n\x60\x60\x60",
+        )
+        for text in examples:
+            with self.subTest(text=text):
+                self.assertNotEqual(invalid_sql_statements_in_code_fences(text), [])
 
     def test_preflight_workflow_triggers_for_any_module_sql_directory(self):
         # UpdateFetcher accepts first-level directory names containing
