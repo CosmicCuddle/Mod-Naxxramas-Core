@@ -224,7 +224,7 @@ Alternative, only if the server owner separately approves a real merge of PR #77
 
 Requires its own approval. Skip this stage when Stage A already shows `23543` ScriptName = `npc_naxxramas_hallows_end_soh`.
 
-Run it only when Stage A shows a different ScriptName. Put that exact value in `<EXPECTED_OLD_SCRIPTNAME>`. If the SELECT failed or the name is ambiguous, **STOP**. Do not execute `2026_09_21_00_event_script_overrides.sql` and do not edit it. That file also updates Brewfest `23703`.
+Run it only when Stage A shows a different **non-NULL** ScriptName. Put that exact verified value in `<EXPECTED_OLD_SCRIPTNAME>` with correct SQL quoting/escaping. If the SELECT failed, the value is **NULL**, quoting is uncertain or the existing binding is ambiguous, **STOP** and prepare a separately reviewed guarded NULL-safe design instead of copying the example. Do not execute `2026_09_21_00_event_script_overrides.sql` and do not edit it. That file also updates Brewfest `23703`.
 
 Affected rows must be exactly 1. Any other count: `ROLLBACK` and **STOP**. The default last statement below is `ROLLBACK`. Change it to `COMMIT` only after the count is 1 and the server owner has approved the commit. Do not touch `23703`.
 
@@ -269,7 +269,7 @@ Only after Stages A–E and a **separate startup/restart authorisation**, ensure
 Requires its own approval. Turn F10 switches on only for this stage, in the conf file the pilot worldserver actually loads. Leave `PeriodMultiplier` at the recorded original (dist default `3`) unless the server owner approves another value in 2–8.
 
 - Solo-pace cases: `NaxxramasCore.HallowsEnd.SoloFire.Enabled = 1`, `OneBucket = 0`.
-- One-bucket case (b) only: `Enabled = 1` and `NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 1`.
+- One-bucket positive case **(b)** and its fail-closed negative conditions in **(c)**: use `Enabled = 1` and `NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 1` for the comparison, then explicitly test each flag OFF one at a time. Record the effective flags for each run; otherwise a negative case could pass trivially with the whole feature disabled.
 
 Record PASS, FAIL, or NOT RUN for each case, with a one-line note. **The difference to test is the module's extra full-size one-bucket shortcut, not the existence of stock 42339→42348.** In the pinned core, stock splash `42348` can remove all auras from a small (amount ≤2) normal fire, and lowers a full-size amount 3 to 1. Confirm actual in-game spell timing; do not treat these source-model results as already observed.
 
