@@ -47,7 +47,8 @@ def invalid_sql_statements_in_code_fences(markdown: str) -> list[str]:
     forbidden = re.compile(
         r"\b(?:INSERT|UPDATE|DELETE|DROP|TRUNCATE|CREATE|ALTER|REPLACE|"
         r"CALL|GRANT|REVOKE|RENAME|EXECUTE|SOURCE|FLUSH|KILL|SHUTDOWN|"
-        r"OPTIMIZE|PREPARE|DEALLOCATE|HANDLER|DO|RESET|PURGE|INSTALL|UNINSTALL)\b"
+        r"OPTIMIZE|PREPARE|DEALLOCATE|HANDLER|DO|RESET|PURGE|INSTALL|UNINSTALL|"
+        r"SYSTEM|TEE|NOTEE|PAGER|NOPAGER)\b"
         r"|\bSET\b|\bLOAD\s+DATA\b|\bINTO\s+(?:OUTFILE|DUMPFILE)\b"
         r"|\b(?:LOCK|UNLOCK)\s+TABLES\b|\\\s*\.\s+\S",
         re.IGNORECASE,
