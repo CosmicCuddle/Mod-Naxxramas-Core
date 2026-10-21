@@ -87,12 +87,12 @@ def invalid_sql_statements_in_code_fences(markdown: str) -> list[str]:
         # MySQL/MariaDB executable comments are actual SQL, not comments:
         # /*!50700 ... */ and /*M!100100 ... */ must fail closed BEFORE
         # ordinary block comments are stripped or statement starts checked.
-        if re.search(r"/\\*(?:!|M!)", text, re.IGNORECASE):
+        if re.search(r"/\*(?:!|M!)", text, re.IGNORECASE):
             return True
         # SQL-client meta commands may execute external programs or source
         # scripts; deny all backslash commands rather than guessing which
         # subset is harmless (including \\!, \\., \\G).
-        if re.search(r"\\\\[^\\s]", text):
+        if re.search(r"\\[^\s]", text):
             return True
         source = without_comment_lines(text)
         if not source:
@@ -114,7 +114,7 @@ def invalid_sql_statements_in_code_fences(markdown: str) -> list[str]:
         return False
 
     def unsafe_shell_or_unknown(text: str) -> bool:
-        if re.search(r"/\\*(?:!|M!)|\\\\[^\\s]", text, re.IGNORECASE):
+        if re.search(r"/\*(?:!|M!)|\\[^\s]", text, re.IGNORECASE):
             return True
         source = without_comment_lines(text)
         return bool(client.search(source) or forbidden.search(source))
