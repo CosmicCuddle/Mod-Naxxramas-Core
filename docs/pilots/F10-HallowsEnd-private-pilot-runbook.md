@@ -1,6 +1,6 @@
 # F10 Hallow's End — private pilot runbook
 
-**Status: DRAFT. Nothing in this runbook is approved.** Each stage (A–F) needs Michael's separate explicit approval before that stage starts. Do not inventory a live server, take a backup, change config, fetch, build, bind SQL, restart, or enter the game on the strength of this file.
+**Status: DRAFT. Nothing in this runbook is approved.** Each stage (A–F) needs the server owner's separate explicit approval before that stage starts. Do not inventory a live server, take a backup, change config, fetch, build, bind SQL, restart, or enter the game on the strength of this file.
 
 Source proof is [PR #77](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/77) head `4dc63b3a0df11b35dea7035dae472d6aa947b506` on `pilot/f10-hallows-end-only-source-2026-10-21`. [CI run 39584426670](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/39584426670) succeeded: 5/5 `test_f10_event_only_candidate.py` tests, marker `F10_ONE_BUCKET_POLICY_OK`, link `[1885/1885]`, runner-only `worldserver` sha256 `baf7eaf57d38a765a8c202f7b61b5e336407edb5bbfba55d83b09220789760b3`. That binary was not uploaded and is not a distributable build. **In-game behaviour is NOT TESTED.**
 
@@ -26,7 +26,7 @@ This module has no `db-auth` SQL at this head. It has 12 world and 3 characters 
 
 ## Stage A — read-only inventory
 
-No changes. No restart. No `git checkout`, `pull`, or `fetch`. SQL below is a template: run it only after Michael approves Stage A, against the databases Stage A has already identified by name.
+No changes. No restart. No `git checkout`, `pull`, or `fetch`. SQL below is a template: run it only after the server owner approves Stage A, against the databases Stage A has already identified by name.
 
 Record every row. Leave **UNKNOWN** rather than guessing.
 
@@ -152,7 +152,7 @@ Requires its own approval, after Stage A. **STOP** if any backup or the isolated
 1. Copy the original worldserver binary. Record size and sha256.
 2. Record the module checkout: remote, branch, commit, and a clean worktree. Keep a copy of that tree, or a ref that can recreate it exactly.
 3. Byte-copy the three active conf files from Stage A (`worldserver.conf`, `mod_naxxramas_core.conf`, `playerbots.conf`). Record size and sha256 of each copy.
-4. Dump `<WORLD_DB>`, `<CHARACTERS_DB>`, and `<PLAYERBOTS_DB>` with `mysqldump` or `mariadb-dump --single-transaction --routines --triggers`. Include `<AUTH_DB>` when any component of this start may touch it; if that is still UNKNOWN, include auth. Put credentials in a mode-`0600` option file. Do not put the password on the command line. Record size and sha256 of each dump.
+4. First inspect the database storage engines and agree a **consistent** backup plan. A `--single-transaction` dump is appropriate only for a properly managed transactional snapshot: it does not by itself guarantee consistency for nontransactional tables or across independently changing databases. Account for concurrent writes, cross-database dependencies, and any required coordinated quiescence/snapshot. For the verified compatible engine/backup tool, dump `<WORLD_DB>`, `<CHARACTERS_DB>`, `<PLAYERBOTS_DB>` and `<AUTH_DB>` if a dependency may touch auth or that remains UNKNOWN. Include **`--events --routines --triggers`** so scheduled SQL events are not silently omitted. Put credentials in a mode-`0600` option file; never put passwords in the command line, GitHub or screenshots. Record each dump's size and sha256.
 5. Restore every dump into an **isolated** scratch instance whose database names are not the live ones. Re-run the Stage A SELECTs on the scratch world DB and confirm the same ScriptName values. Confirm dump sha256 before and after copy.
 
 ```bash
@@ -166,7 +166,7 @@ cp -a <WORLD_CONF> <MODULE_CONF> <PLAYERBOTS_CONF> <BACKUP_DIR>/
 # password=<DB_PASSWORD>
 # host=<DB_HOST>
 mysqldump --defaults-extra-file=<CREDENTIALS_OPTION_FILE> \
-  --single-transaction --routines --triggers \
+  --single-transaction --events --routines --triggers \
   --result-file=<BACKUP_DIR>/<WORLD_DB>.sql \
   <WORLD_DB>
 sha256sum <BACKUP_DIR>/<WORLD_DB>.sql
@@ -203,8 +203,7 @@ After Stage A shows a clean worktree, and after C is in effect for the process t
 2. Require the fetched commit to be exactly `4dc63b3a0df11b35dea7035dae472d6aa947b506`. Any other hash: **STOP**.
 3. Create a temporary local branch at that commit, named so it cannot be mistaken for main (example: `pilot-f10-local`).
 4. Rebuild with the build command recorded in Stage A. Do not substitute the CI cmake line. The CI binary is runner-only.
-5. Planned stop, then start, of the worldserver process identified in Stage A, through that supervisor only. Do not `kill` by guess, do not `pm2 stop` an unconfirmed index, do not detach an unconfirmed tmux session, and do not restart authserver.
-6. On that first start, read the log. Core and Playerbots updater lines must show no populate and no update. Any updater activity: **STOP** and roll back. Do not "fix" a migration live.
+5. **Do not start or restart Worldserver during Stage D.** Stage A's 23543 binding decision must first be resolved in Stage E; if it is missing, a separate owner-approved one-row correction is needed. Keep the actual supervisor's automatic restart safely controlled under the separately approved plan. Do not `kill` by guess, use an unconfirmed PM2 index or tmux session, or restart authserver.
 
 ```bash
 # Illustrative only. Finalise names after Stage A. Do not run from this document.
@@ -216,10 +215,10 @@ git -C <MODULE_DIR> rev-parse <REMOTE>/pilot/f10-hallows-end-only-source-2026-10
 # must print 4dc63b3a0df11b35dea7035dae472d6aa947b506
 git -C <MODULE_DIR> switch -c pilot-f10-local <REMOTE>/pilot/f10-hallows-end-only-source-2026-10-21
 git -C <MODULE_DIR> rev-parse HEAD
-# then the owner's recorded build command, then the identified supervisor stop/start
+# then the owner's recorded build command; no start/restart until Stage E is resolved
 ```
 
-Alternative, only if Michael separately approves a real merge of PR #77: a later `git pull` on `main` can deliver F10. That merge is not approved by this runbook. Both routes still need stages A–C and the same start gate.
+Alternative, only if the server owner separately approves a real merge of PR #77: a later `git pull` on `main` can deliver F10. That merge is not approved by this runbook. Both routes still need stages A–C and the same start gate.
 
 ## Stage E — conditional 23543 binding
 
@@ -227,7 +226,7 @@ Requires its own approval. Skip this stage when Stage A already shows `23543` Sc
 
 Run it only when Stage A shows a different ScriptName. Put that exact value in `<EXPECTED_OLD_SCRIPTNAME>`. If the SELECT failed or the name is ambiguous, **STOP**. Do not execute `2026_09_21_00_event_script_overrides.sql` and do not edit it. That file also updates Brewfest `23703`.
 
-Affected rows must be exactly 1. Any other count: `ROLLBACK` and **STOP**. The default last statement below is `ROLLBACK`. Change it to `COMMIT` only after the count is 1 and Michael has approved the commit. Do not touch `23703`.
+Affected rows must be exactly 1. Any other count: `ROLLBACK` and **STOP**. The default last statement below is `ROLLBACK`. Change it to `COMMIT` only after the count is 1 and the server owner has approved the commit. Do not touch `23703`.
 
 ```sql
 -- TEMPLATE - DO NOT RUN without separate owner approval.
@@ -259,21 +258,27 @@ ROLLBACK;
 -- COMMIT;
 ```
 
+### First pilot startup — only AFTER the Stage E decision
+
+Stage E must be recorded as **SKIPPED because 23543 was already correctly bound**, or **COMPLETED with a separately approved, verified one-row transaction** before any pilot Worldserver startup or Hallow's End gameplay. If a required binding fix is unapproved or fails, **STOP**; do not start with a known missing binding and expect the current process to reload a changed ScriptName automatically.
+
+Only after Stages A–E and a **separate startup/restart authorisation**, ensure the exact identified Worldserver supervisor cannot restart unexpectedly, confirm both effective automatic updater flags remain `0` (including environment overrides), and perform the planned controlled Worldserver start. Keep both optional Hallow's End features OFF initially. Do not restart authserver. Verify startup logs show no core or Playerbots updater populate/update; any activity or missing required schema means **STOP** and follow the separately approved rollback. Gameplay and optional feature activation still require Stage F approval.
+
 ## Stage F — private acceptance
 
-Requires its own approval. Turn F10 switches on only for this stage, in the conf file the pilot worldserver actually loads. Leave `PeriodMultiplier` at the recorded original (dist default `3`) unless Michael approves another value in 2–8.
+Requires its own approval. Turn F10 switches on only for this stage, in the conf file the pilot worldserver actually loads. Leave `PeriodMultiplier` at the recorded original (dist default `3`) unless the server owner approves another value in 2–8.
 
 - Solo-pace cases: `NaxxramasCore.HallowsEnd.SoloFire.Enabled = 1`, `OneBucket = 0`.
 - One-bucket case (b) only: `Enabled = 1` and `NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 1`.
 
-Record PASS, FAIL, or NOT RUN for each case, with a one-line note.
+Record PASS, FAIL, or NOT RUN for each case, with a one-line note. **The difference to test is the module's extra full-size one-bucket shortcut, not the existence of stock 42339→42348.** In the pinned core, stock splash `42348` can remove all auras from a small (amount ≤2) normal fire, and lowers a full-size amount 3 to 1. Confirm actual in-game spell timing; do not treat these source-model results as already observed.
 
 | Case | What to do | Result |
 |---|---|---|
 | (a) | One real human plus bots. Solo pace. Bots do not count as the nearby player. | |
 | (b) | One real human. Normal fire `23686`, full-size aura `42074`, bucket spell `42339` on that fire. | |
-| (c) | Negatives, each must leave the fire aura in place: bot caster; two real humans; training fire `23537`; a fire this Shade did not light with `42132` this cycle, or a foreign fire; overlapping living Shades. | |
-| (d) | Stock splash `42348` unchanged. Unrelated auras unchanged. Quest credit unchanged (source quests `12135`, `12139`, `11131`, `11219`). | |
+| (c) | Negative module conditions: bot caster; two real humans; training fire `23537`; never-Shade-ignited or foreign fire; overlapping Shades; optional flags OFF. Verify **no extra module one-bucket removal**. On suitable full-size normal fire amount 3, expect only the stock bucket reduction toward amount 1 when module conditions fail, subject to live timing. Small fires may already be extinguished by stock splash; training and other targets must follow their own stock paths, not necessarily retain every aura. | |
+| (d) | Compare OneBucket ON versus OFF baseline: stock splash `42348` remains present, **no new unintended unrelated-aura effects** beyond stock `RemoveAllAuras()` on small fires, and no regression to quest credit (source quests `12135`, `12139`, `11131`, `11219`). Do not claim all unrelated auras always remain. | |
 | (e) | Event finish, event failure, and cleanup. | |
 
 **Roll back immediately** on any crash, any unexpected SQL applied at start or during play, wrong quest credit, or any change to Brewfest `23703`.
@@ -283,7 +288,7 @@ Record PASS, FAIL, or NOT RUN for each case, with a one-line note.
 Stop and do not improvise when any of these are true:
 
 - Fetched or checked-out module commit is not `4dc63b3a0df11b35dea7035dae472d6aa947b506`.
-- Installed core, Playerbots, or IP SHA is not the set Michael accepted from Stage A.
+- Installed core, Playerbots, or IP SHA is not the set the server owner accepted from Stage A.
 - Worktree is dirty, or symlinks make the built tree differ from the recorded checkout.
 - Effective updater config or either `AC_*` override is UNKNOWN.
 - Any of the 15 history rows is missing, hash-mismatched, or not in the realm's already-applied state.
@@ -298,14 +303,14 @@ Stop and do not improvise when any of these are true:
 
 Use the supervisor and paths recorded in A and B. Do not restart authserver.
 
-1. Stop worldserver through the identified supervisor.
-2. Set the F10 switches back off (`Enabled = 0`, `OneBucket = 0`; restore the recorded `PeriodMultiplier`).
-3. **First**, restore the original worldserver binary, the three conf byte-copies, and the module checkout. Return to the recorded original branch and commit. Delete the temporary branch (`pilot-f10-local` or whatever Stage D created).
-4. Reverse `23543` only if Stage E committed. Use the compensating template and the recorded `<EXPECTED_OLD_SCRIPTNAME>`.
-5. Restore a database from the Stage B dump only if that is required and Michael approves that restore. Restore into the live names only under that approval; the scratch instance is the rehearsal.
-6. Only after a pending-update risk review, put back the **recorded** effective updater values from Stage A. Restoring the original conf file can re-enable those values, so do not start until that review is done. If the review says the old values are unsafe, keep both effective flags at `0` and leave the original bytes in the backup. Do not "reset" to dist defaults `Updates.EnableDatabases = 7` or `Playerbots.Updates.EnableDatabases = 1`.
-7. Start worldserver through the same supervisor.
-8. Re-read the Stage A SELECTs. Confirm Shade `23543`, Brewfest `23703`, training `23537`, and stock spell rows for `42339` and `42348` match the pre-pilot record (or the Stage E reverse, if that ran). Confirm the log is a normal start with no updater apply.
+1. **Stop Worldserver through the verified supervisor and prevent automatic restarts** under the separately authorised plan. Confirm it is stopped before any rollback file operation. Do not restart authserver.
+2. Keep BOTH updater settings **effective at `0`**, accounting for environment overrides, while the stopped server's binary and module tree are being restored. Record the F10 switches to return OFF (`Enabled = 0`, `OneBucket = 0`; original `PeriodMultiplier`) without restoring an old updater-ON configuration prematurely.
+3. Restore the exact known-good Worldserver binary and module checkout (branch, commit, permissions and any preserved local edits), while the startup gate remains closed. Keep the temporary pilot branch available until known-good operation has been verified; **do not delete it early**.
+4. Reverse entry `23543` only if Stage E committed, using the separately authorised compensating SQL template and recorded `<EXPECTED_OLD_SCRIPTNAME>`; otherwise leave the original row untouched.
+5. Restore a database only if the incident assessment makes it necessary, the isolated restore has succeeded, and the server owner separately approves the live restore. A broad restore can overwrite legitimate gameplay progress since the backup.
+6. **Before restoring any original active `.conf` byte-copies or previous updater environment values**, review pending migrations and the supervisor's restart behaviour. Such an original file or override may itself re-enable automatic World/Playerbots SQL updates. Only after this review is approved may the original configuration bytes and the **verified prior effective values** be restored together under a controlled, stopped Worldserver. If previous values are unsafe, keep the Worldserver stopped and both effective masks contained at `0`, with the original file copies retained safely in backup; arrange a separate approved normal-operation plan. Never silently reset to dist defaults `7` or `1`.
+7. Start Worldserver through the verified supervisor **only when** backup restoration, database binding, effective updater configuration and the pending-migrations gate are all safe and separately approved. Otherwise leave it stopped rather than risking an automatic migration.
+8. Re-run the approved Stage A SELECTs and compare 23543, Brewfest `23703`, normal `23686`, training `23537`, stock `42339`/`42348`, and update history to the pre-pilot record (with the documented Stage E reverse if used). Confirm no unexpected updater apply. Only after this verification and separate owner consent may the temporary local pilot branch be removed.
 
 ## Evidence record
 
@@ -313,7 +318,7 @@ Use the supervisor and paths recorded in A and B. Do not restart authserver.
 |---|---|
 | Date (UTC) | |
 | Operator | |
-| Michael approval recorded for stages | |
+| the server owner approval recorded for stages | |
 | Module commit before / pilot commit | |
 | Core / Playerbots / IP SHAs | |
 | Backup dir, sizes, sha256 | |
