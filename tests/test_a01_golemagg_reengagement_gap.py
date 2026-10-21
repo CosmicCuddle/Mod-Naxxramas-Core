@@ -34,6 +34,32 @@ bool McGolemaggBackOffAction::Execute(Event /*event*/) {
     return MoveAway(boss, distToTravel);
 }
 """,
+    "movement_h": """
+class MovementAction : public Action
+{
+};
+""",
+    "reach_h": """
+class ReachTargetAction : public MovementAction
+{
+};
+class ReachMeleeAction : public ReachTargetAction
+{
+    ReachMeleeAction() : ReachTargetAction(botAI, "reach melee", 5.0f) {}
+};
+""",
+    "reach_cpp": """
+bool ReachTargetAction::Execute(Event /*event*/) { return ReachCombatTo(AI_VALUE(Unit*, GetTargetName()), distance); }
+std::string const ReachTargetAction::GetTargetName() { return "current target"; }
+""",
+    "attack_h": """
+class AttackAction : public MovementAction
+{
+};
+class MeleeAction : public AttackAction
+{
+};
+""",
     "multipliers": """
 bool IsAllowedGeddonMovementAction(Action* action) {
     return !dynamic_cast<MovementAction*>(action);
@@ -58,6 +84,7 @@ class GolemaggMovementGapContract(unittest.TestCase):
         self.assertTrue(facts["retreat_trigger_threshold_20_12_verified"])
         self.assertTrue(facts["selected_attack_action_suppression_verified"])
         self.assertFalse(facts["general_movement_action_veto_proven"])
+        self.assertTrue(facts["reach_melee_is_unfiltered_movement_class_candidate"])
         self.assertFalse(facts["actual_reengaging_action_observed"])
         self.assertFalse(facts["safe_module_only_movement_fix_implemented"])
 
@@ -69,6 +96,47 @@ class GolemaggMovementGapContract(unittest.TestCase):
             "    bool engagesBoss =")
         with self.assertRaises(PolicyEvidenceChanged):
             check_golemagg_contract(changed)
+
+    def test_reach_melee_sibling_movement_class_evidence(self):
+        # This is SOURCE TYPE hierarchy, not an in-game action trace.
+        facts = check_golemagg_contract(FILES)
+        self.assertTrue(facts["reach_melee_is_unfiltered_movement_class_candidate"])
+        self.assertFalse(facts["actual_reengaging_action_observed"])
+        self.assertIn("class ReachTargetAction : public MovementAction",
+                      FILES["reach_h"])
+        self.assertIn("class AttackAction : public MovementAction",
+                      FILES["attack_h"])
+        self.assertNotIn("class ReachMeleeAction : public AttackAction",
+                         FILES["reach_h"])
+
+    def test_changed_reach_melee_parents_or_movement_execution_fail_closed(self):
+        cases = (
+            ("reach_h",
+             "class ReachTargetAction : public MovementAction",
+             "class ReachTargetAction : public AttackAction"),
+            ("reach_h",
+             "class ReachMeleeAction : public ReachTargetAction",
+             "class ReachMeleeAction : public AttackAction"),
+            ("reach_h",
+             'ReachTargetAction(botAI, "reach melee",',
+             'ReachTargetAction(botAI, "other action",'),
+            ("reach_cpp",
+             "return ReachCombatTo(AI_VALUE(Unit*, GetTargetName()), distance);",
+             "return true;"),
+            ("reach_cpp", 'return "current target";',
+             'return "another target";'),
+            ("movement_h", "class MovementAction : public Action",
+             "class MovementAction : public NewBase"),
+            ("attack_h", "class AttackAction : public MovementAction",
+             "class AttackAction : public Action"),
+        )
+        for key, before, after in cases:
+            with self.subTest(key=key, before=before):
+                changed = dict(FILES)
+                changed[key] = changed[key].replace(before, after)
+                self.assertNotEqual(changed[key], FILES[key])
+                with self.assertRaises(PolicyEvidenceChanged):
+                    check_golemagg_contract(changed)
 
     def test_changed_retreat_thresholds_or_burn_override_require_new_review(self):
         cases = (
@@ -103,7 +171,7 @@ class GolemaggMovementGapContract(unittest.TestCase):
                     check_golemagg_contract(changed)
 
     def test_pinned_file_identity_must_be_checked_before_parsing(self):
-        self.assertEqual(len(PINNED_BLOBS), 4)
+        self.assertEqual(len(PINNED_BLOBS), 8)
         self.assertEqual(
             PINNED_PLAYERBOTS,
             "037c01418b5d01506917a3db9b44fd56ac5f965c")
