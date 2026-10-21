@@ -281,3 +281,10 @@ NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier = 3
 # EXPERIMENTAL: requires SoloFire.Enabled = 1; default OFF.
 # Not approved for install or live use. Default: 0
 NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 0
+
+# Prevent existing Hallow's End event fires from spreading to other fires
+# when exactly one real player is near their owning Shade. Playerbots do
+# not count as real players. The Shade can still ignite new fires.
+# Requires SoloFire.Enabled = 1. Group behaviour remains unchanged.
+# 0 = OFF (default); 1 = block normal event fire-spread spell 42079 in solo.
+NaxxramasCore.HallowsEnd.SoloFire.DisableSpread = 0
