@@ -87,7 +87,7 @@ Manifest for **this commit only** (raw file SHA-1, the updater hash). Compare to
 | world | `2026_10_08_00_arcane_momentum.sql` | `d1af947fdaddc9daf6dab9637f1fe54416a13413` |
 | world | `2026_10_09_00_monthly_elemental_invasions.sql` | `ad5b4dae2955da5fcf9c8c1b7b74d4642f1a42a1` |
 
-Confirm the installed `updates` columns before trusting this. These 15 files are not the core, Playerbots, or Individual Progression migration inventory. List those directories too. Individual Progression's `data/sql` tree still has to be accounted for before any start.
+Confirm the installed `updates` columns before trusting this. When comparing textual hexadecimal hashes, normalise upper-/lower-case; **a case mismatch alone is not a different SHA-1**. This only applies to case, not to missing/renamed rows, unexpected state, changed bytes or another mismatch. These 15 files are not the core, Playerbots, or Individual Progression migration inventory. List those directories too. Individual Progression's `data/sql` tree still has to be accounted for before any start.
 
 ```sql
 -- TEMPLATE - DO NOT RUN without separate owner approval.
@@ -204,7 +204,7 @@ After Stage A shows a clean worktree, and after C is in effect for the process t
 1. In `<MODULE_DIR>`, fetch the named pilot branch from the remote Stage A recorded. Do not assume the remote name.
 2. Require the fetched commit to be exactly `4dc63b3a0df11b35dea7035dae472d6aa947b506`. Any other hash: **STOP**.
 3. Create a temporary local branch at that commit, named so it cannot be mistaken for main (example: `pilot-f10-local`).
-4. Rebuild with the build command recorded in Stage A. Do not substitute the CI cmake line. The CI binary is runner-only. **A successful compile does not prove which binary the installed supervisor starts.** Record the candidate built binary's exact path and SHA-256, the current service executable path and its preserved known-good backup; separately approve any required copy/install of the candidate executable and permissions.
+4. **Determine what the Stage A build command actually does before running it.** Some familiar AzerothCore commands (including wrappers) can both COMPILE **and INSTALL** into the live launcher directory, potentially replacing `worldserver`, configuration distributions or other installed files while the old Worldserver is still running. If the command can install, restart, stop a service or edit live destinations, **do not run it as-is in Stage D**. Under a separate owner-approved build plan, perform **build only** in a verified build tree, with no install step or side-effecting wrapper; alternatively choose a verified separate isolated staging prefix that cannot affect the active installation. Leave every copy/install into the live launcher path to step 6 **after the exact Worldserver is stopped and auto-restart inhibited**. Do not substitute the CI CMake line. The CI binary is runner-only. **A successful compile does not prove which binary the installed supervisor starts.** Record the candidate built binary's exact path and SHA-256, the active service executable path and its preserved known-good backup; separately approve any required later copy/install of the candidate executable and permissions.
 5. **Do not start or restart Worldserver during Stage D.** Before ANY future executable replacement, optional Stage E SQL change, or pilot startup, use the verified supervisor under a **separately authorised maintenance window** to stop the original Worldserver and inhibit automatic restart. Confirm it is actually stopped. If the process cannot be safely stopped or auto-restart cannot be controlled, **STOP** and do not stage the executable or write SQL. Do not `kill` by guess, use an unconfirmed PM2 index or tmux session, or restart authserver.
 6. Under separate installation permission and with the service verifiably stopped, stage the exact newly built binary where the real Worldserver launcher will load it, preserving original ownership, mode and known-good binary; then verify staged SHA-256 equals the candidate build hash. **Do not stage the binary until the Stage A–C checks and restore rehearsal have passed.** The Stage A 23543 binding decision must be resolved in Stage E before the first pilot startup.
 
@@ -214,11 +214,14 @@ After Stage A shows a clean worktree, and after C is in effect for the process t
 #   git pull origin pilot/f10-hallows-end-only-source-2026-10-21
 git -C <MODULE_DIR> status --porcelain
 git -C <MODULE_DIR> fetch <REMOTE> pilot/f10-hallows-end-only-source-2026-10-21
-git -C <MODULE_DIR> rev-parse <REMOTE>/pilot/f10-hallows-end-only-source-2026-10-21
+git -C <MODULE_DIR> rev-parse FETCH_HEAD
 # must print 4dc63b3a0df11b35dea7035dae472d6aa947b506
-git -C <MODULE_DIR> switch -c pilot-f10-local <REMOTE>/pilot/f10-hallows-end-only-source-2026-10-21
+# do not switch if FETCH_HEAD differs, is ambiguous, or SHA verification fails
+git -C <MODULE_DIR> switch -c pilot-f10-local 4dc63b3a0df11b35dea7035dae472d6aa947b506
 git -C <MODULE_DIR> rev-parse HEAD
-# then the owner's recorded build command; no start/restart until Stage E is resolved
+# then ONLY a separately reviewed build-only command with NO live install side effects;
+# no copy/install into the live launcher until the verified Worldserver is stopped;
+# no start/restart until Stage E is resolved
 ```
 
 Alternative, only if the server owner separately approves a real merge of PR #77: a later `git pull` on `main` can deliver F10. That merge is not approved by this runbook. Both routes still need stages A–C and the same start gate.
@@ -300,6 +303,7 @@ Stop and do not improvise when any of these are true:
 - `23703`, `23686`, `23537`, `42339`, or `42348` bindings differ from the Stage A record later, or Stage A could not read them.
 - Another installed module has its own updater.
 - The worldserver supervisor or its auto-restart policy is UNKNOWN.
+- The existing compile/build command's **install behaviour or live side effects are UNKNOWN**, or it would run an installation, overwrite a real launcher binary or restart a service before the separately approved Stage D stop/install gate.
 - The Worldserver is still running when any optional Stage E SQL write or candidate binary replacement is proposed, or the runtime executable path/staged hash has not been verified.
 - A backup or the isolated restore check failed.
 - The startup log shows any updater populate/update activity.
