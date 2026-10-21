@@ -1,0 +1,98 @@
+name: F10 event-only exact-head Worldserver (draft source)
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Events/HallowsEndShadeOfTheHorseman.cpp'
+      - 'src/Events/HallowsEndSoloFire.h'
+      - 'src/Events/HallowsEndSoloFireConfig.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/f10_s2_one_bucket_policy_tests.cpp'
+      - 'tests/test_f10_event_only_candidate.py'
+      - '.github/workflows/f10-event-only-pilot.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  event-only-source-and-link:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout pinned Grimfeather core
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+      - name: Checkout pinned Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact F10 draft source head
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/Mod-Naxxramas-Core
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify F10 donor bytes, source-only scope and OFF defaults
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          root=acore/modules/mod-naxxramas-core
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = 037c01418b5d01506917a3db9b44fd56ac5f965c
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          test "$(git -C "$root" rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git -C "$root" hash-object src/Events/HallowsEndShadeOfTheHorseman.cpp)" = 94cc046a24b22257a11e78bf28989f1877409f74
+          test "$(git -C "$root" hash-object src/Events/HallowsEndSoloFire.h)" = ce3a426cb4816f47d5e1de6b5fed2b8963ac0552
+          test "$(git -C "$root" hash-object src/Events/HallowsEndSoloFireConfig.cpp)" = 7dd38beb1671e54b80b3edc895528eee3079d536
+          python3 -m unittest discover -s "$root/tests" -p test_f10_event_only_candidate.py -v
+          g++ -std=c++17 -Wall -Wextra -Werror -I"$root/src/Events" "$root/tests/f10_s2_one_bucket_policy_tests.cpp" -o /tmp/f10_event_policy
+          /tmp/f10_event_policy
+          echo 'NO SQL/DBC executed. The mixed legacy world update remains a DEPLOYMENT BLOCKER.'
+      - name: Install ephemeral build prerequisites
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git cmake ninja-build g++ make pkg-config file libmysqlclient-dev libssl-dev libbz2-dev libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure exact source for one Worldserver
+        run: |
+          cmake -S acore -B acore-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DMODULES=static -DSCRIPTS=static -DAPPS_BUILD=world-only -DTOOLS_BUILD=none -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Verify CMake includes both F10 translation units
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          rows=json.loads(Path('acore-build/compile_commands.json').read_text())
+          for suffix in ['/src/Events/HallowsEndShadeOfTheHorseman.cpp','/src/Events/HallowsEndSoloFireConfig.cpp']:
+              assert sum(row['file'].endswith(suffix) for row in rows)==1,suffix
+          print('PASS: one exact-head F10 source tree')
+          PY
+      - name: Compile and link event-only diff against full pinned Worldserver
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify linked event functions without uploading binaries
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          archive=acore-build/modules/libmodules.a
+          test -x "$binary" && test -s "$archive"
+          nm -C --defined-only "$binary" > /tmp/f10_event_binary_symbols
+          for marker in 'AddHallowsEndShadeOfTheHorsemanScripts()' 'NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireEnabledSetting()' 'NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireOneBucketSetting()'; do grep -Fq "$marker" /tmp/f10_event_binary_symbols; done
+          grep -aFq 'spell_naxxramas_hallows_end_one_bucket' "$binary"
+          sha256sum "$binary"
+          echo 'SOURCE S4 only: NOT installed, configured, bound to world DB, or tested in game.'
+      - name: Safety note
+        if: always()
+        run: echo 'NO merge, updater execution, SQL, DBC, server startup, config activation, deployment, game state, or artifact uploads. Real world updater history and binding are UNKNOWN.'
