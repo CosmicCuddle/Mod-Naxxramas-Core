@@ -529,8 +529,9 @@ class ShadeSourceContract(unittest.TestCase):
         self.assertEqual(CONF.count("HallowsEnd.SoloFire.Enabled"), 1)
         self.assertEqual(CONF.count("HallowsEnd.SoloFire.PeriodMultiplier"), 1)
         self.assertNotIn("GetOption<", MODULE)
-        self.assertEqual(CONFIG_CPP.count("GetOption<std::string>"), 2)
-        self.assertEqual(CONFIG_CPP.count("false);"), 2)
+        self.assertEqual(CONFIG_CPP.count("GetOption<std::string>"), 3)
+        self.assertEqual(CONFIG_CPP.count("false);"), 3)
+        self.assertIn("OneBucketConfigKey", CONFIG_CPP)
         self.assertNotIn("GetOption<bool>", CONFIG_CPP)
         self.assertNotIn("GetOption<int", CONFIG_CPP)
         self.assertNotIn("GetOption<uint", CONFIG_CPP)
@@ -593,7 +594,9 @@ class ShadeSourceContract(unittest.TestCase):
         self.assertIn("cs02/f10-s2-shade-module-2026-10-20", WORKFLOW)
         self.assertIn("test_f10_hallows_end_solo_fire_s*.py", WORKFLOW)
         touched = list(Path(ROOT / ".github/workflows").glob("f10-s2*.yml"))
-        self.assertEqual(len(touched), 1)
+        names = {path.name for path in touched}
+        self.assertIn("f10-s2-source-pin.yml", names)
+        self.assertIn("f10-s2-one-bucket.yml", names)
         for path in touched:
             text = path.read_text()
             self.assertNotIn("upload-artifact", text)
