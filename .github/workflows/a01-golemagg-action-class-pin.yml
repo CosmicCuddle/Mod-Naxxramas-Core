@@ -36,6 +36,10 @@ jobs:
             src/Ai/Raid/MC/MCTriggers.cpp
             src/Ai/Raid/MC/MCActions.cpp
             src/Ai/Raid/MC/MCHelpers.h
+            src/Ai/Base/Actions/MovementActions.h
+            src/Ai/Base/Actions/ReachTargetActions.h
+            src/Ai/Base/Actions/ReachTargetActions.cpp
+            src/Ai/Base/Actions/AttackAction.h
       - name: Run synthetic negative gates and exact reviewed blob contract
         run: |
           set -euo pipefail
@@ -46,7 +50,11 @@ jobs:
             --multipliers pinned-playerbots/src/Ai/Raid/MC/MCMultipliers.cpp \
             --triggers pinned-playerbots/src/Ai/Raid/MC/MCTriggers.cpp \
             --actions pinned-playerbots/src/Ai/Raid/MC/MCActions.cpp \
-            --helpers pinned-playerbots/src/Ai/Raid/MC/MCHelpers.h
+            --helpers pinned-playerbots/src/Ai/Raid/MC/MCHelpers.h \
+            --movement_h pinned-playerbots/src/Ai/Base/Actions/MovementActions.h \
+            --reach_h pinned-playerbots/src/Ai/Base/Actions/ReachTargetActions.h \
+            --reach_cpp pinned-playerbots/src/Ai/Base/Actions/ReachTargetActions.cpp \
+            --attack_h pinned-playerbots/src/Ai/Base/Actions/AttackAction.h
           echo "PASS is only a P0-safe evidence of limited action-category coverage."
           echo "It is not evidence of a successful Golemagg movement fix."
           echo "No server compilation, startup, live movement, SQL or module activation."
