@@ -100,9 +100,12 @@ inline constexpr char MultiplierConfigKey[] =
     "NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier";
 inline constexpr char OneBucketConfigKey[] =
     "NaxxramasCore.HallowsEnd.SoloFire.OneBucket";
+inline constexpr char DisableSpreadConfigKey[] =
+    "NaxxramasCore.HallowsEnd.SoloFire.DisableSpread";
 inline constexpr char DefaultEnabledRaw[] = "0";
 inline constexpr char DefaultMultiplierRaw[] = "3";
 inline constexpr char DefaultOneBucketRaw[] = "0";
+inline constexpr char DefaultDisableSpreadRaw[] = "0";
 
 /* Non-inline. HallowsEndSoloFireConfig.cpp reads the raw strings and
  * applies EnabledFromRaw / MultiplierFromRaw / OneBucketFromRaw. The
@@ -111,10 +114,12 @@ inline constexpr char DefaultOneBucketRaw[] = "0";
 int32_t ReadHallowsEndSoloFireEnabledSetting();
 std::optional<int32_t> ReadHallowsEndSoloFireMultiplierSetting();
 int32_t ReadHallowsEndSoloFireOneBucketSetting();
+int32_t ReadHallowsEndSoloFireDisableSpreadSetting();
 
 inline constexpr uint32_t FireAuraSpellId = 42074;
 inline constexpr uint8_t FireAuraEffectIndex = 0;
 inline constexpr uint32_t BucketLandSpellId = 42339;
+inline constexpr uint32_t SpreadFireSpellId = 42079;
 inline constexpr uint32_t WaterSplashSpellId = 42348;
 inline constexpr uint8_t BucketLandEffectIndex = 0;
 inline constexpr uint32_t FireTriggerEntry = 23686;
@@ -202,6 +207,13 @@ inline int32_t OneBucketFromRaw(std::string_view raw)
     return 1;
 }
 
+/* Separate fail-closed switch. Only an exact 1 enables suppression. */
+inline int32_t DisableSpreadFromRaw(std::string_view raw)
+{
+    std::optional<int32_t> parsed = ParseStrictInt(raw);
+    return parsed && *parsed == 1 ? 1 : 0;
+}
+
 /* Integers 1 through 8. 1 is a timer-write no-op. Anything else,
  * including 0, negatives, and values above 8, is rejected. Not clamped.
  */
@@ -225,6 +237,36 @@ inline bool SoloPathActive(int32_t enabled, uint32_t realPlayers)
 {
     return enabled == 1 && realPlayers == 1;
 }
+
+/* Only unambiguously owned active event fires may skip triggered 42079.
+ * All failures preserve the original spread. Party size counts humans,
+ * not Playerbots. The runtime caller must establish this census from
+ * the owning Shade, not from the spell target or random nearby units.
+ */
+struct SpreadGuardFacts
+{
+    int32_t soloEnabled = 0;
+    int32_t disableSpread = 0;
+    bool playerbotsApiPresent = false;
+    bool sourceIsNormalFire = false;
+    bool hasBaseFireAura = false;
+    uint32_t livingOwnerShadeCount = 0;
+    uint32_t activeOwnerShadeCount = 0;
+    uint32_t realPlayersNearOwner = 0;
+};
+
+inline bool ShouldBlockFireSpread(SpreadGuardFacts const& facts)
+{
+    return facts.soloEnabled == 1 &&
+           facts.disableSpread == 1 &&
+           facts.playerbotsApiPresent &&
+           facts.sourceIsNormalFire &&
+           facts.hasBaseFireAura &&
+           facts.livingOwnerShadeCount == 1 &&
+           facts.activeOwnerShadeCount == 1 &&
+           facts.realPlayersNearOwner == 1;
+}
+
 
 /* Nearby count observed by the unchanged CastFires formulas.
  * Solo on and exactly one real player: 1.
