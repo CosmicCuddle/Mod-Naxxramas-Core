@@ -1,0 +1,197 @@
+name: F10 S2 one-bucket source pin
+on:
+  pull_request:
+    paths:
+      - 'src/Events/HallowsEndShadeOfTheHorseman.cpp'
+      - 'src/Events/HallowsEndSoloFire.h'
+      - 'src/Events/HallowsEndSoloFireConfig.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'docs/research/F10-hallows-end-one-bucket-S2.md'
+      - 'tests/test_f10_hallows_end_one_bucket_s2.py'
+      - 'tests/f10_s2_one_bucket_policy_tests.cpp'
+      - 'scripts/check_f10_one_bucket_tu_compile.py'
+      - '.github/workflows/f10-s2-one-bucket.yml'
+  push:
+    branches:
+      - cs02/f10-s2-one-bucket-2026-10-20
+    paths:
+      - 'src/Events/HallowsEndShadeOfTheHorseman.cpp'
+      - 'src/Events/HallowsEndSoloFire.h'
+      - 'src/Events/HallowsEndSoloFireConfig.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'docs/research/F10-hallows-end-one-bucket-S2.md'
+      - 'tests/test_f10_hallows_end_one_bucket_s2.py'
+      - 'tests/f10_s2_one_bucket_policy_tests.cpp'
+      - 'scripts/check_f10_one_bucket_tu_compile.py'
+      - '.github/workflows/f10-s2-one-bucket.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  policy-and-source-contract:
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/cs02/f10-s2-one-bucket-2026-10-20') ||
+      (github.event_name == 'pull_request' && github.head_ref == 'cs02/f10-s2-one-bucket-2026-10-20')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out this module commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Check out pinned Grimfeather core
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: core-a66f1be
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/scripts/Events/hallows_end.cpp
+            src/server/game/Spells/SpellEffects.cpp
+            src/server/game/Scripting/ScriptDefines/AllSpellScript.h
+            src/server/game/Scripting/ScriptDefines/AllSpellScript.cpp
+            src/server/game/Entities/Unit/Unit.h
+            src/server/game/Entities/Object/Object.h
+            src/server/game/Entities/Creature/Creature.h
+            src/server/game/Grids/Notifiers/GridNotifiers.h
+            data/sql/base/db_world/spell_script_names.sql
+            data/sql/base/db_world/creature_template.sql
+            data/sql/base/db_world/spell_dbc.sql
+            data/sql/base/db_world/spell_linked_spell.sql
+            data/sql/base/db_world/spell_scripts.sql
+            data/sql/base/db_world/spell_pet_auras.sql
+
+      - name: Check out prospective Grimfeather core
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: core-8daffda
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/scripts/Events/hallows_end.cpp
+            src/server/game/Spells/SpellEffects.cpp
+            src/server/game/Scripting/ScriptDefines/AllSpellScript.h
+            src/server/game/Scripting/ScriptDefines/AllSpellScript.cpp
+            src/server/game/Entities/Unit/Unit.h
+            src/server/game/Entities/Object/Object.h
+            src/server/game/Entities/Creature/Creature.h
+            src/server/game/Grids/Notifiers/GridNotifiers.h
+            data/sql/base/db_world/spell_script_names.sql
+            data/sql/base/db_world/creature_template.sql
+            data/sql/base/db_world/spell_dbc.sql
+            data/sql/base/db_world/spell_linked_spell.sql
+            data/sql/base/db_world/spell_scripts.sql
+            data/sql/base/db_world/spell_pet_auras.sql
+
+      - name: Check out pinned Playerbots headers
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: playerbots-037c014
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/Bot/PlayerbotAI.h
+            src/Bot/PlayerbotAI.cpp
+            src/Script/Playerbots.h
+
+      - name: Verify the reviewed commits
+        run: |
+          set -euo pipefail
+          test "$(git -C core-a66f1be rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
+          test "$(git -C core-8daffda rev-parse HEAD)" = "8daffdabe9202c228e45d833c9a1d399597a15cd"
+          test "$(git -C playerbots-037c014 rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
+          echo "Source pin and policy model only. No worldserver, SQL, DBC, or gameplay run."
+
+      - name: Install a C++ compiler for the policy binary
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends g++
+
+      - name: Run the one-bucket policy and pinned-source contract
+        env:
+          F10_CORE_OLD: ${{ github.workspace }}/core-a66f1be
+          F10_CORE_NEW: ${{ github.workspace }}/core-8daffda
+          F10_PLAYERBOTS: ${{ github.workspace }}/playerbots-037c014
+        run: python3 -m unittest tests/test_f10_hallows_end_one_bucket_s2.py -v
+
+  compile-module-translation-units:
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/cs02/f10-s2-one-bucket-2026-10-20') ||
+      (github.event_name == 'pull_request' && github.head_ref == 'cs02/f10-s2-one-bucket-2026-10-20')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        core:
+          - sha: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+            name: pinned-a66f1be
+          - sha: 8daffdabe9202c228e45d833c9a1d399597a15cd
+            name: prospective-8daffda
+    name: TU compile ${{ matrix.core.name }}
+    steps:
+      - name: Check out Grimfeather core
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ matrix.core.sha }}
+          path: acore
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check out pinned Playerbots module
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check out this module commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+
+      - name: Verify commits
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "${{ matrix.core.sha }}"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+
+      - name: Configure the core without precompiled headers
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static -DAPPS_BUILD=world-only \
+            -DTOOLS_BUILD=none -DUSE_COREPCH=OFF -DUSE_SCRIPTPCH=OFF
+
+      - name: Compile the real one-bucket translation units
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_f10_one_bucket_tu_compile.py \
+            --compile-commands acore-build/compile_commands.json --timeout 600
+
+      - name: Disclose limitations
+        if: always()
+        run: |
+          echo "Translation-unit compile only. No worldserver link, SQL, DBC, database, or gameplay run."
