@@ -151,7 +151,7 @@ Requires its own approval, after Stage A. **STOP** if any backup or the isolated
 
 1. Copy the original worldserver binary. Record size and sha256.
 2. Record the module checkout: remote, branch, commit, and a clean worktree. Keep a copy of that tree, or a ref that can recreate it exactly.
-3. Byte-copy the three active conf files from Stage A (`worldserver.conf`, `mod_naxxramas_core.conf`, `playerbots.conf`). Record size and sha256 of each copy.
+3. Byte-copy the three active conf files from Stage A (`worldserver.conf`, `mod_naxxramas_core.conf`, `playerbots.conf`) **and every active config include, launcher/supervisor definition, environment override source and other local setting that controls the Worldserver executable or updater masks**. Preserve ownership/modes and record size and sha256 of the protected copies. Without these, returning to the original updater/restart behaviour may be impossible even if the three named files were saved.
 4. First inspect the database storage engines and agree a **consistent** backup plan. A `--single-transaction` dump is appropriate only for a properly managed transactional snapshot: it does not by itself guarantee consistency for nontransactional tables or across independently changing databases. Account for concurrent writes, cross-database dependencies, and any required coordinated quiescence/snapshot. For the verified compatible engine/backup tool, dump `<WORLD_DB>`, `<CHARACTERS_DB>`, `<PLAYERBOTS_DB>` and `<AUTH_DB>` if a dependency may touch auth or that remains UNKNOWN. Include **`--events --routines --triggers`** so scheduled SQL events are not silently omitted. Put credentials in a mode-`0600` option file; never put passwords in the command line, GitHub or screenshots. Record each dump's size and sha256.
 5. Restore every dump into an **isolated** scratch instance whose database names are not the live ones. Re-run the Stage A SELECTs on the scratch world DB and confirm the same ScriptName values. Confirm dump sha256 before and after copy.
 
@@ -171,6 +171,8 @@ mysqldump --defaults-extra-file=<CREDENTIALS_OPTION_FILE> \
   <WORLD_DB>
 sha256sum <BACKUP_DIR>/<WORLD_DB>.sql
 # Repeat for <CHARACTERS_DB>, <PLAYERBOTS_DB>, and <AUTH_DB> when required.
+# Also copy active included conf files and the actual service/launcher/override
+# definitions identified in Stage A; these paths cannot be guessed here.
 # mariadb-dump accepts the same flags. Restore only into a scratch instance.
 ```
 
@@ -271,6 +273,7 @@ Requires its own approval. Turn F10 switches on only for this stage, in the conf
 
 - Solo-pace cases: `NaxxramasCore.HallowsEnd.SoloFire.Enabled = 1`, `OneBucket = 0`.
 - One-bucket positive case **(b)** and its fail-closed negative conditions in **(c)**: use `Enabled = 1` and `NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 1` for the comparison, then explicitly test each flag OFF one at a time. Record the effective flags for each run; otherwise a negative case could pass trivially with the whole feature disabled.
+- **Do not assume editing a file instantly changes the running module.** For each test configuration, first establish how this installed Worldserver reads or reloads these keys; verify the effective value in the actual process before interpreting gameplay. If a restart is required, it is another **separately owner-approved controlled restart**, with both updater masks and executable identity rechecked first. Never casually restart to switch test cases.
 
 Record PASS, FAIL, or NOT RUN for each case, with a one-line note. **The difference to test is the module's extra full-size one-bucket shortcut, not the existence of stock 42339→42348.** In the pinned core, stock splash `42348` can remove all auras from a small (amount ≤2) normal fire, and lowers a full-size amount 3 to 1. Confirm actual in-game spell timing; do not treat these source-model results as already observed.
 
@@ -310,7 +313,7 @@ Use the supervisor and paths recorded in A and B. Do not restart authserver.
 3. Restore the exact known-good Worldserver binary and module checkout (branch, commit, permissions and any preserved local edits), while the startup gate remains closed. Keep the temporary pilot branch available until known-good operation has been verified; **do not delete it early**.
 4. Reverse entry `23543` only if Stage E committed, using the separately authorised compensating SQL template and recorded `<EXPECTED_OLD_SCRIPTNAME>`; otherwise leave the original row untouched.
 5. Restore a database only if the incident assessment makes it necessary, the isolated restore has succeeded, and the server owner separately approves the live restore. A broad restore can overwrite legitimate gameplay progress since the backup.
-6. **Before restoring any original active `.conf` byte-copies or previous updater environment values**, review pending migrations and the supervisor's restart behaviour. Such an original file or override may itself re-enable automatic World/Playerbots SQL updates. Only after this review is approved may the original configuration bytes and the **verified prior effective values** be restored together under a controlled, stopped Worldserver. If previous values are unsafe, keep the Worldserver stopped and both effective masks contained at `0`, with the original file copies retained safely in backup; arrange a separate approved normal-operation plan. Never silently reset to dist defaults `7` or `1`.
+6. **Before restoring any original active `.conf` byte-copies, included config files, launcher/supervisor settings or previous updater environment values**, review pending migrations and the supervisor's restart behaviour. Such an original file or override may itself re-enable automatic World/Playerbots SQL updates. Only after this review is approved may the original configuration bytes and the **verified prior effective values** be restored together under a controlled, stopped Worldserver. If previous values are unsafe, keep the Worldserver stopped and both effective masks contained at `0`, with the original file copies retained safely in backup; arrange a separate approved normal-operation plan. Never silently reset to dist defaults `7` or `1`.
 7. Start Worldserver through the verified supervisor **only when** backup restoration, database binding, effective updater configuration and the pending-migrations gate are all safe and separately approved. Otherwise leave it stopped rather than risking an automatic migration.
 8. Re-run the approved Stage A SELECTs and compare 23543, Brewfest `23703`, normal `23686`, training `23537`, stock `42339`/`42348`, and update history to the pre-pilot record (with the documented Stage E reverse if used). Confirm no unexpected updater apply. Only after this verification and separate owner consent may the temporary local pilot branch be removed.
 
