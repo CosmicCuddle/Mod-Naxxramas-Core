@@ -1,0 +1,34 @@
+name: F10 optional Spell.dbc read-only field probe (synthetic fixtures)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'scripts/inspect_f10_spell_dbc_readonly.py'
+      - 'tests/test_f10_spell_dbc_readonly.py'
+      - 'docs/research/f10-spell-dbc-owner-acceptance-probe-2026-10-21.md'
+      - '.github/workflows/f10-spell-dbc-readonly-fixtures.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-dbc-no-owner-files:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact draft PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Prove no real DBC, no network, no character or server access
+        run: |
+          set -euo pipefail
+          test ! -e Spell.dbc
+          test ! -e DBFilesClient/Spell.dbc
+          test ! -e data/dbc/Spell.dbc
+          python3 -m unittest discover -s tests -p 'test_f10_spell_dbc_readonly.py' -v
+          echo 'PASS: synthetic WDBC fixtures only. No real Spell.dbc was read or changed.'
+          echo 'Public/local DBC values and 42348 runtime timing remain UNVERIFIED.'
