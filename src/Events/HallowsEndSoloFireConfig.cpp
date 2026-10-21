@@ -35,4 +35,14 @@ std::optional<int32_t> ReadHallowsEndSoloFireMultiplierSetting()
         false);
     return MultiplierFromRaw(raw);
 }
+
+__attribute__((noinline))
+int32_t ReadHallowsEndSoloFireOneBucketSetting()
+{
+    std::string raw = sConfigMgr->GetOption<std::string>(
+        OneBucketConfigKey,
+        DefaultOneBucketRaw,
+        false);
+    return OneBucketFromRaw(raw);
+}
 }

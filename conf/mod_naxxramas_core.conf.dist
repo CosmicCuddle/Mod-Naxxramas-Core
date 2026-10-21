@@ -355,3 +355,8 @@ NaxxramasCore.HallowsEnd.SoloFire.Enabled = 0
 # skips timer writes. Scale matching after a real amount drop still runs.
 # Default: 3
 NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier = 3
+
+# One accepted bucket extinguishes the directly struck normal fire.
+# EXPERIMENTAL: requires SoloFire.Enabled = 1; default OFF.
+# Not approved for install or live use. Default: 0
+NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 0
