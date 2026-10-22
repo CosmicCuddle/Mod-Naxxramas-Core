@@ -11,11 +11,15 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = (ROOT / "src/Systems/MeetingStoneProgression.cpp").read_text(
     encoding="utf-8"
 )
+LOADER = (ROOT / "src/NaxxramasCore_loader.cpp").read_text(
+    encoding="utf-8"
+)
 
 
 def hook_body():
     begin = "bool CanGameObjectGossipHello(Player* player, GameObject* go) override"
-    assert SOURCE.count(begin) == 1, "Expected exactly one module GO gossip hook"
+    if SOURCE.count(begin) != 1:
+        raise AssertionError("Expected exactly one module GO gossip hook")
     return SOURCE.split(begin, 1)[1].split("\n};", 1)[0]
 
 
@@ -31,7 +35,24 @@ class MeetingStoneRitualIsolation(unittest.TestCase):
             r"\s*\)\s*\)\s*\{\s*return false;\s*\}",
             re.DOTALL,
         )
-        self.assertRegex(hook, guard)
+        # The type/config guard must be the FIRST statement in the hook:
+        # a prior injected ritual-specific return true would stop native Use.
+        first_statement_guard = re.compile(
+            r"^\\s*\\{\\s*" + guard.pattern,
+            re.DOTALL,
+        )
+        self.assertRegex(hook, first_statement_guard)
+        # Prove the assertion itself rejects an accidental blocking return.
+        altered = hook.replace("return false;", "return (true);", 1)
+        self.assertNotRegex(altered, first_statement_guard)
+        # Also reject an earlier ritual-specific override before the type guard.
+        altered = hook.replace(
+            "{",
+            "{ if (go->GetGoType() == GAMEOBJECT_TYPE_SUMMONING_RITUAL)"
+            " return true;",
+            1,
+        )
+        self.assertNotRegex(altered, first_statement_guard)
 
     def test_progression_decision_occurs_after_type_guard(self):
         hook = hook_body()
@@ -52,6 +73,31 @@ class MeetingStoneRitualIsolation(unittest.TestCase):
         # exempt a genuine Ritual of Summoning GO.
         self.assertNotIn("GAMEOBJECT_TYPE_SUMMONING_RITUAL", hook)
         self.assertNotIn("23598", hook)
+
+    def test_guard_hook_is_registered_once(self):
+        registration = re.compile(
+            r"void\\s+AddMeetingStoneProgressionScripts\\s*\\(\\s*\\)"
+            r"\\s*\\{\\s*new\\s+NaxxramasCoreMeetingStoneProgression"
+            r"\\s*\\(\\s*\\)\\s*;\\s*\\}",
+            re.DOTALL,
+        )
+        self.assertRegex(SOURCE, registration)
+        calls = re.findall(
+            r"^\\s+AddMeetingStoneProgressionScripts\\(\\);\\s*$",
+            LOADER,
+            re.MULTILINE,
+        )
+        self.assertEqual(len(calls), 1)
+        # Mutation evidence: removing the loader call is a detected failure.
+        without_call = LOADER.replace(
+            "    AddMeetingStoneProgressionScripts();", "", 1
+        )
+        altered_calls = re.findall(
+            r"^\\s+AddMeetingStoneProgressionScripts\\(\\);\\s*$",
+            without_call,
+            re.MULTILINE,
+        )
+        self.assertEqual(altered_calls, [])
 
     def test_vanilla_gate_retains_existing_ip_disabled_fallbacks(self):
         before = SOURCE.split("bool IsVanillaProgression(Player* player)", 1)[1]
