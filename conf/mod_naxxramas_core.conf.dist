@@ -367,3 +367,28 @@ NaxxramasCore.QuestLootProtection.Enabled = 0
 # 1 = enable; 0 = do not emit these diagnostics.
 # Default: 0
 NaxxramasCore.QuestLootProtection.Debug = 0
+
+#####################################
+# Molten Core / Golemagg — READ-ONLY Playerbot action probe
+#####################################
+
+# EXPERIMENTAL research-only diagnostic. Does not fix movement or override AI.
+# Samples the PUBLIC PlayerbotAI "action" status on account-controlled
+# melee Altbots in Molten Core during combat with Golemagg.
+# Logs are capped at 24 distinct action-tail samples per bot per encounter,
+# with a minimum 2.5s interval. A recent action tail does NOT prove the
+# specific movement action responsible for a retreat/reapproach loop.
+# Does not touch upstream Playerbots, paths, motion, DB, or raid mechanics.
+# Requires an explicit Worldserver restart to pick up config changes.
+# DO NOT enable for live 40-bot raids without a backed-up controlled pilot.
+# Default: 0
+NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0
+#
+# SECOND INDEPENDENT SAFETY GATE: one exact Altbot character name.
+# The observer never samples anyone when this setting is empty, even if
+# Enabled is changed to 1. No wildcard, comma-separated list, or "all" mode.
+# ASCII names match case-insensitively; surrounding whitespace is ignored.
+# For a separately authorised one-bot pilot only, use "Grau".
+# Default: "" (no bots are sampled)
+NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
+
