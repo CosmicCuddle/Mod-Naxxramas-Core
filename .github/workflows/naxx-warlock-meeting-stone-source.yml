@@ -1,0 +1,29 @@
+name: Warlock ritual vs Meeting Stone source contract
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/MeetingStoneProgression.cpp'
+      - 'tests/test_meeting_stone_ritual_isolation.py'
+      - 'docs/WARLOCK-RITUAL-VS-MEETING-STONE-SOURCE-CONTRACT.md'
+      - '.github/workflows/naxx-warlock-meeting-stone-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  no-mutation-source-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read-only real module source assertions
+        run: python3 -m unittest discover -s tests -p 'test_meeting_stone_ritual_isolation.py' -v
+      - name: State source-only boundary
+        run: |
+          echo 'Module source filter checked; NOT a Warlock ritual gameplay test.'
+          echo 'No Worldserver launched, no database or config changed.'
