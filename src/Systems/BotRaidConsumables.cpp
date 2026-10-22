@@ -26,9 +26,12 @@
 #include "AiFactory.h"
 #include "Chat.h"
 #include "CommandScript.h"
+#include "Config.h"
 #include "DBCStores.h"
 #include "GameTime.h"
+#include "GreaterFireProtectionOneShot.h"
 #include "Group.h"
+#include "HunterAmmoProvision.h"
 #include "Item.h"
 #include "ItemTemplate.h"
 #include "Map.h"
@@ -312,6 +315,16 @@ namespace
         uint32 NextApplicationTimer = 0;
     };
 
+    // MC Greater Fire Protection uses a separate one-shot timer.
+    // Juju Flurry retains its existing expiry-based multi-use timer.
+    struct OneShotFireProtection
+    {
+        ObjectGuid::LowType BotGuid = 0;
+        uint32 SpellId = 0;
+        bool OriginallyRandomBot = false;
+        NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};
+    };
+
     struct RaidConsumableTracker
     {
         std::string Profile;
@@ -320,6 +333,7 @@ namespace
         ProfileArea RequiredArea = ProfileArea::Any;
         std::vector<TrackedAura> Auras;
         std::vector<TimedAura> TimedAuras;
+        std::vector<OneShotFireProtection> FireProtectionOneShots;
     };
 
     struct PreparationStats
@@ -333,6 +347,9 @@ namespace
         uint32 ItemFailures = 0;
         uint32 CachesAdded = 0;
         uint32 ReagentsAdded = 0;
+        uint32 HunterAmmoAdded = 0;
+        uint32 HunterAmmoSkipped = 0;
+        uint32 HunterAmmoNeedsSelection = 0;
         uint32 PetBuffsSkipped = 0;
         bool DebugEnabled = false;
         std::vector<std::string> DebugMessages;
@@ -684,6 +701,58 @@ namespace
     }
 
     // =========================================================
+    // Hunter ammo - scoped and opt-in, NEVER on an update timer
+    // =========================================================
+
+    void SupplyHunterAmmoForBot(
+        Player* bot,
+        uint32 effectiveLevel,
+        PreparationStats& stats)
+    {
+        if (!bot || bot->getClass() != CLASS_HUNTER)
+            return;
+
+        NaxxramasHunterAmmo::Result const result =
+            NaxxramasHunterAmmo::TopUpHunterAmmo(bot, effectiveLevel);
+
+        using NaxxramasHunterAmmo::Status;
+
+        if (result.status == Status::Disabled ||
+            result.status == Status::SkippedNotEligible)
+            return;
+
+        if (result.added)
+        {
+            stats.ItemsAdded += result.added;
+            stats.HunterAmmoAdded += result.added;
+
+            if (result.status == Status::AddedVendorAmmoNeedsSelection)
+                ++stats.HunterAmmoNeedsSelection;
+            return;
+        }
+
+        if (result.status == Status::AlreadySupplied)
+            return;
+
+        ++stats.HunterAmmoSkipped;
+        if (result.status == Status::NoBagSpace ||
+            result.status == Status::ItemRejected)
+        {
+            ++stats.ItemFailures;
+            RecordItemFailure(stats, bot, result.itemId,
+                result.status == Status::NoBagSpace
+                    ? "not enough free inventory capacity for a complete ammo top-up"
+                    : "ammo template, level, item source or native usability check failed");
+        }
+        else
+        {
+            AddConsumableDebugMessage(stats,
+                bot->GetName() +
+                ": Hunter ammo skipped (unsupported ranged weapon or selected ammunition).");
+        }
+    }
+
+    // =========================================================
     // Aura helpers
     // =========================================================
 
@@ -951,6 +1020,64 @@ namespace
     }
 
     // =========================================================
+    // Molten Core: optional, exactly one 90-second GFPP refresh
+    // =========================================================
+
+    void ApplyTimedGreaterFireProtection(
+        Player* bot,
+        RaidConsumableTracker& tracker,
+        PreparationStats& stats)
+    {
+        if (!bot)
+            return;
+
+        uint32 spellId =
+            GetItemUseSpell(ITEM_GREATER_FIRE_PROTECTION_POTION);
+
+        // Existing MC protection behavior must remain when the
+        // optional timer is disabled. Keep normal tracking/stats.
+        if (!ApplyItemAura(
+                bot,
+                bot,
+                ITEM_GREATER_FIRE_PROTECTION_POTION,
+                "Greater Fire Protection",
+                false,
+                tracker,
+                stats))
+        {
+            return;
+        }
+
+        if (!sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled",
+                false) || !spellId)
+        {
+            return;
+        }
+
+        ObjectGuid::LowType const guid =
+            bot->GetGUID().GetCounter();
+
+        // A bot may appear in multiple discovery paths. Do not create
+        // two scheduled callbacks for one bot in the same MC command.
+        for (OneShotFireProtection const& existing :
+             tracker.FireProtectionOneShots)
+        {
+            if (existing.BotGuid == guid)
+                return;
+        }
+
+        OneShotFireProtection pending;
+        pending.BotGuid = guid;
+        pending.SpellId = spellId;
+        // Random Bots are only eligible when grouped. Remember this
+        // even if the group disbands before the scheduled refresh.
+        pending.OriginallyRandomBot =
+            sRandomPlayerbotMgr.GetPlayerBot(guid) == bot;
+        tracker.FireProtectionOneShots.push_back(pending);
+    }
+
+    // =========================================================
     // Weapon consumables
     // =========================================================
 
@@ -1130,15 +1257,9 @@ namespace
         RaidConsumableTracker& tracker,
         PreparationStats& stats)
     {
-        // Greater Fire Protection is applied directly.
-        ApplyItemAura(
-            bot,
-            bot,
-            ITEM_GREATER_FIRE_PROTECTION_POTION,
-            "Greater Fire Protection",
-            false,
-            tracker,
-            stats);
+        // Preserve the legacy initial application. The optional timed
+        // refresh never schedules unless this initial call succeeds.
+        ApplyTimedGreaterFireProtection(bot, tracker, stats);
 
         // Playerbots already understands these inventory items.
         TopUpVanillaStack(
@@ -1485,6 +1606,10 @@ void PrepareManaUser(
             bot,
             tracker,
             stats);
+
+        // A missing pet must NOT prevent the Hunter's ammunition top-up.
+        SupplyHunterAmmoForBot(
+            bot, std::min<uint32>(bot->GetLevel(), 60), stats);
 
         Pet* pet = bot->GetPet();
 
@@ -2442,6 +2567,9 @@ void PrepareManaUser(
                 stats);
         }
 
+        // Respect the actual dungeon profile level and IP stage cap.
+        SupplyHunterAmmoForBot(bot, effectiveLevel, stats);
+
         ++stats.BotsPrepared;
         return true;
     }
@@ -3000,6 +3128,85 @@ void PrepareManaUser(
         }
     }
 
+    // Unlike Juju Flurry, this timer is deliberately consumed at
+    // ~90s, with NO retries at 95s/180s. The original bot must remain
+    // eligible and inside MC; even a failed refresh is a used attempt.
+    void ProcessOneShotFireProtections(
+        Player* master,
+        RaidConsumableTracker& tracker,
+        uint32 diff)
+    {
+        if (!master || tracker.Profile != "mc")
+            return;
+
+        PlayerbotMgr* manager =
+            PlayerbotsMgr::instance().GetPlayerbotMgr(master);
+
+        // Consume the deadline even if the bot manager has vanished.
+        // We must not fire an unexpectedly delayed aura later.
+        for (OneShotFireProtection& pending :
+             tracker.FireProtectionOneShots)
+        {
+            if (!pending.Timer.ConsumeIfDue(diff))
+                continue;
+
+            // A dead raid leader must not grant replacement
+            // protection after the one-shot timer expires.
+            if (!manager || !master->IsAlive())
+                continue;
+
+            // A config reload that disables this feature also
+            // suppresses an already scheduled refresh attempt.
+            if (!sConfigMgr->GetOption<bool>(
+                    "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled",
+                    false))
+            {
+                continue;
+            }
+
+            Player* bot = ResolvePreparedBot(
+                manager, pending.BotGuid);
+
+            if (!bot ||
+                !bot->IsInWorld() ||
+                !bot->IsAlive() ||
+                // Map ID alone is not enough: MC may have many
+                // separate instances with the same map ID.
+                bot->GetMap() != master->GetMap() ||
+                !IsProfileLocationValid(
+                    master, tracker.RequiredMapId, tracker.RequiredArea) ||
+                !IsProfileLocationValid(
+                    bot, tracker.RequiredMapId, tracker.RequiredArea) ||
+                !(pending.OriginallyRandomBot
+                    ? RandomBotIsInPreparationScope(master, bot)
+                    : BotIsInPreparationScope(master, bot)))
+            {
+                continue;
+            }
+
+            // Do not replace a same-spell aura owned by somebody else.
+            // For our own aura, pinned AzerothCore's AddAura uses the
+            // same-caster refresh/reapply path. Never remove protection
+            // before trying the refresh: a failed AddAura must not
+            // destroy the bot's remaining absorb.
+            if (Aura* current = bot->GetAura(pending.SpellId))
+            {
+                if (current->GetCasterGUID() != bot->GetGUID())
+                    continue;
+            }
+
+            if (!bot->AddAura(pending.SpellId, bot) &&
+                master->GetSession())
+            {
+                // Deliberately no retry: report the consumed attempt
+                // so the leader knows the absorb was not refreshed.
+                ChatHandler(master->GetSession()).PSendSysMessage(
+                    "[Bot Consumables] Greater Fire Protection one-time refresh failed for {}.",
+                    bot->GetName());
+            }
+        }
+    }
+
     // =========================================================
     // Tracker checks
     // =========================================================
@@ -3220,6 +3427,7 @@ void PrepareManaUser(
         }
 
         tracker.TimedAuras.clear();
+        tracker.FireProtectionOneShots.clear();
     }
 }
 
@@ -3380,6 +3588,7 @@ public:
         tracker.RequiredArea = area;
         tracker.Auras.clear();
         tracker.TimedAuras.clear();
+        tracker.FireProtectionOneShots.clear();
 
         return tracker;
     }
@@ -3424,6 +3633,27 @@ public:
             handler->PSendSysMessage(
                 "{} raid reagent items supplied.",
                 stats.ReagentsAdded);
+        }
+
+        if (stats.HunterAmmoAdded > 0)
+        {
+            handler->PSendSysMessage(
+                "{} Hunter ammunition item(s) supplied (already included in consumable item total).",
+                stats.HunterAmmoAdded);
+        }
+
+        if (stats.HunterAmmoNeedsSelection > 0)
+        {
+            handler->PSendSysMessage(
+                "{} Hunter(s) received basic vendor ammunition but had no selected ammo. They must select it manually before ranged attacks.",
+                stats.HunterAmmoNeedsSelection);
+        }
+
+        if (stats.HunterAmmoSkipped > 0)
+        {
+            handler->PSendSysMessage(
+                "{} Hunter ammunition top-up(s) skipped due to weapon, ammo or inventory eligibility. Use the consumables debug command for details.",
+                stats.HunterAmmoSkipped);
         }
 
         if (stats.PetBuffsSkipped > 0)
@@ -4405,6 +4635,7 @@ public:
             player,
             tracker,
             diff);
+        ProcessOneShotFireProtections(player, tracker, diff);
 
         tracker.UpdateTimer += diff;
 

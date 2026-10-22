@@ -1,0 +1,87 @@
+name: P2 P3 GFPP Hunter ammo combined source checks
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'src/Systems/HunterAmmoProvision.cpp'
+      - 'src/Systems/HunterAmmoProvision.h'
+      - 'src/Systems/HunterAmmoSelection.h'
+      - 'src/Systems/GreaterFireProtectionOneShot.h'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/test_mc_gfpp_one_shot.py'
+      - 'tests/test_hunter_ammo_consumables.py'
+      - 'tests/hunter_ammo_selection.cpp'
+      - '.github/workflows/naxx-p2p3-gfpp-ammo-combined-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  combined-source-and-native-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact combined candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact tested commit
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: GFPP 90-second one-repeat source and native timer suite
+        run: python3 -m unittest discover -s tests -p 'test_mc_gfpp_one_shot.py' -v
+      - name: Hunter Altbot ammo safety source suite
+        run: python3 -m unittest discover -s tests -p 'test_hunter_ammo_consumables.py' -v
+      - name: Hunter ammunition native C++ catalog and quantity tests
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
+            -Isrc/Systems tests/hunter_ammo_selection.cpp \
+            -o /tmp/naxx_hunter_ammo_combined_policy
+          /tmp/naxx_hunter_ammo_combined_policy
+      - name: Combined runtime registration and default-off safety contracts
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path("src/Systems/BotRaidConsumables.cpp").read_text()
+          conf = Path("conf/mod_naxxramas_core.conf.dist").read_text()
+          ammo = Path("src/Systems/HunterAmmoProvision.cpp").read_text()
+
+          source_markers = (
+              '#include "HunterAmmoProvision.h"',
+              '#include "GreaterFireProtectionOneShot.h"',
+              "void ProcessOneShotFireProtections(",
+              "void SupplyHunterAmmoForBot(",
+          )
+          for marker in source_markers:
+              assert source.count(marker) == 1, (marker, source.count(marker))
+
+          defaults = (
+              "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled = 0",
+              "NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0",
+              "NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor = 0",
+              "NaxxramasCore.HallowsEnd.SoloFire.DisableSpread = 0",
+          )
+          for line in defaults:
+              assert conf.splitlines().count(line) == 1, line
+
+          one_shot = source.split("void ProcessOneShotFireProtections(", 1)[1]
+          one_shot = one_shot.split("// =========================================================", 1)[0]
+          assert "RemoveAurasDueToSpell(" not in one_shot
+          assert "bot->AddAura(pending.SpellId, bot)" in one_shot
+          assert "current->GetCasterGUID() != bot->GetGUID()" in one_shot
+          assert "bot->SetAmmo(" not in ammo
+          assert "bot->AddItem(chosen.itemId, needed)" in ammo
+          print("GFPP and Hunter ammo combined source/default contracts PASS")
+          PY
+      - name: Scope of proof
+        run: |
+          echo 'Source, native standalone timer/policy and configuration only.'
+          echo 'No Worldserver linked here; no in-game GFPP or inventory evidence.'
+          echo 'No database, server, Playerbots, IP or gameplay changes.'

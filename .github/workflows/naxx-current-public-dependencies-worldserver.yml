@@ -1,0 +1,167 @@
+name: P1-P4 and Golemagg audit latest public dependency Worldserver compatibility
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'src/Systems/GreaterFireProtectionOneShot.h'
+      - 'src/Systems/HunterAmmoProvision.cpp'
+      - 'src/Systems/HunterAmmoProvision.h'
+      - 'src/Systems/HunterAmmoSelection.h'
+      - 'src/Systems/QuestLootProtection.cpp'
+      - 'src/Systems/BotGolemaggActionAudit.cpp'
+      - 'src/Systems/GolemaggActionAuditAllowlist.h'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/test_mc_gfpp_one_shot.py'
+      - 'tests/test_hunter_ammo_consumables.py'
+      - 'tests/test_quest_loot_protection.py'
+      - 'tests/test_golemagg_action_audit.py'
+      - 'tests/golemagg_action_audit_allowlist.cpp'
+      - 'scripts/check_golemagg_action_audit_pinned_compile.py'
+      - 'scripts/check_quest_loot_pinned_compile.py'
+      - 'tests/hunter_ammo_selection.cpp'
+      - 'scripts/check_hunter_ammo_pinned_compile.py'
+      - '.github/workflows/naxx-current-public-dependencies-worldserver.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-latest-public-compat-full-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  actual-linked-worldserver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout exact Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+      - name: Checkout latest public Playerbots pinned snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout latest public Individual Progression pinned snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact PR94-based integration candidate
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/Mod-Naxxramas-Core
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Enforce four exact snapshot SHAs and all opt-ins OFF
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          conf=acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          grep -Fqx 'NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.HallowsEnd.SoloFire.DisableSpread = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.QuestLootProtection.Enabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.QuestLootProtection.Debug = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""' "$conf"
+          grep -Fq 'AddQuestLootProtectionScripts();' acore/modules/mod-naxxramas-core/src/NaxxramasCore_loader.cpp
+          grep -Fxq '    AddBotGolemaggActionAuditScripts();' acore/modules/mod-naxxramas-core/src/NaxxramasCore_loader.cpp
+      - name: Test both timer and Hunter ammo safety before compilation
+        run: |
+          set -euo pipefail
+          tests=acore/modules/mod-naxxramas-core/tests
+          python3 -m unittest discover -s "$tests" -p 'test_mc_gfpp_one_shot.py' -v
+          python3 -m unittest discover -s "$tests" -p 'test_hunter_ammo_consumables.py' -v
+          python3 -m unittest discover -s "$tests" -p 'test_quest_loot_protection.py' -v
+          python3 -m unittest discover -s "$tests" -p 'test_golemagg_action_audit.py' -v
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
+            -Iacore/modules/mod-naxxramas-core/src/Systems \
+            "$tests/hunter_ammo_selection.cpp" -o /tmp/naxx_p2p3_ammo_policy
+          /tmp/naxx_p2p3_ammo_policy
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            -Iacore/modules/mod-naxxramas-core/src/Systems \
+            "$tests/golemagg_action_audit_allowlist.cpp" -o /tmp/naxx_golemagg_allowlist
+          /tmp/naxx_golemagg_allowlist
+      - name: Install compiler dependencies on disposable GitHub runner
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure full pinned Worldserver and all modules
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Require both GFPP and Hunter ammo translation units
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          commands = json.loads(Path("acore-build/compile_commands.json").read_text())
+          for file in ("BotRaidConsumables.cpp", "HunterAmmoProvision.cpp", "QuestLootProtection.cpp", "BotGolemaggActionAudit.cpp"):
+              matches = [x for x in commands if
+                         x.get("file","").replace("\\","/").endswith(
+                         "/mod-naxxramas-core/src/Systems/" + file)]
+              assert len(matches) == 1, (file, len(matches))
+              print("PASS real pinned compile command:", file)
+          PY
+      - name: Compile actual HunterAmmoProvision implementation independently
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_hunter_ammo_pinned_compile.py \
+            --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Compile actual QuestLootProtection implementation independently
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_quest_loot_pinned_compile.py \
+            --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Compile real Golemagg read-only audit implementation independently
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_golemagg_action_audit_pinned_compile.py \
+            --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Build and link real combined Worldserver without launching
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify all four implementations in archive and linked executable
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          archive=acore-build/modules/libmodules.a
+          test -s "$archive" && test -s "$binary" && test -x "$binary"
+          nm -C --defined-only "$archive" > /tmp/naxx_p2p3_archive_symbols.txt
+          nm -C --defined-only "$binary" > /tmp/naxx_p2p3_worldserver_symbols.txt
+          for f in /tmp/naxx_p2p3_archive_symbols.txt /tmp/naxx_p2p3_worldserver_symbols.txt; do
+            grep -Fq 'AddBotRaidConsumablesScripts()' "$f"
+            grep -Fq 'NaxxramasHunterAmmo::TopUpHunterAmmo(' "$f"
+            grep -Fq 'AddQuestLootProtectionScripts()' "$f"
+            grep -Fq 'AddBotGolemaggActionAuditScripts()' "$f"
+          done
+          grep -aFq 'NaxxramasCoreGolemaggActionAudit' "$binary"
+          sha256sum "$binary"
+          echo 'PASS: combined GFPP/consumables, Hunter ammunition, Quest Loot, and read-only Golemagg audit are defined in final linked Worldserver.'
+      - name: Preserve safety boundary
+        if: always()
+        run: |
+          echo 'Latest-public snapshots are not independently verified owner-installed SHAs or gameplay proof.'
+          echo 'Golemagg observer OFF with empty allowlist; not a movement fix or evidence of actions in-game.'
+          echo 'No Worldserver launched; no SQL, DBC, server config, Playerbots, IP or character inventory changed.'
+          echo 'No merge, published binary or release performed.'
