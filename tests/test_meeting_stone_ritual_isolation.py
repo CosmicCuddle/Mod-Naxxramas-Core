@@ -38,7 +38,7 @@ class MeetingStoneRitualIsolation(unittest.TestCase):
         # The type/config guard must be the FIRST statement in the hook:
         # a prior injected ritual-specific return true would stop native Use.
         first_statement_guard = re.compile(
-            r"^\\s*\\{\\s*" + guard.pattern,
+            r"^\s*\{\s*" + guard.pattern,
             re.DOTALL,
         )
         self.assertRegex(hook, first_statement_guard)
@@ -76,14 +76,14 @@ class MeetingStoneRitualIsolation(unittest.TestCase):
 
     def test_guard_hook_is_registered_once(self):
         registration = re.compile(
-            r"void\\s+AddMeetingStoneProgressionScripts\\s*\\(\\s*\\)"
-            r"\\s*\\{\\s*new\\s+NaxxramasCoreMeetingStoneProgression"
-            r"\\s*\\(\\s*\\)\\s*;\\s*\\}",
+            r"void\s+AddMeetingStoneProgressionScripts\s*\(\s*\)"
+            r"\s*\{\s*new\s+NaxxramasCoreMeetingStoneProgression"
+            r"\s*\(\s*\)\s*;\s*\}",
             re.DOTALL,
         )
         self.assertRegex(SOURCE, registration)
         calls = re.findall(
-            r"^\\s+AddMeetingStoneProgressionScripts\\(\\);\\s*$",
+            r"^\s+AddMeetingStoneProgressionScripts\(\);\s*$",
             LOADER,
             re.MULTILINE,
         )
@@ -93,7 +93,7 @@ class MeetingStoneRitualIsolation(unittest.TestCase):
             "    AddMeetingStoneProgressionScripts();", "", 1
         )
         altered_calls = re.findall(
-            r"^\\s+AddMeetingStoneProgressionScripts\\(\\);\\s*$",
+            r"^\s+AddMeetingStoneProgressionScripts\(\);\s*$",
             without_call,
             re.MULTILINE,
         )
