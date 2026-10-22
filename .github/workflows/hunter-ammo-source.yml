@@ -1,0 +1,48 @@
+name: Hunter ammo opt-in policy checks
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/HunterAmmoSelection.h'
+      - 'src/Systems/HunterAmmoProvision.h'
+      - 'src/Systems/HunterAmmoProvision.cpp'
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/hunter_ammo_selection.cpp'
+      - 'tests/test_hunter_ammo_consumables.py'
+      - '.github/workflows/hunter-ammo-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact draft head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact head
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Run source gate checks
+        run: python3 -m unittest discover -s tests -p 'test_hunter_ammo_consumables.py' -v
+      - name: Compile and execute native standard C++ ammo catalog tests
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
+            -Isrc/Systems tests/hunter_ammo_selection.cpp \
+            -o /tmp/hunter_ammo_selection_test
+          /tmp/hunter_ammo_selection_test
+      - name: Document coverage limits
+        run: |
+          echo "These checks verify a standalone policy and source contracts ONLY."
+          echo "Actual item_template, Playerbots integration, bag storage,"
+          echo "Worldserver build, live inventory and client testing NOT covered."
