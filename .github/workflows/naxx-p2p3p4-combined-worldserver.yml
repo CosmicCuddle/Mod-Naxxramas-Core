@@ -1,4 +1,4 @@
-name: P2 P3 P4 exact pinned combined Worldserver link
+name: P1-P4 and Golemagg read-only audit exact pinned Worldserver link
 
 on:
   pull_request:
@@ -10,11 +10,16 @@ on:
       - 'src/Systems/HunterAmmoProvision.h'
       - 'src/Systems/HunterAmmoSelection.h'
       - 'src/Systems/QuestLootProtection.cpp'
+      - 'src/Systems/BotGolemaggActionAudit.cpp'
+      - 'src/Systems/GolemaggActionAuditAllowlist.h'
       - 'src/NaxxramasCore_loader.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'tests/test_mc_gfpp_one_shot.py'
       - 'tests/test_hunter_ammo_consumables.py'
       - 'tests/test_quest_loot_protection.py'
+      - 'tests/test_golemagg_action_audit.py'
+      - 'tests/golemagg_action_audit_allowlist.cpp'
+      - 'scripts/check_golemagg_action_audit_pinned_compile.py'
       - 'scripts/check_quest_loot_pinned_compile.py'
       - 'tests/hunter_ammo_selection.cpp'
       - 'scripts/check_hunter_ammo_pinned_compile.py'
@@ -75,7 +80,10 @@ jobs:
           grep -Fqx 'NaxxramasCore.HallowsEnd.SoloFire.DisableSpread = 0' "$conf"
           grep -Fqx 'NaxxramasCore.QuestLootProtection.Enabled = 0' "$conf"
           grep -Fqx 'NaxxramasCore.QuestLootProtection.Debug = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""' "$conf"
           grep -Fq 'AddQuestLootProtectionScripts();' acore/modules/mod-naxxramas-core/src/NaxxramasCore_loader.cpp
+          grep -Fxq '    AddBotGolemaggActionAuditScripts();' acore/modules/mod-naxxramas-core/src/NaxxramasCore_loader.cpp
       - name: Test both timer and Hunter ammo safety before compilation
         run: |
           set -euo pipefail
@@ -83,10 +91,15 @@ jobs:
           python3 -m unittest discover -s "$tests" -p 'test_mc_gfpp_one_shot.py' -v
           python3 -m unittest discover -s "$tests" -p 'test_hunter_ammo_consumables.py' -v
           python3 -m unittest discover -s "$tests" -p 'test_quest_loot_protection.py' -v
+          python3 -m unittest discover -s "$tests" -p 'test_golemagg_action_audit.py' -v
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
             -Iacore/modules/mod-naxxramas-core/src/Systems \
             "$tests/hunter_ammo_selection.cpp" -o /tmp/naxx_p2p3_ammo_policy
           /tmp/naxx_p2p3_ammo_policy
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic \
+            -Iacore/modules/mod-naxxramas-core/src/Systems \
+            "$tests/golemagg_action_audit_allowlist.cpp" -o /tmp/naxx_golemagg_allowlist
+          /tmp/naxx_golemagg_allowlist
       - name: Install compiler dependencies on disposable GitHub runner
         run: |
           sudo apt-get update
@@ -107,7 +120,7 @@ jobs:
           import json
           from pathlib import Path
           commands = json.loads(Path("acore-build/compile_commands.json").read_text())
-          for file in ("BotRaidConsumables.cpp", "HunterAmmoProvision.cpp", "QuestLootProtection.cpp"):
+          for file in ("BotRaidConsumables.cpp", "HunterAmmoProvision.cpp", "QuestLootProtection.cpp", "BotGolemaggActionAudit.cpp"):
               matches = [x for x in commands if
                          x.get("file","").replace("\\","/").endswith(
                          "/mod-naxxramas-core/src/Systems/" + file)]
@@ -121,6 +134,10 @@ jobs:
       - name: Compile actual QuestLootProtection implementation independently
         run: |
           python3 acore/modules/mod-naxxramas-core/scripts/check_quest_loot_pinned_compile.py \
+            --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Compile real Golemagg read-only audit implementation independently
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_golemagg_action_audit_pinned_compile.py \
             --compile-commands acore-build/compile_commands.json --timeout 360
       - name: Build and link real combined Worldserver without launching
         run: cmake --build acore-build --target worldserver --parallel 2
@@ -136,12 +153,15 @@ jobs:
             grep -Fq 'AddBotRaidConsumablesScripts()' "$f"
             grep -Fq 'NaxxramasHunterAmmo::TopUpHunterAmmo(' "$f"
             grep -Fq 'AddQuestLootProtectionScripts()' "$f"
+            grep -Fq 'AddBotGolemaggActionAuditScripts()' "$f"
           done
+          grep -aFq 'NaxxramasCoreGolemaggActionAudit' "$binary"
           sha256sum "$binary"
-          echo 'PASS: combined consumables, Hunter ammunition and Quest Loot registration are defined in final linked Worldserver.'
+          echo 'PASS: combined GFPP/consumables, Hunter ammunition, Quest Loot, and read-only Golemagg audit are defined in final linked Worldserver.'
       - name: Preserve safety boundary
         if: always()
         run: |
           echo 'Pinned build is not owner-installed version and not gameplay validation.'
+          echo 'Golemagg observer OFF with empty allowlist; not a movement fix or evidence of actions in-game.'
           echo 'No Worldserver launched; no SQL, DBC, server config, Playerbots, IP or character inventory changed.'
           echo 'No merge, published binary or release performed.'
