@@ -288,3 +288,22 @@ NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 0
 # Requires SoloFire.Enabled = 1. Group behaviour remains unchanged.
 # 0 = OFF (default); 1 = block normal event fire-spread spell 42079 in solo.
 NaxxramasCore.HallowsEnd.SoloFire.DisableSpread = 0
+
+#####################################
+# Quest Loot Protection (temporary)
+#####################################
+
+# Protect ordinary SINGLE-COPY creature-dropped quest items from another
+# eligible group member collecting them during the current owner's loot turn.
+# Honors round-robin release and the native quest-item slot mapping.
+# Does not override multi-drop/FFA, follow-loot-rules, roll winners or Master Loot.
+# Uses ServerScript::CanPacketReceive for CMSG_AUTOSTORE_LOOT_ITEM.
+# DISABLED until pinned compilation, human and Playerbots gameplay tests.
+# 1 = enable; 0 = native AzerothCore handling only.
+# Default: 0
+NaxxramasCore.QuestLootProtection.Enabled = 0
+
+# Log denied quest-item pickups (player/creature/item/slot/owner GUIDs).
+# 1 = enable; 0 = do not emit these diagnostics.
+# Default: 0
+NaxxramasCore.QuestLootProtection.Debug = 0
