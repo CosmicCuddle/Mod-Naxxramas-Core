@@ -76,6 +76,17 @@ jobs:
           python3 -m unittest discover -s acore/modules/mod-naxxramas-core/tests -p 'test_quest_loot_protection.py' -v
       - name: Install build dependencies
         run: |
+          # GitHub-hosted ubuntu-24.04 lists packages.microsoft.com, which
+          # has returned 403 and fails apt-get update before CMake. This
+          # job does not install Microsoft packages. Drop that source first.
+          if [[ -f /etc/apt/sources.list ]]; then
+            sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list
+          fi
+          for list in /etc/apt/sources.list.d/*; do
+            if [[ -f "$list" ]] && grep -q 'packages.microsoft.com' "$list"; then
+              sudo rm -f "$list"
+            fi
+          done
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             git cmake ninja-build g++ make pkg-config file \

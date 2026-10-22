@@ -34,6 +34,36 @@ OWNER_LOOKUP = (
     "        Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);"
 )
 
+# Each snippet is a fail-open permit. Denial (return false) must come later.
+PRESENCE_FAIL_OPEN = (
+    "if (!owner || owner->GetGroup() != group)\n            return true;",
+    "if (!owner->IsInWorld())\n            return true;",
+    "if (ownerMap != looterMap || ownerMap != corpseMap ||\n"
+    "            ownerMap->GetId() != looterMap->GetId() ||\n"
+    "            ownerMap->GetId() != corpseMap->GetId())\n"
+    "            return true;",
+    "if (owner->GetInstanceId() != player->GetInstanceId() ||\n"
+    "            owner->GetInstanceId() != creature->GetInstanceId() ||\n"
+    "            ownerMap->GetInstanceId() != looterMap->GetInstanceId() ||\n"
+    "            ownerMap->GetInstanceId() != corpseMap->GetInstanceId())\n"
+    "            return true;",
+)
+
+
+def presence_fail_open(source):
+    """True when every presence guard permits and the deny is still last."""
+    deny = source.rfind("return false;")
+    if deny < 0:
+        return False
+    locked = source.find("player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED)")
+    if locked < 0 or locked > deny:
+        return False
+    for snippet in PRESENCE_FAIL_OPEN:
+        at = source.find(snippet)
+        if at < 0 or at > locked:
+            return False
+    return "Distance and death are not extra denies" in source
+
 
 def flags_round_robin_write(source, pattern=ROUND_ROBIN_ASSIGNMENT):
     return pattern.search(source) is not None
@@ -74,15 +104,27 @@ def modeled_pickup(
     owner_has_slot=True, owner_needs=True, owner_eligible=True,
     owner_personal=None, count=1, in_range=True, creature_dead=True,
     padded=False, viewer_is_altbot=False,
+    owner_in_world=True, owner_same_map=True, owner_same_instance=True,
+    enforce_in_world=True, enforce_same_map=True, enforce_same_instance=True,
 ):
     """Model conditions in PermitPickup, not independent proof of source.
 
     padded and viewer_is_altbot are accepted so callers can state that
     trailing bytes and an Altbot viewer are not exemptions. Neither flag
     permits a pickup that the other conditions would deny.
+
+    owner_in_world, owner_same_map and owner_same_instance default to a
+    present owner. Setting enforce_* to False is a mutation that drops
+    that fail-open guard. A dropped guard can block a case that must permit.
     """
     if padded not in (True, False) or viewer_is_altbot not in (True, False):
         raise AssertionError("padded and viewer_is_altbot are booleans")
+    presence_flags = (
+        owner_in_world, owner_same_map, owner_same_instance,
+        enforce_in_world, enforce_same_map, enforce_same_instance,
+    )
+    if any(flag not in (True, False) for flag in presence_flags):
+        raise AssertionError("owner presence flags are booleans")
     if not enabled or not packet or malformed or not grouped or not corpse:
         return True
     if not creature_dead or not in_range:
@@ -109,6 +151,14 @@ def modeled_pickup(
             follow_rules or blocked or roll_winner):
         return True
     if not item_template or not owner_online or not owner_in_group or not owner_has_slot:
+        return True
+    # Fail open unless the owner is in world on this live map and instance.
+    # enforce_* = False models a source mutation that deleted that guard.
+    if enforce_in_world and not owner_in_world:
+        return True
+    if enforce_same_map and not owner_same_map:
+        return True
+    if enforce_same_instance and not owner_same_instance:
         return True
     if owner_personal is not None:
         # Match SAME quest_items index, with an unlooted owner view.
@@ -403,6 +453,107 @@ class QuestLootProtectionContract(unittest.TestCase):
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text("utf-8")
             with self.subTest(workflow=path.name):
+                self.assertNotIn("actions/upload-artifact", text)
+                self.assertNotIn("actions/upload-pages-artifact", text)
+
+    def test_present_owner_blocks_and_absent_owner_permits(self):
+        # Eligible owner, in world, same live map and instance: still blocks.
+        self.assertFalse(modeled_pickup(
+            owner_in_world=True, owner_same_map=True, owner_same_instance=True))
+        self.assertFalse(modeled_pickup())
+        # Offline / not found, not in world, other map, other instance: permit.
+        self.assertTrue(modeled_pickup(owner=None))
+        self.assertTrue(modeled_pickup(owner_online=False))
+        self.assertTrue(modeled_pickup(owner_in_world=False))
+        self.assertTrue(modeled_pickup(owner_same_map=False))
+        self.assertTrue(modeled_pickup(
+            owner_same_map=True, owner_same_instance=False))
+        self.assertTrue(modeled_pickup(
+            owner_in_world=False, owner_same_map=False,
+            owner_same_instance=False))
+
+    def test_presence_guards_are_fail_open_in_source(self):
+        self.assertTrue(presence_fail_open(CPP))
+        start = CPP.index(OWNER_LOOKUP)
+        body = CPP[start:]
+        order = [
+            body.index("if (!owner || owner->GetGroup() != group)"),
+            body.index("if (!owner->IsInWorld())"),
+            body.index("ownerMap->GetId() != looterMap->GetId()"),
+            body.index("owner->GetInstanceId() != player->GetInstanceId()"),
+            body.index("ownerMap->GetInstanceId() != corpseMap->GetInstanceId()"),
+            body.index("item.AllowedForPlayer(owner, loot.sourceWorldObjectGUID)"),
+            body.index("player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED)"),
+            body.index("return false;"),
+        ]
+        self.assertEqual(order, sorted(order))
+        self.assertIn("Distance and death are not extra denies", CPP)
+        self.assertIn("Distance and death are not extra denies", DOC)
+        for absent in ("owner->isAlive()", "owner->IsAlive()", "owner->IsWithinDist"):
+            with self.subTest(absent=absent):
+                self.assertNotIn(absent, CPP)
+
+    def test_presence_guard_mutations_fail_the_contract(self):
+        """In-memory edits only. The repository source is not rewritten."""
+        self.assertTrue(presence_fail_open(CPP))
+        mutations = {
+            "not_found_no_longer_permits": (
+                "if (!owner || owner->GetGroup() != group)\n"
+                "            return true;",
+                "if (owner->GetGroup() != group)\n            return true;",
+            ),
+            "not_in_world_denies": (
+                "if (!owner->IsInWorld())\n            return true;",
+                "if (!owner->IsInWorld())\n            return false;",
+            ),
+            "map_guard_removed": (
+                "ownerMap->GetId() != looterMap->GetId()",
+                "false",
+            ),
+            "instance_guard_removed": (
+                "owner->GetInstanceId() != player->GetInstanceId()",
+                "false",
+            ),
+            "live_map_object_removed": (
+                "ownerMap != looterMap || ownerMap != corpseMap",
+                "false",
+            ),
+        }
+        for name, (old, new) in mutations.items():
+            with self.subTest(mutation=name):
+                self.assertEqual(CPP.count(old), 1)
+                mutated = CPP.replace(old, new, 1)
+                self.assertNotEqual(mutated, CPP)
+                self.assertNotIn(old, mutated)
+                self.assertFalse(presence_fail_open(mutated))
+        # Model mutations: dropping a guard would block the case that must permit.
+        self.assertFalse(modeled_pickup(
+            owner_in_world=False, enforce_in_world=False))
+        self.assertFalse(modeled_pickup(
+            owner_same_map=False, enforce_same_map=False))
+        self.assertFalse(modeled_pickup(
+            owner_same_map=True, owner_same_instance=False,
+            enforce_same_instance=False))
+        # The unmutated model still permits those same facts.
+        self.assertTrue(modeled_pickup(owner_in_world=False))
+        self.assertTrue(modeled_pickup(owner_same_map=False))
+        self.assertTrue(modeled_pickup(owner_same_instance=False))
+
+    def test_apt_update_drops_microsoft_source_before_update(self):
+        # Run 39778331884 failed apt-get update on packages.microsoft.com 403
+        # before CMake. These two jobs drop that source first. No uploads.
+        for name in (
+            "quest-loot-protection-pinned.yml",
+            "ep-module-grimfeather-worldserver-link.yml",
+        ):
+            text = (ROOT / ".github/workflows" / name).read_text("utf-8")
+            with self.subTest(workflow=name):
+                self.assertIn("packages.microsoft.com", text)
+                self.assertLess(
+                    text.index("packages.microsoft.com"),
+                    text.index("sudo apt-get update"),
+                )
+                self.assertIn("sudo rm -f", text)
                 self.assertNotIn("actions/upload-artifact", text)
                 self.assertNotIn("actions/upload-pages-artifact", text)
 

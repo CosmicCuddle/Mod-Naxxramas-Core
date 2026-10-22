@@ -36,8 +36,9 @@ namespace NaxxramasQuestLootProtection
     }
 
     // Return true to leave this request to normal AzerothCore validation.
-    // The only false path is a verified one-copy creature quest drop that
-    // another *eligible, still grouped* player currently owns.
+    // The only false path is a verified one-copy creature quest drop whose
+    // round-robin owner is still grouped, eligible, in the world, and on
+    // the same live map and instance as the looter and corpse.
     bool PermitPickup(Player* player, uint8 requestedSlot)
     {
         if (!player || !player->IsInWorld() || !player->GetMap())
@@ -109,8 +110,45 @@ namespace NaxxramasQuestLootProtection
         // Never cache ownership: LootHandler clears roundRobinPlayer when
         // its owner releases the corpse. A departed or offline owner cannot
         // be assumed to still control an active loot turn.
+        //
+        // Fail open. Deny another looter only when the owner is found,
+        // IsInWorld(), and on the same live map and the same instance as
+        // the looter and this corpse. Pinned FindPlayer returns nullptr
+        // unless the player is already in world, and the explicit
+        // IsInWorld() test stays on the pointer we would deny for: GetMap()
+        // asserts when the player has no map. Pinned AllowedForPlayer does
+        // not test map, instance, or range, so a still-grouped owner who
+        // left the instance must not strand this one-copy quest item.
+        //
+        // Distance and death are not extra denies. A dead owner who is
+        // still in world on this map and instance keeps the turn. The
+        // looter is already inside INTERACTION_DISTANCE; an owner who is
+        // elsewhere in the same instance remains the round-robin owner.
         Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);
         if (!owner || owner->GetGroup() != group)
+            return true;
+
+        if (!owner->IsInWorld())
+            return true;
+
+        Map const* ownerMap = owner->FindMap();
+        Map const* looterMap = player->FindMap();
+        Map const* corpseMap = creature->FindMap();
+        if (!ownerMap || !looterMap || !corpseMap)
+            return true;
+
+        // Different continent or dungeon. Map id is compared on the live
+        // map objects, not on a cached id from when the loot was built.
+        if (ownerMap != looterMap || ownerMap != corpseMap ||
+            ownerMap->GetId() != looterMap->GetId() ||
+            ownerMap->GetId() != corpseMap->GetId())
+            return true;
+
+        // Same map id, different instance (a second copy of this dungeon).
+        if (owner->GetInstanceId() != player->GetInstanceId() ||
+            owner->GetInstanceId() != creature->GetInstanceId() ||
+            ownerMap->GetInstanceId() != looterMap->GetInstanceId() ||
+            ownerMap->GetInstanceId() != corpseMap->GetInstanceId())
             return true;
 
         // Only protect an owner who was actually given an unlooted

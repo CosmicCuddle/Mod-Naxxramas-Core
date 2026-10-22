@@ -4,7 +4,7 @@
 
 ## Reconciliation onto current main (22 Oct 2026)
 
-`src/Systems/QuestLootProtection.cpp` and `scripts/check_quest_loot_pinned_compile.py` are copied unchanged from draft PR #25 head `e3e1bf339c8b1aba07ab065d50dbcc3fafbf0e51`. The branch base is `main` `75315783e4921b47809d96094f4885f68ff42146`. `conf/mod_naxxramas_core.conf.dist` and `src/NaxxramasCore_loader.cpp` were hand-merged: every `NaxxramasCore.HallowsEnd.SoloFire.*` line and `AddHallowsEndShadeOfTheHorsemanScripts()` stays, and the quest-loot keys are appended default OFF. Rollback remains `NaxxramasCore.QuestLootProtection.Enabled = 0` plus a Worldserver restart after separate approval. No SQL.
+`scripts/check_quest_loot_pinned_compile.py` is copied unchanged from draft PR #25 head `e3e1bf339c8b1aba07ab065d50dbcc3fafbf0e51`. `src/Systems/QuestLootProtection.cpp` started from that head. It now permits the pickup unless the round-robin owner is found, `IsInWorld()`, and on the same live map and the same instance as the looter and corpse. The branch base is `main` `75315783e4921b47809d96094f4885f68ff42146`. `conf/mod_naxxramas_core.conf.dist` and `src/NaxxramasCore_loader.cpp` were hand-merged: every `NaxxramasCore.HallowsEnd.SoloFire.*` line and `AddHallowsEndShadeOfTheHorsemanScripts()` stays, and the quest-loot keys are appended default OFF. Rollback remains `NaxxramasCore.QuestLootProtection.Enabled = 0` plus a Worldserver restart after separate approval. No SQL.
 
 This branch's workflow pins Grimfeather core `8daffdabe9202c228e45d833c9a1d399597a15cd`, Playerbots `037c01418b5d01506917a3db9b44fd56ac5f965c`, and Grimfeather individual progression `4ff4b5fcc1480348f058c632573143e62d4e3a41`. It checks out the pull-request head SHA and does not upload artifacts.
 
@@ -47,7 +47,10 @@ To deny, ALL must be true:
 3. `roundRobinPlayer` is nonempty and not the requesting player.
 4. The packet slot is a **player-visible quest slot** (not a normal loot slot), and its per-player mapping and underlying `quest_items` index are valid and not yet looted.
 5. Item is one-copy `needs_quest` loot with `count == 1`, not `freeforall`/`ITEM_FLAG_MULTI_DROP`, not `follow_loot_rules`, and not a blocked/roll-winner item.
-6. The current owner is online, in the same group, **has an unlooted player-specific quest-item slot for the same underlying corpse item**, and still needs/is eligible for it. If the owner was outside reward range, lacks a mapped slot, has already taken their copy, no longer needs the item, or fails native eligibility, defer to the core's existing fallback.
+6. The owner is found, `IsInWorld()`, and on the **same live map and the same instance** as the looter and the corpse. Otherwise the guard permits the pickup. Pinned `LootItem::AllowedForPlayer` checks item, conditions, quest status, and scripts. It does not check map, instance, or range. `ObjectAccessor::FindPlayer` returns nullptr for an offline or not-in-world player; the denial path still tests `IsInWorld()`, live map id, and instance id itself.
+7. That owner is in the same group, **has an unlooted player-specific quest-item slot for the same underlying corpse item**, and still needs/is eligible for it. If the owner was outside reward range, lacks a mapped slot, has already taken their copy, no longer needs the item, or fails native eligibility, defer to the core's existing fallback.
+
+Distance and death are not extra denies. An owner who is dead, or who is elsewhere inside the same instance, keeps the round-robin turn. A missing owner, an owner who is not in world, a different map, or the same map in a different instance does not block the other looter.
 
 All other cases return TRUE and let AzerothCore process the packet unmodified. Importantly, the original owner releasing the corpse clears `roundRobinPlayer` in `LootHandler.cpp::DoLootRelease`, so a later pickup is automatically no longer blocked. No new permanent lock/cached ownership.
 
@@ -73,7 +76,7 @@ This is a proposed checklist for a separately approved staging build only. No te
 | QL-01 | Two eligible group members need the same single-copy creature quest item; non-owner tries first | Non-owner denied; item not consumed or duplicated; owner still able to collect |
 | QL-02 | Actual round-robin owner collects their quest item | Normal native pickup succeeds |
 | QL-03 | Owner releases loot turn; eligible second member tries | Native fallback allowed; no permanent new lock |
-| QL-04 | Owner offline/leaves party or lacks eligible personal quest slot | No new guard denial; check native behavior |
+| QL-04 | Owner offline, not found, not in world, on another map, in another instance of the same map, leaves the party, or lacks an eligible personal quest slot | No new guard denial; a present eligible owner still blocks others. Check native behavior |
 | QL-05 | Viewer has multiple quest slots; client slot maps to a different underlying quest item | Uses viewer-index mapping, never raw slot as global index |
 | QL-06 | Owner mapping refers to different quest item or matching owner view already looted | No stale-owner denial |
 | QL-07 | Owner completed quest or fails native item eligibility | Guard defers to core, cannot strand quest loot |
@@ -106,7 +109,7 @@ Explicit limits, kept here so a docs edit cannot drop them silently:
 - NOT TESTED: client loot-window icon state
 - NOT TESTED: packet bytes on a live session
 
-Synthetic coverage that does exist: default OFF, Hallow's End keys still present, opcode-before-config-before-slot-read order inside this module's hook, padded-size source condition (`size() < 1`, not `size() != 1`), group / round-robin / need-before-greed versus other methods, count 1 and quest eligibility, empty or incorrect owner, release modeled as an empty `roundRobinPlayer`, and no Altbot exemption string in this module. Those are source and model checks only.
+Synthetic coverage that does exist: default OFF, Hallow's End keys still present, opcode-before-config-before-slot-read order inside this module's hook, padded-size source condition (`size() < 1`, not `size() != 1`), group / round-robin / need-before-greed versus other methods, count 1 and quest eligibility, empty or incorrect owner, release modeled as an empty `roundRobinPlayer`, owner present on the same map and instance still blocks, owner not found / not in world / other map / other instance permits, in-memory mutations that remove those fail-open guards fail the source contract, and no Altbot exemption string in this module. Those are source and model checks only. Distance and death are not extra denies in that model.
 
 ## Validation checklist (required before merge/production use)
 
