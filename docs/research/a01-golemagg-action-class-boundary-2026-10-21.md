@@ -30,6 +30,19 @@ revision:
 | `src/Ai/Base/Actions/ReachTargetActions.cpp` | `c889265520c7cea621f2dc5953225f2b7ab47beb` |
 | `src/Ai/Base/Actions/AttackAction.h` | `2911924f00557891e5ab977986b71ca0d08d5fa2` |
 
+
+Additional pinned **trigger and action factory** files at the same exact
+Playerbots revision (whole-file Git blobs, not installed-version proof):
+
+| Pinned request/dispatch source | Git blob SHA-1 |
+| --- | --- |
+| `src/Ai/Base/Strategy/MeleeCombatStrategy.cpp` | `7bbb53803150d45a0acef58b785731b6582f5c5e` |
+| `src/Ai/Class/Warrior/Strategy/GenericWarriorStrategy.cpp` | `5d7427d1b32aaec8e39097fe40c83faae410cc3d` |
+| `src/Ai/Base/Trigger/RangeTriggers.h` | `64cbe140866177d180dfc95dc32965527015cbfa` |
+| `src/Ai/Base/Trigger/RangeTriggers.cpp` | `758363d94fb33d52fcb044be920a69b037bdf66a` |
+| `src/Ai/Base/TriggerContext.h` | `5219992e24b207c8eb36d581a43b57d94127d5d5` |
+| `src/Ai/Base/ActionContext.h` | `6e41eb06a8bb871d869d880eec65bf2df062b547` |
+
 Git blob IDs are content fingerprints, not independent authentication or
 a claim about the versions installed on the operator's server.
 
@@ -68,13 +81,29 @@ a claim about the versions installed on the operator's server.
   classes but may serve different safety/position purposes; never veto all
   movement based on this document.
 
+- **Normal melee movement is requested by an explicit generic trigger:**
+  pinned `MeleeCombatStrategy::InitTriggers` and
+  `GenericWarriorStrategy::InitTriggers` both register
+  `"enemy out of melee" -> NextAction("reach melee", ACTION_HIGH + 1)`.
+  The trigger factory resolves to `EnemyOutOfMeleeTrigger`, which
+  derives `OutOfRangeTrigger`; its predicate checks the `current target`
+  outside configured melee distance plus contact distance. The action
+  factory resolves `reach melee` to `ReachMeleeAction`, whose parent
+  calls `ReachCombatTo(current target)`. That generic predicate has
+  no special Golemagg or Magma Splash check. Together with the unguarded
+  movement class above, these are a **source-supported potential request
+  and re-entry pathway**. They do **not** prove this combat strategy
+  was active, that the current target was Golemagg, or that the engine
+  selected/executed the action during the owner's encounter.
+  Other movement causes are still possible.
+
 - The inspection is scoped to this exact pinned version and these source
   files. It does not prove the absence of other safe hooks in the codebase.
 
 The source regression tests reject changed thresholds, missing action-category
 filters, new generic movement guards, unknown Playerbots source revisions and
 modified files. **A green test means this source class-coverage limitation persists, not that a fix
-exists.** The production checker verifies all eight reviewed file blobs first;
+exists.** The production checker verifies all fourteen reviewed file blobs first;
 the standalone lexical helper is not a source identity verification.
 
 ## Engineering gate before any movement mutation

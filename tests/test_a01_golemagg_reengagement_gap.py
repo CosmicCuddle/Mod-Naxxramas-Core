@@ -60,6 +60,42 @@ class MeleeAction : public AttackAction
 {
 };
 """,
+    "melee_strategy": """
+void MeleeCombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers) {
+    triggers.push_back(new TriggerNode(
+        "enemy out of melee", { NextAction("reach melee", ACTION_HIGH + 1) }));
+}
+""",
+    "warrior_strategy": """
+void GenericWarriorStrategy::InitTriggers(std::vector<TriggerNode*>& triggers) {
+    triggers.push_back(new TriggerNode(
+        "enemy out of melee", { NextAction("reach melee", ACTION_HIGH + 1) }));
+}
+""",
+    "range_h": """
+class OutOfRangeTrigger : public Trigger {
+    std::string const GetTargetName() override { return "current target"; }
+};
+class EnemyOutOfMeleeTrigger : public OutOfRangeTrigger {
+    EnemyOutOfMeleeTrigger(PlayerbotAI* botAI)
+        : OutOfRangeTrigger(botAI, "enemy out of melee range", sPlayerbotAIConfig.meleeDistance) {}
+};
+""",
+    "range_cpp": """
+bool OutOfRangeTrigger::IsActive() {
+    Unit* target = AI_VALUE(Unit*, GetTargetName());
+    float dis = distance + CONTACT_DISTANCE;
+    return target && !bot->IsWithinCombatRange(target, dis);
+}
+""",
+    "trigger_context": """
+creators["enemy out of melee"] = &TriggerContext::EnemyOutOfMelee;
+static Trigger* EnemyOutOfMelee(PlayerbotAI* botAI) { return new EnemyOutOfMeleeTrigger(botAI); }
+""",
+    "action_context": """
+creators["reach melee"] = &ActionContext::ReachMelee;
+static Action* ReachMelee(PlayerbotAI* botAI) { return new ReachMeleeAction(botAI); }
+""",
     "multipliers": """
 bool IsAllowedGeddonMovementAction(Action* action) {
     return !dynamic_cast<MovementAction*>(action);
@@ -85,8 +121,43 @@ class GolemaggMovementGapContract(unittest.TestCase):
         self.assertTrue(facts["selected_attack_action_suppression_verified"])
         self.assertFalse(facts["general_movement_action_veto_proven"])
         self.assertTrue(facts["reach_melee_is_unfiltered_movement_class_candidate"])
+        self.assertTrue(facts["normal_melee_strategy_requests_reach_melee_at_high_priority"])
         self.assertFalse(facts["actual_reengaging_action_observed"])
         self.assertFalse(facts["safe_module_only_movement_fix_implemented"])
+
+
+    def test_generic_melee_request_path_is_source_only_not_execution(self):
+        facts = check_golemagg_contract(FILES)
+        self.assertTrue(facts["normal_melee_strategy_requests_reach_melee_at_high_priority"])
+        self.assertFalse(facts["actual_reengaging_action_observed"])
+        self.assertFalse(facts["safe_module_only_movement_fix_implemented"])
+
+    def test_missing_or_rerouted_melee_request_chain_fails_closed(self):
+        mutations = (
+            ("melee_strategy", 'NextAction("reach melee", ACTION_HIGH + 1)',
+             'NextAction("not reach melee", ACTION_HIGH + 1)'),
+            ("warrior_strategy", '"enemy out of melee"', '"enemy out of spell"'),
+            ("trigger_context", '&TriggerContext::EnemyOutOfMelee',
+             '&TriggerContext::EnemyOutOfSpell'),
+            ("range_h", 'class EnemyOutOfMeleeTrigger : public OutOfRangeTrigger',
+             'class EnemyOutOfMeleeTrigger : public Trigger'),
+            ("range_h", 'return "current target";', 'return "party member";'),
+            ("range_cpp", 'float dis = distance + CONTACT_DISTANCE;',
+             'float dis = distance;'),
+            ("range_cpp", '!bot->IsWithinCombatRange(',
+             'bot->IsWithinCombatRange('),
+            ("action_context", '&ActionContext::ReachMelee',
+             '&ActionContext::ReachSpell'),
+            ("action_context", 'return new ReachMeleeAction(botAI);',
+             'return new ReachSpellAction(botAI);'),
+        )
+        for key, old, new in mutations:
+            with self.subTest(key=key, mutation=old):
+                self.assertIn(old, FILES[key])
+                changed = dict(FILES)
+                changed[key] = FILES[key].replace(old, new, 1)
+                with self.assertRaises(PolicyEvidenceChanged):
+                    check_golemagg_contract(changed)
 
     def test_new_generic_movement_interception_requires_new_review(self):
         changed = dict(FILES)
@@ -171,7 +242,7 @@ class GolemaggMovementGapContract(unittest.TestCase):
                     check_golemagg_contract(changed)
 
     def test_pinned_file_identity_must_be_checked_before_parsing(self):
-        self.assertEqual(len(PINNED_BLOBS), 8)
+        self.assertEqual(len(PINNED_BLOBS), 14)
         self.assertEqual(
             PINNED_PLAYERBOTS,
             "037c01418b5d01506917a3db9b44fd56ac5f965c")

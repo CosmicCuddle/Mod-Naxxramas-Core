@@ -20,6 +20,12 @@ PINNED_BLOBS = {
     "reach_h": "26b96d36593ac4ffc9b6efc3a70bcad3aeec49f7",
     "reach_cpp": "c889265520c7cea621f2dc5953225f2b7ab47beb",
     "attack_h": "2911924f00557891e5ab977986b71ca0d08d5fa2",
+    "melee_strategy": "7bbb53803150d45a0acef58b785731b6582f5c5e",
+    "warrior_strategy": "5d7427d1b32aaec8e39097fe40c83faae410cc3d",
+    "range_h": "64cbe140866177d180dfc95dc32965527015cbfa",
+    "range_cpp": "758363d94fb33d52fcb044be920a69b037bdf66a",
+    "trigger_context": "5219992e24b207c8eb36d581a43b57d94127d5d5",
+    "action_context": "6e41eb06a8bb871d869d880eec65bf2df062b547",
 }
 
 
@@ -108,6 +114,45 @@ def check_reach_melee_class_hierarchy(files: dict[str, str]) -> None:
         )
 
 
+
+def check_normal_reengagement_request_chain(files: dict[str, str]) -> None:
+    """Prove a configured *request* path, NOT actual Golemagg action selection."""
+    for key, declaration in (
+        ("melee_strategy",
+         "void MeleeCombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)"),
+        ("warrior_strategy",
+         "void GenericWarriorStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)"),
+    ):
+        body = method_body(files[key], declaration)
+        require(body, '"enemy out of melee", { NextAction("reach melee", ACTION_HIGH + 1) }',
+                key)
+    require(files["trigger_context"],
+            'creators["enemy out of melee"] = &TriggerContext::EnemyOutOfMelee;',
+            "TriggerContext.h")
+    require(files["trigger_context"],
+            "static Trigger* EnemyOutOfMelee(PlayerbotAI* botAI) { return new EnemyOutOfMeleeTrigger(botAI); }",
+            "TriggerContext.h")
+    require(files["range_h"], "class EnemyOutOfMeleeTrigger : public OutOfRangeTrigger",
+            "RangeTriggers.h")
+    require(files["range_h"],
+            'OutOfRangeTrigger(botAI, "enemy out of melee range", sPlayerbotAIConfig.meleeDistance)',
+            "RangeTriggers.h")
+    require(files["range_h"], 'return "current target";', "RangeTriggers.h")
+    range_body = method_body(files["range_cpp"], "bool OutOfRangeTrigger::IsActive()")
+    for token in ("AI_VALUE(Unit*, GetTargetName())",
+                  "float dis = distance + CONTACT_DISTANCE;",
+                  "!bot->IsWithinCombatRange("):
+        require(range_body, token, "RangeTriggers.cpp")
+    if "MAGMA_SPLASH" in range_body or "golemagg" in range_body.lower():
+        raise PolicyEvidenceChanged("Generic range trigger now has encounter gating")
+    require(files["action_context"],
+            'creators["reach melee"] = &ActionContext::ReachMelee;',
+            "ActionContext.h")
+    require(files["action_context"],
+            "static Action* ReachMelee(PlayerbotAI* botAI) { return new ReachMeleeAction(botAI); }",
+            "ActionContext.h")
+
+
 def check_golemagg_contract(files: dict[str, str]) -> dict[str, bool]:
     helpers = files["helpers"]
     for token in (
@@ -158,7 +203,9 @@ def check_golemagg_contract(files: dict[str, str]) -> dict[str, bool]:
     require(files["multipliers"], "dynamic_cast<MovementAction*>(action)",
             "MCMultipliers.cpp Baron Geddon contrast")
     check_reach_melee_class_hierarchy(files)
+    check_normal_reengagement_request_chain(files)
     return {
+        "normal_melee_strategy_requests_reach_melee_at_high_priority": True,
         "reach_melee_is_unfiltered_movement_class_candidate": True,
         "retreat_trigger_threshold_20_12_verified": True,
         "selected_attack_action_suppression_verified": True,
