@@ -90,6 +90,84 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
         self.assertIn("state->lastTrace", SOURCE)
         self.assertIn("player->CustomData.Erase(AUDIT_STATE_KEY)", SOURCE)
 
+    def test_critical_window_budget_is_bounded_and_default_off(self):
+        # Source contract only; neither a sampled combat test nor proof of
+        # action causality. Keep the total cap, cadence and both OFF gates.
+        for token in (
+            "AUDIT_WARMUP_START_STACKS = 15",
+            "MAX_PRE_RETREAT_SAMPLES = 4",
+            "uint8 preRetreatSamples = 0;",
+            "state->preRetreatSamples >= MAX_PRE_RETREAT_SAMPLES",
+            "stacks < AUDIT_WARMUP_START_STACKS && !wasAtRetreatStacks",
+            "state->hasLastSample && state->lastAtRetreatStacks",
+            "if (!atRetreatStacks && !wasAtRetreatStacks)",
+            "++state->preRetreatSamples;",
+            "MAX_SAMPLES_PER_BOT = 24",
+            "SAMPLE_INTERVAL_MS = 2500",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, SOURCE)
+        self.assertLess(
+            SOURCE.index("stacks < AUDIT_WARMUP_START_STACKS"),
+            SOURCE.index('ai->HandleRemoteCommand("action")'),
+        )
+        self.assertLess(
+            SOURCE.index("++state->samples;"),
+            SOURCE.index("++state->preRetreatSamples;"),
+        )
+        self.assertIn(
+            "NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0", CONFIG
+        )
+        self.assertIn(
+            'NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""',
+            CONFIG,
+        )
+
+    def test_critical_window_quota_synthetic_model(self):
+        # Conservative model: assume each eligible poll has a different
+        # recent action tail, and the boss lookup is present throughout.
+        # Source-only policy check; C++ and realm events require separate CI.
+        def eligible(stacks, prior_high, pre, total):
+            if total >= 24:
+                return False
+            if stacks < 15 and not prior_high:
+                return False
+            if stacks < 20 and pre >= 4 and not prior_high:
+                return False
+            return True
+
+        total = warmup = 0
+        previous_high = False
+        for stacks in [0] * 60 + [10] * 60 + [15] * 60:
+            if eligible(stacks, previous_high, warmup, total):
+                total += 1
+                if stacks < 20 and not previous_high:
+                    warmup += 1
+                previous_high = stacks >= 20
+        self.assertEqual((total, warmup), (4, 4))
+
+        for _ in range(30):
+            if eligible(20, previous_high, warmup, total):
+                total += 1
+                previous_high = True
+        self.assertEqual(total, 24)
+        self.assertFalse(eligible(20, True, warmup, total))
+        self.assertTrue(eligible(0, True, 4, 9))
+        self.assertFalse(eligible(0, False, 4, 9))
+        self.assertFalse(eligible(14, False, 0, 0))
+        self.assertTrue(eligible(15, False, 0, 0))
+
+    def test_actual_melee_range_is_tristate_when_boss_lookup_missing(self):
+        # Center distance is not melee-uptime, especially for a large boss.
+        self.assertIn("int32 const bossInMeleeRange = lookupPresent ?", SOURCE)
+        self.assertIn("player->IsWithinMeleeRange(boss) ? 1 : 0", SOURCE)
+        self.assertIn(") : -1;", SOURCE)
+        self.assertIn("boss_in_melee_range={}", SOURCE)
+        self.assertIn("bossDistanceYards, bossInMeleeRange,", SOURCE)
+        self.assertIn("lookupPresent && bossDistanceYards", SOURCE)
+        self.assertNotIn("bot->Attack(", SOURCE)
+        self.assertNotIn("player->Attack(", SOURCE)
+
     def test_transient_target_loss_does_not_rearm_logging_quota(self):
         # The boss lookup is allowed to flicker while the same bot remains
         # in combat. In that case the 24-line quota must NOT be cleared.

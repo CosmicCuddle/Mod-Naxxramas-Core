@@ -141,7 +141,7 @@ jobs:
             --compile-commands acore-build/compile_commands.json --timeout 360
       - name: Build and link real combined Worldserver without launching
         run: cmake --build acore-build --target worldserver --parallel 2
-      - name: Verify both implementations retained in archive and linked executable
+      - name: Verify all four implementations in archive and linked executable
         run: |
           set -euo pipefail
           binary=acore-build/src/server/apps/worldserver

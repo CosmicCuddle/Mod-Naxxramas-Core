@@ -25,6 +25,8 @@ namespace
     constexpr uint32 MAGMA_SPLASH_SPELL = 13880;
     // From exact pinned Playerbots MCHelpers.h; context, NOT a movement veto.
     constexpr uint32 MAGMA_SPLASH_RETREAT_STACKS = 20;
+    constexpr uint32 AUDIT_WARMUP_START_STACKS = 15;
+    constexpr uint8 MAX_PRE_RETREAT_SAMPLES = 4;
     constexpr float MAGMA_SPLASH_RETREAT_YARDS = 12.0f;
     constexpr uint32 SAMPLE_INTERVAL_MS = 2500;
     constexpr uint8 MAX_SAMPLES_PER_BOT = 24;
@@ -37,6 +39,7 @@ namespace
     {
         uint32 elapsedMs = 0;
         uint8 samples = 0;
+        uint8 preRetreatSamples = 0;
         std::string lastTrace;
         bool sawGolemaggInThisCombat = false;
         bool lastLookupPresent = false;
@@ -138,9 +141,26 @@ namespace
             bool const atRetreatStacks = stacks >= MAGMA_SPLASH_RETREAT_STACKS;
             bool const insideRetreatDistance =
                 lookupPresent && bossDistanceYards < MAGMA_SPLASH_RETREAT_YARDS;
+            // -1 = unknown (boss threat lookup absent), not "out of melee".
+            // This is a range predicate, NOT measured melee attack uptime.
+            int32 const bossInMeleeRange = lookupPresent ?
+                (player->IsWithinMeleeRange(boss) ? 1 : 0) : -1;
             bool const thresholdChanged = !state->hasLastSample ||
                 atRetreatStacks != state->lastAtRetreatStacks ||
                 insideRetreatDistance != state->lastInsideRetreatDistance;
+
+            // Preserve most of the 24-line budget for >=20 stacks. Below
+            // 15 stacks, capture only a single high-to-low transition; at
+            // 15-19 stacks, at most four ordinary warm-up records. The
+            // existing per-combat total cap always applies.
+            bool const wasAtRetreatStacks =
+                state->hasLastSample && state->lastAtRetreatStacks;
+            if (stacks < AUDIT_WARMUP_START_STACKS && !wasAtRetreatStacks)
+                return;
+            if (!atRetreatStacks &&
+                state->preRetreatSamples >= MAX_PRE_RETREAT_SAMPLES &&
+                !wasAtRetreatStacks)
+                return;
 
             // Playerbots returns a RECENT action-log tail, NOT the exact
             // action responsible for this movement. Never execute an action.
@@ -175,17 +195,20 @@ namespace
             // One sample at most every 2.5 seconds and 24 reports per bot.
             // Do not draw movement-causality conclusions from this alone.
             ++state->samples;
+            if (!atRetreatStacks && !wasAtRetreatStacks)
+                ++state->preRetreatSamples;
             LOG_INFO("module",
                 "GolemaggActionAudit READ ONLY: bot={} samples={}/{} "
                 "splash_stacks={} splash_remaining_ms={} retreat_stacks_20={} "
                 "inside_retreat_12yd={} boss_lookup_present={} "
-                "boss_hp_pct={} boss_distance_yards={} current_target={} recent_actions={}",
+                "boss_hp_pct={} boss_distance_yards={} boss_in_melee_range={} "
+                "current_target={} recent_actions={}",
                 player->GetName(), static_cast<uint32>(state->samples),
                 static_cast<uint32>(MAX_SAMPLES_PER_BOT),
                 stacks, remainingMs, atRetreatStacks, insideRetreatDistance,
                 lookupPresent,
                 lookupPresent ? boss->GetHealthPct() : -1.0f,
-                bossDistanceYards,
+                bossDistanceYards, bossInMeleeRange,
                 target, trace);
         }
 
