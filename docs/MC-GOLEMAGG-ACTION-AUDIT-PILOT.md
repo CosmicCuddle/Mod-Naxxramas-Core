@@ -67,6 +67,39 @@ operator-approved live diagnostic/backup/restore check. Do not merge or
 rebase parent #30, dependent offline reviewer #35 or combined PR #33 as part
 of this isolated proposal; explicitly plan their later integration.
 
+## Separate follow-on: preserve high-stack evidence (candidate, not approved)
+
+The already-reviewed **#93** integration remains unchanged. This separate
+source-only research draft attempts to address the independent peer review's
+warning that 24 lines at 2.5 seconds apart can be consumed before melee
+Altbots reach **20 Magma Splash stacks**.
+
+The candidate uses **two bounded budgets**: start ordinary action-tail samples
+at **15 stacks**, allow at most **4** changed-tail records at 15–19 stacks,
+and leave at least **20** of the overall **24-line per-combat** capacity
+available for 20+ stacks unless a high-to-low crossing uses a line. A single
+transition immediately from 20+ down to below 15 remains eligible, even
+if the warm-up budget is already spent. It can capture fewer than the maximum
+because duplicate action tails remain suppressed. The existing 2.5-second
+minimum spacing and the exact Altbot-name/map/combat/role/default-OFF gates
+do not change. A bot that never reaches 15 stacks may produce no lines.
+
+The candidate also records **`boss_in_melee_range`** alongside the existing
+2D centre-to-centre `boss_distance_yards`. Its value is **1** if the
+observed boss is in the bot's native melee range, **0** if not, and **-1**
+if the Golemagg lookup is missing. Do not interpret distance alone as
+melee uptime; a large boss has substantial combat reach. Neither field
+measures attack events or damage, and recent `action` text is not an
+atomic selected-action record.
+
+**Validation / safety boundary:** these are diagnostic-output quality
+changes, **not a movement correction** or a DPS/damage buff. They require a
+fresh exact-head C++ compilation, Worldserver link and independent peer
+review, plus a separately approved backup/restart and a one-Altbot pilot
+before any live log can be trusted. No configuration should be enabled
+by merely reading this document. All output is to the server's `module`
+INFO logger, subject to its existing logger configuration.
+
 ## Stage 0 — Mandatory proof before contemplating deployment
 
 - [ ] Record the owner's **actual installed** Git SHAs for Naxxramas Core, AzerothCore, Playerbots and IP; note any local source edits. GitHub's pinned commits are reference builds, not evidence of the operator's machine.
