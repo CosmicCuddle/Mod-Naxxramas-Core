@@ -1,0 +1,43 @@
+name: MC Greater Fire Protection 90s one-shot source tests
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'src/Systems/GreaterFireProtectionOneShot.h'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/test_mc_gfpp_one_shot.py'
+      - '.github/workflows/naxx-mc-gfpp-one-shot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-gfpp-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  disposable-source-and-native-timer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact candidate source only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm no service or DB dependencies
+        run: |
+          set -euo pipefail
+          test -f src/Systems/BotRaidConsumables.cpp
+          test -f src/Systems/GreaterFireProtectionOneShot.h
+          test -f tests/test_mc_gfpp_one_shot.py
+          grep -Fqx 'NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled = 0' conf/mod_naxxramas_core.conf.dist
+          command -v g++
+      - name: Compile and run standalone C++ one-shot timing assertions
+        run: python3 -m unittest discover -s tests -p 'test_mc_gfpp_one_shot.py' -v
+      - name: Assert restricted source-only test boundary
+        run: |
+          echo 'Source tests only; NOT a full Worldserver C++ build, final link, installed version, restored backup or in-game proof.'
+          echo 'No core, Playerbots, IP, worldserver service, config, SQL or player inventory touched.'
