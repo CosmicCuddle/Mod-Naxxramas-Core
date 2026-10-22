@@ -1,0 +1,119 @@
+name: Quest Loot Protection pinned Grimfeather module checks
+on:
+  pull_request:
+    # Validate the exact latest draft head, including synchronize.
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/QuestLootProtection.cpp'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'docs/QUEST-LOOT-PROTECTION.md'
+      - 'tests/test_quest_loot_protection.py'
+      - 'scripts/check_quest_loot_pinned_compile.py'
+      - '.github/workflows/quest-loot-protection-pinned.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quest-loot-protection-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compile-and-link:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout exact owner Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+      - name: Checkout compatible pinned Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout pinned Grimfeather Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact Naxxramas Core draft head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify all four source revisions and preserved defaults
+        run: |
+          set -euo pipefail
+          root=acore/modules/mod-naxxramas-core
+          test "$(git -C acore rev-parse HEAD)" = "8daffdabe9202c228e45d833c9a1d399597a15cd"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
+          test "$(git -C "$root" rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          conf="$root/conf/mod_naxxramas_core.conf.dist"
+          loader="$root/src/NaxxramasCore_loader.cpp"
+          grep -Fqx 'NaxxramasCore.HallowsEnd.SoloFire.Enabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier = 3' "$conf"
+          grep -Fqx 'NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.HallowsEnd.SoloFire.DisableSpread = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.QuestLootProtection.Enabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.QuestLootProtection.Debug = 0' "$conf"
+          grep -Fq 'AddHallowsEndShadeOfTheHorsemanScripts();' "$loader"
+          grep -Fq 'AddQuestLootProtectionScripts();' "$loader"
+          echo "Checked out exact head ${{ github.event.pull_request.head.sha || github.sha }}. No build outputs are published."
+      - name: Run offline source and model tests
+        run: |
+          python3 -m unittest discover -s acore/modules/mod-naxxramas-core/tests -p 'test_quest_loot_protection.py' -v
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure full pinned scripts and module build
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile real Quest Loot Protection translation unit
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_quest_loot_pinned_compile.py \
+            --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Link Worldserver without launching it
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Confirm linked module registration without publishing binaries
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          archive=acore-build/modules/libmodules.a
+          test -x "$binary"
+          test -s "$binary"
+          test -s "$archive"
+          nm -C --defined-only "$binary" > /tmp/quest_loot_binary_symbols
+          nm -C --defined-only "$archive" > /tmp/quest_loot_archive_symbols
+          grep -Fq 'AddQuestLootProtectionScripts()' /tmp/quest_loot_binary_symbols
+          grep -Fq 'AddQuestLootProtectionScripts()' /tmp/quest_loot_archive_symbols
+          grep -Fq 'AddHallowsEndShadeOfTheHorsemanScripts()' /tmp/quest_loot_binary_symbols
+          grep -aFq "NaxxramasQuestLootProtection" "$binary"
+          sha256sum "$binary"
+          echo "PASS: module registration found in the linked Worldserver."
+          echo "No owner VM, database, in-game loot test, merge, deployment, or published build output."
+      - name: State remaining limitations
+        if: always()
+        run: |
+          echo "Source/model tests and this isolated compile/link do NOT establish actual loot behaviour."
+          echo "Playerbots headless sessions and any direct StoreLootItem callers need separate gameplay verification."
+          echo "This job does not publish build outputs."
