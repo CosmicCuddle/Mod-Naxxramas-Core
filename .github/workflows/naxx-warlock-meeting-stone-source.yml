@@ -5,6 +5,7 @@ on:
     types: [opened, reopened, synchronize]
     paths:
       - 'src/Systems/MeetingStoneProgression.cpp'
+      - 'src/NaxxramasCore_loader.cpp'
       - 'tests/test_meeting_stone_ritual_isolation.py'
       - 'docs/WARLOCK-RITUAL-VS-MEETING-STONE-SOURCE-CONTRACT.md'
       - '.github/workflows/naxx-warlock-meeting-stone-source.yml'
