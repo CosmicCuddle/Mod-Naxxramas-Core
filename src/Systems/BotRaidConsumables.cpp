@@ -3121,16 +3121,15 @@ void PrepareManaUser(
                 continue;
             }
 
-            // Do not overwrite a same-spell aura cast by somebody else.
-            // Our MC initial aura is self-cast using bot->AddAura().
+            // Do not replace a same-spell aura owned by somebody else.
+            // For our own aura, pinned AzerothCore's AddAura uses the
+            // same-caster refresh/reapply path. Never remove protection
+            // before trying the refresh: a failed AddAura must not
+            // destroy the bot's remaining absorb.
             if (Aura* current = bot->GetAura(pending.SpellId))
             {
                 if (current->GetCasterGUID() != bot->GetGUID())
                     continue;
-
-                // Replace our own remaining absorb rather than stack it.
-                bot->RemoveAurasDueToSpell(
-                    pending.SpellId, bot->GetGUID());
             }
 
             if (!bot->AddAura(pending.SpellId, bot) &&
