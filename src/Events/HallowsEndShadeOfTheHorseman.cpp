@@ -51,6 +51,7 @@
 #include "ScriptedCreature.h"
 #include "SharedDefines.h"
 #include "SpellAuraEffects.h"
+#include "Spell.h"
 #include "TaskScheduler.h"
 
 #if __has_include("Playerbots.h")
@@ -133,6 +134,7 @@ enum NaxxramasHallowsEndShade
     SPELL_HORSEMAN_MOUNT                = 48025,
     SPELL_FIRE_AURA_BASE                = 42074,
     SPELL_START_FIRE                    = 42132,
+    SPELL_SPREAD_FIRE                  = 42079,
     SPELL_SUMMON_LANTERN                = 44255,
     SPELL_HORSEMAN_CONFLAGRATION        = 42380,
     SPELL_HORSEMAN_CONFLAGRATION_SOUND  = 48149,
@@ -888,6 +890,65 @@ namespace
         static_cast<uint8_t>(EFFECT_0) ==
         NaxxramasCore::HallowsEndSoloFire::BucketLandEffectIndex);
 
+    /* The stock 42074 periodic handler casts 42079 from a burning
+     * normal fire. The global check-cast hook intercepts only that
+     * specific triggered spell, before it can start child fires.
+     * It never modifies the fire aura, bucket effects or Shade waves.
+     */
+    bool ShouldStopSoloFireSpread(Creature* fire)
+    {
+        using namespace NaxxramasCore::HallowsEndSoloFire;
+
+        if (!fire || fire->GetEntry() != NPC_FIRE_TRIGGER ||
+            !fire->HasAura(SPELL_FIRE_AURA_BASE) ||
+            ReadHallowsEndSoloFireEnabledSetting() != 1 ||
+            ReadHallowsEndSoloFireDisableSpreadSetting() != 1)
+            return false;
+
+#if NAXXRAMAS_CORE_HALLOWS_SHADE_HAS_PLAYERBOTS
+        SpreadGuardFacts facts;
+        facts.soloEnabled = 1;
+        facts.disableSpread = 1;
+        facts.playerbotsApiPresent = true;
+        facts.sourceIsNormalFire = true;
+        facts.hasBaseFireAura = true;
+
+        npc_naxxramas_hallows_end_soh* owner = nullptr;
+        std::list<Creature*> shades;
+        fire->GetCreaturesWithEntryInRange(
+            shades, 100.0f, NPC_SHADE_OF_HORSEMAN);
+
+        for (Creature* shade : shades)
+        {
+            if (!shade || !shade->IsAlive())
+                continue;
+            auto* ai = dynamic_cast<npc_naxxramas_hallows_end_soh*>(shade->AI());
+            if (!ai || !ai->OwnsFireTrigger(fire->GetGUID()))
+                continue;
+
+            ++facts.livingOwnerShadeCount;
+            if (ai->IgnitedTriggerThisCycle(fire->GetGUID()))
+            {
+                ++facts.activeOwnerShadeCount;
+                owner = ai;
+            }
+        }
+
+        if (facts.livingOwnerShadeCount == 1 &&
+            facts.activeOwnerShadeCount == 1 && owner)
+        {
+            std::list<Player*> players;
+            owner->CollectNearbyHallowsPlayers(players);
+            facts.realPlayersNearOwner = CountRealHallowsPlayers(players);
+        }
+
+        return ShouldBlockFireSpread(facts);
+#else
+        /* No reliable Playerbots identification: never suppress spread. */
+        return false;
+#endif
+    }
+
     struct OneBucketOwnerLists
     {
         std::vector<NaxxramasCore::HallowsEndSoloFire::ShadeOwnerView> shades;
@@ -1051,6 +1112,31 @@ namespace
     }
 }
 
+class spell_naxxramas_hallows_end_no_solo_spread : public AllSpellScript
+{
+public:
+    spell_naxxramas_hallows_end_no_solo_spread()
+        : AllSpellScript(
+            "spell_naxxramas_hallows_end_no_solo_spread",
+            { ALLSPELLHOOK_ON_SPELL_CHECK_CAST })
+    {
+    }
+
+    void OnSpellCheckCast(
+        Spell* spell, bool /*strict*/, SpellCastResult& result) override
+    {
+        if (!spell || result != SPELL_CAST_OK ||
+            !spell->GetSpellInfo() ||
+            spell->GetSpellInfo()->Id != SPELL_SPREAD_FIRE)
+            return;
+
+        WorldObject* caster = spell->GetCaster();
+        Creature* fire = caster ? caster->ToCreature() : nullptr;
+        if (ShouldStopSoloFireSpread(fire))
+            result = SPELL_FAILED_DONT_REPORT;
+    }
+};
+
 class spell_naxxramas_hallows_end_one_bucket : public AllSpellScript
 {
 public:
@@ -1081,4 +1167,5 @@ void AddHallowsEndShadeOfTheHorsemanScripts()
         npc_naxxramas_hallows_end_soh);
 
     new spell_naxxramas_hallows_end_one_bucket();
+    new spell_naxxramas_hallows_end_no_solo_spread();
 }

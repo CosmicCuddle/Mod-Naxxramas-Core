@@ -1,4 +1,4 @@
-name: F10 event-only exact-head Worldserver (draft source)
+name: F10 Hallow's End event-source Worldserver regression
 on:
   pull_request:
     types: [opened, reopened, synchronize]
@@ -8,6 +8,7 @@ on:
       - 'src/Events/HallowsEndSoloFireConfig.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'tests/f10_s2_one_bucket_policy_tests.cpp'
+      - 'tests/f10_s3_no_spread_policy_tests.cpp'
       - 'tests/test_f10_event_only_candidate.py'
       - '.github/workflows/f10-event-only-pilot.yml'
   workflow_dispatch:
@@ -46,7 +47,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: acore/modules/mod-naxxramas-core
           persist-credentials: false
-      - name: Verify F10 donor bytes, source-only scope and OFF defaults
+      - name: Verify exact source, OFF defaults and isolated policies
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
@@ -56,12 +57,16 @@ jobs:
           test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = 037c01418b5d01506917a3db9b44fd56ac5f965c
           test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = 4ff4b5fcc1480348f058c632573143e62d4e3a41
           test "$(git -C "$root" rev-parse HEAD)" = "$EXPECTED_SHA"
-          test "$(git -C "$root" hash-object src/Events/HallowsEndShadeOfTheHorseman.cpp)" = 94cc046a24b22257a11e78bf28989f1877409f74
-          test "$(git -C "$root" hash-object src/Events/HallowsEndSoloFire.h)" = ce3a426cb4816f47d5e1de6b5fed2b8963ac0552
-          test "$(git -C "$root" hash-object src/Events/HallowsEndSoloFireConfig.cpp)" = 7dd38beb1671e54b80b3edc895528eee3079d536
+          test -s "$root/src/Events/HallowsEndShadeOfTheHorseman.cpp"
+          test -s "$root/src/Events/HallowsEndSoloFire.h"
+          test -s "$root/src/Events/HallowsEndSoloFireConfig.cpp"
+          grep -Fq 'NaxxramasCore.HallowsEnd.SoloFire.DisableSpread = 0' "$root/conf/mod_naxxramas_core.conf.dist"
+          grep -Fq 'ALLSPELLHOOK_ON_SPELL_CHECK_CAST' "$root/src/Events/HallowsEndShadeOfTheHorseman.cpp"
           python3 -m unittest discover -s "$root/tests" -p test_f10_event_only_candidate.py -v
           g++ -std=c++17 -Wall -Wextra -Werror -I"$root/src/Events" "$root/tests/f10_s2_one_bucket_policy_tests.cpp" -o /tmp/f10_event_policy
           /tmp/f10_event_policy
+          g++ -std=c++17 -Wall -Wextra -Werror -I"$root/src/Events" "$root/tests/f10_s3_no_spread_policy_tests.cpp" -o /tmp/f10_no_spread_policy
+          /tmp/f10_no_spread_policy
           echo 'NO SQL/DBC executed. The mixed legacy world update remains a DEPLOYMENT BLOCKER.'
       - name: Install ephemeral build prerequisites
         run: |
@@ -91,8 +96,9 @@ jobs:
           nm -C --defined-only "$binary" > /tmp/f10_event_binary_symbols
           for marker in 'AddHallowsEndShadeOfTheHorsemanScripts()' 'NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireEnabledSetting()' 'NaxxramasCore::HallowsEndSoloFire::ReadHallowsEndSoloFireOneBucketSetting()'; do grep -Fq "$marker" /tmp/f10_event_binary_symbols; done
           grep -aFq 'spell_naxxramas_hallows_end_one_bucket' "$binary"
+          grep -aFq 'spell_naxxramas_hallows_end_no_solo_spread' "$binary"
           sha256sum "$binary"
-          echo 'SOURCE S4 only: NOT installed, configured, bound to world DB, or tested in game.'
+          echo 'SOURCE S4 only: NOT installed, config-activated, or tested in game.'
       - name: Safety note
         if: always()
         run: echo 'NO merge, updater execution, SQL, DBC, server startup, config activation, deployment, game state, or artifact uploads. Real world updater history and binding are UNKNOWN.'

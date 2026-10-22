@@ -45,4 +45,14 @@ int32_t ReadHallowsEndSoloFireOneBucketSetting()
         false);
     return OneBucketFromRaw(raw);
 }
+
+__attribute__((noinline))
+int32_t ReadHallowsEndSoloFireDisableSpreadSetting()
+{
+    std::string raw = sConfigMgr->GetOption<std::string>(
+        DisableSpreadConfigKey,
+        DefaultDisableSpreadRaw,
+        false);
+    return DisableSpreadFromRaw(raw);
+}
 }

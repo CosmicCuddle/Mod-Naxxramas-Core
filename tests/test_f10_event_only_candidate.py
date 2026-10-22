@@ -19,11 +19,15 @@ class EventPilotInvariant(unittest.TestCase):
         self.assertEqual(self.conf.count("NaxxramasCore.HallowsEnd.SoloFire.Enabled = 0"), 1)
         self.assertEqual(self.conf.count("NaxxramasCore.HallowsEnd.SoloFire.OneBucket = 0"), 1)
         self.assertEqual(self.conf.count("NaxxramasCore.HallowsEnd.SoloFire.PeriodMultiplier = 3"), 1)
+        self.assertEqual(self.conf.count("NaxxramasCore.HallowsEnd.SoloFire.DisableSpread = 0"), 1)
 
     def test_single_registration_from_existing_loader(self):
         self.assertEqual(self.loader.count("AddHallowsEndShadeOfTheHorsemanScripts();"), 2)
         self.assertEqual(self.shade.count("new spell_naxxramas_hallows_end_one_bucket();"), 1)
         self.assertIn("ALLSPELLHOOK_ON_DUMMY_EFFECT_CREATURE", self.shade)
+        self.assertEqual(self.shade.count("new spell_naxxramas_hallows_end_no_solo_spread();"), 1)
+        self.assertIn("ALLSPELLHOOK_ON_SPELL_CHECK_CAST", self.shade)
+        self.assertIn("ShouldStopSoloFireSpread", self.shade)
 
     def test_only_target_fire_aura_removed_by_feature(self):
         self.assertIn("target->RemoveAurasDueToSpell(FireAuraSpellId);", self.shade)
@@ -35,9 +39,12 @@ class EventPilotInvariant(unittest.TestCase):
         self.assertIn("BucketLandSpellId = 42339", self.header)
 
     def test_config_readers_fail_closed(self):
-        self.assertEqual(self.cfg.count("GetOption<std::string>"), 3)
+        self.assertEqual(self.cfg.count("GetOption<std::string>"), 4)
         self.assertIn("ReadHallowsEndSoloFireEnabledSetting()", self.cfg)
         self.assertIn("ReadHallowsEndSoloFireOneBucketSetting()", self.cfg)
+        self.assertIn("ReadHallowsEndSoloFireDisableSpreadSetting()", self.cfg)
+        self.assertIn("ShouldBlockFireSpread", self.header)
+        self.assertIn("SpreadFireSpellId = 42079", self.header)
 
     def test_mixed_legacy_sql_is_blocked_for_deployment(self):
         self.assertIn("WHERE `entry` = 23703", self.sql)
