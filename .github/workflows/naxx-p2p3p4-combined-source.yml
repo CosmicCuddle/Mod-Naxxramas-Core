@@ -37,7 +37,7 @@ jobs:
           grep -Fqx 'NaxxramasCore.QuestLootProtection.Enabled = 0' "$conf"
           grep -Fqx 'NaxxramasCore.QuestLootProtection.Debug = 0' "$conf"
           grep -Fqx 'NaxxramasCore.HallowsEnd.SoloFire.DisableSpread = 0' "$conf"
-          test "$(grep -Fc 'AddQuestLootProtectionScripts();' src/NaxxramasCore_loader.cpp)" = 1
+          test "$(grep -Fxc '    AddQuestLootProtectionScripts();' src/NaxxramasCore_loader.cpp)" = 1
           grep -Fq 'AddBotRaidConsumablesScripts();' src/NaxxramasCore_loader.cpp
           grep -Fq 'AddHallowsEndShadeOfTheHorsemanScripts();' src/NaxxramasCore_loader.cpp
       - name: Run all three feature source and model regression suites
