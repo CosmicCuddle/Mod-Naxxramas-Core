@@ -143,16 +143,29 @@ int main()
         self.assertLess(section.index("pending.Timer.ConsumeIfDue(diff)"),
                         section.index("!bot->AddAura(pending.SpellId, bot)"))
 
-    def test_cross_caster_aura_is_never_removed(self):
+    def test_cross_caster_aura_is_never_overwritten(self):
         source = SOURCE.read_text(encoding="utf-8")
         section = source.split("void ProcessOneShotFireProtections(", 1)[1].split(
             "// =========================================================", 1)[0]
+        self.assertIn("if (Aura* current = bot->GetAura(pending.SpellId))",
+                      section)
         self.assertIn("current->GetCasterGUID() != bot->GetGUID()", section)
-        self.assertIn("bot->RemoveAurasDueToSpell(", section)
-        self.assertIn("pending.SpellId, bot->GetGUID()", section)
+        self.assertNotIn("RemoveAurasDueToSpell(", section)
         self.assertIn("bot->AddAura(pending.SpellId, bot)", section)
+        self.assertLess(section.index("current->GetCasterGUID()"),
+                        section.index("bot->AddAura(pending.SpellId, bot)"))
         self.assertLess(section.index("pending.Timer.ConsumeIfDue(diff)"),
                         section.index("bot->AddAura(pending.SpellId, bot)"))
+
+    def test_failed_one_shot_attempt_never_preemptively_removes_absorb(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        section = source.split("void ProcessOneShotFireProtections(", 1)[1].split(
+            "// =========================================================", 1)[0]
+        self.assertIn("if (!bot->AddAura(pending.SpellId, bot) &&", section)
+        self.assertIn("one-time refresh failed", section)
+        self.assertNotIn("bot->RemoveAura(", section)
+        self.assertNotIn("bot->RemoveAurasDueToSpell(", section)
+        self.assertNotIn("SetStackAmount(", section)
 
     def test_clear_reset_and_logout_cancel_future_actions(self):
         source = SOURCE.read_text(encoding="utf-8")
