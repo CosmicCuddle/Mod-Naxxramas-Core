@@ -1,0 +1,56 @@
+name: P2 P3 P4 combined default-off source regression
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'src/Systems/HunterAmmoProvision.cpp'
+      - 'src/Systems/HunterAmmoSelection.h'
+      - 'src/Systems/GreaterFireProtectionOneShot.h'
+      - 'src/Systems/QuestLootProtection.cpp'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/test_mc_gfpp_one_shot.py'
+      - 'tests/test_hunter_ammo_consumables.py'
+      - 'tests/test_quest_loot_protection.py'
+      - '.github/workflows/naxx-p2p3p4-combined-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Assert three opt-ins OFF and script registration
+        run: |
+          set -euo pipefail
+          conf=conf/mod_naxxramas_core.conf.dist
+          grep -Fqx 'NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.QuestLootProtection.Enabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.QuestLootProtection.Debug = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.HallowsEnd.SoloFire.DisableSpread = 0' "$conf"
+          test "$(grep -Fxc '    AddQuestLootProtectionScripts();' src/NaxxramasCore_loader.cpp)" = 1
+          grep -Fq 'AddBotRaidConsumablesScripts();' src/NaxxramasCore_loader.cpp
+          grep -Fq 'AddHallowsEndShadeOfTheHorsemanScripts();' src/NaxxramasCore_loader.cpp
+      - name: Run all three feature source and model regression suites
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_mc_gfpp_one_shot.py' -v
+          python3 -m unittest discover -s tests -p 'test_hunter_ammo_consumables.py' -v
+          python3 -m unittest discover -s tests -p 'test_quest_loot_protection.py' -v
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic \
+            -Isrc/Systems tests/hunter_ammo_selection.cpp -o /tmp/naxx_p2p3p4_ammo
+          /tmp/naxx_p2p3p4_ammo
+      - name: State source-only boundary
+        run: |
+          echo 'Three independent feature suites; no database or server mutations.'
+          echo 'Source/test success does not establish full Worldserver or gameplay.'
+          echo 'No binaries published and no automatic merge or installation.'
