@@ -1,0 +1,72 @@
+name: A01 Golemagg pinned action-class coverage (read-only)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'scripts/check_a01_golemagg_reengagement_gap.py'
+      - 'tests/test_a01_golemagg_reengagement_gap.py'
+      - 'docs/research/a01-golemagg-action-class-boundary-2026-10-21.md'
+      - '.github/workflows/a01-golemagg-action-class-pin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  no-action-veto-source-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact research PR source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Checkout exact historical Playerbots MC encounter sources
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: pinned-playerbots
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/Ai/Raid/MC/MCMultipliers.cpp
+            src/Ai/Raid/MC/MCTriggers.cpp
+            src/Ai/Raid/MC/MCActions.cpp
+            src/Ai/Raid/MC/MCHelpers.h
+            src/Ai/Base/Actions/MovementActions.h
+            src/Ai/Base/Actions/ReachTargetActions.h
+            src/Ai/Base/Actions/ReachTargetActions.cpp
+            src/Ai/Base/Actions/AttackAction.h
+            src/Ai/Base/Strategy/MeleeCombatStrategy.cpp
+            src/Ai/Class/Warrior/Strategy/GenericWarriorStrategy.cpp
+            src/Ai/Base/Trigger/RangeTriggers.h
+            src/Ai/Base/Trigger/RangeTriggers.cpp
+            src/Ai/Base/TriggerContext.h
+            src/Ai/Base/ActionContext.h
+      - name: Run synthetic negative gates and exact reviewed blob contract
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-playerbots rev-parse HEAD)" = 037c01418b5d01506917a3db9b44fd56ac5f965c
+          python3 -m unittest discover -s tests -p test_a01_golemagg_reengagement_gap.py -v
+          python3 scripts/check_a01_golemagg_reengagement_gap.py \
+            --playerbots-sha 037c01418b5d01506917a3db9b44fd56ac5f965c \
+            --multipliers pinned-playerbots/src/Ai/Raid/MC/MCMultipliers.cpp \
+            --triggers pinned-playerbots/src/Ai/Raid/MC/MCTriggers.cpp \
+            --actions pinned-playerbots/src/Ai/Raid/MC/MCActions.cpp \
+            --helpers pinned-playerbots/src/Ai/Raid/MC/MCHelpers.h \
+            --movement_h pinned-playerbots/src/Ai/Base/Actions/MovementActions.h \
+            --reach_h pinned-playerbots/src/Ai/Base/Actions/ReachTargetActions.h \
+            --reach_cpp pinned-playerbots/src/Ai/Base/Actions/ReachTargetActions.cpp \
+            --attack_h pinned-playerbots/src/Ai/Base/Actions/AttackAction.h \
+            --melee_strategy pinned-playerbots/src/Ai/Base/Strategy/MeleeCombatStrategy.cpp \
+            --warrior_strategy pinned-playerbots/src/Ai/Class/Warrior/Strategy/GenericWarriorStrategy.cpp \
+            --range_h pinned-playerbots/src/Ai/Base/Trigger/RangeTriggers.h \
+            --range_cpp pinned-playerbots/src/Ai/Base/Trigger/RangeTriggers.cpp \
+            --trigger_context pinned-playerbots/src/Ai/Base/TriggerContext.h \
+            --action_context pinned-playerbots/src/Ai/Base/ActionContext.h
+          echo "PASS is only a P0-safe evidence of limited action-category coverage."
+          echo "It is not evidence of a successful Golemagg movement fix."
+          echo "No server compilation, startup, live movement, SQL or module activation."
