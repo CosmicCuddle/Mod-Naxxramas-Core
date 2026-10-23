@@ -1,0 +1,37 @@
+name: A04 human quest-loot source characterization (synthetic only)
+
+on:
+  push:
+    branches:
+      - cs01/a04-human-loot-regression-model-20261023
+    paths:
+      - tests/test_quest_loot_human_source_characterization.py
+      - docs/research/A04-HUMAN-QUEST-LOOT-SOURCE-MATRIX.md
+      - .github/workflows/naxx-a04-human-loot-model.yml
+  pull_request:
+    paths:
+      - tests/test_quest_loot_human_source_characterization.py
+      - docs/research/A04-HUMAN-QUEST-LOOT-SOURCE-MATRIX.md
+      - .github/workflows/naxx-a04-human-loot-model.yml
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-source-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact event head (read-only)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run human A04 source-characterization tests
+        run: python3 -m unittest discover -s tests -p 'test_quest_loot_human_source_characterization.py' -v
+
+      - name: Confirm no binary, package or artifact is generated
+        run: |
+          test -f tests/test_quest_loot_human_source_characterization.py
+          test -f docs/research/A04-HUMAN-QUEST-LOOT-SOURCE-MATRIX.md
+          echo 'Only synthetic model/source contract checked. NOT owner gameplay or a fix.'
