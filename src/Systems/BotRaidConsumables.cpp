@@ -366,6 +366,8 @@ namespace
     //   the cooldown of every group member, who may be on another map.
     //   It stays a shared map guarded by ConsumableCooldownLock. Hold the
     //   lock only around the map access itself, never around game calls.
+    // CustomData keys must be unique module-wide: GetDefault<T> on a key
+    // already holding another type would not replace it.
     constexpr char const* RAID_CONSUMABLE_TRACKER_KEY =
         "NaxxramasCore.BotRaidConsumables.Tracker";
     constexpr char const* CONSUMABLE_ALIVE_STATE_KEY =

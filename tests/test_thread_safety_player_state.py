@@ -205,8 +205,12 @@ class CrossPlayerCooldownLockContract(unittest.TestCase):
                 self.code[start:start + 120])
 
     def test_no_game_calls_while_holding_the_lock(self):
-        for m in re.finditer(r"std::lock_guard<std::mutex>\s+lock\(\s*%s\s*\)\s*;" % LOCK_NAME,
-                             self.code):
+        locks = list(re.finditer(r"std::lock_guard<std::mutex>\s+lock\(\s*%s\s*\)\s*;" % LOCK_NAME,
+                                 self.code))
+        # Remaining, reset-for-group and start-cooldown each take the lock;
+        # without this the loop below passes vacuously on unlocked code.
+        self.assertGreaterEqual(len(locks), 3)
+        for m in locks:
             _, end = enclosing_function(self.code, m.start())
             locked = self.code[m.end():end]
             calls = [c for c in re.findall(r"(\w+)->", locked) if c != "itr"]
