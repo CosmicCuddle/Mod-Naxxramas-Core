@@ -24,7 +24,7 @@ F10 PR [#81](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/81) merged 
 | 1 human, 5 bots | 1 | 1 | 2 | Bots excluded only here |
 | 1 human, 5 bots | 0 | 6 | 3 | Legacy default path includes bots |
 | 2 humans, 0 bots | 1 | 2 | 1 | Initial wave falls from 2 to 1 |
-| 2 humans, 3 bots | 1 | 5 | 4 | Bots inflate count despite real 2-person party |
+| 2 humans, 3 bots | 1 | 5 | 3 | Bots inflate count despite real 2-person party |
 | 3 humans, 0 bots | 1 | 3 | 3 | Higher count |
 | 4 humans, 0 bots | 1 | 4 | 2 | Non-monotonic again |
 | 0 humans, 3 bots | 1 | 3 | 3 | Does NOT enter 1-human solo path |
