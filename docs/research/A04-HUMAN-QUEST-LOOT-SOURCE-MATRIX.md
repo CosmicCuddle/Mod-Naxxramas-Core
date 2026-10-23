@@ -19,6 +19,14 @@ Source set: module `main` `80e9de1c39a6dc995188a80c31a5e785d0f2a6f9`; QuestLootP
 
 **3. Native storage:** `WorldSession::HandleAutostoreLootItemOpcode` calls `Player::StoreLootItem`. The pinned `StoreLootItem` resolves `LootItemInSlot`, checks `AllowedForPlayer`, item-block/roll conditions and inventory, but does not universally check `roundRobinPlayer` before accepting a quest-view slot. Thus some guard fallbacks plausibly reach native item storage, **subject to all other real native checks**. Playerbots use a separate queued packet processing route and are NOT simulated by this human-case suite.
 
+## 4. Loot-window item visibility is a SECOND UI surface
+
+**New pinned-source verification:** `LootMgr.cpp::operator<<(ByteBuffer&, LootView const&)` (~970–1160) separately serializes the loot-window **item row** and its `LootSlotType`, not the corpse's `UNIT_DYNFLAG_LOOTABLE`. The normal `loot.items` group/RR loop checks `roundRobinPlayer` before advertising an under-threshold item. **In contrast, the personal `loot.quest_items` loop, for a viewer with `HasQuestForItem(itemid)` true and an item that is neither `follow_loot_rules` nor `freeforall`, sends `partySlotType`: `LOOT_SLOT_TYPE_ALLOW_LOOT` for group/restricted/round-robin permission, with no active `roundRobinPlayer` test in that quest loop.** Under Master Loot the slot type differs. `follow_loot_rules`, roll/blocked and own MULTI_DROP copies each take another path.
+
+That creates a more precise *source-backed* explanation for **'my friend's loot window says it is available'**, beyond corpse glitter: a quest row may be sent as `ALLOW_LOOT` even when our `CanPacketReceive` later blocks that clicked slot. If round-robin has already been cleared, the narrow guard permits and native storage may proceed, subject to its own checks. This is a candidate mechanism—not proof that the owner's exact item was a one-copy quest slot.
+
+**Design consequence:** a future corpse-sparkle-only `UnitScript::OnPatchValuesUpdate` correction is **insufficient** if the friend can still open a corpse for legitimate gold/other loot and find an unauthorized quest row marked available. The client loot-window row/slot-type presentation and server authoritative pickup denial both require explicit safe, peer-reviewed coverage. Do not globally remove quest views or rewrite `SMSG_LOOT_RESPONSE` without proving slot-index stability and preservation of valid loot for that viewer.
+
 ## Current-source synthetic matrix, **not owner gameplay**
 
 | Case | Native per-viewer sparkle model | Module packet denies? | Can proceed toward native storage? |
@@ -32,11 +40,11 @@ Source set: module `main` `80e9de1c39a6dc995188a80c31a5e785d0f2a6f9`; QuestLootP
 | H07: non-turn human with no quest view or other right | No | No | No quest slot |
 | H08: missing/off-instance/or no-longer-needing owner | May still be visible | Fails open | Revalidate core entitlement, avoid permanent lock |
 
-**Boundaries:** `tests/test_quest_loot_human_source_characterization.py` models these **possible** paths with simplifying assumptions (valid corpse, packet, slot, map, group and native item). A green model run does not prove server/client behaviour or satisfy S4/S5/S6. Test labels describe **existing source**, not desired final semantics.
+**Boundaries:** `tests/test_quest_loot_human_source_characterization.py` now models the **loot-window quest-row slot type separately from corpse sparkle and pickup**. The tests model these **possible** paths with simplifying assumptions (valid corpse, packet, slot, map, group and native item). A green model run does not prove server/client behaviour or satisfy S4/S5/S6. Test labels describe **existing source**, not desired final semantics.
 
 ## Revised implementation acceptance before code
 
-- Human A/B both actor orders, real client manual clicks and auto-loot: wrong human sees neither misleading sparkle nor a collectible *reserved* item, and cannot acquire an unauthorized single copy through allowed native paths.
+- Human A/B both actor orders, real client manual clicks and auto-loot: wrong human sees neither misleading sparkle nor a loot-window row falsely labelled available for a *reserved* item, and cannot acquire an unauthorized single copy through allowed native paths.
 - Preserve both `sparkle -> denial` and `sparkle -> apparent successful pickup` as separate reproduction cases, including already-open loot windows and release/refresh.
 - Do not remove sparkle when the viewer has own valid loot, money, an independently allocated MULTI_DROP copy, legitimate roll/Master Loot, or skinning/profession access.
 - Current `roundRobinPlayer` is a rotating corpse turn, **not an unambiguous player quest owner**. Do not silently redefine quest-drop ownership or give protected copies to someone else. Reconcile entitlement rules from each actual scenario before broad denial.
