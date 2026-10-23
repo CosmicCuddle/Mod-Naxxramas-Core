@@ -87,10 +87,6 @@ namespace
     constexpr uint32 ITEM_SYMBOL_OF_KINGS = 21177;
     constexpr uint32 ITEM_SYMBOL_OF_DIVINITY = 17033;
     constexpr uint32 ITEM_SACRED_CANDLE = 17029;
-    constexpr uint32 ITEM_EARTH_TOTEM = 5175;
-    constexpr uint32 ITEM_FIRE_TOTEM = 5176;
-    constexpr uint32 ITEM_WATER_TOTEM = 5177;
-    constexpr uint32 ITEM_AIR_TOTEM = 5178;
     constexpr uint32 ITEM_ANKH = 17030;
     constexpr uint32 ITEM_SHINY_FISH_SCALES = 17057;
     constexpr uint32 ITEM_FISH_OIL = 17058;
@@ -322,7 +318,7 @@ namespace
         ObjectGuid::LowType BotGuid = 0;
         uint32 SpellId = 0;
         bool OriginallyRandomBot = false;
-        NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};
+        NaxxramasOneShotTimer Timer{120 * IN_MILLISECONDS};
     };
 
     struct RaidConsumableTracker
@@ -1020,7 +1016,7 @@ namespace
     }
 
     // =========================================================
-    // Molten Core: optional, exactly one 90-second GFPP refresh
+    // Molten Core: optional, exactly one 120-second GFPP refresh
     // =========================================================
 
     void ApplyTimedGreaterFireProtection(
@@ -1232,10 +1228,11 @@ namespace
                 topUp(ITEM_BLINDING_POWDER, 20);
                 break;
             case CLASS_SHAMAN:
-                topUp(ITEM_EARTH_TOTEM, 1);
-                topUp(ITEM_FIRE_TOTEM, 1);
-                topUp(ITEM_WATER_TOTEM, 1);
-                topUp(ITEM_AIR_TOTEM, 1);
+                // Permanent, quest-earned elemental totems are not consumables.
+                // Do not recreate any totem merely because it is absent from
+                // bags: it may be banked, and a missing quest reward must not
+                // be bypassed by this command. The owner retrieves banked
+                // totems normally; no automatic bank movement is performed.
                 topUp(ITEM_ANKH, 5);
                 topUp(ITEM_SHINY_FISH_SCALES, 20);
                 topUp(ITEM_FISH_OIL, 20);
@@ -3129,7 +3126,7 @@ void PrepareManaUser(
     }
 
     // Unlike Juju Flurry, this timer is deliberately consumed at
-    // ~90s, with NO retries at 95s/180s. The original bot must remain
+    // ~120s, with NO retries at 125s/240s. The original bot must remain
     // eligible and inside MC; even a failed refresh is a used attempt.
     void ProcessOneShotFireProtections(
         Player* master,

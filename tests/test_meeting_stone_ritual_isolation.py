@@ -119,5 +119,89 @@ class MeetingStoneRitualIsolation(unittest.TestCase):
                 self.assertNotIn(expression, hook)
 
 
+# --- Issue #84: Warlock second-stage portal exemption (source + model) ---
+GO_TYPE_SUMMONING_RITUAL = 18
+GO_TYPE_MEETINGSTONE = 23
+WARLOCK_PORTAL_GO = 194097
+WARLOCK_PORTAL_SPELL = 61993
+RITUAL_GO_ENTRIES_TYPE_18 = (194108, 179944)
+OTHER_MEETING_STONE = 179595  # any non-portal type-23 stone
+
+
+def model_hook(go_type, entry, spell_id, classic_mode, vanilla):
+    """Python model of CanGameObjectGossipHello; True means blocked."""
+    if go_type != GO_TYPE_MEETINGSTONE or not classic_mode:
+        return False
+    if not vanilla:
+        return False
+    if entry == WARLOCK_PORTAL_GO and spell_id == WARLOCK_PORTAL_SPELL:
+        return False
+    return True
+
+
+class WarlockPortalExemption(unittest.TestCase):
+    def test_source_uses_named_constants_and_exact_pair(self):
+        self.assertIn(
+            "constexpr uint32 WARLOCK_RITUAL_PORTAL_GO_ENTRY = 194097;", SOURCE)
+        self.assertIn(
+            "constexpr uint32 WARLOCK_RITUAL_PORTAL_SPELL_ID = 61993;", SOURCE)
+        pair = re.compile(
+            r"go->GetEntry\(\)\s*==\s*WARLOCK_RITUAL_PORTAL_GO_ENTRY\s*&&"
+            r"\s*go->GetSpellId\(\)\s*==\s*WARLOCK_RITUAL_PORTAL_SPELL_ID",
+        )
+        self.assertRegex(SOURCE, pair)
+        # Mutation: dropping the spell check must be detected.
+        self.assertNotRegex(
+            SOURCE.replace("WARLOCK_RITUAL_PORTAL_SPELL_ID;", "0;")
+            .replace("go->GetSpellId() == WARLOCK_RITUAL_PORTAL_SPELL_ID",
+                     "true"), pair)
+        self.assertNotIn("61994", SOURCE)
+
+    def test_exemption_sits_after_type_config_and_progression_guards(self):
+        hook = hook_body()
+        self.assertLess(
+            hook.index("go->GetGoType() != GAMEOBJECT_TYPE_MEETINGSTONE"),
+            hook.index("if (!IsVanillaProgression(player))"))
+        self.assertLess(
+            hook.index("if (!IsVanillaProgression(player))"),
+            hook.index("if (IsWarlockRitualPortal(go))"))
+        self.assertLess(
+            hook.index("if (IsWarlockRitualPortal(go))"),
+            hook.index("return true;"))
+        self.assertEqual(hook.count("IsWarlockRitualPortal(go)"), 1)
+
+    def test_model_portal_with_spell_is_exempt(self):
+        self.assertFalse(model_hook(23, WARLOCK_PORTAL_GO,
+                                    WARLOCK_PORTAL_SPELL, True, True))
+
+    def test_model_portal_with_spell_zero_stays_blocked(self):
+        self.assertTrue(model_hook(23, WARLOCK_PORTAL_GO, 0, True, True))
+
+    def test_model_other_type23_stones_stay_blocked(self):
+        for spell in (0, WARLOCK_PORTAL_SPELL, 23598):
+            with self.subTest(spell=spell):
+                self.assertTrue(model_hook(
+                    23, OTHER_MEETING_STONE, spell, True, True))
+
+    def test_model_type18_ritual_objects_untouched(self):
+        for entry in RITUAL_GO_ENTRIES_TYPE_18:
+            for vanilla in (True, False):
+                with self.subTest(entry=entry, vanilla=vanilla):
+                    self.assertFalse(model_hook(
+                        GO_TYPE_SUMMONING_RITUAL, entry, 0, True, vanilla))
+
+    def test_model_classic_mode_off_unchanged(self):
+        for entry in (WARLOCK_PORTAL_GO, OTHER_MEETING_STONE):
+            for spell in (0, WARLOCK_PORTAL_SPELL):
+                with self.subTest(entry=entry, spell=spell):
+                    self.assertFalse(model_hook(23, entry, spell, False, True))
+
+    def test_model_tbc_wotlk_unchanged(self):
+        for entry in (WARLOCK_PORTAL_GO, OTHER_MEETING_STONE):
+            for spell in (0, WARLOCK_PORTAL_SPELL):
+                with self.subTest(entry=entry, spell=spell):
+                    self.assertFalse(model_hook(23, entry, spell, True, False))
+
+
 if __name__ == "__main__":
     unittest.main()
