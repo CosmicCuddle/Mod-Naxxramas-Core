@@ -26,6 +26,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact source head, not synthetic PR merge
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
       - name: Run CS02 fail-open and sparkle model
         run: python3 -m unittest discover -s tests -p 'test_ql109_cs02_failopen_and_sparkle.py' -v

@@ -8,9 +8,14 @@ CS01's H01-H08:
 3. The module's narrow CMSG_AUTOSTORE_LOOT_ITEM conjunction, which fail-opens
    into native storage when any required check misses.
 
-V01-V08 are negative cases for a future per-viewer bit clear. H01-H05 use the
-same current-source meanings as PR #111 at c1d5b398. A green run does not
-mean the owner's corpse, item, method, or copy transfer was reproduced.
+V01-V08 are negative cases for a future per-viewer bit clear. V01's money
+refusal is a design prohibition: pinned isAllowedToLoot does not sparkle a
+non-holder under GROUP/NBG/RR for gold alone. H01-H05 use the same
+current-source meanings as PR #111 at c1d5b398. H09 and H10 are CS03's
+cells: the friend's own turn, and a holder who does not need the item.
+A personal-copy freeforall policy is UNSELECTED and is not implemented.
+A green run does not mean the owner's corpse, item, method, or copy
+transfer was reproduced.
 """
 
 from __future__ import annotations
@@ -102,7 +107,10 @@ class ViewCase:
     player_can_receive_item: bool = True
     guard_enabled: bool = True
     server_flag_lootable: bool = True
+    # Not an input to the non-holder GROUP/NBG/RR arm. See core_sparkle.
     gold: bool = False
+    # SendLoot: only this viewer gets MASTER_PERMISSION under MASTER_LOOT.
+    viewer_is_master_looter: bool = False
     ordinary_item: bool = False
     over_threshold: bool = False
     loot_type_skinning: bool = False
@@ -114,12 +122,15 @@ class ViewCase:
 
 
 def core_sparkle(case: ViewCase) -> bool:
-    """isAllowedToLoot for GROUP / NBG / RR, transcribed from the pin.
+    """isAllowedToLoot for a recipient-group member, transcribed from the pin.
 
-    Gold alone does not satisfy hasItemFor. FFA and master return true for a
-    grouped member once the corpse still has loot. A non-holder sparkles when
-    hasItemFor is true (quest, FFA, or conditional view) or, for group and
-    need-before-greed, when an over-threshold line exists.
+    PlayerStorage.cpp:5772-5774 returns true for every grouped member under
+    FREE_FOR_ALL and MASTER_LOOT. It does not ask who the master looter is.
+    The non-holder arms at 5775-5793 do not read gold and do not call
+    hasItemForAll. Round robin returns hasItemFor. Group loot and
+    need-before-greed also return true for an over-threshold line.
+    Gold can pass the earlier emptiness gate (5758 via hasItemForAll at
+    LootMgr.cpp:894-897) without granting this sparkle.
     """
 
     if not case.server_flag_lootable or case.loot_type_skinning:
@@ -163,24 +174,94 @@ def module_blocks(case: ViewCase) -> bool:
     return guard.denies()
 
 
+def viewer_permission(case: ViewCase) -> str:
+    """Creature-corpse SendLoot for a member of the recipient group.
+
+    Player.cpp:8329-8330. MASTER_LOOT maps GetMasterLooterGuid() == GetGUID()
+    to MASTER_PERMISSION and every other member to RESTRICTED_PERMISSION.
+    The chest split at 8124-8125 is the same pair. This is not the loot method
+    enum by itself.
+    """
+
+    if case.group_method == "MASTER_LOOT":
+        return "MASTER_PERMISSION" if case.viewer_is_master_looter else "RESTRICTED_PERMISSION"
+    if case.group_method == "FREE_FOR_ALL":
+        return "ALL_PERMISSION"
+    if case.group_method == "ROUND_ROBIN":
+        return "ROUND_ROBIN_PERMISSION"
+    if case.group_method in ("GROUP_LOOT", "NEED_BEFORE_GREED"):
+        return "GROUP_PERMISSION"
+    return "NONE_PERMISSION"
+
+
 def quest_row_slot_type(case: ViewCase) -> str:
-    """Personal quest_items row. No roundRobinPlayer test in that loop."""
+    """Personal quest_items row. No roundRobinPlayer test in that loop.
+
+    LootMgr.cpp:1094-1157. partySlotType is MASTER only for MASTER_PERMISSION
+    (1097). A restricted viewer's ordinary !follow_loot_rules, !freeforall
+    row is ALLOW_LOOT (1154-1155). follow_loot_rules under RESTRICTED is
+    LOCKED when blocked, otherwise slotType / ALLOW_LOOT (1139-1140).
+    """
 
     if not case.quest_view or not case.quest_slot:
         return "NO_QUEST_ROW"
+    permission = viewer_permission(case)
     if not case.has_quest_for_item:
-        return "MASTER" if case.group_method == "MASTER_LOOT" else "LOCKED"
+        return "MASTER" if permission == "MASTER_PERMISSION" else "LOCKED"
     if case.follow_loot_rules:
-        if case.group_method == "MASTER_LOOT":
+        if permission == "MASTER_PERMISSION":
             return "MASTER"
-        if case.blocked:
-            return "ROLL_ONGOING"
+        if permission == "RESTRICTED_PERMISSION":
+            return "LOCKED" if case.blocked else "ALLOW_LOOT"
+        if permission in ("GROUP_PERMISSION", "ROUND_ROBIN_PERMISSION"):
+            return "ROLL_ONGOING" if case.blocked else "ALLOW_LOOT"
         return "ALLOW_LOOT"
     if case.multi_drop:
         return "ALLOW_LOOT"
-    if case.group_method == "MASTER_LOOT":
+    if permission == "MASTER_PERMISSION":
         return "MASTER"
     return "ALLOW_LOOT"
+
+
+def native_turn_versus_owner_expectation(case: ViewCase) -> str:
+    """Native round-robin turn versus the owner's expected named ownership.
+
+    Unit::Kill advances the group looter (Unit.cpp:13654) and FillLoot stores
+    that player as roundRobinPlayer (LootMgr.cpp:569). The module permits
+    when the clicker is that holder (H09, QuestLootProtection.cpp:74-76) and
+    when the holder no longer HasQuestForItem (H10, lines 177-179). Neither
+    cell is "this named player owns every quest drop".
+    """
+
+    if case.viewer_is_turn_holder and case.group_method in GROUP_METHODS:
+        return "H09_NATIVE_HOLDER_TAKE"
+    if (
+        case.group_method in GROUP_METHODS
+        and not case.viewer_is_turn_holder
+        and case.owner_available_and_eligible
+        and not case.live_has_quest
+        and case.quest_view
+        and case.has_quest_for_item
+    ):
+        return "H10_HOLDER_DOES_NOT_NEED"
+    if (
+        case.group_method in GROUP_METHODS
+        and not case.viewer_is_turn_holder
+        and case.live_has_quest
+        and case.owner_available_and_eligible
+    ):
+        return "NON_HOLDER_WHILE_HOLDER_STILL_NEEDS"
+    return "OTHER"
+
+
+# Owner trade-off. Not selected and not implemented. OnPlayerBeforeFillQuestLootItem
+# receives the shared quest_items[i] reference (LootMgr.cpp:667-669), so it
+# cannot safely hide one line for a single viewer.
+PERSONAL_COPY_POLICY = "UNSELECTED"
+
+
+def personal_copy_policy() -> str:
+    return PERSONAL_COPY_POLICY
 
 
 def normal_row_visible(case: ViewCase) -> bool:
@@ -210,7 +291,9 @@ def native_store_candidate(case: ViewCase) -> bool:
 def may_clear_lootable(case: ViewCase) -> bool:
     """Future per-viewer clear. Stale snapshots are ignored. Negatives refuse.
 
-    This is the safety rule a hook would have to meet. It is not shipped code.
+    The gold refusal is a design prohibition: do not drop LOOTABLE when a
+    money share is still legitimate. It is not a transcript of isAllowedToLoot.
+    This helper is not shipped code.
     """
 
     if case.gold and case.viewer_in_money_group:
@@ -423,8 +506,28 @@ class FailOpenAndSparkleModel(unittest.TestCase):
         self.assertEqual(quest_row_slot_type(case), "ALLOW_LOOT")
 
     def test_v01_money_refuses_clear(self):
-        case = ViewCase(gold=True, viewer_in_money_group=True)
-        self.assertFalse(may_clear_lootable(case))
+        """Design prohibition. Native non-holder sparkle does not follow gold."""
+
+        quest = ViewCase()
+        quest_gold = ViewCase(gold=True, viewer_in_money_group=True)
+        self.assertTrue(core_sparkle(quest))
+        self.assertTrue(core_sparkle(quest_gold))
+        self.assertTrue(may_clear_lootable(quest))
+        self.assertFalse(may_clear_lootable(quest_gold))
+        bare = ViewCase(
+            quest_view=False,
+            quest_slot=False,
+            other_valid_loot=False,
+            over_threshold=False,
+            multi_drop=False,
+        )
+        for method in GROUP_METHODS:
+            with self.subTest(method=method):
+                without_gold = replace(bare, group_method=method, gold=False)
+                with_gold = replace(bare, group_method=method, gold=True, viewer_in_money_group=True)
+                self.assertFalse(core_sparkle(without_gold))
+                self.assertFalse(core_sparkle(with_gold))
+                self.assertEqual(core_sparkle(without_gold), core_sparkle(with_gold))
 
     def test_v02_ordinary_item_refuses_clear(self):
         case = ViewCase(ordinary_item=True, other_valid_loot=True)
@@ -440,10 +543,87 @@ class FailOpenAndSparkleModel(unittest.TestCase):
         self.assertFalse(may_clear_lootable(ViewCase(over_threshold=True, follow_loot_rules=True, blocked=True)))
 
     def test_v06_master_refuses_clear(self):
-        case = ViewCase(group_method="MASTER_LOOT")
-        self.assertFalse(may_clear_lootable(case))
+        restricted = ViewCase(group_method="MASTER_LOOT", viewer_is_master_looter=False)
+        master = ViewCase(group_method="MASTER_LOOT", viewer_is_master_looter=True)
+        self.assertFalse(may_clear_lootable(restricted))
+        self.assertFalse(may_clear_lootable(master))
+        self.assertFalse(module_blocks(restricted))
+        self.assertFalse(module_blocks(master))
+        self.assertTrue(core_sparkle(restricted))
+        self.assertTrue(core_sparkle(master))
+
+    def test_positive_master_looter_ordinary_quest_row_is_master(self):
+        case = ViewCase(
+            group_method="MASTER_LOOT",
+            viewer_is_master_looter=True,
+            follow_loot_rules=False,
+            multi_drop=False,
+        )
+        self.assertEqual(viewer_permission(case), "MASTER_PERMISSION")
         self.assertEqual(quest_row_slot_type(case), "MASTER")
+        no_quest = replace(case, has_quest_for_item=False)
+        self.assertEqual(quest_row_slot_type(no_quest), "MASTER")
+
+    def test_negative_restricted_viewer_ordinary_quest_row_is_allow_loot(self):
+        case = ViewCase(
+            group_method="MASTER_LOOT",
+            viewer_is_master_looter=False,
+            follow_loot_rules=False,
+            multi_drop=False,
+            has_quest_for_item=True,
+        )
+        self.assertEqual(viewer_permission(case), "RESTRICTED_PERMISSION")
+        self.assertEqual(quest_row_slot_type(case), "ALLOW_LOOT")
+        self.assertNotEqual(quest_row_slot_type(case), "MASTER")
+        blocked = replace(case, follow_loot_rules=True, blocked=True)
+        self.assertEqual(quest_row_slot_type(blocked), "LOCKED")
+        unblocked_rules = replace(case, follow_loot_rules=True, blocked=False)
+        self.assertEqual(quest_row_slot_type(unblocked_rules), "ALLOW_LOOT")
+        no_quest = replace(case, has_quest_for_item=False)
+        self.assertEqual(quest_row_slot_type(no_quest), "LOCKED")
+
+    def test_h09_friend_turn_is_native_design_not_named_ownership(self):
+        case = ViewCase(viewer_is_turn_holder=True)
+        self.assertEqual(native_turn_versus_owner_expectation(case), "H09_NATIVE_HOLDER_TAKE")
+        self.assertTrue(core_sparkle(case))
+        self.assertEqual(quest_row_slot_type(case), "ALLOW_LOOT")
         self.assertFalse(module_blocks(case))
+        self.assertTrue(native_store_candidate(case))
+        self.assertFalse(may_clear_lootable(case))
+        self.assertNotEqual(native_turn_versus_owner_expectation(case), "NAMED_OWNER")
+
+    def test_h10_holder_without_need_lets_eligible_friend_pick_up(self):
+        case = ViewCase(
+            viewer_is_turn_holder=False,
+            live_has_quest=False,
+            owner_available_and_eligible=True,
+            has_quest_for_item=True,
+            quest_view=True,
+        )
+        self.assertEqual(native_turn_versus_owner_expectation(case), "H10_HOLDER_DOES_NOT_NEED")
+        self.assertTrue(core_sparkle(case))
+        self.assertEqual(quest_row_slot_type(case), "ALLOW_LOOT")
+        self.assertFalse(module_blocks(case))
+        self.assertTrue(native_store_candidate(case))
+        self.assertFalse(may_clear_lootable(case))
+        still_needs = replace(case, live_has_quest=True)
+        self.assertEqual(
+            native_turn_versus_owner_expectation(still_needs),
+            "NON_HOLDER_WHILE_HOLDER_STILL_NEEDS",
+        )
+        self.assertTrue(module_blocks(still_needs))
+
+    def test_personal_copy_freeforall_policy_is_unselected(self):
+        self.assertEqual(personal_copy_policy(), "UNSELECTED")
+        cpp = SOURCE.read_text(encoding="utf-8")
+        self.assertNotIn("OnPlayerBeforeFillQuestLootItem", cpp)
+        self.assertNotIn("item.freeforall =", cpp)
+        text = DOC.read_text(encoding="utf-8")
+        self.assertIn("UNSELECTED", text)
+        self.assertIn("H09", text)
+        self.assertIn("H10", text)
+        self.assertIn("quest_items[i]", text)
+        self.assertIn("OnPlayerBeforeFillQuestLootItem", text)
 
     def test_v07_release_refuses_clear_and_refuses_deny(self):
         case = ViewCase(rr_active=False)
@@ -545,9 +725,19 @@ class FailOpenAndSparkleModel(unittest.TestCase):
         text = DOC.read_text(encoding="utf-8")
         self.assertIn("owner's reported corpse", text)
         self.assertNotIn("Michael", text)
-        for token in ("H01", "H02", "H03", "H04", "H05", "V01", "V02", "V03", "V04", "V05", "V06", "V07", "V08"):
+        for token in (
+            "H01", "H02", "H03", "H04", "H05", "H09", "H10",
+            "V01", "V02", "V03", "V04", "V05", "V06", "V07", "V08",
+        ):
             self.assertIn(token, text)
         self.assertIn("ALLOW_LOOT", text)
+        self.assertIn("RESTRICTED_PERMISSION", text)
+        self.assertIn("only the master looter", text)
+        self.assertIn("design prohibition", text)
+        self.assertIn("does not call `hasItemForAll`", text)
+        self.assertIn("5632118504", text)
+        self.assertIn("6370796678", text)
+        self.assertIn("6371087087", text)
         self.assertIn("OnPatchValuesUpdate", text)
         self.assertIn("opHandle->Call", text)
         self.assertIn("c1d5b39898d212f04b789e30723bca5126f1bcbf", text)
@@ -555,6 +745,9 @@ class FailOpenAndSparkleModel(unittest.TestCase):
     def test_workflow_is_read_only_and_uploads_nothing(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("contents: read", text)
+        self.assertIn("persist-credentials: false", text)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", text)
+        self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"', text)
         for banned in ("upload-artifact", "actions/upload", "softprops/action-gh-release", "actions/download"):
             self.assertNotIn(banned, text)
 

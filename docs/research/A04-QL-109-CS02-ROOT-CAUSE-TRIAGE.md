@@ -2,9 +2,9 @@
 
 **Status:** research only. No production code, SQL, config, or loot-rule change. Do not merge. Do not treat this note as a fix, as in-game acceptance, or as proof that a unique quest item moved.
 
-**Author:** CosmicScript02. **Revised:** 23 October 2026, after CS01 review `5631632097` on head `1b4fc9a37f65ac7bcfe51bf254c5213bf93a8b21`, controlling addendum [PR #110 comment 6370306293](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/110#issuecomment-6370306293), and the loot-window addendum [6370542316](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/110#issuecomment-6370542316). **Issue:** [#109](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109).
+**Author:** CosmicScript02. **Revised:** 23 October 2026, second revision after CS01 re-review `5632118504` on head `3cc7292b52fb21c7c8f060d00c8e88583b5940eb`. Earlier pass: CS01 review `5631632097` on head `1b4fc9a37f65ac7bcfe51bf254c5213bf93a8b21`, controlling addendum [PR #110 comment 6370306293](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/110#issuecomment-6370306293), and the loot-window addendum [6370542316](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/110#issuecomment-6370542316). **Issue:** [#109](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109).
 
-**Cross-read, not reimplemented:** CS03 [6369926271](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109#issuecomment-6369926271) (sparkle via `Unit::PatchValuesUpdate` / `isAllowedToLoot` / `Loot::hasItemFor`), CS01 [6370148999](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109#issuecomment-6370148999) (per-viewer `UnitDynamicFlagsPos` and `OnPatchValuesUpdate`), CS01 [6370540733](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109#issuecomment-6370540733) (`LootView` quest row emits `LOOT_SLOT_TYPE_ALLOW_LOOT` without a round-robin-holder check). CS01 draft PR [#111](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/111) head `c1d5b39898d212f04b789e30723bca5126f1bcbf` owns the H01–H08 characterization matrix. This note uses those H01–H05 meanings and does not redefine H06–H08.
+**Cross-read, not reimplemented:** CS03 [6369926271](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109#issuecomment-6369926271) (sparkle via `Unit::PatchValuesUpdate` / `isAllowedToLoot` / `Loot::hasItemFor`), CS01 [6370148999](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109#issuecomment-6370148999) (per-viewer `UnitDynamicFlagsPos` and `OnPatchValuesUpdate`), CS01 [6370540733](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109#issuecomment-6370540733) (`LootView` quest row emits `LOOT_SLOT_TYPE_ALLOW_LOOT` without a round-robin-holder check). CS01 draft PR [#111](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/111) head `c1d5b39898d212f04b789e30723bca5126f1bcbf` owns the H01–H08 characterization matrix. This note uses those H01–H05 meanings and does not redefine H06–H08. H09 and H10 are the two cells from CS03 [6370796678](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/111#issuecomment-6370796678). They are recorded here as current source, not as a chosen fix. CS01 [6371087087](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109#issuecomment-6371087087) is the shared-reference caution on `OnPlayerBeforeFillQuestLootItem`.
 
 ## Label legend
 
@@ -124,7 +124,7 @@ A fail-open here means the module returns true and the human opcode handler runs
 | Any of the 21 predicates | That row's `return true` | `StoreLootItem` for a human autostore | (b) if the rest of native checks pass |
 | `QuestRequired = 0` | Check 14. The line lives in `loot.items`, so the client slot is below `items.size()` | Under-threshold normal lines are omitted from a non-holder while `roundRobinPlayer` is set (`LootMgr.cpp:1040-1049` and `1064-1066`). Conditional lines are serialized later and do not use that omit (`1184-1222`). The first successful store of a non-freeforall line sets `is_looted` (`Player.cpp:13942-13943`). | (b) when the friend can see the line. A plain under-threshold line is a weaker match while the turn is active, because the window omits it. |
 | Round-robin release / `roundRobinPlayer` clear | Check 12 | Later autostore is permitted, including a one-copy `quest_items` line. Release is ordinary play. Bots queue release after store (`LootAction.cpp:490-493`). | (b), including "the window was already closed". |
-| Master loot | Check 8 | `CMSG_LOOT_MASTER_GIVE` never enters this hook (`LootHandler.cpp:478-541`). A non-master autostore of a plain quest line is also outside the deny cell. The quest row's slot type under master permission is `LOOT_SLOT_TYPE_MASTER` (`LootMgr.cpp:1097` and `1154-1155`), not `ALLOW_LOOT`. | (b) if the method was master loot. Policy for master give is unchanged. |
+| Master loot | Check 8 | `CMSG_LOOT_MASTER_GIVE` never enters this hook (`LootHandler.cpp:478-541`). The method is outside the deny cell for every viewer. VERIFIED `Player::SendLoot`: only the master looter (`GetMasterLooterGuid() == GetGUID()`) receives `MASTER_PERMISSION`. Every other recipient-group member receives `RESTRICTED_PERMISSION` (`Player.cpp:8329-8330` for a creature corpse; the same split at `8124-8125` for an activated chest). An ordinary `!follow_loot_rules` quest row then uses `partySlotType` (`LootMgr.cpp:1097`, `1154-1155`): `LOOT_SLOT_TYPE_MASTER` for the master looter, `LOOT_SLOT_TYPE_ALLOW_LOOT` for the restricted viewer. | (b) if the method was master loot. The row label is not the same for every group member. Policy for master give is unchanged. |
 | Free-for-all method | Check 8 | `isAllowedToLoot` returns true for grouped members (`PlayerStorage.cpp:5772-5774`). | (b) only if a shared copy was the expectation. Per-player FFA copies are legitimate. |
 | `ITEM_FLAG_MULTI_DROP` / `freeforall` | Checks 18-19 | Each eligible player keeps a personal view. `is_looted` on the shared line stays false when `freeforall` (`Player.cpp:13942-13943`). | Both players still holding a copy. That is not theft. |
 | Group eligibility | Checks 10, 20, 21 | No recipient-group match, owner missing, owner offline, other map or instance, owner without a personal view, or owner failing `HasQuestForItem` / `AllowedForPlayer` all permit. `FillLoot` only builds views for members in range (`LootMgr.cpp:571-577`). | (b) if the turn holder had already become ineligible. A stranded item is the false-deny this guard chose to avoid. |
@@ -140,6 +140,8 @@ VERIFIED `LootMgr.cpp:974-1230`, `operator<<(ByteBuffer&, LootView const&)`.
 Normal `loot.items` under `GROUP_PERMISSION`, `MASTER_PERMISSION`, and `RESTRICTED_PERMISSION` consult `roundRobinPlayer` before an under-threshold allow slot (`1040-1049`). `ROUND_ROBIN_PERMISSION` omits every normal non-FFA line for a non-holder while the guid is set (`1064-1066`).
 
 The personal `quest_items` loop (`1104-1157`) does not consult `roundRobinPlayer`. When `HasQuestForItem` is true and the line is not `follow_loot_rules` and not `freeforall`, the row is `partySlotType` (`1154-1155`). `partySlotType` is `LOOT_SLOT_TYPE_MASTER` only for master permission (`1097`). For group, restricted, and round-robin permission it is `LOOT_SLOT_TYPE_ALLOW_LOOT`. `follow_loot_rules` under group or round robin sends `ALLOW_LOOT` when the line is not blocked, otherwise `LOOT_SLOT_TYPE_ROLL_ONGOING` (`1142-1147`), again without a holder check.
+
+VERIFIED `Player.cpp:8329-8330`: under `MASTER_LOOT`, `permission` is `MASTER_PERMISSION` only when `recipientGroup->GetMasterLooterGuid() == GetGUID()`. Other members of that recipient group get `RESTRICTED_PERMISSION`. The same split is at `8124-8125` for an activated chest. Treating every `MASTER_LOOT` viewer as master permission is wrong. A restricted viewer's ordinary quest row (`HasQuestForItem`, not `follow_loot_rules`, not `freeforall`) is `partySlotType` = `LOOT_SLOT_TYPE_ALLOW_LOOT` (`1097`, `1154-1155`). `follow_loot_rules` under `RESTRICTED_PERMISSION` is `slotType` (`ALLOW_LOOT`, because `slotType` is `OWNER` only for `OWNER_PERMISSION`, `1094`) when the line is not blocked, and `LOOT_SLOT_TYPE_LOCKED` when it is (`1139-1140`). That locked value is separate from group and round-robin, which use `LOOT_SLOT_TYPE_ROLL_ONGOING` while blocked (`1142-1147`). A viewer who does not `HasQuestForItem` but still `showInLoot` gets `MASTER` only under `MASTER_PERMISSION`, otherwise `LOCKED` (`1125`).
 
 POTENTIAL ISSUE: a human friend's loot window can show the quest line as collectible while another member holds the turn. If the module then denies, the friend sees report (a): available, then refused. If any fail-open in section 3 has already tripped, the same label is followed by native storage, which is the source shape of report (b). The owner's item is still UNKNOWN, so this is not a finding that their copy moved.
 
@@ -164,7 +166,9 @@ VERIFIED `LootMgr.cpp:906-948`: `hasItemFor` is true for an unlooted personal qu
 
 POTENTIAL ISSUE for report (a): non-holder, active turn, one-copy quest view, no other right. Sparkle stays on. Quest row says `ALLOW_LOOT`. Human autostore hits the deny cell. NOT TESTED in a client. Whether the owner's reported corpse was this cell is UNKNOWN.
 
-Gold alone does not sparkle a non-holder under the three guarded methods, because `hasItemForAll`'s gold arm is not enough once `roundRobinPlayer` is someone else (`PlayerStorage.cpp:5775-5793`). A non-holder who opened the window for a quest view can still send `CMSG_LOOT_MONEY`. `HandleLootMoneyOpcode` (`LootHandler.cpp:122-275`) does not read `roundRobinPlayer` and, for a grouped creature, splits `loot->gold` across members in reward distance. Money is a reason not to clear the sparkle (V01), not the reason the false sparkle appears.
+VERIFIED `PlayerStorage.cpp:5775-5793`: once a non-holder is inside the `ROUND_ROBIN`, `GROUP_LOOT`, or `NEED_BEFORE_GREED` arm, that arm does not read `gold` and does not call `hasItemForAll`. Round robin returns `hasItemFor(this)`. Group loot and need-before-greed return true for `hasOverThresholdItem()`, otherwise `hasItemFor(this)`. An earlier gate at `5758` does call `hasItemForAll()`, and gold makes that function true (`LootMgr.cpp:894-897`). Passing the gate is not a sparkle grant. `isLooted()` is `gold == 0 && unlootedCount == 0` (`LootMgr.h:368`), so gold can also keep the corpse from looking empty (`5755-5756`) without putting the non-holder into the true branch of `5775-5793`. Native behaviour: gold alone does not set this viewer's sparkle under those three methods. NOT TESTED in a client.
+
+V01 is a different statement. It is a conservative future design prohibition: a per-viewer clear must not remove `UNIT_DYNFLAG_LOOTABLE` when this grouped viewer can still take a money share. `HandleLootMoneyOpcode` (`LootHandler.cpp:122-275`) does not read `roundRobinPlayer`. The grouped split is `goldPerPlayer` at `216`. A clear that fired only because a quest line is protected would hide that cue. The prohibition does not claim the pin sparkles for gold alone.
 
 ## 6. `UnitScript::OnPatchValuesUpdate` at the core pin
 
@@ -205,7 +209,7 @@ Hook order is `EnabledHooks` registration order (`ScriptMgrMacros.h:72-74`). Ano
 
 ### False-positive-only clear, and refresh
 
-A module-only clear is source-feasible for the outgoing human packet when all of the following hold: the mark is `>= 0`, four bytes fit, the bit is currently set, and a conservative helper says this viewer has no remaining money share, ordinary line, FFA or `MULTI_DROP` copy, roll or master right, skinning right, or post-release right. V01–V08 are that refusal list. The helper is not written in this branch. The synthetic test models it. NOT TESTED in game.
+A module-only clear is source-feasible for the outgoing human packet when all of the following hold: the mark is `>= 0`, four bytes fit, the bit is currently set, and a conservative helper says this viewer has no remaining money share, ordinary line, FFA or `MULTI_DROP` copy, roll or master right, skinning right, or post-release right. V01–V08 are that refusal list. V01's money clause is the design prohibition in section 5, not a transcript of `isAllowedToLoot`. The helper is not written in this branch. The synthetic test models it. NOT TESTED in game.
 
 Refresh is only partly available:
 
@@ -221,7 +225,7 @@ Refresh is only partly available:
 
 ## 7. Acceptance cases H01–H05
 
-These IDs match CS01 PR #111 head `c1d5b39898d212f04b789e30723bca5126f1bcbf`, file `docs/research/A04-HUMAN-QUEST-LOOT-SOURCE-MATRIX.md`. They describe current source. They are not desired end state, and they are not gameplay passes. H06 (other legitimate loot), H07 (no quest view and no other right), and H08 (missing or ineligible owner) stay defined in that PR so this note does not collide with them. V01–V08 below are the extra negative list from review `5631632097`.
+These IDs match CS01 PR #111 head `c1d5b39898d212f04b789e30723bca5126f1bcbf`, file `docs/research/A04-HUMAN-QUEST-LOOT-SOURCE-MATRIX.md`, plus H09 and H10 from CS03 comment `6370796678`. They describe current source. They are not desired end state, and they are not gameplay passes. H06 (other legitimate loot), H07 (no quest view and no other right), and H08 (missing or ineligible owner) stay defined in that PR so this note does not collide with them. V01–V08 below are the extra negative list from review `5631632097`, with V01 and V06 corrected for review `5632118504`.
 
 | Case | Sparkle model | Quest row | Human autostore guard | Toward `StoreLootItem`? | Owner report |
 | --- | --- | --- | --- | --- | --- |
@@ -230,27 +234,35 @@ These IDs match CS01 PR #111 head `c1d5b39898d212f04b789e30723bca5126f1bcbf`, fi
 | H03. `QuestRequired = 0` line the viewer can see (conditional or other `hasItemFor`) | Yes when `hasItemFor` or the viewer is the holder | No quest row. Conditional normal row uses `partySlotType` and can be `ALLOW_LOOT` (`LootMgr.cpp:1218-1219`) | Permit (check 14) | Candidate | Shape of (b) for a shared non-FFA line. |
 | H04. Guard disabled or not loaded | Yes | `ALLOW_LOOT` | Permit (check 2) | Candidate | Either report. Loaded `Enabled` is UNKNOWN. Dist default is 0. |
 | H05. `MULTI_DROP` / personal FFA copy | Yes, and that sparkle is legitimate | `ALLOW_LOOT` for the viewer's own copy | Permit (checks 18-19) | Candidate for that viewer's copy | Not theft. A fix that denies this cell is a false deny. |
+| H09. Friend holds this corpse's turn | Yes. The holder arm returns true before `hasItemFor` (`PlayerStorage.cpp:5778-5779`) | `ALLOW_LOOT`. The quest loop still does not test the guid | Permit. `PermitPickup` returns true at `roundRobinPlayer == player->GetGUID()` (`QuestLootProtection.cpp:74-76`) | Candidate, by native turn design | The owner can experience this as "my quest loot". Native allocation is the rotating turn, not a named owner. Not a guard bug. NOT TESTED. |
+| H10. Turn holder does not need the item; an eligible friend does | Yes when the friend has a quest view (`hasItemFor`) | `ALLOW_LOOT` for that friend | Permit. Check 21 fail-opens at `!owner->HasQuestForItem` (`QuestLootProtection.cpp:177-179`) | Candidate. Eligible clickers can each reach `StoreLootItem` for one shared copy (`Player.cpp:13942-13943` sets `is_looted` when `!freeforall`) | Native fail-open so the drop is not stranded. Distinct from the owner's expectation that the item stays theirs. NOT TESTED. |
 
-A sparkle clear that passes H01's visual half still leaves H01's `ALLOW_LOOT` row in place, and it leaves H02–H05 storage candidates in place. Visibility and award need separate acceptance. Both reports stay open until the item id, method, and whether one copy disappeared are known.
+H09 and H10 are valid native turn rules. They are not the owner's expected ownership, which would reserve the quest drop for one named player on every corpse. VERIFIED `Unit.cpp:13654-13662`: on a grouped creature kill, `UpdateLooterGuid(creature, true)` runs, and when `GetLooterGuid()` is set, the method is not `FREE_FOR_ALL`, and `FindPlayer` returns that player, that player becomes `looter` and `SetLootRecipient(looter)`. VERIFIED `Unit.cpp:13687`: `FillLoot` is called with that `looter`. VERIFIED `LootMgr.cpp:569`: grouped non-personal `FillLoot` sets `roundRobinPlayer = lootOwner->GetGUID()`. VERIFIED `Unit.cpp:13696-13701`: after a non-empty corpse, `UpdateLooterGuid(creature)` advances the group looter for a later corpse. VERIFIED `Group.cpp:2081-2140`: the advance walks member slots for the next player in reward distance. It is not a uniform random draw, and this note does not adopt a corpse-count ratio. Gameplay of who held the 23 Oct turn is UNKNOWN.
+
+A true shared-item theft, meaning the guard permitting a non-holder while an eligible, present, still-needing turn holder is active, is not what H09 or H10 are. H01 is the cell where that conjunction can deny. H09 is the friend's own turn. H10 is the holder-no-longer-needs fail-open. POTENTIAL ISSUE for report (b) remains any of those source shapes. None is identified as the owner's reported corpse.
+
+**Personal copies are UNSELECTED.** Setting `freeforall` so each eligible member receives an independent copy is an owner trade-off, not a chosen fix, and it is not implemented on this branch. VERIFIED `LootMgr.cpp:665-669`: the per-player loop does `LootItem& item = quest_items[i]` and then `OnPlayerBeforeFillQuestLootItem(player, item)`. That is the shared `quest_items` element, not a per-viewer copy. The signature is `PlayerScript::OnPlayerBeforeFillQuestLootItem(Player*, LootItem&)` (`PlayerScript.h:461`, dispatch `PlayerScript.cpp:390-392`). A mutation of that reference is visible to every later viewer and to `unlootedCount` (`683-691`). It cannot safely hide an item for one human. CS01 comment `6371087087` records the same limit: the hook may be a whole-corpse transformation point, and it is not a per-viewer row filter. `OnAfterLootTemplateProcess` (`LootMgr.cpp:563`) fires earlier, before `roundRobinPlayer` assignment. Its use as a module hook is not designed here. No flag is changed by this revision. NOT TESTED.
+
+A sparkle clear that passes H01's visual half still leaves H01's `ALLOW_LOOT` row in place, and it leaves H02–H05 storage candidates in place. The same clear would be the wrong tool for H09 and H10: those viewers are allowed to take the copy under the native turn rule, so dropping their `LOOTABLE` bit would hide a corpse the pin says they may open. Visibility and award need separate acceptance. Both reports stay open until the item id, method, and whether one copy disappeared are known.
 
 ## 8. Negative cases V01–V08
 
 These are refusal cases for a future per-viewer `LOOTABLE` clear, and for any broader deny. The synthetic model returns "do not clear" for each. That model is not the module. NOT TESTED in game.
 
-| Case | Must keep | Why, at `8daffdabe` |
+| Case | Future clear refuses | Why, at `8daffdabe` |
 | --- | --- | --- |
-| V01. Money | Sparkle while this grouped viewer can receive a share | `HandleLootMoneyOpcode` splits creature gold and does not read `roundRobinPlayer` (`LootHandler.cpp:199-241`). Gold also makes `hasItemForAll` true (`LootMgr.cpp:894-897`). Clearing `LOOTABLE` because a quest line is protected would hide the money cue. |
+| V01. Money | Future clear must not drop the sparkle while this grouped viewer can still receive a share. Design prohibition, not native sparkle. | The non-holder arms do not call `hasItemForAll` (`PlayerStorage.cpp:5775-5793`). Gold alone does not sparkle that viewer. `HandleLootMoneyOpcode` still splits creature gold and does not read `roundRobinPlayer` (`LootHandler.cpp:122-275`, split at `216`). Gold makes `hasItemForAll` true (`LootMgr.cpp:894-897`). A clear that fired only because a quest line is protected would hide the money cue. |
 | V02. Other ordinary items | Sparkle and the normal row the viewer may take | Conditional lines are visible without the round-robin omit (`LootMgr.cpp:1184-1222`). After release, under-threshold normal lines become visible (`1040-1049`). The guard already permits those slots (check 14). |
 | V03. Free-for-all | Method and per-player FFA copies | `isAllowedToLoot` returns true (`PlayerStorage.cpp:5773-5774`). FFA rows are `ALLOW_LOOT` (`LootMgr.cpp:1178`). The guard permits the method (check 8) and `freeforall` lines (check 18). |
 | V04. `MULTI_DROP` | The viewer's own copy | `freeforall` storage does not consume the shared line (`Player.cpp:13942-13943`). Same permit as V03's item flag (checks 18-19). |
 | V05. Roll | Roll UI and the winner | Over-threshold lines make `isAllowedToLoot` true for group and need-before-greed (`PlayerStorage.cpp:5790-5791`). `follow_loot_rules` quest lines use roll slot types (`LootMgr.cpp:1142-1147`). `CanRollOnItem` depends on `AllowedForPlayer` (`Group.cpp:1117`). The guard permits `follow_loot_rules` and `is_blocked` (check 18). |
-| V06. Master loot | Master assignment | `isAllowedToLoot` returns true (`PlayerStorage.cpp:5772-5774`). Quest rows use `LOOT_SLOT_TYPE_MASTER` (`LootMgr.cpp:1097`). `CMSG_LOOT_MASTER_GIVE` is outside the packet guard (`LootHandler.cpp:478-541`). |
+| V06. Master loot | Future clear must not drop the sparkle for a master-loot group. Do not treat every viewer as the master looter. | `isAllowedToLoot` returns true for every recipient-group member under `MASTER_LOOT`, not only the master looter (`PlayerStorage.cpp:5772-5774`). `SendLoot` gives `MASTER_PERMISSION` only to the master looter and `RESTRICTED_PERMISSION` to the others (`Player.cpp:8329-8330`). The master looter's ordinary quest row is `LOOT_SLOT_TYPE_MASTER`. A restricted viewer's ordinary `!follow_loot_rules` quest row is `LOOT_SLOT_TYPE_ALLOW_LOOT` (`LootMgr.cpp:1097`, `1154-1155`). `CMSG_LOOT_MASTER_GIVE` is outside the packet guard (`LootHandler.cpp:478-541`). The guard permits the method (check 8) for both viewers. |
 | V07. Release | Sparkle and pickup once the guid is cleared | Check 12 permits. `LootHandler.cpp:459-467` clears the guid and forces a dynamic-flags update. A clear that sticks after release hides a corpse the core just reopened. |
 | V08. Skinning, and stale quest or group | Skinning for the recipient; decisions from live state | `UNIT_FLAG_SKINNABLE` is `0x04000000` on `UNIT_FIELD_FLAGS` (`UnitDefines.h:283`), a different word from `UNIT_DYNFLAG_LOOTABLE`. `AllLootRemovedFromCorpse` sets the unit flag when skinning loot exists (`Creature.cpp:3176-3182`). `LOOT_SKINNING` is loot type 6 (`LootMgr.h:85`) and `isAllowedToLoot` allows only the recipient (`PlayerStorage.cpp:5761-5762`). Bots also notice `UNIT_FLAG_SKINNABLE` directly (`LootObjectStack.cpp:73-79` at `e88cc409`). A stale "still on the quest" or "still in the group" snapshot must not clear or deny: the live checks are `HasQuestForItem`, `GetGroup()`, and `GetLootRecipientGroup()` (`QuestLootProtection.cpp:134-179`, `PlayerStorage.cpp:5764-5768`). |
 
 ## 9. Matrix, current source only
 
-"Deny" means the current module returns false for `CMSG_AUTOSTORE_LOOT_ITEM`. "Permit" means it returns true and human `StoreLootItem` runs. Sparkle is the `isAllowedToLoot` result for a non-holder. This grid is group loot, round robin, and need-before-greed. Free-for-all and master loot permit every item class (check 8) and sparkle for recipient-group members.
+"Deny" means the current module returns false for `CMSG_AUTOSTORE_LOOT_ITEM`. "Permit" means it returns true and human `StoreLootItem` runs. Sparkle is the `isAllowedToLoot` result for a non-holder. This grid is group loot, round robin, and need-before-greed. Free-for-all and master loot permit every item class (check 8). Master loot sparkles for every recipient-group member (`PlayerStorage.cpp:5772-5774`), including a restricted viewer. That viewer's ordinary quest row is `ALLOW_LOOT`, not `MASTER`. See section 4. H09 is the "own turn" column. H10 is the active-turn column with check 21 already failed open.
 
 | Item class | Active turn, non-holder | Own turn or after release | Sparkle for the non-holder during the active turn |
 | --- | --- | --- | --- |
@@ -312,7 +324,7 @@ Command, from the module root, Python 3 unittest, no core checkout mounted:
 
 `python3 -m unittest discover -s tests -p 'test_ql109_cs02_failopen_and_sparkle.py' -v`
 
-Recorded local result on Python 3.12.3: 27 tests, OK, exit code 0. Verbose output:
+Recorded local result on Python 3.12.3: 32 tests, OK, exit code 0. Verbose names:
 
 ```
 test_allowed_for_player_hook_is_item_blind_and_denies_on_true ... ok
@@ -327,8 +339,13 @@ test_h02_release_fail_opens_storage_candidate ... ok
 test_h03_quest_required_zero_bypasses_guard ... ok
 test_h04_disabled_guard_does_not_stop_native_candidate ... ok
 test_h05_multi_drop_is_not_modeled_as_theft ... ok
+test_h09_friend_turn_is_native_design_not_named_ownership ... ok
+test_h10_holder_without_need_lets_eligible_friend_pick_up ... ok
 test_module_source_is_still_packet_only ... ok
 test_named_fail_open_paths_hand_off_to_native_storage ... ok
+test_negative_restricted_viewer_ordinary_quest_row_is_allow_loot ... ok
+test_personal_copy_freeforall_policy_is_unselected ... ok
+test_positive_master_looter_ordinary_quest_row_is_master ... ok
 test_quest_row_ignores_active_round_robin_holder ... ok
 test_research_doc_keeps_both_reports_and_drops_the_personal_name ... ok
 test_skinning_flag_word_is_not_the_dynamic_flags_word ... ok
@@ -343,7 +360,7 @@ test_v07_release_refuses_clear_and_refuses_deny ... ok
 test_v08_skinning_and_stale_snapshot_refuse_clear ... ok
 test_workflow_is_read_only_and_uploads_nothing ... ok
 
-Ran 27 tests in 0.001s
+Ran 32 tests in 0.002s
 
 OK
 ```
@@ -354,7 +371,7 @@ Existing `tests/test_quest_loot_protection.py` was not the subject of this revis
 
 ## 13. Workflows, and what this revision did not do
 
-`.github/workflows/naxx-a04-ql109-cs02-model.yml` checks out the event head with `persist-credentials: false`, permission `contents: read`, and runs the unittest above. It has no `upload-artifact`, `actions/upload`, `actions/download`, or release step. Push and `pull_request` path filters list only this note, the new test, and that workflow.
+`.github/workflows/naxx-a04-ql109-cs02-model.yml` checks out `ref: ${{ github.event.pull_request.head.sha || github.sha }}` with `persist-credentials: false` and permission `contents: read`. The next step asserts `git rev-parse HEAD` equals that SHA, so a `pull_request` run certifies the branch head rather than the synthetic merge commit. It then runs the unittest above. It has no `upload-artifact`, `actions/upload`, `actions/download`, or release step. Push and `pull_request` path filters list only this note, the test, and that workflow. Whether a given Actions run checked out this commit is a property of that run's log, not of this paragraph. NOT TESTED until that log is read.
 
 NOT TESTED: the owner's reported corpse, any client, any bot in a group, loot-window icons, release timing, corpse expiry, a linked worldserver, SQL, or item_template flags. No database was opened.
 
@@ -370,3 +387,14 @@ No edit to `src/`, SQL, config, PR #89, PR #105, core, Playerbots, or Individual
 | `StoreLootAction` was described as entering `CanPacketReceive`. | Withdrawn. `HandleBotPackets` calls `opHandle->Call` and skips the hook. Section 10. |
 | The legend named a person as the looter of the corpse. | "owner's reported corpse". |
 | Loot-window `ALLOW_LOOT` was mentioned inside generation notes. | Section 4 states the quest-row asymmetry as its own surface, separate from sparkle and from the packet verdict, matching CS01 `6370540733` and PR #111. |
+
+## 15. Corrections relative to head `3cc7292`
+
+These answer CS01 re-review `5632118504`. No `src/` edit. Gameplay remains NOT TESTED.
+
+| Earlier text at `3cc7292` | Replacement |
+| --- | --- |
+| `quest_row_slot_type` and V06 treated every `MASTER_LOOT` viewer as master permission, so an ordinary quest row was `MASTER`. | `viewer_is_master_looter` selects `MASTER_PERMISSION` versus `RESTRICTED_PERMISSION`. Positive case: the master looter's ordinary row is `MASTER`. Negative case: a restricted viewer's ordinary `!follow_loot_rules` row is `ALLOW_LOOT`. Section 4 and V06. VERIFIED at `Player.cpp:8329-8330` and `LootMgr.cpp:1094-1157`. |
+| V01 read as "must keep the sparkle because of money", close to a claim that core sparkles for gold. | V01 is a future design prohibition. The non-holder GROUP/NBG/RR arms do not call `hasItemForAll`. Section 5. VERIFIED at `PlayerStorage.cpp:5775-5793`. |
+| The workflow checked out with `actions/checkout` and no `ref`. | `ref: ${{ github.event.pull_request.head.sha || github.sha }}` plus `git rev-parse HEAD` equality. No upload step. Section 13. |
+| H09 and H10 were not in this note. Personal-copy `freeforall` was not marked as an owner decision. | H09 is the friend's own turn, a native permit. H10 is the holder who does not need the item, a native fail-open. Both differ from named-player ownership. Personal-copy policy is UNSELECTED and not implemented. `OnPlayerBeforeFillQuestLootItem` receives shared `quest_items[i]` (`LootMgr.cpp:667-669`) and cannot safely hide one viewer's row. Section 7. See CS03 `6370796678` and CS01 `6371087087`. |
