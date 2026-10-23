@@ -59,6 +59,32 @@ def research_only_human_census(case: FireCase, api_available: bool):
     return case.humans
 
 
+@dataclass(frozen=True)
+class CensusCandidate:
+    alive: bool = True
+    is_gm: bool = False
+    spectator: bool = False
+    same_map: bool = True
+    same_phase: bool = True
+    within_range: bool = True
+    actually_participating: bool = True  # NOT consulted by current checker
+
+
+def current_60_yard_checker(candidate: CensusCandidate):
+    """Pinned core: reqAlive=true, disallowGM=false, IsWithinDistInMap.
+
+    The downstream distance helper checks SAME MAP and SAME PHASE.
+    A current GM/spectator/non-participant can still pass this predicate.
+    This is a source *model*, not an actual phase/client experiment.
+    """
+    return (
+        candidate.alive and
+        candidate.same_map and
+        candidate.same_phase and
+        candidate.within_range
+    )
+
+
 class F11ExistingSourceAndFutureSafety(unittest.TestCase):
     def test_merged_f10_solo_excludes_nearby_bots_when_enabled(self):
         baseline = current_cast_fires(FireCase(1, 0))
@@ -118,6 +144,21 @@ class F11ExistingSourceAndFutureSafety(unittest.TestCase):
     def test_no_new_formula_or_runtime_setting_has_been_selected(self):
         # Characterization is deliberately not a feature implementation.
         self.assertFalse(callable(globals().get("future_" + "scaled_wave")))
+
+    def test_gm_and_spectator_are_not_excluded_by_default_checker(self):
+        self.assertTrue(current_60_yard_checker(CensusCandidate(is_gm=True)))
+        self.assertTrue(current_60_yard_checker(CensusCandidate(spectator=True)))
+
+    def test_dead_member_is_not_in_current_census(self):
+        self.assertFalse(current_60_yard_checker(CensusCandidate(alive=False)))
+
+    def test_different_phase_is_filtered_by_distance_helper(self):
+        self.assertFalse(current_60_yard_checker(CensusCandidate(same_phase=False)))
+        self.assertFalse(current_60_yard_checker(CensusCandidate(same_map=False)))
+
+    def test_bystander_quest_participation_not_checked(self):
+        self.assertTrue(current_60_yard_checker(
+            CensusCandidate(actually_participating=False)))
 
     def test_current_checkout_matches_source_assumptions(self):
         if not all(x.is_file() for x in (SHADE, SOLO, CONFIG)):
