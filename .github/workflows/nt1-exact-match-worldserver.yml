@@ -1,0 +1,115 @@
+name: NT1 exact-match no-op pinned full Worldserver
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/BotTalentImport.cpp'
+      - 'tests/test_nt1_exact_match_noop_contract.py'
+      - 'tests/test_nt1_altbot_apply_guard_review.py'
+      - '.github/workflows/nt1-exact-match-worldserver.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-nt1-noop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pinned-full-worldserver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout pinned Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+      - name: Checkout pinned public Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact NT1 candidate
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/Mod-Naxxramas-Core
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify pins, no-op and safety source contract
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          mod=acore/modules/mod-naxxramas-core
+          python3 -m unittest discover -s "$mod/tests" -p 'test_nt1_exact_match_noop_contract.py' -v
+          python3 -m unittest discover -s "$mod/tests" -p 'test_nt1_altbot_apply_guard_review.py' -v
+          grep -Fq 'AddBotTalentImportScripts();' "$mod/src/NaxxramasCore_loader.cpp"
+      - name: Disposable pinned build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure full pinned Worldserver
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Require and compile real NT1 translation unit
+        run: |
+          python3 - <<'PY'
+          import json
+          import shlex
+          import subprocess
+          from pathlib import Path
+          commands=json.loads(Path("acore-build/compile_commands.json").read_text())
+          suffix="/mod-naxxramas-core/src/Systems/BotTalentImport.cpp"
+          matched=[x for x in commands if str(x.get("file","")).replace("\\","/").endswith(suffix)]
+          assert len(matched)==1, f"Expected one BotTalentImport.cpp TU, got {len(matched)}"
+          entry=matched[0]
+          argv=entry.get("arguments") or shlex.split(entry["command"])
+          assert any("BotTalentImport.cpp" in v for v in argv)
+          subprocess.run(argv,cwd=Path(entry["directory"]).resolve(),check=True,timeout=360)
+          print("PASS: pinned actual NT1 translation unit compiled",flush=True)
+          PY
+      - name: Compile and link full real pinned Worldserver, never launch
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify NT1 registration in archive and final Worldserver
+        run: |
+          set -euo pipefail
+          archive=acore-build/modules/libmodules.a
+          binary=acore-build/src/server/apps/worldserver
+          test -s "$archive" && test -s "$binary" && test -x "$binary"
+          nm -C --defined-only "$archive" > /tmp/nt1_noop_archive_symbols.txt
+          nm -C --defined-only "$binary" > /tmp/nt1_noop_binary_symbols.txt
+          grep -Fq 'AddBotTalentImportScripts()' /tmp/nt1_noop_archive_symbols.txt
+          grep -Fq 'AddBotTalentImportScripts()' /tmp/nt1_noop_binary_symbols.txt
+          sha256sum "$binary"
+          echo 'PASS: pinned NT1 translation unit, full linked Worldserver and module registration.'
+      - name: Confirm safety boundary
+        if: always()
+        run: |
+          echo 'No Worldserver was started; no live character, talent, pet or equipment touched.'
+          echo 'No artifacts uploaded and no install, SQL, DBC, migration, package, merge or release.'
+          echo 'This build is NOT evidence about owner Playerbots e88cc409 plus two local edits.'
+          echo 'Full native source link does NOT mean owner gameplay acceptance or zero-equipment-inertia proof.'
