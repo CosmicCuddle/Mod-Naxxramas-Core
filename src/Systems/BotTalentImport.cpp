@@ -1547,8 +1547,12 @@ namespace NaxxramasBotTalentImport
     // learns, saves or mutates the bot. No persistent confirmation token yet.
     bool CheckApplyReadiness(Player* issuer, Player* bot,
         ValidatedBuild const& requested, std::string& error,
-        ValidatedBuild* existingSnapshot = nullptr)
+        ValidatedBuild* existingSnapshot = nullptr,
+        bool* exactNoOpEligible = nullptr)
     {
+        if (exactNoOpEligible)
+            *exactNoOpEligible = false;
+
         if (!Enabled())
         {
             error = "NT1 talent importer is disabled.";
@@ -1676,6 +1680,11 @@ namespace NaxxramasBotTalentImport
             return false;
         }
 
+        // The normal access, era, DB, point and old-build preflights above
+        // must pass before an exact-match candidate can be considered.
+        bool const verifiedNoOp = !randomBot && exactNoOpEligible &&
+            HasVerifiedExactActiveBuild(bot, requested);
+
         // Strict fail-closed guard for Alt Bots only. AzerothCore's
         // Player::resetTalents(true) can remove a pet and may automatically
         // unequip OR MAIL offhand equipment. Until a verified alternative
@@ -1687,7 +1696,7 @@ namespace NaxxramasBotTalentImport
         // Note: this is a conservative known-risk guard, NOT proof that
         // arbitrary OnPlayerTalentsReset hooks cannot change something else.
         // The dedicated Alt Bot repair Apply feature is NOT implemented.
-        if (!randomBot)
+        if (!randomBot && !verifiedNoOp)
         {
             if (bot->GetItemByPos(
                 INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND) != nullptr)
@@ -1721,12 +1730,17 @@ namespace NaxxramasBotTalentImport
 
         if (existingSnapshot)
             *existingSnapshot = std::move(snapshot);
+        if (exactNoOpEligible)
+            *exactNoOpEligible = verifiedNoOp;
         return true;
     }
 
     bool ApplyValidated(Player* issuer, Player* bot, std::string const& code,
-        ValidatedBuild const& requested, std::string& error)
+        ValidatedBuild const& requested, std::string& error,
+        bool* unchanged = nullptr)
     {
+        if (unchanged)
+            *unchanged = false;
         // Independent fail-closed barrier, even if this helper is called
         // without the chat handler. No reset is reachable in mode 3/4.
         if (IsReadOnlyAccessMode())
@@ -1738,8 +1752,20 @@ namespace NaxxramasBotTalentImport
         // Do not rely on an earlier Preview or ValidateRequest: ownership,
         // master/group, live point count and snapshot can all change.
         ValidatedBuild snapshot;
-        if (!CheckApplyReadiness(issuer, bot, requested, error, &snapshot))
+        bool verifiedNoOp = false;
+        if (!CheckApplyReadiness(issuer, bot, requested, error, &snapshot,
+            &verifiedNoOp))
             return false;
+
+        // A proven exact rank/free-point match is a READ-ONLY no-op, not
+        // a talent respec. All ordinary issuer/allowlist/era preflights have
+        // passed. Return before import scope, reset, learning or any write.
+        if (verifiedNoOp)
+        {
+            if (unchanged)
+                *unchanged = true;
+            return true;
+        }
 
         bool const randomBot = sRandomPlayerbotMgr.IsRandomBot(bot);
         // NT1-ALT-01: readiness does not establish that native talent reset
@@ -1881,6 +1907,230 @@ namespace NaxxramasBotTalentImport
         return true;
     }
 
+    enum class ActiveTalentMatchStatus
+    {
+        Exact,
+        Different,
+        Indeterminate
+    };
+
+    struct ActiveTalentMatch
+    {
+        ActiveTalentMatchStatus Status = ActiveTalentMatchStatus::Indeterminate;
+        uint32 ObservedTalents = 0;
+        uint32 ExpectedTalents = 0;
+        uint32 DifferentTalents = 0;
+        // Read-only deltas against the requested full active-spec rank set.
+        // These counts are NOT permission to learn, remove or reset talents.
+        uint32 PointsToAdd = 0;
+        uint32 PointsToRemove = 0;
+        std::string Reason;
+    };
+
+    ActiveTalentMatch InspectActiveTalentMatch(
+        Player const* bot, ValidatedBuild const& requested)
+    {
+        ActiveTalentMatch report;
+        report.ExpectedTalents = static_cast<uint32>(requested.Ordered.size());
+        if (!bot || !bot->GetSpecsCount() ||
+            bot->GetSpecsCount() > MAX_TALENT_SPECS ||
+            bot->GetActiveSpec() >= bot->GetSpecsCount())
+        {
+            report.Reason = "unusual active specialization metadata";
+            return report;
+        }
+
+        // ParseCode already checked the proposed talent IDs, spell ranks,
+        // class, dependencies and point budget. Check for stale caller data
+        // as well: no 'exact' verdict across a changed level/class budget.
+        char const* currentClass = ClassName(bot->getClass());
+        if (!currentClass || requested.Class != currentClass ||
+            requested.Available != bot->CalculateTalentsPoints() ||
+            requested.Spent > requested.Available)
+        {
+            report.Reason = "requested build no longer matches bot metadata";
+            return report;
+        }
+
+        std::unordered_map<uint32, uint8> expected;
+        uint32 expectedPoints = 0;
+        for (TalentSelection const& choice : requested.Ordered)
+        {
+            if (!choice.Talent || choice.Id != choice.Talent->TalentID ||
+                !choice.Rank || choice.Rank > MAX_TALENT_RANK ||
+                !choice.Talent->RankID[choice.Rank - 1] ||
+                !sSpellMgr->GetSpellInfo(choice.Talent->RankID[choice.Rank - 1]) ||
+                !expected.emplace(choice.Id, choice.Rank).second)
+            {
+                report.Reason = "invalid or duplicate requested talent record";
+                return report;
+            }
+            expectedPoints += choice.Rank;
+        }
+        if (expectedPoints != requested.Spent)
+        {
+            report.Reason = "proposed ranks and declared point total disagree";
+            return report;
+        }
+
+        uint8 const spec = bot->GetActiveSpec();
+        uint32 observedPoints = 0;
+        std::unordered_map<uint32, uint8> observed;
+        for (auto const& [spellId, record] : bot->GetTalentMap())
+        {
+            if (!record)
+            {
+                report.Reason = "unreadable talent map record";
+                return report;
+            }
+            if (record->State == PLAYERSPELL_REMOVED ||
+                !(record->specMask & (1u << spec)))
+                continue;
+            // Temporary/unknown record states cannot certify an exact
+            // persistent allocation (including custom-core extensions).
+            if (record->State != PLAYERSPELL_UNCHANGED &&
+                record->State != PLAYERSPELL_CHANGED &&
+                record->State != PLAYERSPELL_NEW)
+            {
+                report.Reason = "unexpected active talent record state";
+                return report;
+            }
+
+            TalentEntry const* talent =
+                sTalentStore.LookupEntry(record->talentID);
+            TalentTabEntry const* tab = talent ?
+                sTalentTabStore.LookupEntry(talent->TalentTab) : nullptr;
+            if (!talent || !tab || tab->tabpage >= 3 ||
+                !(tab->ClassMask & bot->getClassMask()))
+            {
+                report.Reason = "unknown or wrong-class active talent record";
+                return report;
+            }
+
+            uint8 rank = 0;
+            uint8 matchingDbcRanks = 0;
+            for (uint8 index = 0; index < MAX_TALENT_RANK; ++index)
+            {
+                if (talent->RankID[index] == spellId && spellId != 0)
+                {
+                    rank = index + 1;
+                    ++matchingDbcRanks;
+                }
+            }
+            // A malformed DBC mapping one spell to two ranks is ambiguous.
+            if (matchingDbcRanks != 1 ||
+                !sSpellMgr->GetSpellInfo(spellId) ||
+                !bot->HasTalent(spellId, spec))
+            {
+                report.Reason = "unmatched active talent spell or DBC rank";
+                return report;
+            }
+            if (!observed.emplace(record->talentID, rank).second)
+            {
+                report.Reason = "multiple active ranks for one talent";
+                return report;
+            }
+            observedPoints += rank;
+        }
+
+        report.ObservedTalents = static_cast<uint32>(observed.size());
+        // A map that looks equal but disagrees with available/spent points is
+        // NOT a verified match. Read only: do not attempt correction here.
+        if (observedPoints > requested.Available ||
+            bot->GetFreeTalentPoints() > requested.Available ||
+            observedPoints + bot->GetFreeTalentPoints() != requested.Available)
+        {
+            report.Reason = "active talent records and free points disagree";
+            return report;
+        }
+
+        for (auto const& [id, rank] : expected)
+        {
+            auto const existing = observed.find(id);
+            uint32 const current = existing == observed.end() ? 0 :
+                existing->second;
+            if (current != rank)
+            {
+                ++report.DifferentTalents;
+                if (rank > current)
+                    report.PointsToAdd += rank - current;
+                else
+                    report.PointsToRemove += current - rank;
+            }
+        }
+        for (auto const& [id, rank] : observed)
+            if (expected.find(id) == expected.end())
+            {
+                ++report.DifferentTalents;
+                report.PointsToRemove += rank;
+            }
+
+        report.Status = report.DifferentTalents ?
+            ActiveTalentMatchStatus::Different : ActiveTalentMatchStatus::Exact;
+        return report;
+    }
+
+    bool HasVerifiedExactActiveBuild(Player const* bot,
+        ValidatedBuild const& requested)
+    {
+        return InspectActiveTalentMatch(bot, requested).Status ==
+            ActiveTalentMatchStatus::Exact;
+    }
+
+    void PrintActiveTalentMatch(ChatHandler* handler, Player const* bot,
+        ValidatedBuild const& requested)
+    {
+        if (!handler || !bot)
+            return;
+        ActiveTalentMatch const report =
+            InspectActiveTalentMatch(bot, requested);
+        switch (report.Status)
+        {
+            case ActiveTalentMatchStatus::Exact:
+                handler->SendSysMessage(
+                    "NT1 ACTIVE TALENT MATCH: EXACT active-spec talent ranks "
+                    "and free points (read-only). This does NOT approve Apply, "
+                    "a reset, or equipment changes.");
+                break;
+            case ActiveTalentMatchStatus::Different:
+                handler->PSendSysMessage(
+                    "NT1 ACTIVE TALENT MATCH: DIFFERENT active-spec build "
+                    "(expected {} talents, observed {}, differing {}). "
+                    "Read-only; equipment/pet guards still apply.",
+                    report.ExpectedTalents, report.ObservedTalents,
+                    report.DifferentTalents);
+                handler->PSendSysMessage(
+                    "NT1 TALENT CHANGE REQUIRED: +{} rank points, -{} rank "
+                    "points. READ ONLY: no talent reset or change approved.",
+                    report.PointsToAdd, report.PointsToRemove);
+                if (report.PointsToRemove)
+                    handler->SendSysMessage(
+                        "NT1 CHANGE TYPE: EXISTING RANKS MUST BE REMOVED. "
+                        "A complete Alt Bot respec remains BLOCKED until "
+                        "a module-only, zero-gear-mutation path is proven.");
+                else if (report.PointsToAdd)
+                    handler->SendSysMessage(
+                        "NT1 CHANGE TYPE: ADDITIONS ONLY. This report is "
+                        "READ ONLY; an Alt Bot talent change remains BLOCKED "
+                        "until the full hook and gear path is proven safe.");
+                else
+                    handler->SendSysMessage(
+                        "NT1 CHANGE TYPE: CANNOT VERIFY a safe talent change. "
+                        "No Apply permission granted.");
+                break;
+            case ActiveTalentMatchStatus::Indeterminate:
+                handler->PSendSysMessage(
+                    "NT1 ACTIVE TALENT MATCH: CANNOT VERIFY ({}). "
+                    "Keep existing safety blocks; no repair attempted.",
+                    report.Reason);
+                break;
+        }
+        handler->SendSysMessage(
+            "NT1 ACTIVE MATCH LIMIT: talent ranks and free points ONLY. "
+            "Inactive spec, glyphs, pets, action bars, gear, mail and "
+            "full rollback safety NOT verified.");
+    }
+
     // Diagnostic-only Alt Bot repair preview. No repair/Apply route exists.
     // Callers must pass normal command security AND AltBotAllowedPlayers
     // before receiving the current character's selected-spec details.
@@ -1900,6 +2150,9 @@ namespace NaxxramasBotTalentImport
         handler->PSendSysMessage(
             "Existing active-spec talents outside {} policy: {}.",
             proposed.Progression.Name, illegal.size());
+
+        // The handler has already required AltBotAllowedPlayers, even for GMs.
+        PrintActiveTalentMatch(handler, bot, proposed);
 
         // Avoid spamming the 3.3.5a chat buffer with a malformed old build.
         // These are Talent.dbc IDs and ZERO-BASED tab row/column indices.
@@ -1955,10 +2208,19 @@ namespace NaxxramasBotTalentImport
         // PR #7's shared PRE-RESET eligibility check is reused here. A valid
         // target NT1 does not imply Apply can safely roll back the old build.
         std::string reason;
-        if (CheckApplyReadiness(issuer, bot, proposed, reason))
-            handler->SendSysMessage(
-                "NT1 ALT REPAIR DIAGNOSTIC: ordinary talent preflight is "
-                "currently READY; a special repair is not required.");
+        bool wouldNoOp = false;
+        if (CheckApplyReadiness(issuer, bot, proposed, reason, nullptr,
+            &wouldNoOp))
+        {
+            if (wouldNoOp)
+                handler->SendSysMessage(
+                    "NT1 ALT REPAIR ALREADY MATCHES: authorised Apply would "
+                    "be a no-op. No reset, equipment or pet changes.");
+            else
+                handler->SendSysMessage(
+                    "NT1 ALT REPAIR DIAGNOSTIC: ordinary talent preflight is "
+                    "currently READY; a special repair is not required.");
+        }
         else
             handler->PSendSysMessage(
                 "NT1 ALT REPAIR DIAGNOSTIC BLOCKED: {}", reason);
@@ -2023,15 +2285,34 @@ namespace NaxxramasBotTalentImport
         handler->PSendSysMessage(
             "Talent trees (server tab order): {} / {} / {}; {} talent entries.",
             build.Trees[0], build.Trees[1], build.Trees[2], build.Ordered.size());
+
+        // Preview accepts Random Bots, but exact Alt Bot state is shown only
+        // after the issuing human passes the same name allowlist required by
+        // safetypreview / repairpreview. No client-side permission inference.
+        Player* matchIssuer = handler && handler->GetSession() ?
+            handler->GetSession()->GetPlayer() : nullptr;
+        std::string matchDenied;
+        if (matchIssuer && !sRandomPlayerbotMgr.IsRandomBot(bot) &&
+            CanApplyToAltBot(matchIssuer, matchDenied))
+            PrintActiveTalentMatch(handler, bot, build);
         // Report ACTUAL Apply eligibility, not just valid NT1 syntax.
         // No state change, token or permission grant is created by Preview.
         std::string reason;
         Player* issuer = handler && handler->GetSession() ?
             handler->GetSession()->GetPlayer() : nullptr;
-        if (CheckApplyReadiness(issuer, bot, build, reason))
-            handler->SendSysMessage(
-                "NT1 PREFLIGHT READY (current state only): Apply will "
-                "recheck all requirements before changing talents.");
+        bool wouldNoOp = false;
+        if (CheckApplyReadiness(issuer, bot, build, reason, nullptr,
+            &wouldNoOp))
+        {
+            if (wouldNoOp)
+                handler->SendSysMessage(
+                    "NT1 PREFLIGHT ALREADY MATCHES: authorised Apply would "
+                    "make NO CHANGES. Access and build will be rechecked.");
+            else
+                handler->SendSysMessage(
+                    "NT1 PREFLIGHT READY (current state only): Apply will "
+                    "recheck all requirements before changing talents.");
+        }
         else
             handler->PSendSysMessage("NT1 PREFLIGHT BLOCKED: {}", reason);
 
@@ -2362,10 +2643,20 @@ public:
 
         Player* issuer = handler->GetSession() ?
             handler->GetSession()->GetPlayer() : nullptr;
+        bool unchanged = false;
         if (!NaxxramasBotTalentImport::ApplyValidated(
-                issuer, bot, code, build, error))
+                issuer, bot, code, build, error, &unchanged))
         {
             handler->PSendSysMessage("NT1 apply aborted: {}", error);
+            return true;
+        }
+
+        if (unchanged)
+        {
+            handler->PSendSysMessage(
+                "NT1 ALREADY MATCHES: {} has exact active-spec talents. "
+                "NO CHANGES MADE; no reset, talent learning, equipment, "
+                "pet, profile or database write.", bot->GetName());
             return true;
         }
 
