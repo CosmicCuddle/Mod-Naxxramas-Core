@@ -1,0 +1,45 @@
+name: B03 DBC source-inventory manifest contract (read-only)
+
+on:
+  push:
+    branches:
+      - cs01/b03-dbc-manifest-documentation-20261023
+    paths:
+      - docs/DBC-CHANGES.md
+      - README.md
+      - tests/test_b03_dbc_release_manifest_contract.py
+      - .github/workflows/naxx-b03-dbc-documentation.yml
+  pull_request:
+    paths:
+      - docs/DBC-CHANGES.md
+      - README.md
+      - tests/test_b03_dbc_release_manifest_contract.py
+      - .github/workflows/naxx-b03-dbc-documentation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  documentation-source-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact branch or PR head
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert exact commit SHA
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Verify documented IDs against current source
+        run: python3 -m unittest discover -s tests -p 'test_b03_dbc_release_manifest_contract.py' -v
+
+      - name: No DBC, SQL, executable, package or artifact production
+        run: |
+          test -f docs/DBC-CHANGES.md
+          test -f README.md
+          echo 'Only docs/source contract read. No DBC extraction, SQL application, build or artifact upload.'
