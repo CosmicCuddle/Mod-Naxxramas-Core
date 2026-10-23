@@ -22,7 +22,11 @@ class HumanCase:
     rr_active: bool = True
     viewer_is_turn_holder: bool = False
     quest_view: bool = True
-    other_valid_loot: bool = False  # ordinary item, eligible gold or roll
+    other_valid_loot: bool = False  # viewer-specific FFA/conditional item
+    over_threshold_item: bool = False  # GROUP/NBG non-holder visibility
+    gold: bool = False  # gold alone does NOT create a non-holder sparkle
+    viewer_is_master_looter: bool = False
+    owner_needs_item: bool = True
     quest_slot: bool = True         # QuestRequired -> loot.quest_items
     has_quest_for_item: bool = True
     follow_loot_rules: bool = False
@@ -49,6 +53,8 @@ def core_sparkle(case):
         return False
     if not case.rr_active or case.viewer_is_turn_holder:
         return True
+    if case.group_method in ("GROUP_LOOT", "NEED_BEFORE_GREED") and case.over_threshold_item:
+        return True
     return case.quest_view or case.other_valid_loot
 
 
@@ -71,6 +77,7 @@ def module_blocks_autostore(case):
         not case.follow_loot_rules,
         not case.blocked,
         case.owner_available_and_eligible,
+        case.owner_needs_item,
     ))
 
 
@@ -98,11 +105,13 @@ def core_quest_window_slot_type(case):
         return "LOCKED"  # only when native showInLoot remains true
     if case.follow_loot_rules:
         if case.group_method == "MASTER_LOOT":
-            return "MASTER"
+            if case.viewer_is_master_looter:
+                return "MASTER"
+            return "LOCKED" if case.blocked else "ALLOW_LOOT"
         if case.blocked:
             return "ROLL_ONGOING"
         return "ALLOW_LOOT"
-    if case.group_method == "MASTER_LOOT":
+    if case.group_method == "MASTER_LOOT" and case.viewer_is_master_looter:
         return "MASTER"
     return "ALLOW_LOOT"
 
@@ -147,9 +156,46 @@ class ExistingHumanLootSourceCharacterization(unittest.TestCase):
         self.assertEqual(core_quest_window_slot_type(HumanCase(
             follow_loot_rules=True, blocked=True)), "ROLL_ONGOING")
         self.assertEqual(core_quest_window_slot_type(HumanCase(
-            group_method="MASTER_LOOT")), "MASTER")
+            group_method="MASTER_LOOT", viewer_is_master_looter=True)), "MASTER")
         self.assertFalse(module_blocks_autostore(HumanCase(
             follow_loot_rules=True, blocked=True)))
+
+    def test_h09_friend_is_the_turn_holder_guard_allows_by_design(self):
+        case = HumanCase(viewer_is_turn_holder=True)
+        self.assertTrue(core_sparkle(case))
+        self.assertEqual(core_quest_window_slot_type(case), "ALLOW_LOOT")
+        self.assertFalse(module_blocks_autostore(case))
+        self.assertTrue(human_pickup_candidate(case))
+
+    def test_h10_turn_holder_does_not_need_quest_guard_falls_open(self):
+        case = HumanCase(owner_needs_item=False)
+        self.assertTrue(core_sparkle(case))
+        self.assertEqual(core_quest_window_slot_type(case), "ALLOW_LOOT")
+        self.assertFalse(module_blocks_autostore(case))
+        self.assertTrue(human_pickup_candidate(case))
+
+    def test_master_loot_restricted_player_still_sees_allow_loot_quest_row(self):
+        restricted = HumanCase(group_method="MASTER_LOOT", viewer_is_master_looter=False)
+        master = HumanCase(group_method="MASTER_LOOT", viewer_is_master_looter=True)
+        self.assertEqual(core_quest_window_slot_type(restricted), "ALLOW_LOOT")
+        self.assertEqual(core_quest_window_slot_type(master), "MASTER")
+        self.assertEqual(core_quest_window_slot_type(HumanCase(
+            group_method="MASTER_LOOT", follow_loot_rules=True,
+            blocked=True, viewer_is_master_looter=False)), "LOCKED")
+
+    def test_gold_alone_does_not_grant_sparkle_to_nonholder(self):
+        case = HumanCase(quest_view=False, other_valid_loot=False,
+                         over_threshold_item=False, gold=True)
+        self.assertFalse(core_sparkle(case))
+        self.assertFalse(module_blocks_autostore(case))
+
+    def test_over_threshold_group_spot_vs_round_robin_differ(self):
+        group = HumanCase(group_method="GROUP_LOOT", quest_view=False,
+                          over_threshold_item=True)
+        rr = HumanCase(group_method="ROUND_ROBIN", quest_view=False,
+                       over_threshold_item=True)
+        self.assertTrue(core_sparkle(group))
+        self.assertFalse(core_sparkle(rr))
 
     def test_released_turn_can_show_and_reach_native_store(self):
         case = HumanCase(rr_active=False)
