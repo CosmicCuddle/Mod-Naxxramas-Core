@@ -52,7 +52,22 @@ Read-only verified against Grimfeather AzerothCore `8daffdabe`:
 | H07: non-turn human with no quest view or other right | No | No | No quest slot |
 | H08: missing/off-instance/or no-longer-needing owner | May still be visible | Fails open | Revalidate core entitlement, avoid permanent lock |
 
+| H09: friend is the actual round-robin turn holder | Yes | **No** — viewer's own turn | Native store candidate even when owner also needs quest |
+| H10: current turn holder does not need the quest | Yes if viewer has own quest view | **No** — owner eligibility guard fails open | Eligible group players may compete for one copy |
+
+**Reviewer refinements (CS02/CS03, 23 October 2026):** do not treat *gold alone* as proof a **non-turn-holder** gets a corpse sparkle. The pinned `isAllowedToLoot` method for group methods checks player-specific quest/FFA/conditional views, plus over-threshold items for GROUP/NBG; ROUND_ROBIN non-holders do not get the over-threshold exception. A normal shared gold reward can exist without that non-holder sparkle. Under MASTER_LOOT, a non-master group member has `RESTRICTED_PERMISSION`, not `MASTER_PERMISSION`, and may still be offered a non-`follow_loot_rules` quest row as `ALLOW_LOOT`. The updated model separates these flags and tests them. These are descriptions of existing core, not desired final policy.
+
 **Boundaries:** `tests/test_quest_loot_human_source_characterization.py` now models the **loot-window quest-row slot type separately from corpse sparkle and pickup**. The tests model these **possible** paths with simplifying assumptions (valid corpse, packet, slot, map, group and native item). A green model run does not prove server/client behaviour or satisfy S4/S5/S6. Test labels describe **existing source**, not desired final semantics.
+
+## Owner-policy alternatives identified by CS03 (research, no decision or implementation)
+
+The current source's `roundRobinPlayer` means **which member holds this corpse's turn**. It is not automatically the person the owner considers to own a particular quest drop. CS03's independent [PR #111 review](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/111#issuecomment-6370796678) identifies three **competing policies**, none selected:
+
+1. **Personal copies for eligible quest holders:** convert only carefully qualified one-copy quest items to native `freeforall` semantics *at generation/fill time* under a new default-OFF option. Every eligible member may receive an independent personal copy, so their loot sparkle and `ALLOW_LOOT` row are truthful; the claimed 'friend nicked my copy' contention disappears for those items. **Major caveat:** this changes Vanilla-era economy/drop distribution, can multiply awarded items, and may conflict with item counts, quest requirements, Master Loot, roll/ `follow_loot_rules`, and existing `ITEM_FLAG_MULTI_DROP`. CS03 has proposed a shared-item hook-based mechanism; it is **unproven** in exact native regression/link/gameplay. Do not silently apply globally or treat this as owner approval.
+2. **Keep one shared copy restricted to a group's turn holder:** the existing narrow module guard approximates this only while a present eligible holder keeps the turn; H09 and H10 demonstrate why it does not ensure the owner's desired allocation in all cases. Need an independently specified fallback when turn holder doesn't need quest or has released.
+3. **Reserve a specific shared item for a named/identified individual:** requires new authoritative ownership assignment and lifetime (loot creation, group and release changes), not provided by the existing round-robin field. Likely requires carefully reviewed wider code/state changes and explicit owner authorization.
+
+**Decision stays OPEN** until the owner elects a policy in light of the trade-offs. Do not choose the convenient path merely because a source hook is available. Meanwhile improve non-mutating source evidence, safety tests and peer review. Regardless of policy, preserve unrelated gold, normal, roll, Master Loot, skinning and legitimate independently awarded MULTI_DROP loot.
 
 ## Revised implementation acceptance before code
 
