@@ -3,10 +3,8 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
 #include <cstdint>
 #include <memory>
-#include <string>
 #include <vector>
 
 // Pure standard-C++ policy for the Golemagg reach-melee guard. It has no
@@ -36,6 +34,7 @@ namespace NaxxramasGolemaggReachGuard
         bool targetPresent = false;
         std::uint32_t targetEntry = 0;
         bool targetAlive = false;
+        bool targetInCombat = false;
         float targetHealthPct = 0.0f;
         std::uint32_t magmaSplashStacks = 0;
     };
@@ -54,71 +53,10 @@ namespace NaxxramasGolemaggReachGuard
                c.targetPresent &&
                c.targetEntry == GOLEMAGG_ENTRY &&
                c.targetAlive &&
+               c.targetInCombat &&
                c.targetHealthPct > BURN_PHASE_HEALTH_PCT &&
                c.magmaSplashStacks >= MAGMA_SPLASH_BACK_OFF_STACKS;
     }
-
-    // Optional comma-separated character-name list. An empty setting covers
-    // every eligible Altbot. A non-empty setting that contains no usable
-    // name covers nobody, so a typo never widens the scope.
-    class NameFilter
-    {
-    public:
-        static NameFilter Parse(std::string const& raw)
-        {
-            NameFilter filter;
-            if (Trim(raw).empty())
-            {
-                filter._allowAll = true;
-                return filter;
-            }
-
-            std::string::size_type start = 0;
-            while (start <= raw.size())
-            {
-                std::string::size_type const comma = raw.find(',', start);
-                std::string::size_type const end = comma == std::string::npos ? raw.size() : comma;
-                std::string name = Lower(Trim(raw.substr(start, end - start)));
-                if (!name.empty())
-                    filter._names.push_back(std::move(name));
-                if (comma == std::string::npos)
-                    break;
-                start = comma + 1;
-            }
-            return filter;
-        }
-
-        bool Allows(std::string const& characterName) const
-        {
-            if (_allowAll)
-                return true;
-            std::string const lowered = Lower(characterName);
-            return std::find(_names.begin(), _names.end(), lowered) != _names.end();
-        }
-
-        bool AllowsAll() const { return _allowAll; }
-        std::size_t Size() const { return _names.size(); }
-
-    private:
-        static std::string Trim(std::string const& value)
-        {
-            std::string::size_type const first = value.find_first_not_of(" \t\r\n");
-            if (first == std::string::npos)
-                return std::string();
-            std::string::size_type const last = value.find_last_not_of(" \t\r\n");
-            return value.substr(first, last - first + 1);
-        }
-
-        static std::string Lower(std::string value)
-        {
-            std::transform(value.begin(), value.end(), value.begin(),
-                [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-            return value;
-        }
-
-        bool _allowAll = false;
-        std::vector<std::string> _names;
-    };
 
     // Shared liveness flag between a registered listener and the per-Player
     // record. Playerbots deletes listeners together with their engine, and

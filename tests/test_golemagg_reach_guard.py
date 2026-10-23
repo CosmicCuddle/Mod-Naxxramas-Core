@@ -43,7 +43,7 @@ class GolemaggReachGuardConfig(unittest.TestCase):
     def test_all_keys_default_off_or_empty(self):
         for line in (
             "NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled = 0",
-            'NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotNames = ""',
+            'NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName = ""',
             "NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug = 0",
         ):
             self.assertIn(line, CONFIG.splitlines())
@@ -59,13 +59,23 @@ class GolemaggReachGuardConfig(unittest.TestCase):
         )
         self.assertRegex(
             CODE,
-            r'GetOption<std::string>\(\s*"NaxxramasCore\.Playerbots\.GolemaggMeleeGuard\.AllowedBotNames", ""\)',
+            r'GetOption<std::string>\(\s*"NaxxramasCore\.Playerbots\.GolemaggMeleeGuard\.AllowedBotName", ""\)',
         )
 
     def test_each_key_appears_once(self):
-        for key in ("Enabled", "AllowedBotNames", "Debug"):
+        for key in ("Enabled", "AllowedBotName", "Debug"):
             pattern = rf"^NaxxramasCore\.Playerbots\.GolemaggMeleeGuard\.{key} ="
             self.assertEqual(len(re.findall(pattern, CONFIG, flags=re.M)), 1, key)
+
+    def test_single_exact_name_gate_reused_from_observer(self):
+        self.assertNotIn("AllowedBotNames", CONFIG + CODE)
+        self.assertIn('#include "GolemaggActionAuditAllowlist.h"', CODE)
+        self.assertIn(
+            "NaxxramasGolemaggActionAudit::IsAllowedBotName(name, config.allowedBotName)", CODE
+        )
+        self.assertNotIn("NameFilter", CODE + POLICY_CODE)
+        update = method_body(CODE, "void OnPlayerUpdate(Player* player")
+        self.assertIn("IsGuardedBotName(config, player->GetName())", update)
 
     def test_existing_observer_keys_unchanged(self):
         self.assertIn("NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0", CONFIG)
@@ -113,7 +123,7 @@ class GolemaggReachGuardListener(unittest.TestCase):
     def test_before_is_the_only_deny_path(self):
         before = method_body(CODE, "bool Before(Action* action")
         self.assertIn("action->getName() != REACH_MELEE_ACTION", before)
-        self.assertIn("ShouldDenyReachMelee(BuildContext())", before)
+        self.assertIn("ShouldDenyReachMelee(BuildContext(action))", before)
         self.assertEqual(before.count("return false;"), 1)
 
     def test_allow_execution_never_denies(self):
@@ -138,18 +148,20 @@ class GolemaggReachGuardListener(unittest.TestCase):
         self.assertNotIn("MovementAction", CODE)
 
     def test_context_uses_bot_and_current_target(self):
-        build = method_body(CODE, "ReachMeleeContext BuildContext() const")
+        build = method_body(CODE, "ReachMeleeContext BuildContext(Action* action) const")
         for required in (
             "_ai->IsAltBot()",
             "PlayerbotAI::IsTank(bot)",
             "PlayerbotAI::IsDps(bot)",
             "PlayerbotAI::IsMelee(bot)",
-            'GetValue<Unit*>("current target")',
+            "action->GetTarget()",
             "target->GetEntry()",
+            "target->IsAlive()",
+            "target->IsInCombat()",
             "target->GetHealthPct()",
             "bot->GetAura(MAGMA_SPLASH_SPELL)",
             "GetStackAmount()",
-            "config.names.Allows(bot->GetName())",
+            "IsGuardedBotName(config, bot->GetName())",
         ):
             self.assertIn(required, build)
 
@@ -175,7 +187,7 @@ class GolemaggReachGuardPolicyConstants(unittest.TestCase):
         for required in (
             "c.enabled", "c.botAlive", "c.mapId == MOLTEN_CORE_MAP", "c.isAltBot",
             "!c.isTank", "c.isDps", "c.isMelee", "c.nameAllowed", "c.targetPresent",
-            "c.targetEntry == GOLEMAGG_ENTRY", "c.targetAlive",
+            "c.targetEntry == GOLEMAGG_ENTRY", "c.targetAlive", "c.targetInCombat",
             "c.targetHealthPct > BURN_PHASE_HEALTH_PCT",
             "c.magmaSplashStacks >= MAGMA_SPLASH_BACK_OFF_STACKS",
         ):

@@ -20,15 +20,15 @@ The owner's one-bot diagnostic on 23 October 2026 recorded `reach melee - OK` at
 
 ## What the guard does
 
-The guard attaches one listener to each eligible bot's **combat** engine through the public Playerbots `ActionExecutionListener` API. Its `Before()` hook returns `false` for the action named `reach melee` only when **all** of the following hold:
+The guard attaches one listener to the named bot's **combat** engine through the public Playerbots `ActionExecutionListener` API. Its `Before()` hook returns `false` for the action named `reach melee` only when **all** of the following hold:
 
 - `NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled = 1`;
-- the bot is alive, on map 409, an Altbot (`PlayerbotAI::IsAltBot()`, which excludes random bots and self-bots), and a non-tank melee DPS;
-- the bot's name is in `AllowedBotNames`, or that setting is empty;
-- the bot's own `current target` is Golemagg (11988), alive and above 10% health;
+- the bot's name exactly matches `AllowedBotName`. An empty value guards nobody;
+- the bot is alive, on map 409, an Altbot, and a non-tank melee DPS. `PlayerbotAI::IsAltBot()` requires a game-client master and excludes random bots and self-bots; human players never have a bot AI;
+- the unit this `reach melee` would move toward is Golemagg (entry 11988), alive, in combat and above 10% health. `Action::GetTarget()` resolves the same `current target` value that `ReachTargetAction` moves to;
 - the bot's own Magma Splash stack is 20 or more.
 
-When `Before()` returns `false`, Playerbots logs the action as failed, does not run it, and moves on to the next queued action. The multiplier already blocks attacks at this stack count, so the bot waits near the back-off distance. Once the stack expires (about 30 seconds after the last application in the owner's log), or the boss drops to 10% or below, the guard stops applying and normal combat resumes.
+When `Before()` returns `false`, Playerbots does not run the action, logs it as failed, and moves on to the next queued action (`Engine::ListenAndExecute` and `Engine::DoNextAction`). `reach melee` has no fallback actions in Playerbots `e88cc409`, so nothing else is queued in its place. The multiplier already blocks attacks at this stack count, so the bot waits near the back-off distance. Once the stack expires (about 30 seconds after the last application in the owner's log), or the boss drops to 10% or below, the guard stops applying and normal combat resumes.
 
 Every other action passes untouched. `AllowExecution()` always returns `true`, because Playerbots reports a `false` there as a successful execution. `After()` and `OverrideResult()` are pass-through.
 
@@ -53,14 +53,14 @@ Every other action passes untouched. `AllowExecution()` always returns `true`, b
 
 ```
 NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled = 0
-NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotNames = ""
+NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName = ""
 NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug = 0
 ```
 
-- **`AllowedBotNames`:**
-  - takes comma-separated character names, matched case-insensitively;
-  - empty covers every eligible Altbot;
-  - a value with no usable names covers nobody.
+- **`AllowedBotName`:**
+  - takes exactly one character name, matched case-insensitively, using the same rule as the P5 observer;
+  - empty, wildcard and comma-separated values guard nobody;
+  - covering every melee Altbot would be a separate, reviewed change.
 - **`Debug = 1`:**
   - logs one line when a bot's listener is registered;
   - logs at most one line per bot every 5 seconds when the guard refuses `reach melee`, including the bot's stack count and remaining duration.
@@ -79,7 +79,7 @@ Settings are read once at startup, so changes need a Worldserver restart.
 
 - **`tests/golemagg_reach_guard_policy.cpp`** — standalone C++ tests:
   - every deny and allow condition, including the 19/20 stack and 10% health boundaries;
-  - name-list parsing;
+  - the single-name gate;
   - registration bookkeeping: first registration, repeat ticks, engine switch, deleted listener, replaced AI.
 - **`tests/test_golemagg_reach_guard.py`** — source contract:
   - default-OFF keys;
@@ -97,14 +97,14 @@ Settings are read once at startup, so changes need a Worldserver restart.
 ## Suggested in-game acceptance (owner-approved only)
 
 1. Back up the Worldserver binary and active config as for any release. No SQL or DBC is involved.
-2. Set `Enabled = 1`, `AllowedBotNames = "Grau"` and `Debug = 1`. Optionally keep the P5 observer on Grau as well.
+2. Set `Enabled = 1`, `AllowedBotName = "Grau"` and `Debug = 1`. Optionally keep the P5 observer on Grau as well.
 3. Pull Golemagg.
    - Expected: at 20 stacks Grau backs off once and waits near 12 yards with no in-and-out movement.
    - The log shows `denied 'reach melee'` lines.
    - When the stack expires, Grau re-engages.
    - Below 10% boss health Grau stays in melee.
 4. Check that tanks, Core Rager handling, healers, ranged and lava escape behave as before.
-5. Widen to the other melee Altbots (Fury, Combat Rogue, Enhancement), then clear `AllowedBotNames` if all is well.
+5. Repeat with one Fury Warrior and one Enhancement Shaman by changing `AllowedBotName`. Covering all melee Altbots at once needs a separate, reviewed change.
 6. **Rollback:** set `Enabled = 0` and restart.
 
 Earlier feasibility notes in `PLAYERBOTS-GOLEMAGG-MELEE-GUARD-FEASIBILITY.md` describe the old Playerbots pin `037c014`, where no public engine accessor existed. That limitation does not apply to `d750b4b` or `e88cc409`.

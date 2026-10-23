@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/Systems/BotGolemaggReachGuard.cpp'
       - 'src/Systems/GolemaggReachGuardPolicy.h'
+      - 'src/Systems/GolemaggActionAuditAllowlist.h'
       - 'src/NaxxramasCore_loader.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'tests/test_golemagg_reach_guard.py'
@@ -17,6 +18,7 @@ on:
     paths:
       - 'src/Systems/BotGolemaggReachGuard.cpp'
       - 'src/Systems/GolemaggReachGuardPolicy.h'
+      - 'src/Systems/GolemaggActionAuditAllowlist.h'
       - 'src/NaxxramasCore_loader.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'tests/test_golemagg_reach_guard.py'
@@ -95,7 +97,7 @@ jobs:
           test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
           conf=acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
           grep -Fqx 'NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled = 0' "$conf"
-          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotNames = ""' "$conf"
+          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName = ""' "$conf"
           grep -Fqx 'NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug = 0' "$conf"
           grep -Fqx 'NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0' "$conf"
       - name: Install build dependencies

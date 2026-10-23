@@ -1,3 +1,4 @@
+#include "GolemaggActionAuditAllowlist.h"
 #include "GolemaggReachGuardPolicy.h"
 
 #include <cassert>
@@ -22,6 +23,7 @@ namespace
         c.targetPresent = true;
         c.targetEntry = GOLEMAGG_ENTRY;
         c.targetAlive = true;
+        c.targetInCombat = true;
         c.targetHealthPct = 55.0f;
         c.magmaSplashStacks = MAGMA_SPLASH_BACK_OFF_STACKS;
         return c;
@@ -46,6 +48,7 @@ namespace
         c = Denying(); c.nameAllowed = false;           assert(!ShouldDenyReachMelee(c));
         c = Denying(); c.targetPresent = false;         assert(!ShouldDenyReachMelee(c));
         c = Denying(); c.targetAlive = false;           assert(!ShouldDenyReachMelee(c));
+        c = Denying(); c.targetInCombat = false;        assert(!ShouldDenyReachMelee(c));
 
         // Core Rager (11672) or any other target is never guarded.
         c = Denying(); c.targetEntry = 11672;           assert(!ShouldDenyReachMelee(c));
@@ -64,39 +67,19 @@ namespace
         assert(!ShouldDenyReachMelee(ReachMeleeContext{}));
     }
 
-    void TestNameFilter()
+    // The guard reuses the P5 observer's single exact-name gate.
+    void TestBotNameGate()
     {
-        NameFilter all = NameFilter::Parse("");
-        assert(all.AllowsAll());
-        assert(all.Allows("Grau"));
-        assert(NameFilter::Parse(" \t\r\n").AllowsAll());
-
-        NameFilter one = NameFilter::Parse("Grau");
-        assert(!one.AllowsAll());
-        assert(one.Allows("Grau"));
-        assert(one.Allows("gRAU"));
-        assert(!one.Allows("Krugan"));
-        assert(!one.Allows("GrauAlt"));
-        assert(!one.Allows("Gra"));
-
-        NameFilter list = NameFilter::Parse(" Grau , krugan,Kore ");
-        assert(list.Size() == 3);
-        assert(list.Allows("Grau"));
-        assert(list.Allows("Krugan"));
-        assert(list.Allows("KORE"));
-        assert(!list.Allows("Emda"));
-
-        // A non-empty value without usable names covers nobody.
-        NameFilter broken = NameFilter::Parse(" , ,, ");
-        assert(!broken.AllowsAll());
-        assert(broken.Size() == 0);
-        assert(!broken.Allows("Grau"));
-
-        // Names ending in r/t/n keep those letters.
-        NameFilter trimmed = NameFilter::Parse("  Arndor ,Rukhan  ");
-        assert(trimmed.Allows("Arndor"));
-        assert(trimmed.Allows("Rukhan"));
-        assert(!trimmed.Allows("Arndo"));
+        using NaxxramasGolemaggActionAudit::IsAllowedBotName;
+        assert(!IsAllowedBotName("Grau", ""));          // empty covers nobody
+        assert(!IsAllowedBotName("Grau", "  \t "));
+        assert(!IsAllowedBotName("Grau", "*"));
+        assert(!IsAllowedBotName("Grau", "all"));
+        assert(!IsAllowedBotName("Grau", "Grau,Krugan")); // no lists
+        assert(IsAllowedBotName("Grau", "Grau"));
+        assert(IsAllowedBotName("Grau", " gRaU "));
+        assert(!IsAllowedBotName("GrauAlt", "Grau"));
+        assert(!IsAllowedBotName("Krugan", "Grau"));
     }
 
     struct FakeAI { int id; };
@@ -152,8 +135,8 @@ namespace
 int main()
 {
     TestPolicy();
-    TestNameFilter();
+    TestBotNameGate();
     TestRegistration();
-    std::cout << "PASS: Golemagg reach guard policy, name filter and registration bookkeeping\n";
+    std::cout << "PASS: Golemagg reach guard policy, single-name gate and registration bookkeeping\n";
     return 0;
 }

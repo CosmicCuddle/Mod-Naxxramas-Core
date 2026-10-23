@@ -13,9 +13,9 @@
  * engine, owned and deleted by that engine. No Playerbots, core, SQL or DBC
  * changes. See docs/MC-GOLEMAGG-REACH-GUARD.md.
  */
-#include "AiObjectContext.h"
 #include "Config.h"
 #include "Engine.h"
+#include "GolemaggActionAuditAllowlist.h"
 #include "GolemaggReachGuardPolicy.h"
 #include "Log.h"
 #include "Player.h"
@@ -41,8 +41,15 @@ namespace
     {
         bool enabled = false;
         bool debug = false;
-        NameFilter names;
+        // Exactly one Altbot name; empty means the guard applies to nobody.
+        std::string allowedBotName;
     };
+
+    bool IsGuardedBotName(GuardConfig const& config, std::string const& name)
+    {
+        // Same exact, case-insensitive, single-name rule as the P5 observer.
+        return NaxxramasGolemaggActionAudit::IsAllowedBotName(name, config.allowedBotName);
+    }
 
     // Read once; config changes need a Worldserver restart.
     GuardConfig const& GetGuardConfig()
@@ -54,8 +61,8 @@ namespace
                 "NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled", false);
             loaded.debug = sConfigMgr->GetOption<bool>(
                 "NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug", false);
-            loaded.names = NameFilter::Parse(sConfigMgr->GetOption<std::string>(
-                "NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotNames", ""));
+            loaded.allowedBotName = sConfigMgr->GetOption<std::string>(
+                "NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName", "");
             return loaded;
         }();
         return config;
@@ -105,7 +112,7 @@ namespace
             if (!action || action->getName() != REACH_MELEE_ACTION)
                 return true;
 
-            if (!ShouldDenyReachMelee(BuildContext()))
+            if (!ShouldDenyReachMelee(BuildContext(action)))
                 return true;
 
             LogDeny();
@@ -121,7 +128,10 @@ namespace
         bool OverrideResult(Action* /*action*/, bool executed, Event /*event*/) override { return executed; }
 
     private:
-        ReachMeleeContext BuildContext() const
+        // The target is the unit this "reach melee" would move toward:
+        // ReachTargetAction resolves the bot's "current target" value both
+        // here (Action::GetTarget) and when it executes.
+        ReachMeleeContext BuildContext(Action* action) const
         {
             ReachMeleeContext context;
             GuardConfig const& config = GetGuardConfig();
@@ -140,16 +150,15 @@ namespace
             context.isTank = PlayerbotAI::IsTank(bot);
             context.isDps = PlayerbotAI::IsDps(bot);
             context.isMelee = PlayerbotAI::IsMelee(bot);
-            context.nameAllowed = config.names.Allows(bot->GetName());
+            context.nameAllowed = IsGuardedBotName(config, bot->GetName());
 
-            AiObjectContext* aiContext = _ai->GetAiObjectContext();
-            auto* currentTarget = aiContext ? aiContext->GetValue<Unit*>("current target") : nullptr;
-            Unit* target = currentTarget ? currentTarget->Get() : nullptr;
-            if (target)
+            Unit* target = action->GetTarget();
+            if (target && target->IsInWorld() && target->GetMapId() == bot->GetMapId())
             {
                 context.targetPresent = true;
                 context.targetEntry = target->GetEntry();
                 context.targetAlive = target->IsAlive();
+                context.targetInCombat = target->IsInCombat();
                 context.targetHealthPct = target->GetHealthPct();
             }
 
@@ -210,7 +219,7 @@ namespace
             if (!ai || !ai->IsAltBot() ||
                 PlayerbotAI::IsTank(player) || !PlayerbotAI::IsDps(player) ||
                 !PlayerbotAI::IsMelee(player) ||
-                !config.names.Allows(player->GetName()))
+                !IsGuardedBotName(config, player->GetName()))
                 return;
 
             // Only the combat engine needs the listener.
