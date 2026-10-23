@@ -8,7 +8,7 @@
 # The one-shot is consumed even if the bot has died, left the group
 # or instance, or refresh fails. It never runs on another timer tick.
 # The normal initial Greater Fire Protection and Juju Flurry behavior
-# are unchanged when disabled. No repeat at 180 seconds.
+# are unchanged when disabled. No repeat at 240 seconds.
 # 1 = enable one optional 120-second GFPP refresh attempt
 # 0 = existing MC consumable behavior unchanged
 # Default: 0 (disabled until owner-approved gameplay tests)
