@@ -24,7 +24,7 @@ class RecoveryWarningsSafetyTests(unittest.TestCase):
 
     def test_does_not_claim_gear_safe_when_offhand_empty(self):
         self.assertIn("Even an empty offhand slot cannot prove", PRINTER)
-        self.assertIn("NT1 ALT GUARD: ordinary Apply refuses Alt Bots", PRINTER)
+        self.assertIn("NT1 ALT GUARD: changed-build Apply refuses Alt Bots", PRINTER)
         self.assertIn("full recovery is still unproven", PRINTER)
         self.assertIn("Active pet:", PRINTER)
 
