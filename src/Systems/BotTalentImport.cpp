@@ -2247,7 +2247,7 @@ namespace NaxxramasBotTalentImport
             hasOffhand ? "YES" : "NO",
             hasActivePet ? "YES" : "NO");
         handler->SendSysMessage(
-            "NT1 ALT GUARD: ordinary Apply refuses Alt Bots with an "
+            "NT1 ALT GUARD: changed-build Apply refuses Alt Bots with an "
             "occupied offhand or active pet before talent reset.");
         handler->SendSysMessage(
             "NT1 ALT RECOVERY NOT VERIFIED: reset may affect other "
