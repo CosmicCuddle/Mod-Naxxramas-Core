@@ -26,8 +26,6 @@
 #define NAXXRAMAS_CORE_HAS_PLAYERBOTS 0
 #endif
 
-#include <unordered_map>
-
 namespace
 {
     bool ForcedPvPEnabled = true;
@@ -36,12 +34,15 @@ namespace
     bool ForcedPvPIncludeBots = true;
     bool ForcedPvPNotify = true;
 
-    struct ForcedPvPState
+    // Per-player state lives in Player::CustomData, not in a shared map.
+    // Player hooks run on parallel map threads (MapUpdate.Threads > 1), and
+    // each Player is only updated by the thread of its current map.
+    constexpr char const* FORCED_PVP_STATE_KEY = "NaxxramasCore.ForcedPvP.State";
+
+    struct ForcedPvPState final : DataMap::Base
     {
         bool WasManuallyPvP = false;
     };
-
-    std::unordered_map<ObjectGuid::LowType, ForcedPvPState> ForcedPvPStates;
 
     bool IsPlayerBot(Player* player)
     {
@@ -101,15 +102,17 @@ namespace
         if (!player || !ShouldForcePvP(player))
             return;
 
-        ObjectGuid::LowType guid = player->GetGUID().GetCounter();
-
         // Only save the original PvP preference once when entering.
-        auto [itr, inserted] = ForcedPvPStates.try_emplace(
-            guid,
-            ForcedPvPState
-            {
-                player->HasPlayerFlag(PLAYER_FLAGS_IN_PVP)
-            });
+        bool inserted = false;
+
+        if (!player->CustomData.Get<ForcedPvPState>(FORCED_PVP_STATE_KEY))
+        {
+            ForcedPvPState* state =
+                player->CustomData.GetDefault<ForcedPvPState>(FORCED_PVP_STATE_KEY);
+
+            state->WasManuallyPvP = player->HasPlayerFlag(PLAYER_FLAGS_IN_PVP);
+            inserted = true;
+        }
 
         // Make the manual PvP flag appear enabled while inside the zone.
         if (!player->HasPlayerFlag(PLAYER_FLAGS_IN_PVP))
@@ -133,16 +136,15 @@ namespace
         if (!player)
             return;
 
-        ObjectGuid::LowType guid = player->GetGUID().GetCounter();
+        ForcedPvPState const* state =
+            player->CustomData.Get<ForcedPvPState>(FORCED_PVP_STATE_KEY);
 
-        auto itr = ForcedPvPStates.find(guid);
-
-        if (itr == ForcedPvPStates.end())
+        if (!state)
             return;
 
-        bool wasManuallyPvP = itr->second.WasManuallyPvP;
+        bool wasManuallyPvP = state->WasManuallyPvP;
 
-        ForcedPvPStates.erase(itr);
+        player->CustomData.Erase(FORCED_PVP_STATE_KEY);
 
         // If PvP was already manually enabled before entering,
         // leave it enabled when leaving.

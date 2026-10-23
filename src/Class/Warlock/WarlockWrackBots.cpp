@@ -28,7 +28,6 @@
 #include <array>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 
 namespace NaxxramasWrackBots
 {
@@ -40,7 +39,16 @@ namespace NaxxramasWrackBots
     constexpr int32 MIN_AURA_REMAINING_MS = 7000;
     constexpr uint8 DRAIN_SOUL_EXECUTE_PCT = 20;
 
-    std::unordered_map<ObjectGuid::LowType, uint32> UpdateTimers;
+    // Per-bot throttle lives in Player::CustomData, not in a shared map.
+    // OnPlayerBeforeUpdate runs on parallel map threads
+    // (MapUpdate.Threads > 1); each Player is only updated by the thread
+    // of its current map.
+    constexpr char const* UPDATE_TIMER_KEY = "NaxxramasCore.WrackBots.UpdateTimer";
+
+    struct UpdateTimerState final : DataMap::Base
+    {
+        uint32 Timer = 0;
+    };
 
     bool AuraHasEnoughTime(
         PlayerbotAI* botAI,
@@ -270,11 +278,9 @@ namespace NaxxramasWrackBots
         if (!botAI)
             return;
 
-        ObjectGuid::LowType guid =
-            bot->GetGUID().GetCounter();
-
         uint32& timer =
-            UpdateTimers[guid];
+            bot->CustomData.GetDefault<UpdateTimerState>(
+                UPDATE_TIMER_KEY)->Timer;
 
         if (timer > diff)
         {
@@ -340,11 +346,8 @@ public:
         if (!player)
             return;
 
-        NaxxramasWrackBots::
-            UpdateTimers.erase(
-                player->
-                    GetGUID().
-                    GetCounter());
+        player->CustomData.Erase(
+            NaxxramasWrackBots::UPDATE_TIMER_KEY);
     }
 };
 
