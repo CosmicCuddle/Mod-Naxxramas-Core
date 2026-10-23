@@ -1,0 +1,29 @@
+name: A02 S1 hunter pet autocast source contract
+
+on:
+  pull_request:
+    paths:
+      - 'docs/research/a02-s1-hunter-pet-autocast.md'
+      - 'scripts/a02_s1_hunter_pet_autocast.py'
+      - 'tests/test_a02_s1_hunter_pet_autocast.py'
+      - '.github/workflows/a02-s1-hunter-pet-autocast.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the research branch
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run the autocast policy tests
+        run: python -m unittest tests/test_a02_s1_hunter_pet_autocast.py -v
+      - name: Pin citations against the exact upstream SHAs
+        run: python scripts/a02_s1_hunter_pet_autocast.py
