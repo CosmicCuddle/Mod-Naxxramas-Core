@@ -1,0 +1,39 @@
+name: Quest Loot owner report source diagnostic (no gameplay fix)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/QuestLootProtection.cpp'
+      - 'tests/test_quest_loot_owner_report_gaps.py'
+      - 'docs/research/QUEST-LOOT-OWNER-FAILURE-20261023.md'
+      - '.github/workflows/quest-loot-owner-report-diagnostics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact source under test
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify source-only ownership-gap tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_quest_loot_owner_report_gaps.py' -v
+      - name: Verify unchanged baseline model tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_quest_loot_protection.py' -v
+      - name: Explain result scope
+        if: always()
+        run: |
+          echo 'A PASS confirms the CURRENT gaps are identified, not fixed.'
+          echo 'Owner in-game quest loot test FAILED; exact item/config unknown.'
+          echo 'No Worldserver launch, loot, character or SQL action.'
+          echo 'No artifacts, package, binary or release uploaded.'
