@@ -24,6 +24,9 @@ class HumanCase:
     quest_view: bool = True
     other_valid_loot: bool = False  # ordinary item, eligible gold or roll
     quest_slot: bool = True         # QuestRequired -> loot.quest_items
+    has_quest_for_item: bool = True
+    follow_loot_rules: bool = False
+    blocked: bool = False
     count: int = 1
     multi_drop: bool = False
     owner_available_and_eligible: bool = True
@@ -65,6 +68,8 @@ def module_blocks_autostore(case):
         case.quest_slot,
         case.count == 1,
         not case.multi_drop,
+        not case.follow_loot_rules,
+        not case.blocked,
         case.owner_available_and_eligible,
     ))
 
@@ -79,6 +84,29 @@ def native_store_candidate(case):
     return case.player_can_receive_item and case.quest_view
 
 
+def core_quest_window_slot_type(case):
+    """Simplified pinned LootView quest-row display for a needed quest item.
+
+    For a non-FFA non-follow-rules personal quest view, the core emits
+    LOOT_SLOT_TYPE_ALLOW_LOOT in GROUP/ROUND_ROBIN/RESTRICTED permissions,
+    without a fresh active round-robin owner check in that quest loop.
+    This explains the *item label*, separate from the corpse sparkle.
+    """
+    if not case.quest_view or not case.quest_slot:
+        return "NO_QUEST_ROW"
+    if not case.has_quest_for_item:
+        return "LOCKED"  # only when native showInLoot remains true
+    if case.follow_loot_rules:
+        if case.group_method == "MASTER_LOOT":
+            return "MASTER"
+        if case.blocked:
+            return "ROLL_ONGOING"
+        return "ALLOW_LOOT"
+    if case.group_method == "MASTER_LOOT":
+        return "MASTER"
+    return "ALLOW_LOOT"
+
+
 def human_pickup_candidate(case):
     """Whether this simplified sequential pipeline reaches native storage."""
     return not module_blocks_autostore(case) and native_store_candidate(case)
@@ -90,6 +118,28 @@ class ExistingHumanLootSourceCharacterization(unittest.TestCase):
         self.assertTrue(core_sparkle(case))
         self.assertTrue(module_blocks_autostore(case))
         self.assertFalse(human_pickup_candidate(case))
+
+    def test_human_quest_row_can_say_allow_loot_despite_packet_denial(self):
+        case = HumanCase()
+        self.assertTrue(core_sparkle(case))
+        self.assertEqual(core_quest_window_slot_type(case), "ALLOW_LOOT")
+        self.assertTrue(module_blocks_autostore(case))
+
+    def test_quest_row_remains_allow_while_round_robin_owner_releases(self):
+        before = HumanCase(rr_active=True)
+        after = HumanCase(rr_active=False)
+        self.assertEqual(core_quest_window_slot_type(before), "ALLOW_LOOT")
+        self.assertEqual(core_quest_window_slot_type(after), "ALLOW_LOOT")
+        self.assertTrue(module_blocks_autostore(before))
+        self.assertFalse(module_blocks_autostore(after))
+
+    def test_quest_view_with_follow_rules_keeps_roll_and_master_display(self):
+        self.assertEqual(core_quest_window_slot_type(HumanCase(
+            follow_loot_rules=True, blocked=True)), "ROLL_ONGOING")
+        self.assertEqual(core_quest_window_slot_type(HumanCase(
+            group_method="MASTER_LOOT")), "MASTER")
+        self.assertFalse(module_blocks_autostore(HumanCase(
+            follow_loot_rules=True, blocked=True)))
 
     def test_released_turn_can_show_and_reach_native_store(self):
         case = HumanCase(rr_active=False)
