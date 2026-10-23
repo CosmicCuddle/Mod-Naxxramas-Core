@@ -1,0 +1,187 @@
+name: Golemagg melee reach guard checks
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/BotGolemaggReachGuard.cpp'
+      - 'src/Systems/GolemaggReachGuardPolicy.h'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/test_golemagg_reach_guard.py'
+      - 'tests/golemagg_reach_guard_policy.cpp'
+      - 'scripts/check_golemagg_reach_guard_pinned_compile.py'
+      - '.github/workflows/golemagg-reach-guard.yml'
+  push:
+    branches-ignore: [main]
+    paths:
+      - 'src/Systems/BotGolemaggReachGuard.cpp'
+      - 'src/Systems/GolemaggReachGuardPolicy.h'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/test_golemagg_reach_guard.py'
+      - 'tests/golemagg_reach_guard_policy.cpp'
+      - 'scripts/check_golemagg_reach_guard_pinned_compile.py'
+      - '.github/workflows/golemagg-reach-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: golemagg-reach-guard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-and-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source-contract tests
+        run: python3 -m unittest discover -s tests -p 'test_golemagg_reach_guard.py' -v
+      - name: Full module Python suite
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Standalone C++ policy tests (C++17 and C++20)
+        run: |
+          set -euo pipefail
+          for std in c++17 c++20; do
+            g++ -std="$std" -Wall -Wextra -Werror -pedantic -Isrc/Systems \
+              tests/golemagg_reach_guard_policy.cpp -o "/tmp/reach_guard_$std"
+            "/tmp/reach_guard_$std"
+          done
+
+  current-pin-worldserver:
+    # Playerbots d750b4b is blob-identical to the owner's e88cc409 for every
+    # file the guard uses; e88cc409 needs a local database-pool fix to build
+    # against core 8daffda.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout Grimfeather AzerothCore 8daffda
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+      - name: Checkout Playerbots d750b4b
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout Individual Progression dd96f2b
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout Naxxramas Core under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify revisions and default-OFF config
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          conf=acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotNames = ""' "$conf"
+          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0' "$conf"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile the guard translation unit
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_golemagg_reach_guard_pinned_compile.py \
+            --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Link full Worldserver (not started)
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Confirm guard is linked into Worldserver
+        run: |
+          set -euo pipefail
+          binary="$(find acore-build -type f -name worldserver -print -quit)"
+          test -s "$binary"
+          grep -aFq "NaxxramasCoreGolemaggReachGuard" "$binary"
+          nm -C --defined-only "$binary" | grep -F "AddBotGolemaggReachGuardScripts()"
+          echo "PASS: guard script registered and linked; Worldserver was not started."
+
+  old-pin-fallback-compile:
+    # Playerbots 037c014 has no public PlayerbotAI::GetCurrentEngine(); the
+    # guard must still compile there and become a no-op.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Grimfeather AzerothCore a66f1be
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: acore
+          persist-credentials: false
+      - name: Checkout Playerbots 037c014
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout Individual Progression 4ff4b5f
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout Naxxramas Core under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Confirm the old pin lacks the public engine accessor
+        run: |
+          set -euo pipefail
+          header=acore/modules/mod-playerbots/src/Bot/PlayerbotAI.h
+          if grep -q "GetCurrentEngine" "$header"; then
+            echo "FAIL: expected no GetCurrentEngine at 037c014"; exit 1
+          fi
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=OFF -DUSE_SCRIPTPCH=OFF
+      - name: Compile the guard translation unit (no-op fallback)
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_golemagg_reach_guard_pinned_compile.py \
+            --compile-commands acore-build/compile_commands.json --timeout 360

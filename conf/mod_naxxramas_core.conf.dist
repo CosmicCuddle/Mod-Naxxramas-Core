@@ -392,3 +392,33 @@ NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0
 # Default: "" (no bots are sampled)
 NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
 
+#####################################
+# Molten Core / Golemagg — melee reach guard
+#####################################
+
+# EXPERIMENTAL, default OFF. At 20 Magma Splash stacks Playerbots backs
+# non-tank melee away from Golemagg and blocks their attacks until the stack
+# expires, but its generic "reach melee" movement can still walk them back
+# in, so they shuttle in and out without attacking. When enabled, this guard
+# denies only "reach melee" for eligible Altbots (non-tank melee DPS, map 409,
+# current target Golemagg above 10% health, own Magma Splash at 20+ stacks).
+# The bot then waits out the stack and resumes normal combat.
+# Unaffected: tanks, Core Ragers, healers, ranged, lava escape, other targets,
+# the final 10% burn phase, and any bot below 20 stacks.
+# While the guard applies, a player-issued "do reach melee" on that bot is
+# also refused. Requires Playerbots with a public
+# PlayerbotAI::GetCurrentEngine(); on older revisions it stays inactive.
+# Config changes need a Worldserver restart.
+# Default: 0
+NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled = 0
+#
+# Optional comma-separated character names. Empty applies the guard to every
+# eligible Altbot. Names match case-insensitively. A value with no usable
+# names applies to nobody. For a one-bot pilot, use "Grau".
+# Default: "" (all eligible Altbots, once Enabled = 1)
+NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotNames = ""
+#
+# Log one line per bot at most every 5 seconds when the guard refuses
+# "reach melee", plus one line when a bot's listener is registered.
+# Default: 0
+NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug = 0
