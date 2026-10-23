@@ -30,6 +30,14 @@ HANDLE = region("    static bool HandleApply(", "\n};\n\nvoid AddBotTalentImport
 
 
 class ExactAltBotNoOpContract(unittest.TestCase):
+    def test_helper_is_declared_before_readiness_call(self):
+        # A real C++ TU requires declaration before use; Python substring
+        # checks alone cannot establish native compile correctness.
+        self.assertLess(
+            CPP.index("bool HasVerifiedExactActiveBuild("),
+            CPP.index("    bool CheckApplyReadiness("),
+        )
+
     def test_active_full_rank_comparator_is_the_only_exact_oracle(self):
         self.assertIn(
             "return InspectActiveTalentMatch(bot, requested).Status ==", EXACT
