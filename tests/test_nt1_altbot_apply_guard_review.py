@@ -1,4 +1,4 @@
-"""Source + extracted C++ regression for a review-only NT1 Altbot hard stop.
+"""Source + extracted C++ regression for changed-build NT1 Altbot hard stop.
 
 This is NOT a Worldserver build, equipment-preservation proof or in-game Apply.
 """
@@ -20,11 +20,11 @@ GUARD = "        " + RANDOM + PREFIX
 
 class AltBotApplyResetGate(unittest.TestCase):
     def test_guard_precedes_every_mutation(self):
-        self.assertIn("CheckApplyReadiness(issuer, bot, requested, error, &snapshot)", APPLY)
+        self.assertIn("CheckApplyReadiness(issuer, bot, requested, error, &snapshot,", APPLY)
         self.assertRegex(PREFIX, r"if\s*\(!randomBot\)\s*\{[\s\S]*?return false;\s*\}")
         self.assertIn("zero-equipment-", PREFIX)
         self.assertEqual(APPLY.count(RANDOM), 1)
-        self.assertLess(APPLY.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot)"), APPLY.index(RANDOM))
+        self.assertLess(APPLY.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot,"), APPLY.index(RANDOM))
         for mutating in ("ImportScope const scope(bot)", "bot->resetTalents(true)",
                          "LearnValidated(bot, requested", "bot->SaveToDB(",
                          "CharacterDatabase.DirectExecute("):
