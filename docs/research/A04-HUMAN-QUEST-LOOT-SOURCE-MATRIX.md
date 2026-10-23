@@ -48,10 +48,9 @@ Read-only verified against Grimfeather AzerothCore `8daffdabe`:
 | H03: normal item slot that is quest-related (QuestRequired=0) | Yes | No | Candidate if native eligible |
 | H04: guard off/not loaded | Yes | No | Candidate if native eligible |
 | H05: MULTI_DROP / personal FFA copies | Yes legitimately | No intentionally | Yes **for each own valid copy**, not theft |
-| H06: gold/other legitimate normal/roll loot | Should remain Yes | Guard may deny *specific quest slot*, not other rights | Core must preserve legitimate rights |
+| H06: gold/other legitimate normal/roll loot | Gold alone may not sparkle to a non-turn-holder; a valid personal/roll view may | Guard may deny *specific quest slot*, not other rights | Core must preserve legitimate rights even without an existing sparkle |
 | H07: non-turn human with no quest view or other right | No | No | No quest slot |
 | H08: missing/off-instance/or no-longer-needing owner | May still be visible | Fails open | Revalidate core entitlement, avoid permanent lock |
-
 | H09: friend is the actual round-robin turn holder | Yes | **No** — viewer's own turn | Native store candidate even when owner also needs quest |
 | H10: current turn holder does not need the quest | Yes if viewer has own quest view | **No** — owner eligibility guard fails open | Eligible group players may compete for one copy |
 
