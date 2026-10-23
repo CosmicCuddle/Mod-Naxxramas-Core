@@ -100,7 +100,7 @@ class AltBotProtectedStateSourceTests(unittest.TestCase):
         self.assertIn("sRandomPlayerbotMgr.IsRandomBot(bot)", COMMAND)
 
     def test_same_report_still_shows_apply_denial(self):
-        self.assertIn("CheckApplyReadiness(issuer, bot, proposed, reason)", DIAGNOSTIC)
+        self.assertIn("CheckApplyReadiness(issuer, bot, proposed, reason, nullptr,", DIAGNOSTIC)
         self.assertIn("PrintAltBotProtectedState(handler, bot)", DIAGNOSTIC)
         self.assertLess(
             DIAGNOSTIC.index("NT1 ALT REPAIR DIAGNOSTIC BLOCKED"),

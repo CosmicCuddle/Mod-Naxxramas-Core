@@ -63,10 +63,10 @@ class CombinedNT1SourceContracts(unittest.TestCase):
         self.assertIn("NT1 READ-ONLY MODE: Apply is disabled", readiness)
         self.assertLess(
             apply.index("if (IsReadOnlyAccessMode())"),
-            apply.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot)"),
+            apply.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot,"),
         )
         self.assertLess(
-            apply.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot)"),
+            apply.index("CheckApplyReadiness(issuer, bot, requested, error, &snapshot,"),
             apply.index("bot->resetTalents(true)"),
         )
         self.assertLess(

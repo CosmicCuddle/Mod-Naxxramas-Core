@@ -7,6 +7,7 @@ on:
       - 'scripts/check_nt1l1_priority.py'
       - 'scripts/audit_nt1_altbot_recovery_backup.py'
       - 'scripts/audit_nt1_dependency_apis.py'
+      - 'scripts/check_nt1_active_match_cpp_contract.py'
       - 'tests/test_nt1*.py'
       - 'tests/fixtures/nt1l1_vanilla_frost_mage_2026_10_08.json'
       - '.github/workflows/nt1-integration-readonly-tests.yml'
@@ -40,3 +41,5 @@ jobs:
           python-version: '3.11'
       - name: Run every NT1 source, Mage priority and synthetic recovery test
         run: python -m unittest discover -s tests -p 'test_nt1*.py' -v
+      - name: Compile and execute isolated NT1 exact-match function (not server build)
+        run: python scripts/check_nt1_active_match_cpp_contract.py

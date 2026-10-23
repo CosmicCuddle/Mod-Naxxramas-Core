@@ -136,7 +136,7 @@ class CrossClassReadOnlyRiskTests(unittest.TestCase):
         self.assertIn("Alt Bot NT1 Apply blocked: the bot has an active", READINESS)
         self.assertIn("EQUIPMENT_SLOT_OFFHAND", READINESS)
         self.assertIn("bot->GetPet() != nullptr", READINESS)
-        self.assertIn("CheckApplyReadiness(issuer, bot, requested, error, &snapshot)", APPLY)
+        self.assertIn("CheckApplyReadiness(issuer, bot, requested, error, &snapshot,", APPLY)
 
     def test_read_only_access_modes_still_block_apply(self):
         self.assertIn("return mode == 3 || mode == 4;", CPP)
