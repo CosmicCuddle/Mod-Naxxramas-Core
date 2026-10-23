@@ -116,6 +116,75 @@ class PerPlayerStateContract(unittest.TestCase):
                 rel)
 
 
+def function_body(code, signature):
+    """Text of the function starting at 'signature' up to its closing brace."""
+    start = code.index(signature)
+    return code[start:code.index("\n    }\n", start)]
+
+
+class SemanticGateContract(unittest.TestCase):
+    """CS01 #114 review gates G1-G5: presence must stay distinct from a
+    default-constructed value, so GetDefault is only used where the old
+    code created an entry."""
+
+    def test_g1_first_honor_snapshot_seeds_without_payout(self):
+        code = strip_comments(read("src/Systems/HonorOverflow.cpp"))
+        body = function_body(code, "void ProcessHonorOverflow(")
+        self.assertNotIn("GetDefault", body)
+        seed = body.index("if (!stored)")
+        block = body[seed:body.index("}", seed)]
+        self.assertIn("StoreHonorSnapshot(player);", block)
+        self.assertIn("return;", block)
+        self.assertLess(seed, body.index("ModifyMoney"))
+        login = function_body(code, "void OnPlayerLogin(")
+        self.assertIn("StoreHonorSnapshot(player);", login)
+        self.assertIn("CustomData.Erase(BG_SUMMARY_KEY)", login)
+
+    def test_g2_forced_pvp_captures_preference_only_on_first_entry(self):
+        code = strip_comments(read("src/Systems/ForcedPvP.cpp"))
+        enter = function_body(code, "void EnterForcedPvP(")
+        guard = enter.index("if (!player->CustomData.Get<ForcedPvPState>")
+        block = enter[guard:enter.index("}", guard)]
+        self.assertEqual(enter.count("GetDefault"), 1)
+        self.assertIn("GetDefault<ForcedPvPState>", block)
+        self.assertIn("WasManuallyPvP = player->HasPlayerFlag(PLAYER_FLAGS_IN_PVP)", block)
+        self.assertIn("inserted = true;", block)
+        self.assertIn("if (inserted && ForcedPvPNotify", enter)
+        leave = function_body(code, "void LeaveForcedPvP(")
+        self.assertNotIn("GetDefault", leave)
+        self.assertIn("if (!state)", leave)
+        self.assertLess(leave.index("CustomData.Erase(FORCED_PVP_STATE_KEY)"),
+                        leave.index("RemovePlayerFlag"))
+        self.assertIn("LeaveForcedPvP(player, true);",
+                      function_body(code, "void OnPlayerBeforeLogout("))
+
+    def test_g3_tracker_absent_is_not_an_empty_tracker(self):
+        code = strip_comments(read(CONSUMABLES))
+        self.assertEqual(code.count("GetDefault<RaidConsumableTracker>"), 1)
+        reset = function_body(code, "ResetTracker(")
+        self.assertLess(reset.index("ClearTrackedAuras("),
+                        reset.index("GetDefault<RaidConsumableTracker>"))
+        status = function_body(code, "static bool HandleStatusCommand(")
+        self.assertIn("if (!trackerPtr)", status)
+        self.assertIn("No consumable profile is currently being tracked.", status)
+        clear = function_body(code, "static bool HandleClearCommand(")
+        self.assertLess(clear.index("ClearTrackedAuras("),
+                        clear.index("EraseRaidConsumableTracker("))
+        update = function_body(code, "void OnPlayerUpdate(")
+        self.assertIn("if (!trackerPtr)", update)
+        self.assertLess(update.index("ClearTrackedAuras(player, tracker);"),
+                        update.index("EraseRaidConsumableTracker(player);"))
+
+    def test_g5_bot_timers_start_at_zero_and_keep_interval(self):
+        for rel, interval in (("src/Class/Warrior/WarriorRendFlurryBots.cpp", 200),
+                              ("src/Class/Warlock/WarlockWrackBots.cpp", 100)):
+            code = strip_comments(read(rel))
+            self.assertIn("uint32 Timer = 0;", code, rel)
+            self.assertIn("constexpr uint32 UPDATE_INTERVAL_MS = %d;" % interval, code, rel)
+            self.assertEqual(code.count("GetDefault<UpdateTimerState>"), 1, rel)
+            self.assertIn("timer = UPDATE_INTERVAL_MS;", code, rel)
+
+
 class CrossPlayerCooldownLockContract(unittest.TestCase):
     def setUp(self):
         self.code = strip_comments(read(CONSUMABLES))
@@ -144,6 +213,9 @@ class CrossPlayerCooldownLockContract(unittest.TestCase):
             self.assertEqual(calls, [], locked)
             self.assertNotIn("ChatHandler", locked)
             self.assertNotIn("GetGroup", locked)
+            self.assertNotIn("GetConsumableNow(", locked)
+            self.assertNotIn("return itr", locked)
+            self.assertNotIn("&", re.sub(r"&&", "", locked))
 
     def test_group_reset_still_clears_every_member(self):
         section = self.code.split("void ResetConsumableCooldownForGroup(", 1)[1]
