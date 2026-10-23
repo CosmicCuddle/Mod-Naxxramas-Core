@@ -13,13 +13,15 @@ permissions:
 jobs:
   source-guard:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - name: Check original-source guard and compile extracted C++ fragment
         run: python3 -m unittest discover -s tests -p 'test_nt1_altbot_apply_guard_review.py' -v
+      - name: Run full module Python regression suite (no runtime/database)
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
       - name: Scope
         run: |
           echo 'Source and synthetic tests only. NOT a full Worldserver or gameplay test.'
