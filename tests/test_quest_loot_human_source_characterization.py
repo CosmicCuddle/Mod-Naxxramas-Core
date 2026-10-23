@@ -112,6 +112,16 @@ def human_pickup_candidate(case):
     return not module_blocks_autostore(case) and native_store_candidate(case)
 
 
+def whole_packet_veto_hides_legitimate_loot(case):
+    """Negative model: a wholesale SMSG_LOOT_RESPONSE veto hides ALL rows/gold.
+
+    Pinned ServerScript::CanPacketSend accepts a const WorldPacket& and can
+    only permit or veto that whole packet. This helper is a *counterexample*,
+    NOT a recommendation to intercept packets.
+    """
+    return case.other_valid_loot
+
+
 class ExistingHumanLootSourceCharacterization(unittest.TestCase):
     def test_active_turn_can_sparkle_even_when_human_packet_denied(self):
         case = HumanCase()
@@ -200,6 +210,21 @@ class ExistingHumanLootSourceCharacterization(unittest.TestCase):
                 self.assertTrue(core_sparkle(case))
                 self.assertFalse(module_blocks_autostore(case))
                 # Native mastery/FFA eligibility has extra checks in reality.
+
+    def test_wholesale_response_veto_would_hide_rightful_gold_or_item(self):
+        # Viewer may have legitimate money/ordinary loot on the SAME corpse
+        # even if a single quest-item row is wrong for them.
+        case = HumanCase(other_valid_loot=True)
+        self.assertTrue(whole_packet_veto_hides_legitimate_loot(case))
+        self.assertTrue(core_sparkle(case))
+        self.assertEqual(core_quest_window_slot_type(case), "ALLOW_LOOT")
+        # Dropping the entire response must NOT be treated as an A04 fix.
+
+    def test_empty_other_rewards_does_not_make_whole_response_rewrite_safe(self):
+        case = HumanCase(other_valid_loot=False)
+        self.assertFalse(whole_packet_veto_hides_legitimate_loot(case))
+        # Even so, core does not expose per-item mutation in the send veto.
+        # Empty other rewards is not proof that packet/slot edits are safe.
 
     def test_live_source_still_has_narrow_packet_only_guard(self):
         if not SOURCE.is_file():
