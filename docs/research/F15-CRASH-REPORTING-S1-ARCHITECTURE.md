@@ -112,9 +112,18 @@ Destination **exactly**:
 including the space and capital letters. Only create on approved installation.
 
 Each unique finalized crash produces one `.txt` file such as
-`worldserver-crash-2026-10-23T22-10-11Z-<stable-incident-id>.txt`
+`worldserver-crash-start-2026-10-23T22-10-11Z-<stable-incident-id>.txt`
 or `authserver-crash-...`, with `O_CREAT|O_EXCL`-equivalent
-collision protection (an example, not implemented).
+collision protection (an example, not implemented). The filename's human-
+readable UTC time is the **verified canonical process START time** from
+the incident identity, not the independently observed CRASH time. The actual
+observed termination time(s), including their UTC offsets and sources, belong
+in the report body. Two collectors of one invocation MUST compute exactly
+the same final filename regardless of when each noticed its death. Publish
+under the same cross-process incident lock, refuse an existing finalized
+incident ID (including a matching `-<stable-incident-id>.txt` filename),
+and only then use atomic no-clobber publication. Never convert an unknown
+canonical start timestamp into an invented incident identity.
 UTF-8 text and predictable CRLF-compatible formatting for Notepad.
 
 Proposed fields, each marked available/unknown:
@@ -208,6 +217,9 @@ but a NULL end time. Conversely a late death after final DB cleanup can
 leave a completed row. Furthermore `starttime` is integer seconds in the
 pinned base schema, so `(realmid,starttime)` alone is not a universal
 per-invocation unique key; check actual installed schema/update history.
+A repeated same-second `(realmid,starttime)` may cause the second uptime
+insert to FAIL (no row for that invocation), not a unique process record.
+Treat a missing uptime row as **missing evidence**, not a clean shutdown.
 Read-only access would require separate owner credentials/approval; this
 Worldserver-specific source does not cover Authserver. No live SQL query,
 DB account creation, or migration is approved.
@@ -251,6 +263,7 @@ Only disposable local subprocesses or mock event streams:
 | Oversized/untrusted logs or secret-looking values | Bounded truncation/redaction, restrictive permissions |
 | 6 quick synthetic deaths with bundled wrapper | Existing anti-loop semantics unchanged; no real server crash |
 | 3 collectors see same death with different report timestamps | One deterministic incident, no duplicate filenames |
+| Journal, wrapper and GDB see the same death at different UTC times | Identical filename from canonical process start + event ID; body stores all observer times |
 | Two distinct deaths reuse same PID but verified different starts | Two distinct incident IDs and reports |
 | Planned restart code 2 followed by real fatal teardown | Distinguish scheduled intent from independently proven fatal termination |
 | Disposable inferior SIGSEGV under generated `gdb --batch` script | Record actual GDB/wrapper outcomes; **pending experiment**; never test a real server |
