@@ -130,6 +130,36 @@ namespace
         secondToken->store(false);
         assert(!NeedsRegistration(record, &ai2, &combat));
     }
+
+    // Playerbots creates one combat engine per PlayerbotAI and reuses it for
+    // the AI's lifetime (PlayerbotAI.cpp L160-163 at d750b4b/e88cc409). The
+    // update hook only offers that engine while the AI is in combat, so
+    // repeated pulls, wipes, map changes and combat exits must register it
+    // exactly once.
+    void TestRepeatedTransitionsRegisterOnce()
+    {
+        RegistrationRecord<FakeAI, FakeEngine> record;
+        FakeAI ai{ 7 };
+        FakeEngine combat{ 70 };
+
+        int registrations = 0;
+        for (int pull = 0; pull < 50; ++pull)
+        {
+            bool const inMoltenCore = pull % 5 != 0;  // left MC, came back
+            bool const inCombat = pull % 3 != 0;      // combat ended between pulls
+            for (int tick = 0; tick < 20; ++tick)
+            {
+                if (!inMoltenCore || !inCombat)
+                    continue;  // the hook returns before touching the record
+                if (NeedsRegistration(record, &ai, &combat))
+                    ++registrations;
+            }
+        }
+
+        assert(registrations == 1);
+        assert(record.engines.size() == 1);
+        assert(record.alive && record.alive->load());
+    }
 }
 
 int main()
@@ -137,6 +167,7 @@ int main()
     TestPolicy();
     TestBotNameGate();
     TestRegistration();
+    TestRepeatedTransitionsRegisterOnce();
     std::cout << "PASS: Golemagg reach guard policy, single-name gate and registration bookkeeping\n";
     return 0;
 }

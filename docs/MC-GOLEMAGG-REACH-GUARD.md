@@ -74,6 +74,7 @@ Settings are read once at startup, so changes need a Worldserver restart.
 - **Ownership:** the listener belongs to the engine. Playerbots deletes it together with the bot's AI. The module never deletes or removes it.
 - **Duplicates:** a per-Player record holds the AI object, the engines already registered, and a liveness flag that the listener clears when it is deleted. The record is never erased, which is what prevents duplicate listeners.
 - **AI replacement:** Playerbots can replace a live player's AI object. A changed AI or a cleared flag starts a fresh record, and the new combat engine is registered once.
+- **One combat engine per AI:** at Playerbots `d750b4b`/`e88cc409`, the `PlayerbotAI` constructor creates exactly one combat engine, and it is never reassigned (`PlayerbotAI.cpp` L160–163). `ChangeEngine` and `Reset` only switch between the existing engines. So in practice the record holds at most one engine per AI, and repeated pulls, wipes, map changes and combat exits register it once. That is verified for these revisions only; a Playerbots update that rebuilds engines would need this re-checked.
 
 ## Tests
 
