@@ -107,7 +107,7 @@ Conservative classifications:
 | Normal planned stop or intentional administrative restart | No crash record | Preserves established planned-stop semantics |
 | Error burst with process still running | Separate rate-limited warning only | Does **not** increment crash count |
 | Hang without verified death | Optional separate warning, after review | Not a crash |
-| Freeze detector logs `forcing a crash`, then an actual fatal termination is verified | Record once | On pinned non-Windows core the `ABORT` macro invokes `Acore::Abort`, then `Crash()` performs a null-pointer store, ordinarily SIGSEGV (not assumed SIGABRT). Correlate the freeze log with the actual signal; original hang cause may remain unknown |
+| Freeze detector logs `forcing a crash`, then an actual fatal termination is verified | Record once | On pinned non-Windows core the `ABORT` macro invokes `Acore::Abort`, **sleeps about 10 seconds**, then `Crash()` performs a null-pointer store, ordinarily SIGSEGV (not assumed SIGABRT). Correlate the freeze log with the later verified death using one process-invocation identity; do not create two incidents because the timestamps differ. The original hang cause may remain unknown |
 | `auth.uptime.EndTime IS NULL` without process/supervisor corroboration | Retain unfinished-session evidence; do not automatically count | Process may still be running or may have crashed during teardown |
 | Shutdown/restart status unavailable | Fail closed on cause; preserve evidence | Unknown; report only when unexpected death verified |
 
@@ -280,7 +280,7 @@ Only disposable local subprocesses or mock event streams:
 | Two distinct deaths reuse same PID but verified different starts | Two distinct incident IDs and reports |
 | Planned restart code 2 followed by real fatal teardown | Distinguish scheduled intent from independently proven fatal termination |
 | Disposable child exits 0/1/2 and SIGABRT/SIGSEGV under the pinned GDB-enabled `starter` | Recorded probe: GDB statuses 1/1/1/0/0, while `starter` reports 0/0/0/0/0; a monitor must not infer child status, crash, or restart from this masked wrapper status |
-| Freeze detector `forcing a crash` warning followed by its pinned non-Windows null-store SIGSEGV | One report with confirmed freeze-trigger evidence; record actual observed signal, not a fictitious SIGABRT or proven original hang cause |
+| Freeze detector `forcing a crash` warning followed **about 10 seconds later** by its pinned non-Windows null-store SIGSEGV | One report for the same verified invocation, not one report per distinct timestamp. Correlate the delayed fatal signal with the freeze warning; record actual observed signal, not fictitious SIGABRT or a proven original hang cause |
 | Two writers concurrently publish one report | Exactly one file; other receives `EEXIST` and retains no duplicate |
 | Existing report final filename collision | No old report overwritten, safe alternative error channel |
 | Link/publish succeeded but index rewrite interrupted | Rebuild from immutable reports/sidecars, no duplicate |
