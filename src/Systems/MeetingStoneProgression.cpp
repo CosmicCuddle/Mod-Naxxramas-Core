@@ -36,6 +36,19 @@ namespace
     constexpr uint8 LEGACY_IP_TBC_ENTRY = 7;
     constexpr uint32 CURRENT_IP_TBC_ENTRY_QUEST = 66000 + CURRENT_IP_TBC_ENTRY;
 
+    // Issue #84: the second-stage Warlock Ritual of Summoning portal is a
+    // type-23 GO (194097) spawned by spell 61993. Only that exact pair is
+    // handed back to the stock core path; every other type-23 stone stays
+    // blocked for pre-TBC players.
+    constexpr uint32 WARLOCK_RITUAL_PORTAL_GO_ENTRY = 194097;
+    constexpr uint32 WARLOCK_RITUAL_PORTAL_SPELL_ID = 61993;
+
+    bool IsWarlockRitualPortal(GameObject const* go)
+    {
+        return go->GetEntry() == WARLOCK_RITUAL_PORTAL_GO_ENTRY &&
+            go->GetSpellId() == WARLOCK_RITUAL_PORTAL_SPELL_ID;
+    }
+
 #if NAXXRAMAS_MEETING_STONES_HAS_IP_HEADER
     // Distinguish the current hidden-quest IP API from the older player-
     // settings IP API at compile time, without depending on enum names
@@ -117,6 +130,9 @@ public:
 
         if (!IsVanillaProgression(player))
             return false; // Hand off to AzerothCore for TBC/WotLK.
+
+        if (IsWarlockRitualPortal(go))
+            return false; // #84: stock core handles the Warlock portal.
 
         // Returning true stops GameObject::Use before the native
         // meeting-stone summon starts; the stone remains visible.
