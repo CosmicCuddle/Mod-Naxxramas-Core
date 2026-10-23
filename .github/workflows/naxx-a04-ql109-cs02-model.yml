@@ -1,0 +1,37 @@
+name: A04 QL109 CS02 fail-open and sparkle model (synthetic only)
+
+on:
+  push:
+    branches:
+      - cs02/a04-ql-109-triage-2026-10-23
+    paths:
+      - tests/test_ql109_cs02_failopen_and_sparkle.py
+      - docs/research/A04-QL-109-CS02-ROOT-CAUSE-TRIAGE.md
+      - .github/workflows/naxx-a04-ql109-cs02-model.yml
+  pull_request:
+    paths:
+      - tests/test_ql109_cs02_failopen_and_sparkle.py
+      - docs/research/A04-QL-109-CS02-ROOT-CAUSE-TRIAGE.md
+      - .github/workflows/naxx-a04-ql109-cs02-model.yml
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-source-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact event head (read-only)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run CS02 fail-open and sparkle model
+        run: python3 -m unittest discover -s tests -p 'test_ql109_cs02_failopen_and_sparkle.py' -v
+
+      - name: Confirm this job publishes nothing
+        run: |
+          test -f tests/test_ql109_cs02_failopen_and_sparkle.py
+          test -f docs/research/A04-QL-109-CS02-ROOT-CAUSE-TRIAGE.md
+          echo 'Synthetic model and module source contract only. No artifact upload, package, binary, or deploy.'
