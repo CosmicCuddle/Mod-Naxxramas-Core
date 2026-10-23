@@ -1742,6 +1742,19 @@ namespace NaxxramasBotTalentImport
             return false;
 
         bool const randomBot = sRandomPlayerbotMgr.IsRandomBot(bot);
+        // NT1-ALT-01: readiness does not establish that native talent reset
+        // and its script hooks preserve earned equipment or pet state.
+        // Until a genuinely gear-inert module-only changed-build path exists,
+        // deny every Alt Bot before ImportScope, reset, learning or DB writes.
+        // Random Bot Apply remains unchanged.
+        if (!randomBot)
+        {
+            error = "Alt Bot NT1 Apply blocked: no verified zero-equipment-"
+                    "mutation talent reset is available. "
+                    "No talents or equipment changed.";
+            return false;
+        }
+
         uint8 const spec = bot->GetActiveSpec();
         ImportScope const scope(bot);
         bot->resetTalents(true);

@@ -1,0 +1,26 @@
+name: NT1 Altbot fail-closed source checks
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/BotTalentImport.cpp'
+      - 'tests/test_nt1_altbot_apply_guard_review.py'
+      - 'docs/NT1-ALTBOT-RESET-FAIL-CLOSED.md'
+      - '.github/workflows/nt1-altbot-fail-closed.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check original-source guard and compile extracted C++ fragment
+        run: python3 -m unittest discover -s tests -p 'test_nt1_altbot_apply_guard_review.py' -v
+      - name: Scope
+        run: |
+          echo 'Source and synthetic tests only. NOT a full Worldserver or gameplay test.'
+          echo 'No artifacts, installation, SQL, characters, equipment, merge or deployment.'
