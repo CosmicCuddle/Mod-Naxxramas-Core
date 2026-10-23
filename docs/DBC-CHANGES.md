@@ -208,6 +208,25 @@ Skill with Swords and Two-Handed Swords increased by 5.
 
 The current description for `90052` states that attacks and damaging spells can drain the target, dealing Shadow damage and healing the caster for the same amount, with a 15-second internal limitation described in the tooltip.
 
+## Additional custom Spell.dbc dependencies — source inventory only
+
+The following custom spell IDs are **referenced by the module source**, but the actual client/server Spell.dbc files and the numeric effect-field values have **not** been independently inspected in this documentation audit. This section is a release/rollback inventory requirement, **not** proof that any current server or client file contains the rows, nor a proposal to create or modify the rows automatically.
+
+### 90058 — Wrack (Warlock)
+
+- `src/Class/Warlock/WarlockWrack.cpp` learns/removes spell `90058` for the active specialization when **Shadow Mastery rank 5** (`18275`) is present/absent.
+- `src/Class/Warlock/WarlockWrackBots.cpp` also references `90058` for eligible Warlock Playerbots.
+- **Release validation needed:** Verify the actual `Spell.dbc` row is present in the server *and* the matching client DBC/MPQ; independently inspect channel, target, costs, duration, visuals, rank/talent behaviour. Do **not** invent missing Spell.dbc effect fields from the C++ identifier alone.
+
+### 90059–90066 — Rockbiter hidden helpers (Shaman)
+
+- `90059`: hidden Rockbiter threat proc aura, referenced by `src/Class/Shaman/ShamanRockbiter.cpp`.
+- `90060`, `90061`, `90062`, `90063`, `90064`, `90065`, `90066`: seven level-scaled Rockbiter attack-power helper spells for ranks 1–7. The source defines endpoints `90060` and `90066` and derives each intermediate ID by `90060 + rank - 1`.
+- The source reads these helpers through `sSpellMgr->GetSpellInfo(helperSpellId)` to calculate AP. An absent helper may therefore make the rank's intended AP behaviour unavailable.
+- **Release validation needed:** Compare all eight IDs against server and client `Spell.dbc` and their numeric scaling fields, the active module and applicable SQL. `SpellItemEnchantment.dbc` is explicitly **not** modified for this restoration.
+
+**Scope boundary:** This inventory deliberately names dependencies only. No row editing, importing, packaging, release, DBC extraction, live server read or inferred DBC field values are authorised here. Before an approved future DBC change, back up **both** complete known-working client and server DBC files as well as affected rows, and retain a tested rollback copy.
+
 ## Backup checklist
 
 Known rows to preserve for this patch line:
@@ -225,6 +244,15 @@ Spell.dbc
 90055 - Rend Flurry Strike
 90056 - Rend Flurry Internal Cooldown
 90057 - Improved Rend Rank 3
+90058 - Wrack (Warlock custom spell)
+90059 - Rockbiter hidden threat proc aura
+90060 - Rockbiter AP helper rank 1
+90061 - Rockbiter AP helper rank 2
+90062 - Rockbiter AP helper rank 3
+90063 - Rockbiter AP helper rank 4
+90064 - Rockbiter AP helper rank 5
+90065 - Rockbiter AP helper rank 6
+90066 - Rockbiter AP helper rank 7
 
 Talent.dbc
 124  - Improved Heroic Strike

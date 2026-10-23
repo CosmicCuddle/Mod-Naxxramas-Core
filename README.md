@@ -103,7 +103,7 @@ The current documented release baseline remains **1.0.6.8.4**. Development sourc
 
 #### Blood Elf — Mana Tap / Arcane Torrent
 
-- **Mana Tap** (`28734`) restored as a starting Blood Elf racial.
+- **Mana Tap** (`28734`) is provided by `data/sql/db-world/2026_09_20_02_blood_elf_mana_tap.sql` through `playercreateinfo_spell_custom`. **Dependency:** AzerothCore must have `PlayerStart.CustomSpells = 1` in the effective `worldserver.conf`; `Player::LearnCustomSpells()` returns immediately when that option is disabled. The module does not toggle this setting automatically. Without learning Mana Tap, the charge/resource component of Arcane Torrent cannot operate as intended. **The owner's current setting has not been checked.** Back up the effective config before any separately approved change; confirm whether the custom racial should be enabled as part of an eventual staged test.
 - **Arcane Torrent** keeps the WotLK 2-second silence while restoring the Mana Tap charge/resource interaction.
 - Supports the Mana (`28730`) and Energy (`25046`) Arcane Torrent variants.
 
