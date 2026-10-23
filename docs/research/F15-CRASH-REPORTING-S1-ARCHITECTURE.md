@@ -2,8 +2,9 @@
 
 **Status:** DRAFT / S1 peer-review corrections, research only; no executable monitor,
 changes to host services, server, SQL, DBC, configuration, or restart logic.
-This revision incorporates CS01/CS03 source review findings; CS02's GDB synthetic
-assessment, owner's actual launcher and independent re-review are still pending.
+This revision incorporates CS01/CS03 source reviews and CS02's disposable GDB/launcher
+probe (review of `f68fa1f`). The owner's actual launcher and fresh final-head
+independent review remain pending.
 
 - [Master F15 requirements](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28#issuecomment-6366816579)
 - [F15 coordination and three-developer assignments](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6366834172)
@@ -32,11 +33,23 @@ equivalent. Pinned `World.h` defines **0 normal stop, 1 error, 2 intended
 restart**. Code 2 is NOT a crash when the planned restart is independently
 confirmed; do not classify *every* nonzero wrapper status as a crash. A later
 crash during a planned shutdown is still possible and must not be suppressed.
-**Crucial unknown:** a GDB batch exit status is not automatically the fatal
-signal of its inferior process. A GDB `--batch` script may exit 0 after
-capturing a fatal inferior signal and thereby affect the bundled restarter;
-CS02 must reproduce/refute this **with a disposable subprocess only**. No
-assumed fix or installed GDB/launcher choice is authorised.
+**Verified disposable-probe hazard (CS02, no owner server):** the pinned
+`starter` script with `GDB_ENABLED=1` and an empty GDB-file input returned **0
+for every tested child result** (exit 0, 1, 2, SIGABRT, SIGSEGV). Its trailing
+`rm -f "$GDB_TEMP_FILE"` masks the GDB status. The generated GDB `--batch`
+script returned **1** for ordinary exits 0/1/2 (because backtrace commands
+find no stack) and **0** for SIGABRT/SIGSEGV (after capturing their signal).
+The GDB return code is neither the inferior's exit code nor a safe crash
+classifier. The pinned `simple-restarter` reads the masked `starter` status:
+under this tested GDB setup it would interpret every case as clean and stop
+instead of distinguishing a crash, error, or planned restart. With
+`GDB_ENABLED=0`, the disposable `starter` returned the original child codes
+0, 1, 2, 134 and 139 respectively; that is NOT evidence about the owner's
+unknown launcher or options. **No restart/monitor implementation can rely on
+this wrapper status for crash counting without an independently validated
+actual-child event source and preservation of restart behaviour.**
+The six-crash live loop was not exercised. This is design evidence only;
+no assumed fix or installed GDB/launcher choice is authorised.
 
 `src/starter` (around lines 216–294) can run GDB and produce
 `gdb-<timestamp>.txt` in the configured crashes path; this is an optional
@@ -94,7 +107,7 @@ Conservative classifications:
 | Normal planned stop or intentional administrative restart | No crash record | Preserves established planned-stop semantics |
 | Error burst with process still running | Separate rate-limited warning only | Does **not** increment crash count |
 | Hang without verified death | Optional separate warning, after review | Not a crash |
-| Freeze detector explicitly logs a forced abort, then actual SIGABRT verified | Record once | `Freeze detector` as confirmed trigger; original hang root cause still may be unknown |
+| Freeze detector logs `forcing a crash`, then an actual fatal termination is verified | Record once | On pinned non-Windows core the `ABORT` macro invokes `Acore::Abort`, then `Crash()` performs a null-pointer store, ordinarily SIGSEGV (not assumed SIGABRT). Correlate the freeze log with the actual signal; original hang cause may remain unknown |
 | `auth.uptime.EndTime IS NULL` without process/supervisor corroboration | Retain unfinished-session evidence; do not automatically count | Process may still be running or may have crashed during teardown |
 | Shutdown/restart status unavailable | Fail closed on cause; preserve evidence | Unknown; report only when unexpected death verified |
 
@@ -266,8 +279,8 @@ Only disposable local subprocesses or mock event streams:
 | Journal, wrapper and GDB see the same death at different UTC times | Identical filename from canonical process start + event ID; body stores all observer times |
 | Two distinct deaths reuse same PID but verified different starts | Two distinct incident IDs and reports |
 | Planned restart code 2 followed by real fatal teardown | Distinguish scheduled intent from independently proven fatal termination |
-| Disposable inferior SIGSEGV under generated `gdb --batch` script | Record actual GDB/wrapper outcomes; **pending experiment**; never test a real server |
-| Freeze detector warning followed by verified SIGABRT | One report with confirmed abort trigger; no false root-cause certainty |
+| Disposable child exits 0/1/2 and SIGABRT/SIGSEGV under the pinned GDB-enabled `starter` | Recorded probe: GDB statuses 1/1/1/0/0, while `starter` reports 0/0/0/0/0; a monitor must not infer child status, crash, or restart from this masked wrapper status |
+| Freeze detector `forcing a crash` warning followed by its pinned non-Windows null-store SIGSEGV | One report with confirmed freeze-trigger evidence; record actual observed signal, not a fictitious SIGABRT or proven original hang cause |
 | Two writers concurrently publish one report | Exactly one file; other receives `EEXIST` and retains no duplicate |
 | Existing report final filename collision | No old report overwritten, safe alternative error channel |
 | Link/publish succeeded but index rewrite interrupted | Rebuild from immutable reports/sidecars, no duplicate |
@@ -281,10 +294,11 @@ by this document.
 
 ## 8. Review gates and handoff
 
-**CS02 (Grok):** inspect real public starter/wrapper semantics for GDB
-inferior status vs wrapper exit, including a disposable `gdb --batch`
-SIGSEGV synthetic reproduction, and whether exact signals can be trusted;
-review explicit restart code 2 vs unexpected death and burst thresholds.
+**CS02 (Grok):** disposable public GDB/starter investigation **reported**
+against the pinned source (exit 0/1/2, SIGABRT, SIGSEGV; wrapper status
+masking). Independently re-review this corrected final head and ensure that
+restart code 2, actual-child event identity and anti-loop safeguards remain
+separate from the wrapper's misleading exit status.
 
 **CS03 (Claude):** compare Linux supervisor adapters, lease/locking and
 `/root` least-privilege delivery, validate index crash-consistency; plan
