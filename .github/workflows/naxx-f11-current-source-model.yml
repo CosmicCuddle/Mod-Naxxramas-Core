@@ -1,0 +1,43 @@
+name: F11 Hallow's End source-count characterization (read-only)
+
+on:
+  push:
+    branches:
+      - cs01/f11-human-count-s1-source-characterization-20261023
+    paths:
+      - tests/test_f11_current_fire_count_characterization.py
+      - docs/research/F11-HALLOWS-END-HUMAN-COUNT-S1.md
+      - .github/workflows/naxx-f11-current-source-model.yml
+  pull_request:
+    paths:
+      - tests/test_f11_current_fire_count_characterization.py
+      - docs/research/F11-HALLOWS-END-HUMAN-COUNT-S1.md
+      - .github/workflows/naxx-f11-current-source-model.yml
+
+permissions:
+  contents: read
+
+jobs:
+  source-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact branch or PR head, read-only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact direct commit head
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Run merged-source characterization tests only
+        run: python3 -m unittest discover -s tests -p 'test_f11_current_fire_count_characterization.py' -v
+
+      - name: Confirm only source research and no packaging
+        run: |
+          test -f docs/research/F11-HALLOWS-END-HUMAN-COUNT-S1.md
+          test -f tests/test_f11_current_fire_count_characterization.py
+          echo 'S1 source model only: no module compile, artifacts, game or deployment.'
