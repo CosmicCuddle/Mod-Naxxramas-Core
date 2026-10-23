@@ -1541,6 +1541,12 @@ namespace NaxxramasBotTalentImport
         return true;
     }
 
+    // Read-only exact-rank comparator is implemented after the diagnostic
+    // helpers. Declare it before CheckApplyReadiness to compile against
+    // the real pinned AzerothCore/Playerbots headers.
+    bool HasVerifiedExactActiveBuild(Player const* bot,
+        ValidatedBuild const& requested);
+
     // Shared, READ-ONLY readiness check. Used by Preview to report whether
     // Apply can currently proceed, and rerun immediately before any reset.
     // It can query the database and read bot state, but NEVER resets,
