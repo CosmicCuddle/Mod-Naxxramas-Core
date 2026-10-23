@@ -170,7 +170,7 @@ int main()
     def test_clear_reset_and_logout_cancel_future_actions(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertGreaterEqual(source.count("tracker.FireProtectionOneShots.clear();"), 2)
-        self.assertIn("RaidConsumableTrackers.erase(", source)
+        self.assertIn("EraseRaidConsumableTracker(", source)
         self.assertIn("OnPlayerLogout(", source)
         self.assertIn("ProcessOneShotFireProtections(player, tracker, diff);", source)
 

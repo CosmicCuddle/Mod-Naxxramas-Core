@@ -49,6 +49,7 @@
 #include <algorithm>
 #include <cctype>
 #include <initializer_list>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -325,7 +326,7 @@ namespace
         NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};
     };
 
-    struct RaidConsumableTracker
+    struct RaidConsumableTracker final : DataMap::Base
     {
         std::string Profile;
         uint32 UpdateTimer = 0;
@@ -355,14 +356,44 @@ namespace
         std::vector<std::string> DebugMessages;
     };
 
-    std::unordered_map<ObjectGuid::LowType, RaidConsumableTracker>
-        RaidConsumableTrackers;
+    // Thread safety (#114): player hooks run on parallel map threads
+    // when MapUpdate.Threads > 1, and each Player is only updated by the
+    // thread of its current map.
+    //
+    // - The tracker and the alive flag belong to one Player and are only
+    //   touched for that Player, so they live in Player::CustomData.
+    // - The command cooldown is cross-player: a death on one map clears
+    //   the cooldown of every group member, who may be on another map.
+    //   It stays a shared map guarded by ConsumableCooldownLock. Hold the
+    //   lock only around the map access itself, never around game calls.
+    constexpr char const* RAID_CONSUMABLE_TRACKER_KEY =
+        "NaxxramasCore.BotRaidConsumables.Tracker";
+    constexpr char const* CONSUMABLE_ALIVE_STATE_KEY =
+        "NaxxramasCore.BotRaidConsumables.AliveState";
+
+    struct ConsumableAliveState final : DataMap::Base
+    {
+        bool Alive = false;
+    };
+
+    RaidConsumableTracker* FindRaidConsumableTracker(
+        Player* player)
+    {
+        return player->CustomData.Get<RaidConsumableTracker>(
+            RAID_CONSUMABLE_TRACKER_KEY);
+    }
+
+    void EraseRaidConsumableTracker(
+        Player* player)
+    {
+        player->CustomData.Erase(
+            RAID_CONSUMABLE_TRACKER_KEY);
+    }
+
+    std::mutex ConsumableCooldownLock;
 
     std::unordered_map<ObjectGuid::LowType, uint64>
         ConsumableCooldownUntil;
-
-    std::unordered_map<ObjectGuid::LowType, bool>
-        ConsumableAliveState;
 
     void AddConsumableDebugMessage(
         PreparationStats& stats,
@@ -440,6 +471,12 @@ namespace
             player->GetGUID().
                 GetCounter();
 
+        uint64 now =
+            GetConsumableNow();
+
+        std::lock_guard<std::mutex> lock(
+            ConsumableCooldownLock);
+
         auto itr =
             ConsumableCooldownUntil.find(
                 guid);
@@ -449,9 +486,6 @@ namespace
         {
             return 0;
         }
-
-        uint64 now =
-            GetConsumableNow();
 
         if (itr->second <= now)
         {
@@ -470,11 +504,19 @@ namespace
         if (!player)
             return;
 
-        ConsumableCooldownUntil[
+        ObjectGuid::LowType guid =
             player->GetGUID().
-                GetCounter()] =
+                GetCounter();
+
+        uint64 until =
             GetConsumableNow() +
             CONSUMABLE_COMMAND_COOLDOWN_SECONDS;
+
+        std::lock_guard<std::mutex> lock(
+            ConsumableCooldownLock);
+
+        ConsumableCooldownUntil[guid] =
+            until;
     }
 
     void ResetConsumableCooldownForGroup(
@@ -486,28 +528,42 @@ namespace
         Group* group =
             deadPlayer->GetGroup();
 
+        // Collect the GUIDs first so the lock is never held while
+        // walking the group.
+        std::vector<ObjectGuid::LowType> guids;
+
         if (!group)
         {
-            ConsumableCooldownUntil.erase(
+            guids.push_back(
                 deadPlayer->GetGUID().
                     GetCounter());
-            return;
+        }
+        else
+        {
+            for (GroupReference* itr =
+                     group->GetFirstMember();
+                 itr != nullptr;
+                 itr = itr->next())
+            {
+                Player* member =
+                    itr->GetSource();
+
+                if (!member)
+                    continue;
+
+                guids.push_back(
+                    member->GetGUID().
+                        GetCounter());
+            }
         }
 
-        for (GroupReference* itr =
-                 group->GetFirstMember();
-             itr != nullptr;
-             itr = itr->next())
+        std::lock_guard<std::mutex> lock(
+            ConsumableCooldownLock);
+
+        for (ObjectGuid::LowType guid : guids)
         {
-            Player* member =
-                itr->GetSource();
-
-            if (!member)
-                continue;
-
             ConsumableCooldownUntil.erase(
-                member->GetGUID().
-                    GetCounter());
+                guid);
         }
     }
 
@@ -3562,25 +3618,18 @@ public:
             uint32 mapId,
             ProfileArea area)
     {
-        ObjectGuid::LowType masterGuid =
-            master->GetGUID().
-                GetCounter();
-
-        auto oldTracker =
-            RaidConsumableTrackers.find(
-                masterGuid);
-
-        if (oldTracker !=
-            RaidConsumableTrackers.end())
+        if (RaidConsumableTracker* oldTracker =
+                FindRaidConsumableTracker(
+                    master))
         {
             ClearTrackedAuras(
                 master,
-                oldTracker->second);
+                *oldTracker);
         }
 
         RaidConsumableTracker& tracker =
-            RaidConsumableTrackers[
-                masterGuid];
+            *master->CustomData.GetDefault<RaidConsumableTracker>(
+                RAID_CONSUMABLE_TRACKER_KEY);
 
         tracker.Profile = profile;
         tracker.UpdateTimer = 0;
@@ -4277,13 +4326,11 @@ public:
         if (!master)
             return false;
 
-        auto itr =
-            RaidConsumableTrackers.find(
-                master->GetGUID().
-                    GetCounter());
+        RaidConsumableTracker const* trackerPtr =
+            FindRaidConsumableTracker(
+                master);
 
-        if (itr ==
-            RaidConsumableTrackers.end())
+        if (!trackerPtr)
         {
             handler->SendSysMessage(
                 "[Bot Consumables] No consumable profile is currently being tracked.");
@@ -4291,7 +4338,7 @@ public:
         }
 
         RaidConsumableTracker const& tracker =
-            itr->second;
+            *trackerPtr;
 
         uint32 cooldownRemaining =
             GetConsumableCooldownRemaining(
@@ -4367,16 +4414,11 @@ public:
         if (!master)
             return false;
 
-        ObjectGuid::LowType masterGuid =
-            master->GetGUID().
-                GetCounter();
+        RaidConsumableTracker* tracker =
+            FindRaidConsumableTracker(
+                master);
 
-        auto itr =
-            RaidConsumableTrackers.find(
-                masterGuid);
-
-        if (itr ==
-            RaidConsumableTrackers.end())
+        if (!tracker)
         {
             handler->SendSysMessage(
                 "[Bot Consumables] Nothing is currently being tracked.");
@@ -4385,10 +4427,10 @@ public:
 
         ClearTrackedAuras(
             master,
-            itr->second);
+            *tracker);
 
-        RaidConsumableTrackers.erase(
-            itr);
+        EraseRaidConsumableTracker(
+            master);
 
         handler->SendSysMessage(
             "[Bot Consumables] Tracked consumable auras have been removed and tracking has been cleared.");
@@ -4571,47 +4613,39 @@ public:
         if (!player)
             return;
 
-        ObjectGuid::LowType guid =
-            player->GetGUID().
-                GetCounter();
-
         bool alive =
             player->IsAlive();
 
-        auto aliveItr =
-            ConsumableAliveState.find(
-                guid);
+        ConsumableAliveState* aliveState =
+            player->CustomData.Get<ConsumableAliveState>(
+                CONSUMABLE_ALIVE_STATE_KEY);
 
-        if (aliveItr ==
-            ConsumableAliveState.end())
+        if (!aliveState)
         {
-            ConsumableAliveState[
-                guid] = alive;
+            player->CustomData.GetDefault<ConsumableAliveState>(
+                CONSUMABLE_ALIVE_STATE_KEY)->Alive = alive;
         }
         else
         {
-            if (aliveItr->second &&
+            if (aliveState->Alive &&
                 !alive)
             {
                 ResetConsumableCooldownForGroup(
                     player);
             }
 
-            aliveItr->second = alive;
+            aliveState->Alive = alive;
         }
 
-        auto itr =
-            RaidConsumableTrackers.find(
-                guid);
+        RaidConsumableTracker* trackerPtr =
+            FindRaidConsumableTracker(
+                player);
 
-        if (itr ==
-            RaidConsumableTrackers.end())
-        {
+        if (!trackerPtr)
             return;
-        }
 
         RaidConsumableTracker& tracker =
-            itr->second;
+            *trackerPtr;
 
         if (!IsProfileLocationValid(
                 player,
@@ -4619,7 +4653,8 @@ public:
                 tracker.RequiredArea))
         {
             ClearTrackedAuras(player, tracker);
-            RaidConsumableTrackers.erase(itr);
+            // Invalidates 'tracker'; nothing below may use it.
+            EraseRaidConsumableTracker(player);
 
             if (player->GetSession())
             {
@@ -4658,15 +4693,11 @@ public:
         if (!player)
             return;
 
-        ObjectGuid::LowType guid =
-            player->GetGUID().
-                GetCounter();
+        EraseRaidConsumableTracker(
+            player);
 
-        RaidConsumableTrackers.erase(
-            guid);
-
-        ConsumableAliveState.erase(
-            guid);
+        player->CustomData.Erase(
+            CONSUMABLE_ALIVE_STATE_KEY);
 
         // Keep an unexpired cooldown across logout so relogging
         // cannot bypass the 10-minute restriction.

@@ -32,7 +32,6 @@
 #include "Unit.h"
 
 #include <list>
-#include <unordered_map>
 
 namespace NaxxramasRendFlurryBots
 {
@@ -45,7 +44,16 @@ namespace NaxxramasRendFlurryBots
     constexpr uint32 UPDATE_INTERVAL_MS = 200;
     constexpr uint8 MIN_PRIMARY_TARGET_HEALTH_PCT = 20;
 
-    std::unordered_map<ObjectGuid::LowType, uint32> UpdateTimers;
+    // Per-bot throttle lives in Player::CustomData, not in a shared map.
+    // OnPlayerBeforeUpdate runs on parallel map threads
+    // (MapUpdate.Threads > 1); each Player is only updated by the thread
+    // of its current map.
+    constexpr char const* UPDATE_TIMER_KEY = "NaxxramasCore.RendFlurryBots.UpdateTimer";
+
+    struct UpdateTimerState final : DataMap::Base
+    {
+        uint32 Timer = 0;
+    };
 
     bool IsBleedImmune(Unit* target)
     {
@@ -218,11 +226,9 @@ namespace NaxxramasRendFlurryBots
         if (!botAI)
             return;
 
-        ObjectGuid::LowType guid =
-            bot->GetGUID().GetCounter();
-
         uint32& timer =
-            UpdateTimers[guid];
+            bot->CustomData.GetDefault<UpdateTimerState>(
+                UPDATE_TIMER_KEY)->Timer;
 
         if (timer > diff)
         {
@@ -286,11 +292,8 @@ public:
         if (!player)
             return;
 
-        NaxxramasRendFlurryBots::
-            UpdateTimers.erase(
-                player->
-                    GetGUID().
-                    GetCounter());
+        player->CustomData.Erase(
+            NaxxramasRendFlurryBots::UPDATE_TIMER_KEY);
     }
 };
 
