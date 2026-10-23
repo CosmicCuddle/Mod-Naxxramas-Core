@@ -27,6 +27,18 @@ That creates a more precise *source-backed* explanation for **'my friend's loot 
 
 **Design consequence:** a future corpse-sparkle-only `UnitScript::OnPatchValuesUpdate` correction is **insufficient** if the friend can still open a corpse for legitimate gold/other loot and find an unauthorized quest row marked available. The client loot-window row/slot-type presentation and server authoritative pickup denial both require explicit safe, peer-reviewed coverage. Do not globally remove quest views or rewrite `SMSG_LOOT_RESPONSE` without proving slot-index stability and preservation of valid loot for that viewer.
 
+## 5. Socket-bound send hook cannot safely rewrite one item row (pinned source)
+
+Read-only verified against Grimfeather AzerothCore `8daffdabe`:
+
+- `src/server/game/Server/WorldSession.cpp::SendPacket` (~307–360) first calls `OnPacketSent(session, *packet)`; if a socket exists it then calls `CanPacketSend(session, *packet)` and either returns (false) or sends the **entire unchanged packet**. With no socket, bot sessions return before the send veto.
+- `src/server/game/Scripting/ScriptDefines/ServerScript.h` provides `bool CanPacketSend(WorldSession*, WorldPacket const&)` and `void OnPacketSent(WorldSession*, WorldPacket const&)`. The former can **allow or deny a whole outgoing response**, and both receive a **const packet**; neither is an endorsed item-aware mutable serializer API. Casting away const or re-sending substitute packets is not a safe workaround.
+- The `UnitScript::OnPatchValuesUpdate` hook affects unit *field flags* (corpse sparkle), not the later `LootView` quest-item list or its `ALLOW_LOOT` slot type. `PlayerScript::OnPlayerBeforeFillQuestLootItem(Player*, LootItem&)` involves loot generation, not a demonstrated safe per-viewer send-time row-filter API, and changing the shared item could affect valid other viewers.
+
+**Negative design case:** if the viewer is correctly eligible for gold, an ordinary item, a roll or an independent FFA copy, **vetoing the entire `SMSG_LOOT_RESPONSE` to hide one wrongly advertised quest item would also hide that rightful reward**. The two added synthetic counterexample tests enforce this limitation in the research model; they do not exercise a real send hook.
+
+**Working architecture decision:** prefer the conservative per-viewer sparkle mask for the corpse only after proving entitlement; do not claim it fixes the loot window. The item-aware window and final pickup must be addressed separately through verified native hooks or a separately **owner-authorized** minimal upstream extension if no safe module-only alternative exists. No upstream work approved.
+
 ## Current-source synthetic matrix, **not owner gameplay**
 
 | Case | Native per-viewer sparkle model | Module packet denies? | Can proceed toward native storage? |
