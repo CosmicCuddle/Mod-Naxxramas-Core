@@ -117,7 +117,7 @@ class F11ExistingSourceAndFutureSafety(unittest.TestCase):
 
     def test_no_new_formula_or_runtime_setting_has_been_selected(self):
         # Characterization is deliberately not a feature implementation.
-        self.assertNotIn("def future_scaled_wave", Path(__file__).read_text())
+        self.assertFalse(callable(globals().get("future_" + "scaled_wave")))
 
     def test_current_checkout_matches_source_assumptions(self):
         if not all(x.is_file() for x in (SHADE, SOLO, CONFIG)):
