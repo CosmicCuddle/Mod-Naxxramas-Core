@@ -1,0 +1,112 @@
+name: Eastern Plaguelands full-capture announcement pinned Worldserver
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/EasternPlaguelandsTowerLock.cpp'
+      - 'tests/test_ep_tower_module_only.py'
+      - 'docs/EP-TOWER-FULL-CAPTURE-ZONE-ANNOUNCEMENT-2026-10-14.md'
+      - '.github/workflows/ep-full-capture-announcement-pinned.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ep-full-capture-announcement-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pinned-real-source-and-full-link:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout owner pinned Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7
+          path: acore
+          persist-credentials: false
+      - name: Checkout pinned Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact announcement PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify all four pinned source revisions
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Run existing EP regressions and manual-only SQL boundary
+        run: |
+          set -euo pipefail
+          module=acore/modules/mod-naxxramas-core
+          test -f "$module/docs/install/2026_10_13_00_ep_tower_lock_module_bind.sql"
+          test -f "$module/docs/rollback/2026_10_13_00_ep_tower_lock_module_unbind.sql"
+          test ! -e "$module/data/sql/db-world/2026_10_13_00_ep_tower_lock_module_bind.sql"
+          python3 -m unittest discover -s "$module/tests" -p 'test_ep_tower_module_only.py' -v
+      - name: Verify single post-persistence full-capture zone announcement
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path("acore/modules/mod-naxxramas-core/src/Systems/EasternPlaguelandsTowerLock.cpp").read_text()
+          update = src.split("bool Update(uint32 diff) override", 1)[1].split("void CorrectLateNorthpassShrine(", 1)[0]
+          assert update.count("map->SendZoneText(EP_GraveyardZone, message.c_str());") == 1
+          assert update.index("if (PackLock(this->_team, expiresAt, packed))") < update.index("sWorldState->setWorldState(TowerStateBase + Index, packed)") < update.index("map->SendZoneText(EP_GraveyardZone, message.c_str());")
+          assert 'message += " has secured ";' in update
+          assert 'message += TowerNames[Index];' in update
+          assert update.index("if (_expiresAt)") < update.index("map->SendZoneText(")
+          assert "Map* map = this->_pvp->GetMap()" in update
+          print("PASS: single custom zone notice only after accepted full-tower lock persistence.")
+          print("These source checks do NOT prove delivered in-game zone chat.")
+          PY
+      - name: Install isolated pinned Worldserver build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure actual pinned C++ and Worldserver build
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile real Eastern Plaguelands tower handler translation unit
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_ep_module_compile_commands.py \
+            --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Link full pinned Worldserver without launching it
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify EP custom handler linked and report binary SHA
+        run: |
+          set -euo pipefail
+          binary="$(find acore-build -type f -name worldserver -print -quit)"
+          test -n "$binary"
+          test -s "$binary"
+          test -x "$binary"
+          grep -aFq 'outdoorpvp_naxxramas_ep_lock' "$binary"
+          sha256sum "$binary"
+          echo "PASS: exact PR EP handler retained in final linked Worldserver."
+          echo "No installed-world, SQL, zone chat, client, merge or deployment test."

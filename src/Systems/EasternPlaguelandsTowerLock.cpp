@@ -13,6 +13,7 @@
 
 #include "GameTime.h"
 #include "GameObject.h"
+#include "Map.h"
 #include "OutdoorPvPScript.h"
 #include "WorldState.h"
 
@@ -27,13 +28,21 @@
 #endif
 
 #include <limits>
+#include <string>
 #include <type_traits>
 
 namespace
 {
-    // The lock duration is intentionally fixed. No config switch, custom
-    // countdown or extra capture/reset broadcast is requested by the owner.
+    // A full capture adds one zone announcement when its 90-minute lock
+    // starts; no countdown, replay on restart, or neutral-reset broadcast.
     constexpr uint64 TowerLockSeconds = 90 * 60;
+
+    // EP_Towers enum order in the original OutdoorPvPEP.h.
+    char const* const TowerNames[EP_TOWER_NUM] =
+    {
+        "Eastwall Tower", "Northpass Tower",
+        "Plaguewood Tower", "Crown Guard Tower"
+    };
 
     // One atomic per-tower packed value in acore_characters.worldstates.
     // IMPORTANT: check these IDs are absent in the owner's DB before install.
@@ -112,6 +121,21 @@ namespace
                 {
                     _expiresAt = expiresAt;
                     sWorldState->setWorldState(TowerStateBase + Index, packed);
+
+                    // Ordinary AzerothCore capture text is sent earlier, at
+                    // the ownership threshold. Announce actual 100% capture
+                    // only after this tower successfully starts its lock.
+                    // The locked Update path and restore/reset paths never
+                    // pass through here, so this fires once per full capture.
+                    if (Map* map = this->_pvp->GetMap())
+                    {
+                        std::string message = "The ";
+                        message += this->_team == TEAM_HORDE ? "Horde" : "Alliance";
+                        message += " has secured ";
+                        message += TowerNames[Index];
+                        message += "!";
+                        map->SendZoneText(EP_GraveyardZone, message.c_str());
+                    }
                 }
                 // An unrepresentable future timestamp must NOT start an
                 // unpersisted lock which could silently restart at login.
