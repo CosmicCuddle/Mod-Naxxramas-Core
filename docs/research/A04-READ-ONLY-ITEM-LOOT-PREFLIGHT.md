@@ -87,11 +87,53 @@ WHERE r.Item = @a04_item_id
 ORDER BY source_kind, source_loot_template_id, referenced_loot_template_id;
 ```
 
+
+## Source-template lookup after a candidate item ID is known
+
+These additional **read-only, one-reference-hop** searches map a candidate item to the *creature template* or *chest/fishing-hole gameobject template* that references its loot template. The first four queries identify item and loot rows, but a `creature_loot_template.Entry` is **not necessarily** a `creature_template.entry`. Pinned `CreatureData.h` has `CreatureTemplate::lootid`; pinned `GameObjectData.h` has `GameObjectTemplate::chest.lootId` at data index **1**, and `fishinghole.lootId` also at index **1**. This is template-level identification, **not proof** a specific player killed or opened that source. Both queries deliberately exclude further nested references, scripts, spells, skinning, pickpocketing and other award routes.
+
+```sql
+-- Creature template -> creature loot template; direct or one reference hop.
+-- A repeated source can have multiple matching loot rows; keep every row.
+SELECT c.entry AS creature_entry, c.name AS creature_name,
+       c.lootid AS creature_loot_template_id,
+       l.Entry AS matched_outer_loot_template_id,
+       l.Item AS direct_item_id, l.QuestRequired AS outer_quest_required,
+       l.Reference AS reference_id,
+       r.Item AS referenced_item_id, r.QuestRequired AS referenced_quest_required,
+       r.Reference AS deeper_reference_id
+FROM creature_template AS c
+JOIN creature_loot_template AS l ON c.lootid = l.Entry
+LEFT JOIN reference_loot_template AS r ON l.Reference = r.Entry
+WHERE l.Item = @a04_item_id OR r.Item = @a04_item_id
+ORDER BY c.entry, l.Entry, l.Item, r.Item;
+```
+
+```sql
+-- Chest type=3 and fishing-hole type=25 use Data1 as their GO loot ID.
+-- DO NOT join Data1 for other GO types: it has a different meaning.
+SELECT g.entry AS gameobject_entry, g.name AS gameobject_name,
+       g.type AS gameobject_type, g.Data1 AS go_loot_template_id,
+       l.Entry AS matched_outer_loot_template_id,
+       l.Item AS direct_item_id, l.QuestRequired AS outer_quest_required,
+       l.Reference AS reference_id,
+       r.Item AS referenced_item_id, r.QuestRequired AS referenced_quest_required,
+       r.Reference AS deeper_reference_id
+FROM gameobject_template AS g
+JOIN gameobject_loot_template AS l ON g.Data1 = l.Entry
+LEFT JOIN reference_loot_template AS r ON l.Reference = r.Entry
+WHERE g.type IN (3, 25)
+  AND (l.Item = @a04_item_id OR r.Item = @a04_item_id)
+ORDER BY g.entry, l.Entry, l.Item, r.Item;
+```
+
+**Interpretation limits:** `QuestRequired` on outer and referenced rows is *raw evidence*, not a calculated effective entitlement; the source item may be obtained through a different route as well. In the GO query, the `Data1` interpretation is constrained to **chest/fishing-hole types**; do not treat generic GO Data1 as a loot pointer. An absent result does not disprove the owner's incident. These are templates, not character loot logs or an instrumented reproduction. Query only on a read-only copy/account and do not commit any private outputs.
+
 **Reference limitation:** The query covers **one reference hop** only. A result with `deeper_reference_id != 0` signals another reference to investigate separately; a blank result does **not** prove that nested references, scripts, spells or other loot sources are absent. `outer_quest_required` and `referenced_quest_required` are raw table columns, not a proven resolved runtime rule. Public `reference_loot_template` DDL at the same pin confirms `Entry`, `Item`, `Reference`, `QuestRequired`, and `LootMode`. Do not commit owner world-row results.
 
 **Read-only SQL convenience note:** `SET @a04_item_id` changes only the local client session variable; it does not modify the world database. If using a server account restricted to `SELECT`, replace `@a04_item_id` with a literal constant and omit `SET`. The query is not meant to be executed with the placeholder 123456 as a real fact.
 
-All four query examples are SELECT-only after the optional session-local parameter declaration. Run only when an actual item ID is identified, on a backed-up read-only database or clone.
+All six query examples are SELECT-only after the optional session-local parameter declaration. Run only when an actual item ID is identified, on a backed-up read-only database or clone.
 
 ## Decision matrix after results exist
 
