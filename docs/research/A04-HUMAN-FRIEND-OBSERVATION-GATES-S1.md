@@ -55,3 +55,9 @@ These **extend** rather than replace main's QL-01–QL-15 and #117's decision ta
 - Request an independent source-only review of this matrix. A later implementation proposal requires explicit owner permission, a narrowly scoped default-OFF design, native tests, backups and rollback. Existing PR #117 remains OPEN DRAFT.
 
 **Status:** S1 documentation-only, no proposed hook write or automatic action. — CosmicScript01
+
+## Reproducible S1 synthetic observation contract (added after two peer reviews)
+
+The isolated [`tests/test_a04_human_friend_observation_s1.py`](../../tests/test_a04_human_friend_observation_s1.py) now covers the known **HF-01–HF-07** permit/deny distinctions, plus feature-OFF and absent-owner controls. [`a04-human-friend-observation-s1.yml`](../../.github/workflows/a04-human-friend-observation-s1.yml) checks out the exact PR head, runs the tests and publishes **no artifacts**. The test model intentionally assumes an otherwise in-range/grouped/eligible human corpse click to expose *which current source branch* lets a friend through; it does **not** replace #117's complete award-path model or prove native inventory results. The source-contract cases also distinguish an actual `LOOT_ERROR_LOCKED` denial from its optional debug log.
+
+These tests deliberately encode **current, known gaps** (a round-robin holder can take the only shared copy, released turn, ordinary `loot.items`, non-creature/chest loot) so that a future policy proposal must explicitly explain every changed expectation. **They do not choose A/B/C, grant entitlements, hide sparkle, allocate extra copies, edit SQL/DBC, run Worldserver or modify player inventories.** A newly green synthetic job is *not* a functional A04 fix, and S5/S6 still require owner approval, backup and reversible staging tests.
