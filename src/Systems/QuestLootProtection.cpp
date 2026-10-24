@@ -98,7 +98,11 @@ namespace NaxxramasQuestLootProtection
                 return true;
 
             LootItem const& item = loot.items[requestedSlot];
-            Player* turnOwner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);
+            // Restrict the pilot to the requester's live map. AzerothCore
+            // warns that global FindPlayer access is not thread-safe across
+            // maps; no cross-map owner fields may be inspected here.
+            // A departed/other-map owner fails open to native handling.
+            Player* turnOwner = ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer);
             bool ownerLiveHere = false;
             if (turnOwner && turnOwner->IsInWorld() &&
                 turnOwner->GetGroup() == group)
