@@ -21,6 +21,8 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 
+#include "QuestLootNormalSlotPolicy.h"
+
 namespace NaxxramasQuestLootProtection
 {
     bool Enabled()
@@ -33,6 +35,14 @@ namespace NaxxramasQuestLootProtection
     {
         return sConfigMgr->GetOption<bool>(
             "NaxxramasCore.QuestLootProtection.Debug", false);
+    }
+
+    // Separately gated experimental stock-loot visibility/award parity.
+    // Remains OFF even when the existing QuestLootProtection master is ON.
+    bool RestrictHiddenOrdinarySlots()
+    {
+        return sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.QuestLootProtection.RestrictHiddenOrdinarySlots", false);
     }
 
     // Return true to leave this request to normal AzerothCore validation.
@@ -79,7 +89,77 @@ namespace NaxxramasQuestLootProtection
         // specific: never index quest_items with the client slot directly.
         std::size_t const normalCount = loot.items.size();
         if (requestedSlot < normalCount)
-            return true;
+        {
+            // REVIEW-ONLY candidate: there is a native difference between
+            // ordinary-item loot window visibility and its store-time check.
+            // Never reinterpret normal quest-collection items as personal.
+            if (!RestrictHiddenOrdinarySlots())
+                return true;
+
+            LootItem const& item = loot.items[requestedSlot];
+            Player* turnOwner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);
+            bool ownerLiveHere = false;
+            if (turnOwner && turnOwner->IsInWorld() &&
+                turnOwner->GetGroup() == group)
+            {
+                Map const* ownerMap = turnOwner->FindMap();
+                Map const* requesterMap = player->FindMap();
+                Map const* sourceMap = creature->FindMap();
+                ownerLiveHere = ownerMap && ownerMap == requesterMap &&
+                    ownerMap == sourceMap &&
+                    turnOwner->GetInstanceId() == player->GetInstanceId() &&
+                    turnOwner->GetInstanceId() == creature->GetInstanceId();
+            }
+
+            namespace NormalSlot = NaxxramasQuestLootNormalSlotPolicy;
+            NormalSlot::Facts facts;
+            facts.Enabled = true;
+            switch (group->GetLootMethod())
+            {
+                case ROUND_ROBIN:
+                    facts.Method = NormalSlot::GroupMethod::RoundRobin;
+                    break;
+                case GROUP_LOOT:
+                    facts.Method = NormalSlot::GroupMethod::GroupLoot;
+                    break;
+                case NEED_BEFORE_GREED:
+                    facts.Method = NormalSlot::GroupMethod::NeedBeforeGreed;
+                    break;
+                default:
+                    facts.Method = NormalSlot::GroupMethod::Other;
+                    break;
+            }
+
+            facts.HasActiveTurn = bool(loot.roundRobinPlayer);
+            facts.RequesterHoldsTurn =
+                loot.roundRobinPlayer == player->GetGUID();
+            facts.OwnerPresentInSameGroupAndMap = ownerLiveHere;
+            facts.OrdinarySlotExists = true;
+            facts.IsLooted = item.is_looted;
+            facts.IsFreeForAllItem = item.freeforall;
+            facts.HasConditions = !item.conditions.empty();
+            facts.IsBlocked = item.is_blocked;
+            facts.HasRollWinner = bool(item.rollWinnerGUID);
+            facts.IsUnderThreshold = item.is_underthreshold;
+            facts.FollowsSpecialLootRules = item.follow_loot_rules;
+
+            if (!NormalSlot::RejectHiddenOrdinarySlot(facts))
+                return true;
+
+            // Only suppress a request for an ordinary slot that the
+            // stock per-viewer permission would hide. Native remains
+            // authoritative for all visible and unsupported slots.
+            if (Debug())
+                LOG_INFO("module",
+                    "QuestLootProtection: hidden ordinary item request "
+                    "player {} creature {} item {} slot {} owner {}",
+                    player->GetGUID().GetCounter(), creature->GetEntry(),
+                    item.itemid, uint32(requestedSlot),
+                    loot.roundRobinPlayer.GetCounter());
+
+            player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED);
+            return false;
+        }
 
         auto const& personal = loot.GetPlayerQuestItems();
         auto const found = personal.find(player->GetGUID());
