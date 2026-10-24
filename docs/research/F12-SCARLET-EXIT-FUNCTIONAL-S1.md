@@ -85,6 +85,11 @@ The design handles both, each behind its own switch.
     (`QuestLootProtection.cpp`, copy of the packet, read cursor kept).
   - Bots do not send this packet through the socket path
     (`HandleBotPackets` skips `CanPacketReceive`), so bots are unaffected.
+  - **Known limit:** Playerbots' `teleport` chat command (`e88cc409`,
+    `src/Ai/Base/Actions/TeleportAction.cpp` L100–107) replays the bot's
+    last area trigger by calling `HandleAreaTriggerOpcode` directly. That
+    skips `CanPacketReceive`, so such a bot gets the stock route (live row,
+    or join position/homebind in a Dungeon Finder group).
 
 ## 3. Proposed handler (S2, not written)
 
@@ -149,6 +154,7 @@ still clears Luck of the Draw and disbands one-person groups
 | S13 | `TeleportTo` refuses | Stock handler runs |
 | S14 | GM | Same as a player; with `.debug areatriggers` on, stock |
 | S15 | Bot follows the leader | Not affected (no socket packet) |
+| S15b | Bot told `teleport` after touching the exit (Playerbots `TeleportAction` replays the last area trigger) | **Not covered: stock** (known limit, see below) |
 | S16 | Cathedral vs Armory | Each uses its own target; never swapped |
 | S17 | Other instances' exits | Never touched |
 
