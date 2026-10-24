@@ -65,7 +65,7 @@ class GuardContract(unittest.TestCase):
 
     def test_same_live_group_and_map_fails_open_when_missing(self):
         for needle in (
-            "ObjectAccessor::FindPlayer(loot.roundRobinPlayer)",
+            "ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer)",
             "turnOwner->GetGroup() == group",
             "ownerMap == requesterMap",
             "ownerMap == sourceMap",
@@ -73,6 +73,24 @@ class GuardContract(unittest.TestCase):
             "facts.OwnerPresentInSameGroupAndMap = ownerLiveHere;",
         ):
             self.assertIn(needle, CPP)
+
+    def test_new_guard_cannot_global_lookup_or_inspect_other_map_owner(self):
+        start = CPP.index("if (requestedSlot < normalCount)")
+        stop = CPP.index("if (!legacyQuestTurnEnabled)", start)
+        pilot = CPP[start:stop]
+        self.assertEqual(
+            pilot.count("ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer)"), 1)
+        self.assertNotIn("ObjectAccessor::FindPlayer(", pilot)
+        self.assertIn("turnOwner->GetGroup() == group", pilot)
+        self.assertIn("ownerMap == requesterMap", pilot)
+        self.assertIn("ownerMap == sourceMap", pilot)
+        self.assertIn("facts.OwnerPresentInSameGroupAndMap = ownerLiveHere;", pilot)
+        # The historical independently gated quest-only guard is preserved
+        # pending its own risk review, NOT implicitly enabled by the pilot.
+        self.assertIn(
+            "Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);",
+            CPP[stop:])
+        self.assertIn("if (!legacyQuestTurnEnabled)\\n            return true;", CPP)
 
     def test_per_player_and_roll_paths_fail_open(self):
         for needle in (
