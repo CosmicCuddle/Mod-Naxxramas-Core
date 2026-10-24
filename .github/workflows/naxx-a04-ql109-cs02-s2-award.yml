@@ -1,0 +1,49 @@
+name: A04 QL109 CS02 S2 award-path proof (synthetic only)
+
+on:
+  push:
+    branches:
+      - cs02/a04-109-s2-award-proof
+    paths:
+      - tests/test_ql109_cs02_s2_award_proof.py
+      - docs/research/A04-QL-109-CS02-S2-AWARD-PROOF.md
+      - docs/research/A04-QL-109-OWNER-POLICY-ABC.md
+      - docs/research/A04-QL-109-DECISION-TABLE.md
+      - .github/workflows/naxx-a04-ql109-cs02-s2-award.yml
+  pull_request:
+    paths:
+      - tests/test_ql109_cs02_s2_award_proof.py
+      - docs/research/A04-QL-109-CS02-S2-AWARD-PROOF.md
+      - docs/research/A04-QL-109-OWNER-POLICY-ABC.md
+      - docs/research/A04-QL-109-DECISION-TABLE.md
+      - .github/workflows/naxx-a04-ql109-cs02-s2-award.yml
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-award-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact event head (read-only)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact source head, not synthetic PR merge
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Run CS02 S2 award-path proof
+        run: python3 -m unittest discover -s tests -p 'test_ql109_cs02_s2_award_proof.py' -v
+
+      - name: Confirm this job publishes nothing
+        run: |
+          test -f tests/test_ql109_cs02_s2_award_proof.py
+          test -f docs/research/A04-QL-109-CS02-S2-AWARD-PROOF.md
+          test -f docs/research/A04-QL-109-OWNER-POLICY-ABC.md
+          test -f docs/research/A04-QL-109-DECISION-TABLE.md
+          echo 'Synthetic award-path proof only. No artifact upload, package, binary, or deploy.'
