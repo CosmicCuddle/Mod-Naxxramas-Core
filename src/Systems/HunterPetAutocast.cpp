@@ -1,28 +1,27 @@
 /*
- * Naxxramas Core — A02 S2 human Hunter pet autocast restore.
+ * Naxxramas Core — A02 S2c human Hunter pet autocast restore.
  *
- * Default OFF. While the cached flag is false both hooks return before
- * any pet read, config lookup, or CustomData allocation.
+ * Default OFF. While either cached flag is false both pet hooks return
+ * before any pet read, config lookup, or CustomData allocation.
  *
  * Seam, inside one Pet::Update after m_loading is false (Unit.cpp:510-517,
  * Object.cpp:1074-1085): OnUnitUpdate stores a consistent chain snapshot
  * on this pet's CustomData, Individual Progression's delayed event runs
- * from m_Events, and OnWorldObjectUpdate may copy that byte onto one
- * same-chain successor. There is no process-global pet map. Map threads
- * do not share a dictionary. The live MapUpdate.Threads value was not
- * read and is UNKNOWN; the owner states 8.
+ * from m_Events, and OnWorldObjectUpdate may apply an addon opt-in onto
+ * one same-chain successor. There is no process-global pet map. The
+ * opt-in store is keyed by player GUID. Map threads copy one immutable
+ * snapshot under that store's mutex and do not look at Playerbots.
+ * The live MapUpdate.Threads value was not read and is UNKNOWN; the
+ * owner states 8.
  *
- * Real humans only. The map-thread writer does not call into Playerbots.
- * No module hook can prove a human owner without reading the unlocked
- * Playerbots AI map, and that read is not safe on a map worker. The
- * classifier stays Uncertain and the writer does not toggle. The pin
- * citations are on ClassifyOwnerOnMapThread and in the S2 note.
- * Functional S2 remains blocked. Cower 1742 is not learned.
- * An unchanged book returns before FillBook and DecideChains.
- * In-game behaviour is NOT TESTED.
+ * A write requires a published addon opt-in. ClassifyOwnerOnMapThread
+ * stays Uncertain and is not consulted. Cower 1742 is not learned and
+ * is not toggled. An unchanged book at the same opt-in generation
+ * returns before FillBook and DecideChains. Protocol:
+ * docs/A02-ADDON-PROTOCOL.md. In-game behaviour is NOT TESTED.
  */
 
-#include "HunterPetAutocastPolicy.h"
+#include "HunterPetAutocastAddon.h"
 
 #include "Config.h"
 #include "Pet.h"
@@ -32,7 +31,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -41,6 +42,31 @@ namespace
     namespace Policy = NaxxramasHunterPetAutocast;
 
     std::atomic<bool> RestoreHumanChainEnabled{false};
+    std::atomic<bool> AddonOptInEnabled{false};
+
+    Policy::OptInStore& AddonStore()
+    {
+        static Policy::OptInStore store;
+        return store;
+    }
+
+    uint64_t NowMs()
+    {
+        return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+    }
+
+    Policy::SpellLookup LookupPetSpell(uint32_t spellId, void const* /*ctx*/)
+    {
+        Policy::SpellLookup lookup;
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        if (!info || !info->IsAutocastable())
+            return lookup;
+        lookup.Autocastable = true;
+        uint32_t const chain = sSpellMgr->GetFirstSpellInChain(spellId);
+        lookup.ChainId = chain == 0 ? spellId : chain;
+        return lookup;
+    }
     // Process-lifetime key. DataMap::Get takes std::string const&
     // (DataMap.h:29). A string literal would construct a temporary on
     // every tick. This object is built once, then find() does not allocate.
@@ -52,6 +78,7 @@ namespace
         std::vector<Policy::SpellView> Book;
         std::vector<Policy::SpellView> Scratch;
         bool Pending = false;
+        uint64_t AppliedGeneration = 0;
 
         Baseline()
         {
@@ -178,9 +205,12 @@ namespace
 
         void OnBeforeConfigLoad(bool /*reload*/) override
         {
-            RestoreHumanChainEnabled.store(
-                sConfigMgr->GetOption<bool>("NaxxramasCore.HunterPetAutocast.RestoreHumanChain", false),
-                std::memory_order_release);
+            bool const restore = sConfigMgr->GetOption<bool>("NaxxramasCore.HunterPetAutocast.RestoreHumanChain", false);
+            bool const addon = sConfigMgr->GetOption<bool>("NaxxramasCore.HunterPetAutocast.AddonOptIn", false);
+            RestoreHumanChainEnabled.store(restore, std::memory_order_release);
+            AddonOptInEnabled.store(addon, std::memory_order_release);
+            if (!addon)
+                AddonStore().ClearAll();
         }
     };
 
@@ -196,6 +226,8 @@ namespace
         void OnUnitUpdate(Unit* unit, uint32 /*diff*/) override
         {
             if (!RestoreHumanChainEnabled.load(std::memory_order_acquire))
+                return;
+            if (!AddonOptInEnabled.load(std::memory_order_acquire))
                 return;
 
             Pet* pet = nullptr;
@@ -230,7 +262,10 @@ namespace
             // Later OnWorldObjectUpdate subscribers are UNKNOWN. Registration
             // order is not a last-writer contract. This hook does not
             // register a second pass and does not keep a process-global map.
+            // The addon store is a player GUID map, not a pet map.
             if (!RestoreHumanChainEnabled.load(std::memory_order_acquire))
+                return;
+            if (!AddonOptInEnabled.load(std::memory_order_acquire))
                 return;
 
             if (!object)
@@ -246,49 +281,56 @@ namespace
                 return;
 
             state->Pending = false;
-            if (LiveBookMatches(pet, state->Book))
+            std::shared_ptr<Policy::PreferenceSnapshot const> optIn;
+            uint64_t publishedGeneration = AddonStore().Read(owner->GetGUID().GetCounter(), optIn);
+            if (LiveBookMatches(pet, state->Book) && state->AppliedGeneration == publishedGeneration)
                 return;
 
             FillBook(pet, state->Scratch);
-            std::vector<Policy::ChainOutcome> outcomes = Policy::DecideChains(state->Book, state->Scratch);
-            if (!Policy::WantsWrite(outcomes))
+            // No published addon opt-in: do not toggle. The book is stored
+            // so the next unchanged ticks stay on the fast path. This does
+            // not call IsRealPlayer and does not read _playerbotsAIMap.
+            if (!optIn)
             {
                 CopyBook(state->Book, state->Scratch);
+                state->AppliedGeneration = publishedGeneration;
                 return;
             }
 
-            // ClassifyOwnerOnMapThread is Uncertain. It does not call
-            // IsRealPlayer and does not read _playerbotsAIMap. A refused
-            // write still stores the post-event book so the next unchanged
-            // ticks stay on the fast path.
-            if (!Policy::WriteAllowed(Policy::ClassifyOwnerOnMapThread()))
+            Policy::AddonPlan plan = Policy::BuildAddonPlan(
+                state->Book,
+                state->Scratch,
+                optIn.get(),
+                publishedGeneration,
+                state->AppliedGeneration);
+            if (!plan.OptedIn || plan.Toggles.empty())
             {
                 CopyBook(state->Book, state->Scratch);
+                state->AppliedGeneration = publishedGeneration;
                 return;
             }
 
             if (owner->GetPet() != pet)
             {
                 CopyBook(state->Book, state->Scratch);
+                state->AppliedGeneration = publishedGeneration;
                 return;
             }
 
             bool claimed = false;
-            for (Policy::ChainOutcome const& outcome : outcomes)
+            for (Policy::PlannedToggle const& toggle : plan.Toggles)
             {
-                bool const wantEnabled = outcome.Result == Policy::Outcome::RestoreEnabled;
-                if (!wantEnabled && outcome.Result != Policy::Outcome::RestoreDisabled)
-                    continue;
-                if (outcome.BaselineSpellId == Policy::COWER_SPELL_ID
-                    || outcome.SuccessorSpellId == Policy::COWER_SPELL_ID
-                    || outcome.SuccessorSpellId == outcome.BaselineSpellId)
+                if (toggle.SpellId == Policy::COWER_SPELL_ID)
                     continue;
 
-                SpellInfo const* info = sSpellMgr->GetSpellInfo(outcome.SuccessorSpellId);
+                SpellInfo const* info = sSpellMgr->GetSpellInfo(toggle.SpellId);
                 if (!info || !info->IsAutocastable())
                     continue;
 
+                bool const wantEnabled = toggle.Enable;
                 Policy::SpellView before = ReadSpell(pet, info->Id);
+                if (!before.Present)
+                    continue;
                 if (!Policy::StoresAgree(before, before.Active))
                     continue;
                 if ((before.Active == Policy::ACT_ENABLED) == wantEnabled)
@@ -315,6 +357,50 @@ namespace
             if (claimed)
                 owner->PetSpellInitialize();
             FillBook(pet, state->Book);
+            state->AppliedGeneration = publishedGeneration;
+        }
+    };
+
+    class NaxxramasHunterPetAutocastAddonScript final : public PlayerScript
+    {
+    public:
+        NaxxramasHunterPetAutocastAddonScript()
+            : PlayerScript("NaxxramasHunterPetAutocastAddonScript",
+                {
+                    PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE,
+                    PLAYERHOOK_ON_LOGIN,
+                    PLAYERHOOK_ON_LOGOUT
+                })
+        {
+        }
+
+        void OnPlayerBeforeSendChatMessage(Player* player, uint32& type, uint32& lang, std::string& msg) override
+        {
+            if (!AddonOptInEnabled.load(std::memory_order_acquire))
+                return;
+            if (!player || type != CHAT_MSG_WHISPER || lang != LANG_ADDON)
+                return;
+            AddonStore().Accept(
+                player->GetGUID().GetCounter(),
+                player->IsClass(CLASS_HUNTER),
+                msg,
+                NowMs(),
+                &LookupPetSpell,
+                nullptr);
+        }
+
+        void OnPlayerLogin(Player* player) override
+        {
+            if (!player)
+                return;
+            AddonStore().OnLogin(player->GetGUID().GetCounter());
+        }
+
+        void OnPlayerLogout(Player* player) override
+        {
+            if (!player)
+                return;
+            AddonStore().OnLogout(player->GetGUID().GetCounter());
         }
     };
 }
@@ -324,4 +410,5 @@ void AddHunterPetAutocastScripts()
     new NaxxramasHunterPetAutocastConfigScript();
     new NaxxramasHunterPetAutocastSnapshotScript();
     new NaxxramasHunterPetAutocastRestoreScript();
+    new NaxxramasHunterPetAutocastAddonScript();
 }

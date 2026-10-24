@@ -344,8 +344,9 @@ namespace NaxxramasHunterPetAutocast
     // login or later.
     //
     // This function stays Uncertain. It does not read the AI map.
-    // ConfirmedHuman remains a test seam. Production does not reach
-    // ToggleAutocast. Functional S2 remains blocked.
+    // ConfirmedHuman remains a test seam for RestoreTick only.
+    // Production does not call this function. An addon opt-in is the
+    // write gate. See docs/A02-ADDON-PROTOCOL.md.
     inline OwnerClass ClassifyOwnerOnMapThread()
     {
         return OwnerClass::Uncertain;
