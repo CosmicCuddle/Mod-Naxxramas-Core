@@ -33,6 +33,8 @@ python3 tests/test_first_combined_loader_preflight_s1.py --check-tree
 
 **The real-tree command intentionally FAILS today** on main and this S1 branch because the source/config has not been integrated. Do not mark that negative result as a development regression; this tool exists to gate the later actual union.
 
+The GitHub Actions workflow **executes that expected failure on this isolated source-only PR** and checks both the exact exit code 1 and explicit diagnostic lines for the missing #120 Golemagg, #125 Scarlet, #127 Atiesh and #130 Hunter registrations. A Python crash or unrelated failure is not accepted as an expected negative. Its successful negative test means **the current incomplete tree is correctly rejected**, not that the eventual integrated tree has been verified.
+
 ## Hard limitations
 
 Passing model tests **does not prove** the eventual real tree has all CMake translation units, loader symbols in a linked executable, active/unique runtime hooks, good threading under `MapUpdate.Threads=8`, correct GFPP 120 seconds, actual functional A02 Hunter or A04 human-friend quest-loot, no bot regression, or owner-specific Playerbots compatibility (`e88cc409` plus two uncommitted changes). Each needs its own exact-head source/native/full pinned Worldserver/independent review and later owner-approved backup/test gates.
