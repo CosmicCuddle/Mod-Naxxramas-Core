@@ -94,7 +94,10 @@ VERIFIED**.
 
 - `tests/scarlet_exit_policy.cpp` — native C++17/C++20 `-Werror`: Dungeon Finder routing off by default (master on alone keeps LFG exits stock), door table,
   geometry (both points safe, swapped wings, inside/margin, missing or
-  wrong-map entrance, a real box trigger) and every decision case.
+  wrong-map entrance, a real box trigger), the server's own witness loop
+  (`DoorTargetIsSafeWith`, fed by a fake live-row lookup: every one of the
+  four entrance rows missing or on another map makes the point unsafe) and
+  every decision case.
 - `tests/test_scarlet_monastery_exits.py` — source contract: default OFF,
   loader, opcode fast exit, packet copy, mirrored early exits, fail-closed
   return, no database access, no rejected seams.

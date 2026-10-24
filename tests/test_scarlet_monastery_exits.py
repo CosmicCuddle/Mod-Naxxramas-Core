@@ -116,7 +116,13 @@ class Gathering(unittest.TestCase):
         self.assertIn("DoorTargetIsSafe(door)", self.BODY)
         safe = function_body(CPP, "bool DoorTargetIsSafe(DoorTarget const& door)")
         self.assertIn("MapMgr::IsValidMapCoord(EXIT_MAP", safe)
-        self.assertIn("ShapeOf(door.EntranceTrigger)", safe)
+        # The witness loop lives in the policy header, where the native
+        # tests execute it with a fake lookup (CS02 #125 review).
+        self.assertIn("return DoorTargetIsSafeWith(door, ShapeOf);", safe)
+        self.assertNotIn("TargetIsSafe(p,", safe)
+        loop = function_body(POLICY, "inline bool DoorTargetIsSafeWith(DoorTarget const& door, ShapeLookup&& shapeOf)")
+        self.assertIn("for (uint32_t entrance : SM_ENTRANCES)", loop)
+        self.assertIn("return TargetIsSafe(door.Where, own, others, count);", loop)
 
 
 class Boundaries(unittest.TestCase):

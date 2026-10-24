@@ -73,14 +73,7 @@ namespace NaxxramasScarletExits
         if (!MapMgr::IsValidMapCoord(EXIT_MAP, p.X, p.Y, p.Z, p.O))
             return false;
 
-        TriggerShape const own = ShapeOf(door.EntranceTrigger);
-        TriggerShape others[std::size(SM_ENTRANCES)];
-        std::size_t count = 0;
-        for (uint32 entrance : SM_ENTRANCES)
-            if (entrance != door.EntranceTrigger)
-                others[count++] = ShapeOf(entrance);
-
-        return TargetIsSafe(p, own, others, count);
+        return DoorTargetIsSafeWith(door, ShapeOf);
     }
 
     // Collects the live facts in the same order the native handler checks

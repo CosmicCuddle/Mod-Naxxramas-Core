@@ -126,6 +126,25 @@ namespace NaxxramasScarletExitPolicy
         return true;
     }
 
+    constexpr std::size_t SM_ENTRANCE_COUNT = sizeof(SM_ENTRANCES) / sizeof(SM_ENTRANCES[0]);
+
+    // The full door-target check minus the map-coordinate test: `shapeOf`
+    // returns the live TriggerShape for an area trigger id. Every SM
+    // entrance other than the door's own is passed as a witness. Kept here
+    // so the native tests run the same loop the server uses.
+    template <typename ShapeLookup>
+    inline bool DoorTargetIsSafeWith(DoorTarget const& door, ShapeLookup&& shapeOf)
+    {
+        TriggerShape const own = shapeOf(door.EntranceTrigger);
+        TriggerShape others[SM_ENTRANCE_COUNT];
+        std::size_t count = 0;
+        for (uint32_t entrance : SM_ENTRANCES)
+            if (entrance != door.EntranceTrigger)
+                others[count++] = shapeOf(entrance);
+
+        return TargetIsSafe(door.Where, own, others, count);
+    }
+
     // Everything the decision needs, gathered by the server script.
     struct Facts
     {

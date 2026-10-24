@@ -108,6 +108,46 @@ int main()
             "Armory point with Cathedral as own entrance is rejected");
     }
 
+    // The server's own witness loop (DoorTargetIsSafeWith), fed by a fake
+    // live-row lookup. Every SM entrance must be looked up and checked.
+    {
+        auto lookup = [](uint32_t skip, uint32_t wrongMap) {
+            return [skip, wrongMap](uint32_t id) {
+                TriggerShape t;
+                switch (id)
+                {
+                    case 45: t = GRAVEYARD; break;
+                    case 610: t = CATHEDRAL; break;
+                    case 612: t = ARMORY; break;
+                    case 614: t = LIBRARY; break;
+                    default: return TriggerShape();
+                }
+                if (id == skip)
+                    return TriggerShape();
+                if (id == wrongMap)
+                    t.Map = 189;
+                return t;
+            };
+        };
+        Check(SM_ENTRANCE_COUNT == 4, "four SM entrances");
+        for (uint32_t exit : { 604u, 606u })
+        {
+            DoorTarget const& door = *FindDoorTarget(exit);
+            Check(DoorTargetIsSafeWith(door, lookup(0, 0)), "live loop: all rows -> safe");
+            for (uint32_t id : SM_ENTRANCES)
+            {
+                Check(!DoorTargetIsSafeWith(door, lookup(id, 0)),
+                    "live loop: any missing entrance row -> unsafe");
+                Check(!DoorTargetIsSafeWith(door, lookup(0, id)),
+                    "live loop: any entrance row on another map -> unsafe");
+            }
+        }
+        // Swapped wings through the same loop.
+        DoorTarget swapped = *FindDoorTarget(604);
+        swapped.Where = FindDoorTarget(606)->Where;
+        Check(!DoorTargetIsSafeWith(swapped, lookup(0, 0)), "live loop: Armory point for Cathedral -> unsafe");
+    }
+
     // Box trigger: Karazhan outdoor entrance 4131 (areatrigger.sql L453).
     {
         TriggerShape box;
