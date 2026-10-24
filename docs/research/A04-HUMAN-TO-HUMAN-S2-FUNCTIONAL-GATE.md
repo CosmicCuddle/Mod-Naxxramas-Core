@@ -9,30 +9,34 @@
 - Denial is `SendLootError(sourceGuid, LOOT_ERROR_LOCKED)` and `return false`, **independent of Debug**. No permitted path logs in this module. A visible row or sparkle is not proof of a successful server award.
 - [#117](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/117) traces the actual `StoreLootItem` and alternative award paths at Grimfeather core `8daffdabe9202c228e45d833c9a1d399597a15cd`; [#122](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/122) adds HF-01–HF-07 present-behaviour synthetic observations. Neither provides functional S2.
 
-## Why a policy decision is essential
+## Owner-approved requirement — stock WoW quest-loot parity (supersedes A/B/C discussion)
 
-| Owner choice | Prevents friend taking the *single* item on the friend's valid turn? | Loot count | Implementation / constraint |
-| --- | --- | --- | --- |
-| **A: keep existing rotating turn with a stronger click guard** | **No**. A friend who holds the turn and meets the quest requirement may still take the shared copy. | Stock one copy | Smallest policy change; **insufficient alone** if that is the owner's unwanted case. |
-| **B: separate personal copies for eligible players** | **Yes** for covered eligible drops, since the friend uses their own copy. | More items than stock when multiple eligible players | Needs loot-generation policy, not a packet-only denial; must preserve existing `MULTI_DROP` and `unlootedCount` semantics. |
-| **C: reserve the one shared copy for a named eligible player** | **Yes**, while that chosen owner remains eligible and the award path is guarded. | Stock one copy | Needs deterministic claimant selection + departure, completion, grouping, relog and fallback rules; a round-robin holder is **not** necessarily the named quest owner. |
+**Owner clarified:** keep the **normal WoW/AzerothCore group-loot system** and correct only the bug that lets a grouped player access or actually receive quest drops they **should not be eligible to take under normal rules**. Do not change drop counts, rotate/assign loot turns differently, create personal copies, or reserve a legitimate shared item to a newly invented owner. **Do not ask the owner to choose A/B/C** as a condition of diagnosing the bug; those old proposals remain historically documented in #117 and are not approved.
 
-**Decision still unmade.** Do not silently pick A/B/C, duplicate loot, or assign ownership from group leader, first click, player GUID, or loot turn without owner approval. If multiple humans both legitimately need one quest item, no system can infer which person the owner intended without an explicit rule. Also decide whether ordinary `loot.items` items that happen to serve a quest, and game-object/chest drops, are in scope: the existing guard skips both categories.
+**Correct distinctions:**
 
-## Read-only proof before choosing S2
+- **Invalid pickup:** the other group member is not eligible under native quest/loot rules, but can see or collect the item; this is the suspected actual defect and requires a concrete source-backed fix to item visibility and/or **inventory award**, not cosmetic sparkle alone.
+- **Valid shared pickup:** two players legitimately qualify for the same shared one-copy item, and the current holder takes it according to normal group-loot rules. This is **not by itself proof of a defect**, even if another player wanted the item.
+- **Personal multi-drop:** `ITEM_FLAG_MULTI_DROP` grants independent copies; the friend taking their own copy cannot be described as consuming yours.
+- **Ordinary quest-related drops:** an item needed by a quest can still come from regular `loot.items` (`QuestRequired=0`) and remain stock shared loot. Do not automatically convert every quest-related item into a personal quest slot.
+- **Sources and award paths:** creature corpse, chest/game object, rolls, master loot, human autoloot and Playerbot direct packet paths must be classified independently; not all pass the module's present packet hook.
+
+The existing `QuestLootProtection.cpp` guard is **not evidence** that the owner's running configuration is correct, nor that native `AllowedForPlayer` / `HasQuestForItem` was bypassed in the reported incident. Compare actual quest + item + source/loot method evidence against pinned AzerothCore award and visibility logic before claiming a production defect. No functional fix is written or authorised here.
+
+## Read-only reproduction and proof before S2
 
 1. Identify one *replaceable / staging* reproduction: quest ID, item ID, creature or GO entry, source type, `QuestRequired` on the loot-template row and normal vs quest bucket; do not share private SQL dumps or player GUIDs publicly.
 2. Confirm whether the friend's item was an independent `ITEM_FLAG_MULTI_DROP` personal copy or a depletion of the **same** one-copy `LootItem`. Separate view/visibility/click and actual inventory award evidence.
 3. Confirm **running** module binary and loaded `QuestLootProtection.Enabled`, loot method and the active `roundRobinPlayer` turn. A distributed config example cannot prove runtime status; an absent Debug log proves neither permit nor bypass.
-4. Select the desired **one-copy named-owner vs personal-copy** rule and exact eligible-source scope. A is insufficient for the known eligible-friend-turn case. If C, define owner selection and stale-owner fallback. If B, define quantity and source exclusions.
+4. Prove the expected **native eligibility** for that exact quest + item + loot method + source, distinguishing an illegitimate recipient from a legitimate shared-loot turn. Record whether the displayed loot row, sent slot or actual inventory award violated native rules. Keep stock item counts and owner/turn semantics; there is **no B/C policy choice**.
 5. Independently source-review the proposed S2 hook against current pinned core/IP/Playerbots APIs, confirm it is module-owned, default OFF, thread/instance safe, and fail-open to native for out-of-scope sources. Get native tests and fully linked Worldserver before staging.
 
 ## Required candidate regression cases (not run)
 
-- **P01:** two real humans, both need one-copy creature quest line; friend holds turn and receives it under *current* code. New expectation depends on B/C owner choice.
+- **P01:** two real humans who both need a genuinely shared one-copy creature quest item: the eligible loot-turn holder's award stays **normal WoW behaviour**, with no invented owner, extra copy or unjustified denial.
 - **P02:** current owner holds turn and still needs quest; friend's non-owner click is refused without deleting item, closing window, losing coins or denying unrelated slots.
-- **P03:** release of loot turn while both still need the item; claimant/remaining copy obey chosen fallback, never stuck forever.
-- **P04:** designated claimant disconnected, departed group/map/instance, died or no longer needs item: no permanent unlootable corpse or improper award.
+- **P03:** release of loot turn while both still need a shared item: existing stock round-robin release/fallback stays unchanged; no new reserved-claimant policy.
+- **P04:** previous round-robin holder disconnected, departed group/map/instance, died or no longer needs item: stock rules release/permit as normal, without making corpses permanently unlootable.
 - **P05:** `QuestRequired=0` normal `loot.items` item needed for a quest: separate explicit inclusion/exclusion rule; do not call it a quest-slot row.
 - **P06:** already-personal `ITEM_FLAG_MULTI_DROP` quest and ordinary item buckets: both humans retain exactly their stock personal rights; do not mint a second copy.
 - **P07:** chest/other GO, skinning and pickpocket: native behaviour unless expressly included after additional source validation.
@@ -51,4 +55,4 @@ Treat `HF-01..HF-07` as **observations of the old implementation**, not newly pa
 
 The first owner-approved test candidate must contain *actual functional* A04 **plus** A02 Hunter autocast, F12 Scarlet *normal physical entrance/exit*, F13 Atiesh outside Karazhan, and existing review-only #120 P0+B10. Keep isolated drafts, no protected-branch merge, unapproved SQL/DBC/core/IP/Playerbots modification, binary upload, release, or live install. Review exact branch heads, all switches/defaults, linked pinned Worldserver, reciprocal peer findings, and preserve the owner's Playerbots published SHA `e88cc4099e69f35126b28942a412ca702d20453b` **with two local uncommitted modifications** and their eight-thread map setup. Owner approval, restorable backups and rollback precede staging.
 
-**Owner decision needed for actual S2:** one-copy named owner (**C**) versus separate eligible personal copies (**B**), plus scope for normal-item quest collections/chests. Document the choice; do not silently infer it from a complaint that a friend could click or take the item.
+**S2 entry gate now:** identify the concrete **illegitimate** quest-item visibility/pickup/award behaviour under existing WoW rules, then propose the smallest module-owned, default-OFF correction and native tests. **No B/C loot-policy redesign is requested or approved**. When a reported award matches stock rules, report that transparently rather than changing the economy.
