@@ -3,6 +3,7 @@
 //     tests/quest_loot_normal_slot_policy.cpp -o /tmp/naxx-a04 && /tmp/naxx-a04
 #include "QuestLootNormalSlotPolicy.h"
 #include <cstdio>
+#include <initializer_list>
 using namespace NaxxramasQuestLootNormalSlotPolicy;
 
 namespace
