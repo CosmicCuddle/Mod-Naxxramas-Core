@@ -46,6 +46,7 @@ jobs:
           grep -F "BLOCKED: src/Systems/ScarletMonasteryExits.cpp: missing implementation" /tmp/first-combined-gate.txt
           grep -F "BLOCKED: src/Systems/AtieshKarazhanPortal.cpp: missing implementation" /tmp/first-combined-gate.txt
           grep -F "BLOCKED: src/Systems/HunterPetAutocast.cpp: missing implementation" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: BotRaidConsumables.cpp: expected one 120-second GFPP one-shot" /tmp/first-combined-gate.txt
           grep -F "Not a combined candidate. NO deployment or test build authorised." /tmp/first-combined-gate.txt
       - name: Explicitly no actual integration, binary or upload
         run: |
