@@ -69,7 +69,8 @@ Source-only argument at core `8daffda`. **NOT TESTED** under load.
 - **Residuals, the same as core's own `GetPlayer` everywhere:**
   - The lookup itself reads the candidate's `IsInWorld()` and `GetMap()` after the shared lock on the global player map is released. Those fields change only when a player is added to or removed from a map (far teleport or logout), which happens on the world thread or on the player's own map thread.
   - On the map route, `group->GetLootMethod()` is read from a group object shared across maps. It is changed only by `CMSG_LOOT_METHOD`, which is `PROCESS_THREADUNSAFE` (world thread).
-  - The concurrent LFG update scheduled inside `MapMgr::Update` does not touch these loot fields.
+  - If those two unlocked reads were torn and matched this map, the guard's later owner reads (`GetGroup`, `HasQuestForItem`, `AllowedForPlayer`) would race too. `GetMap()` also asserts a non-null map pointer, and `SetMap`/`ResetMap` assert `!IsInWorld`, so that assert could only fire in the torn-read case.
+  - The concurrent LFG update scheduled inside `MapMgr::Update` (task 1) does not call `SetLootMethod`. It can look up connected players and read their map id and instance script; that every such script leaves the group object alone is **not proven**. `ConvertToLFG`, which writes the loot method, runs from LFG task 2 after `MapMgr::Update` returns (CS02 review on #132).
 
 
 ```ini

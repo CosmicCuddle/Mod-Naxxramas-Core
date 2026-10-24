@@ -120,12 +120,15 @@ namespace NaxxramasQuestLootProtection
         // Map-scoped lookup (thread safety, MapUpdate.Threads > 0): this
         // packet is PROCESS_INPLACE, so it can run on the looter's map
         // thread. ObjectAccessor::GetPlayer(*player, guid) returns the owner
-        // only if they are in world on the looter's own map, so no field of
-        // a player on another map (updated by another thread) is read here.
-        // An owner on another map was always a fail-open below; that result
-        // is unchanged. The global FindPlayer is documented as not thread
-        // safe (ObjectAccessor.h). The explicit IsInWorld() test stays on
-        // the pointer we would deny for.
+        // only if they are in world on the looter's own map, so the guard's
+        // own owner reads below touch a player updated by this same thread.
+        // GetPlayer itself still reads IsInWorld() and GetMap() of whatever
+        // player the guid resolves to, after the global lock is released;
+        // that residual is the same as every core GetPlayer call (see
+        // docs/QUEST-LOOT-PROTECTION.md). An owner on another map was always
+        // a fail-open below; that result is unchanged. The global FindPlayer
+        // is documented as not thread safe (ObjectAccessor.h). The explicit
+        // IsInWorld() test stays on the pointer we would deny for.
         //
         // Distance and death are not extra denies. A dead owner who is
         // still in world on this map and instance keeps the turn. The
