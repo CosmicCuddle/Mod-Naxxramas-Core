@@ -2,6 +2,7 @@
 // g++ -std=c++17 -Wall -Wextra -Werror -pedantic -Isrc/Systems
 //     tests/quest_loot_normal_slot_policy.cpp -o /tmp/naxx-a04 && /tmp/naxx-a04
 #include "QuestLootNormalSlotPolicy.h"
+#include <array>
 #include <cstdio>
 #include <initializer_list>
 using namespace NaxxramasQuestLootNormalSlotPolicy;
@@ -69,6 +70,72 @@ int main()
     Check(!RejectHiddenOrdinarySlot(f), "roll winner native");
     f = Active(GroupMethod::RoundRobin); f.FollowsSpecialLootRules = true;
     Check(!RejectHiddenOrdinarySlot(f), "special follow-loot-rules native");
+    // Exhaustive small-state witness: 4 permission-mode mappings * 4096
+    // flag combinations. Expected behaviour is derived independently from
+    // pinned LootView permission branches: stock-visible normal slots are
+    // NEVER rejected by this module's narrow ordinary-slot pilot.
+    // This is a PURE POLICY MODEL, not a worldserver / packet gameplay test.
+    constexpr std::array<GroupMethod, 4> modes = {
+        GroupMethod::Other, GroupMethod::RoundRobin,
+        GroupMethod::GroupLoot, GroupMethod::NeedBeforeGreed
+    };
+    unsigned long total = 0;
+    int matrixMismatches = 0;
+    for (GroupMethod mode : modes)
+    {
+        for (unsigned flags = 0; flags != 4096; ++flags)
+        {
+            Facts sample;
+            sample.Method = mode;
+            sample.Enabled = (flags & (1u << 0)) != 0;
+            sample.HasActiveTurn = (flags & (1u << 1)) != 0;
+            sample.RequesterHoldsTurn = (flags & (1u << 2)) != 0;
+            sample.OwnerPresentInSameGroupAndMap = (flags & (1u << 3)) != 0;
+            sample.OrdinarySlotExists = (flags & (1u << 4)) != 0;
+            sample.IsLooted = (flags & (1u << 5)) != 0;
+            sample.IsFreeForAllItem = (flags & (1u << 6)) != 0;
+            sample.HasConditions = (flags & (1u << 7)) != 0;
+            sample.IsBlocked = (flags & (1u << 8)) != 0;
+            sample.HasRollWinner = (flags & (1u << 9)) != 0;
+            sample.IsUnderThreshold = (flags & (1u << 10)) != 0;
+            sample.FollowsSpecialLootRules = (flags & (1u << 11)) != 0;
+
+            // A normal eligible, unblocked slot is suppressed by stock
+            // ROUND_ROBIN_PERMISSION for a different current holder.
+            // GROUP_PERMISSION suppresses that slot only below threshold.
+            // All other conditions are deliberate conservative fail-opens.
+            bool const inWindowBranch =
+                mode == GroupMethod::RoundRobin ||
+                mode == GroupMethod::GroupLoot ||
+                mode == GroupMethod::NeedBeforeGreed;
+            bool const aRestrictedRow =
+                !sample.IsLooted && !sample.IsFreeForAllItem &&
+                !sample.HasConditions && !sample.IsBlocked &&
+                !sample.HasRollWinner && !sample.FollowsSpecialLootRules;
+            bool const stockWindowHides =
+                sample.HasActiveTurn && !sample.RequesterHoldsTurn &&
+                (mode == GroupMethod::RoundRobin ||
+                    ((mode == GroupMethod::GroupLoot ||
+                      mode == GroupMethod::NeedBeforeGreed) &&
+                     sample.IsUnderThreshold));
+            bool const expected =
+                sample.Enabled && inWindowBranch && sample.OrdinarySlotExists &&
+                sample.OwnerPresentInSameGroupAndMap && aRestrictedRow &&
+                stockWindowHides;
+            bool const actual = RejectHiddenOrdinarySlot(sample);
+            if (actual != expected)
+            {
+                if (matrixMismatches < 5)
+                    std::printf("MATRIX mismatch mode=%u flags=%u wanted=%d actual=%d\n",
+                        static_cast<unsigned>(mode), flags, int(expected), int(actual));
+                ++matrixMismatches;
+            }
+            ++total;
+        }
+    }
+    Check(total == 16384, "all 16384 matrix cases executed");
+    Check(matrixMismatches == 0, "native parity matrix matches pinned stock visibility witness");
+
     std::printf("A04 normal-slot policy: %s (%d failure(s))\n",
         failed ? "FAILED" : "OK", failed);
     return failed ? 1 : 0;
