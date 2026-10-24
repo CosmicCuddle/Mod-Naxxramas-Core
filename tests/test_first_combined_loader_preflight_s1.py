@@ -59,6 +59,15 @@ EXTRAS = (
     "AddAtieshKarazhanPortalScripts",   # F13 #127
     "AddHunterPetAutocastScripts",      # A02 #130
 )
+# Require the actual new source translation units alongside loader registrations.
+# A loader-only union can pass source registration tests while omitting a script
+# implementation. Real compilation/linkage is still a separate mandatory stage.
+IMPLEMENTATIONS = (
+    ("src/Systems/BotGolemaggReachGuard.cpp", "AddBotGolemaggReachGuardScripts"),
+    ("src/Systems/ScarletMonasteryExits.cpp", "AddScarletMonasteryExitScripts"),
+    ("src/Systems/AtieshKarazhanPortal.cpp", "AddAtieshKarazhanPortalScripts"),
+    ("src/Systems/HunterPetAutocast.cpp", "AddHunterPetAutocastScripts"),
+)
 REQUIRED_FLAGS = {
     "NaxxramasCore.QuestLootProtection.Enabled": "0",  # legacy OFF
     "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled": "0",
@@ -105,6 +114,29 @@ def config_errors(source):
     return failures
 
 
+def implementation_errors(sources):
+    """Check all new translation units, not merely their loader references."""
+    errors = []
+    for path, symbol in IMPLEMENTATIONS:
+        source = sources.get(path)
+        if not source:
+            errors.append("%s: missing implementation for %s" % (path, symbol))
+            continue
+        definitions = re.findall(
+            r"(?m)^[ \\t]*void[ \\t]+" + re.escape(symbol) + r"\\(\\)\\s*\\{", source)
+        if len(definitions) != 1:
+            errors.append("%s: expected one definition of %s, found %d" %
+                          (path, symbol, len(definitions)))
+    return errors
+
+
+def tree_implementations():
+    """Never fetch or mutate dependencies; read only our checked-out module."""
+    return {path: (ROOT / path).read_text(encoding="utf-8")
+            if (ROOT / path).is_file() else None
+            for path, _symbol in IMPLEMENTATIONS}
+
+
 def simulated_loader(main_source, extras=EXTRAS):
     marker = "void Addmod_naxxramas_coreScripts()"
     if main_source.count(marker) != 1 or not main_source.rstrip().endswith("}"):
@@ -136,6 +168,24 @@ class UnionContractModel(unittest.TestCase):
 
     def test_complete_synthetic_union_passes(self):
         self.assertEqual(loader_errors(self.union), [])
+
+    def test_complete_synthetic_implementation_set_passes(self):
+        sources = {path: "void %s()\\n{\\n}\\n" % symbol
+                   for path, symbol in IMPLEMENTATIONS}
+        self.assertEqual(implementation_errors(sources), [])
+
+    def test_missing_implementation_is_detected_even_with_loader_union(self):
+        sources = {path: "void %s()\\n{\\n}\\n" % symbol
+                   for path, symbol in IMPLEMENTATIONS}
+        sources.pop("src/Systems/AtieshKarazhanPortal.cpp")
+        self.assertEqual(loader_errors(self.union), [])
+        self.assertIn("AtieshKarazhanPortal.cpp", "\\n".join(implementation_errors(sources)))
+
+    def test_wrong_translation_unit_symbol_is_detected(self):
+        sources = {path: "void %s()\\n{\\n}\\n" % symbol
+                   for path, symbol in IMPLEMENTATIONS}
+        sources["src/Systems/HunterPetAutocast.cpp"] = "void UnrelatedScript()\\n{\\n}\\n"
+        self.assertIn("AddHunterPetAutocastScripts", "\\n".join(implementation_errors(sources)))
 
     def test_individual_branch_loader_is_not_a_combined_candidate(self):
         for extra in EXTRAS:
@@ -189,6 +239,7 @@ def main():
     if args.check_tree:
         errors = loader_errors(LOADER.read_text(encoding="utf-8"))
         errors += config_errors(CONFIG.read_text(encoding="utf-8"))
+        errors += implementation_errors(tree_implementations())
         for err in errors:
             print("BLOCKED: " + err)
         if errors:
