@@ -27,6 +27,7 @@
 #include "Chat.h"
 #include "CommandScript.h"
 #include "Config.h"
+#include "CrossMapAuraQueue.h"
 #include "DBCStores.h"
 #include "GameTime.h"
 #include "GreaterFireProtectionOneShot.h"
@@ -35,6 +36,8 @@
 #include "Item.h"
 #include "ItemTemplate.h"
 #include "Map.h"
+#include "MapReference.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Pet.h"
 #include "Player.h"
@@ -47,6 +50,7 @@
 #include "WorldSession.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <initializer_list>
 #include <mutex>
@@ -303,6 +307,10 @@ namespace
         bool IsPetAura = false;
         bool WarnOnMissing = true;
         bool MissingNotified = false;
+        // GUID of the unit that received the aura, recorded on the thread
+        // that applied it. A queued pet removal only proceeds if the bot's
+        // pet at drain time is still this exact pet.
+        uint64 TargetGuidRaw = 0;
     };
 
     struct TimedAura
@@ -811,12 +819,75 @@ namespace
     }
 
     // =========================================================
+    // Cross-map aura safety (#114 follow-up, default OFF)
+    // =========================================================
+    //
+    // OnPlayerUpdate runs on the master's map thread. A prepared bot
+    // may be on another map that a different worker is updating, so
+    // its auras must not be read or changed from here. When enabled:
+    // - checks and timed refreshes skip bots that are not on the
+    //   master's own map (same Map object, not just map ID);
+    // - leaving the profile's instance queues removal of off-map bot
+    //   auras, which the world thread performs after all map workers
+    //   have finished (WorldScript::OnUpdate).
+    // When disabled, every path behaves exactly as before.
+
+    static_assert(sizeof(ObjectGuid::LowType) <= sizeof(uint32_t),
+        "CrossMapAuraQueue stores bot GUIDs as uint32_t");
+
+    std::atomic<bool> CrossMapAuraSafetyEnabled{ false };
+
+    NaxxramasCrossMapAura::RemovalQueue CrossMapAuraRemovals;
+
+    bool IsCrossMapAuraSafetyEnabled()
+    {
+        return CrossMapAuraSafetyEnabled.load(
+            std::memory_order_relaxed);
+    }
+
+    // Pointer comparison only: never dereferences the candidate, so it
+    // is safe to call for a bot that another worker is updating.
+    bool IsPlayerOnMap(
+        Map const* map,
+        Player const* candidate)
+    {
+        if (!map || !candidate)
+            return false;
+
+        for (MapReference const& ref : map->GetPlayers())
+        {
+            if (ref.GetSource() == candidate)
+                return true;
+        }
+
+        return false;
+    }
+
+    // Call BEFORE the module applies or takes ownership of this aura.
+    // A removal queued earlier is now stale and will be skipped; if the
+    // world thread is removing this exact aura right now, this waits
+    // until that removal has finished, so the new application lands
+    // after it and survives.
+    void NoteModuleAuraApplied(
+        ObjectGuid::LowType botGuid,
+        uint32 spellId,
+        bool isPetAura)
+    {
+        if (!IsCrossMapAuraSafetyEnabled())
+            return;
+
+        CrossMapAuraRemovals.NoteApplied(
+            { botGuid, spellId, isPetAura });
+    }
+
+    // =========================================================
     // Aura helpers
     // =========================================================
 
     void AddTrackedAura(
         RaidConsumableTracker& tracker,
         Player* bot,
+        ObjectGuid targetGuid,
         uint32 spellId,
         std::string const& auraName,
         bool isPetAura,
@@ -837,6 +908,7 @@ namespace
                 existing.AuraName = auraName;
                 existing.WarnOnMissing = warnOnMissing;
                 existing.MissingNotified = false;
+                existing.TargetGuidRaw = targetGuid.GetRawValue();
                 return;
             }
         }
@@ -849,6 +921,7 @@ namespace
         aura.IsPetAura = isPetAura;
         aura.WarnOnMissing = warnOnMissing;
         aura.MissingNotified = false;
+        aura.TargetGuidRaw = targetGuid.GetRawValue();
 
         tracker.Auras.push_back(aura);
     }
@@ -877,6 +950,13 @@ namespace
             return false;
         }
 
+        // Record ownership BEFORE touching the aura (both the preserve
+        // and the re-apply path): a removal queued earlier is now stale.
+        NoteModuleAuraApplied(
+            bot->GetGUID().GetCounter(),
+            spellId,
+            isPetAura);
+
         // Preserve a healthy existing aura instead of resetting it.
         // Normal consumables refresh at 10 minutes remaining;
         // food effects use a shorter 5-minute threshold.
@@ -893,6 +973,7 @@ namespace
                 AddTrackedAura(
                     tracker,
                     bot,
+                    target->GetGUID(),
                     spellId,
                     auraName,
                     isPetAura,
@@ -923,6 +1004,7 @@ namespace
         AddTrackedAura(
             tracker,
             bot,
+            target->GetGUID(),
             spellId,
             auraName,
             isPetAura,
@@ -1047,6 +1129,11 @@ namespace
                 "Juju Flurry item has no on-use spell");
             return;
         }
+
+        NoteModuleAuraApplied(
+            bot->GetGUID().GetCounter(),
+            spellId,
+            false);
 
         bot->RemoveAurasDueToSpell(spellId);
 
@@ -3129,7 +3216,11 @@ void PrepareManaUser(
             // A bot that is temporarily unavailable, dead, or no
             // longer in the master's preparation scope is retried
             // shortly instead of consuming one of the three uses.
+            // With cross-map safety, a bot on another map counts as
+            // unavailable and is checked before it is dereferenced.
             if (!bot ||
+                (IsCrossMapAuraSafetyEnabled() &&
+                    !IsPlayerOnMap(master->GetMap(), bot)) ||
                 !bot->IsInWorld() ||
                 !bot->IsAlive() ||
                 !IsProfileLocationValid(
@@ -3160,6 +3251,11 @@ void PrepareManaUser(
 
                 continue;
             }
+
+            NoteModuleAuraApplied(
+                timed.BotGuid,
+                timed.SpellId,
+                false);
 
             if (!bot->AddAura(
                     timed.SpellId,
@@ -3252,6 +3348,13 @@ void PrepareManaUser(
                 if (current->GetCasterGUID() != bot->GetGUID())
                     continue;
             }
+
+            // The module is (re)applying this aura: a removal queued
+            // earlier for it is now stale.
+            NoteModuleAuraApplied(
+                pending.BotGuid,
+                pending.SpellId,
+                false);
 
             if (!bot->AddAura(pending.SpellId, bot) &&
                 master->GetSession())
@@ -3355,11 +3458,27 @@ void PrepareManaUser(
         std::vector<std::string>
             newlyMissing;
 
+        bool const crossMapSafety =
+            IsCrossMapAuraSafetyEnabled();
+
         for (TrackedAura& tracked :
              tracker.Auras)
         {
             if (!tracked.WarnOnMissing)
                 continue;
+
+            // Skip, without changing MissingNotified, a bot that is
+            // not on the master's map: its auras belong to another
+            // worker. The warning resumes once it is back.
+            if (crossMapSafety &&
+                !IsPlayerOnMap(
+                    master->GetMap(),
+                    ResolvePreparedBot(
+                        manager,
+                        tracked.BotGuid)))
+            {
+                continue;
+            }
 
             Unit* target =
                 ResolveTrackedAuraTarget(
@@ -3437,9 +3556,13 @@ void PrepareManaUser(
     // Clear tracker and applied auras
     // =========================================================
 
+    // deferOffMap is true only on the master's map-thread path (leaving
+    // the profile's instance). Command paths run on the world thread and
+    // keep removing immediately.
     void ClearTrackedAuras(
         Player* master,
-        RaidConsumableTracker& tracker)
+        RaidConsumableTracker& tracker,
+        bool deferOffMap = false)
     {
         if (!master)
             return;
@@ -3454,6 +3577,27 @@ void PrepareManaUser(
         for (TrackedAura const& tracked :
              tracker.Auras)
         {
+            if (deferOffMap)
+            {
+                Player* bot =
+                    ResolvePreparedBot(
+                        manager,
+                        tracked.BotGuid);
+
+                if (!bot)
+                    continue;
+
+                if (!IsPlayerOnMap(master->GetMap(), bot))
+                {
+                    CrossMapAuraRemovals.Enqueue(
+                        { tracked.BotGuid,
+                          tracked.SpellId,
+                          tracked.IsPetAura },
+                        tracked.TargetGuidRaw);
+                    continue;
+                }
+            }
+
             Unit* target =
                 ResolveTrackedAuraTarget(
                     manager,
@@ -3473,6 +3617,18 @@ void PrepareManaUser(
                 ResolvePreparedBot(
                     manager,
                     timed.BotGuid);
+
+            if (deferOffMap &&
+                bot &&
+                !IsPlayerOnMap(master->GetMap(), bot))
+            {
+                CrossMapAuraRemovals.Enqueue(
+                    { timed.BotGuid,
+                      timed.SpellId,
+                      false },
+                    0);
+                continue;
+            }
 
             if (!bot ||
                 !bot->IsInWorld())
@@ -4654,7 +4810,10 @@ public:
                 tracker.RequiredMapId,
                 tracker.RequiredArea))
         {
-            ClearTrackedAuras(player, tracker);
+            ClearTrackedAuras(
+                player,
+                tracker,
+                IsCrossMapAuraSafetyEnabled());
             // Invalidates 'tracker'; nothing below may use it.
             EraseRaidConsumableTracker(player);
 
@@ -4707,6 +4866,76 @@ public:
 };
 
 // =============================================================
+// Cross-map aura removals (world thread)
+// =============================================================
+
+class NaxxramasCoreBotRaidConsumablesWorld :
+    public WorldScript
+{
+public:
+    NaxxramasCoreBotRaidConsumablesWorld()
+        : WorldScript(
+            "NaxxramasCoreBotRaidConsumablesWorld",
+            {
+                WORLDHOOK_ON_AFTER_CONFIG_LOAD,
+                WORLDHOOK_ON_UPDATE
+            })
+    {
+    }
+
+    void OnAfterConfigLoad(
+        bool /*reload*/) override
+    {
+        CrossMapAuraSafetyEnabled.store(
+            sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.BotConsumables.CrossMapAuraSafety",
+                false),
+            std::memory_order_relaxed);
+    }
+
+    // World::Update calls this after MapMgr::Update has waited for every
+    // map worker, so no map thread is updating these bots right now.
+    // Always drained, so removals queued before a config reload that
+    // disabled the feature still happen.
+    void OnUpdate(
+        uint32 /*diff*/) override
+    {
+        CrossMapAuraRemovals.Drain(
+            [](NaxxramasCrossMapAura::AuraKey const& key,
+                uint64 targetGuidRaw)
+            {
+                Player* bot =
+                    ObjectAccessor::FindPlayerByLowGUID(
+                        key.BotGuid);
+
+                if (!bot)
+                    return;
+
+                Unit* target = bot;
+
+                if (key.IsPet)
+                {
+                    // Only the exact pet that received the aura. A
+                    // re-summoned or different pet has a new GUID and is
+                    // left alone; its aura then expires on its own.
+                    Pet* pet = bot->GetPet();
+
+                    if (!pet ||
+                        pet->GetGUID().GetRawValue() != targetGuidRaw)
+                    {
+                        return;
+                    }
+
+                    target = pet;
+                }
+
+                target->RemoveAurasDueToSpell(
+                    key.SpellId);
+            });
+    }
+};
+
+// =============================================================
 // Loader
 // =============================================================
 
@@ -4714,4 +4943,5 @@ void AddBotRaidConsumablesScripts()
 {
     new NaxxramasCoreBotRaidConsumablesCommand();
     new NaxxramasCoreBotRaidConsumablesTracker();
+    new NaxxramasCoreBotRaidConsumablesWorld();
 }

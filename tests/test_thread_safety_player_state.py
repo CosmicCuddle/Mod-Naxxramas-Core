@@ -172,7 +172,8 @@ class SemanticGateContract(unittest.TestCase):
                         clear.index("EraseRaidConsumableTracker("))
         update = function_body(code, "void OnPlayerUpdate(")
         self.assertIn("if (!trackerPtr)", update)
-        self.assertLess(update.index("ClearTrackedAuras(player, tracker);"),
+        # Combined #115+#116: the clear may carry the cross-map flag.
+        self.assertLess(update.index("ClearTrackedAuras("),
                         update.index("EraseRaidConsumableTracker(player);"))
 
     def test_g5_bot_timers_start_at_zero_and_keep_interval(self):
