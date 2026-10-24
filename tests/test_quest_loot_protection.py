@@ -445,8 +445,11 @@ class QuestLootProtectionContract(unittest.TestCase):
 
     def test_workflow_pins_exact_head_and_does_not_upload(self):
         self.assertIn("8daffdabe9202c228e45d833c9a1d399597a15cd", WORKFLOW)
-        self.assertIn("037c01418b5d01506917a3db9b44fd56ac5f965c", WORKFLOW)
-        self.assertIn("4ff4b5fcc1480348f058c632573143e62d4e3a41", WORKFLOW)
+        self.assertIn("d750b4b3a50effdf22bedc8032f0e8e5f7cb8091", WORKFLOW)
+        self.assertIn("dd96f2b77e3ebfa2a4726bf785525ba133f1ab61", WORKFLOW)
+        # Project-standard public pins (CS01 #132 review); the old pair must not return.
+        for obsolete in ("037c01418b5d01506917a3db9b44fd56ac5f965c", "4ff4b5fcc1480348f058c632573143e62d4e3a41"):
+            self.assertNotIn(obsolete, WORKFLOW)
         self.assertIn("github.event.pull_request.head.sha", WORKFLOW)
         self.assertNotIn("actions/upload-artifact", WORKFLOW)
         self.assertNotIn("actions/upload-pages-artifact", WORKFLOW)
