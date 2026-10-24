@@ -53,7 +53,45 @@ WHERE Item = @a04_item_id
 ORDER BY Entry, Reference, GroupId;
 ```
 
+```sql
+-- One-level reference-loot evidence for creature and GO templates.
+-- Preserve both the outer-row and referenced-row QuestRequired flags:
+-- neither alone proves the effective item eligibility of a nested chain.
+SELECT 'creature' AS source_kind,
+       c.Entry AS source_loot_template_id,
+       c.Reference AS referenced_loot_template_id,
+       r.Item AS item_id,
+       c.QuestRequired AS outer_quest_required,
+       r.QuestRequired AS referenced_quest_required,
+       r.Reference AS deeper_reference_id,
+       c.LootMode AS outer_loot_mode,
+       r.LootMode AS referenced_loot_mode
+FROM creature_loot_template AS c
+JOIN reference_loot_template AS r ON c.Reference = r.Entry
+WHERE r.Item = @a04_item_id
+
+UNION ALL
+
+SELECT 'gameobject' AS source_kind,
+       g.Entry AS source_loot_template_id,
+       g.Reference AS referenced_loot_template_id,
+       r.Item AS item_id,
+       g.QuestRequired AS outer_quest_required,
+       r.QuestRequired AS referenced_quest_required,
+       r.Reference AS deeper_reference_id,
+       g.LootMode AS outer_loot_mode,
+       r.LootMode AS referenced_loot_mode
+FROM gameobject_loot_template AS g
+JOIN reference_loot_template AS r ON g.Reference = r.Entry
+WHERE r.Item = @a04_item_id
+ORDER BY source_kind, source_loot_template_id, referenced_loot_template_id;
+```
+
+**Reference limitation:** The query covers **one reference hop** only. A result with `deeper_reference_id != 0` signals another reference to investigate separately; a blank result does **not** prove that nested references, scripts, spells or other loot sources are absent. `outer_quest_required` and `referenced_quest_required` are raw table columns, not a proven resolved runtime rule. Public `reference_loot_template` DDL at the same pin confirms `Entry`, `Item`, `Reference`, `QuestRequired`, and `LootMode`. Do not commit owner world-row results.
+
 **Read-only SQL convenience note:** `SET @a04_item_id` changes only the local client session variable; it does not modify the world database. If using a server account restricted to `SELECT`, replace `@a04_item_id` with a literal constant and omit `SET`. The query is not meant to be executed with the placeholder 123456 as a real fact.
+
+All four query examples are SELECT-only after the optional session-local parameter declaration. Run only when an actual item ID is identified, on a backed-up read-only database or clone.
 
 ## Decision matrix after results exist
 
