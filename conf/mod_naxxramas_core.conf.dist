@@ -392,3 +392,27 @@ NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0
 # Default: "" (no bots are sampled)
 NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
 
+#####################################
+# Scarlet Monastery — Cathedral/Armory exits (F12)
+#####################################
+
+# REVIEW-ONLY prototype. Leaving the Cathedral (area trigger 604) or the
+# Armory (606) puts the player just behind that wing's own entrance door,
+# like the Graveyard and Library exits. Only these two exits are touched.
+# Applies at every Individual Progression stage.
+# Default: 0 (disabled; stock exits)
+NaxxramasCore.ScarletExits.Enabled = 0
+
+# 1 = use the built-in Vanilla-core landing point behind each door, but only
+#     if the live entrance rows confirm it is outside the door and nearest
+#     its own wing; otherwise the live areatrigger_teleport row is used.
+# 0 = keep the live areatrigger_teleport row for normal exits.
+# Default: 1 (has no effect while Enabled = 0)
+NaxxramasCore.ScarletExits.UseVanillaDoorTargets = 1
+
+# 1 = Dungeon Finder groups also leave by the door instead of being sent to
+#     the queue position or hearthstone. Their stored queue position is
+#     kept; the Dungeon Finder "teleport out" button still uses it.
+# 0 = Dungeon Finder exits stay stock.
+# Default: 1 (has no effect while Enabled = 0)
+NaxxramasCore.ScarletExits.RouteDungeonFinderExits = 1
