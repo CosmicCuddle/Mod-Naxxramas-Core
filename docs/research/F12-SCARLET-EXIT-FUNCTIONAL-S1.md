@@ -40,8 +40,9 @@ entrance trigger (`areatrigger.sql` L45/L130–L132), with
 
 Graveyard and Library follow the normal "just stepped out of the door,
 facing away" pattern. Cathedral and Armory do not; both share an almost
-identical facing (~112°). MaNGOS One/Two (TBC/WotLK) carry the same rows as
-AzerothCore.
+identical facing (~112°). MaNGOS One `database` `9ecb5ea` and MaNGOS Two `database` `19e19c6`
+(TBC/WotLK, `World/Setup/FullDB/areatrigger_teleport.sql` L58–61) carry the
+same rows as AzerothCore.
 
 **Vanilla-core rows** (MaNGOS Zero and cMaNGOS classic, identical values):
 
@@ -80,7 +81,9 @@ The design handles both, each behind its own switch.
   - Per-trigger `AreaTriggerScript` — needs an `areatrigger_scripts` row
     (`ObjectMgr.cpp` L7111–7142). That is SQL.
   - Rewriting the join position — `m_entryPointData` is `protected` (`Player.h`
-    L2709/L2749) and only has a const getter (L2428).
+    L2709/L2749). The public API is a const getter (L2428) and
+    `SetEntryPoint()` (L2429), which takes no coordinates, so a module cannot
+    write a chosen door point into it.
   - `OnPlayerBeforeTeleport` — coordinates are passed by value, and it
     cannot tell an exit teleport from any other.
 - **Usable:** `ServerScript::CanPacketReceive` on `CMSG_AREATRIGGER`.
@@ -110,8 +113,15 @@ Proposed keys (names are proposals; no config file changes here):
 1. Opcode not `CMSG_AREATRIGGER`, flag off, no player, or packet under 4
    bytes → **true** (stock).
 2. Read the trigger ID from a copy. Not 604 or 606 → **true**.
-3. Mirror the native early exits (`MiscHandler.cpp` L691–760) and return
-   **true** so the stock handler does the same: in flight; unknown
+3. Defer to the stock handler (return **true**) in each of these cases. Some
+   are native early returns (`MiscHandler.cpp` L699 flight, L706 unknown,
+   L716 radius, L735 tavern, L752–756 battleground, L763–765 no row, L770/798
+   entry denied); the others are deferred **conservatively** because the
+   native handler may do extra work there (quest credit L730–733 does not
+   return; `.debug areatriggers` prints L723–724 and lets a GM run scripts
+   L727; OutdoorPvP returns only if its handler does, L759–761; a bound
+   script stops it only if `OnTrigger` returns true; already on map 0 still
+   teleports to the row, L768/806–807): in flight; unknown
    trigger; outside the trigger radius (`IsInAreaTriggerRadius`, L716); a
    bound trigger script (`GetAreaTriggerScriptId != 0`); a quest tied to
    the trigger; tavern; battleground in progress; OutdoorPvP; no
