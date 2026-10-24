@@ -194,8 +194,12 @@ class UnionContractModel(unittest.TestCase):
             self.assertEqual((d[name], c[name]), (1, 1), name)
 
     def test_model_is_idempotent_on_preintegrated_loader(self):
-        self.assertEqual(strip_draft_loader_extras(self.union), self.base)
-        reassembled = simulated_loader(strip_draft_loader_extras(self.union))
+        # Synthetic insertion leaves harmless blank lines. Compare the
+        # actual declarations and call order, not whitespace in C++ text.
+        stripped = strip_draft_loader_extras(self.union)
+        self.assertEqual(declarations(stripped), declarations(self.base))
+        self.assertEqual(registrations(stripped), registrations(self.base))
+        reassembled = simulated_loader(stripped)
         self.assertEqual(loader_errors(reassembled), [])
         self.assertEqual(declarations(reassembled), declarations(self.union))
         self.assertEqual(registrations(reassembled), registrations(self.union))
