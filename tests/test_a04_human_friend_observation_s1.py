@@ -90,6 +90,15 @@ class SourceBoundary(unittest.TestCase):
                 self.assertIn(marker, REPORT)
 
 
+    def test_owner_policy_preserves_stock_quest_loot(self):
+        spec = (ROOT / "docs/research/A04-HUMAN-TO-HUMAN-S2-FUNCTIONAL-GATE.md").read_text("utf-8")
+        self.assertIn("Owner-approved requirement — stock WoW quest-loot parity", spec)
+        self.assertIn("legitimate shared-loot turn", spec)
+        self.assertIn("no B/C policy choice", spec)
+        self.assertIn("No B/C loot-policy redesign is requested or approved", spec)
+        self.assertNotIn("Owner decision needed for actual S2", spec)
+
+
 class HumanFriendObservationModels(unittest.TestCase):
     def test_hf01_friend_is_holder_can_consume_shared_copy(self):
         self.assertEqual(existing_guard_decision(Observation(viewer_holds_turn=True)),
