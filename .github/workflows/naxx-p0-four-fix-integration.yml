@@ -1,0 +1,157 @@
+name: P0 four-fix integration pinned Worldserver
+
+on:
+  push:
+    branches: [cs01/fourfix-integrated-ci-20261023]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'conf/**'
+      - '.github/workflows/naxx-p0-four-fix-integration.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'conf/**'
+      - '.github/workflows/naxx-p0-four-fix-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-p0-fourfix-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  combined-source-and-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Assert source and config combination
+        run: python3 -m unittest discover -s tests -p 'test_part14_four_fix_staging.py' -v
+      - name: Exercise complete module Python source and synthetic suite
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Exercise native C++ Golemagg policy on C++17 and C++20
+        run: |
+          set -euo pipefail
+          for std in c++17 c++20; do
+            g++ -std="$std" -Wall -Wextra -Werror -pedantic -Isrc/Systems \
+              tests/golemagg_reach_guard_policy.cpp -o "/tmp/fourfix_guard_$std"
+            "/tmp/fourfix_guard_$std"
+          done
+      - name: Source-only gate
+        if: always()
+        run: echo 'This job is not an installed Worldserver or owner gameplay test; no artifacts are uploaded.'
+
+  combined-pinned-full-worldserver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout exact Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+      - name: Checkout pinned public Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout pinned public Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact combined Naxxramas module
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/Mod-Naxxramas-Core
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify exact pins, loader registrations and OFF defaults
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          mod=acore/modules/mod-naxxramas-core
+          conf="$mod/conf/mod_naxxramas_core.conf.dist"
+          grep -Fqx 'NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName = ""' "$conf"
+          grep -Fqx 'NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug = 0' "$conf"
+          grep -Fqx 'NaxxramasCore.MeetingStones.ClassicMode.Enabled = 1' "$conf"
+          grep -Fq 'AddBotRaidConsumablesScripts();' "$mod/src/NaxxramasCore_loader.cpp"
+          grep -Fq 'AddMeetingStoneProgressionScripts();' "$mod/src/NaxxramasCore_loader.cpp"
+          grep -Fq 'AddBotGolemaggReachGuardScripts();' "$mod/src/NaxxramasCore_loader.cpp"
+          python3 -m unittest discover -s "$mod/tests" -p 'test_part14_four_fix_staging.py' -v
+      - name: Install disposable pinned C++ build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure all modules for full Worldserver
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Verify all three production translation units included
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          rows=json.loads(Path("acore-build/compile_commands.json").read_text())
+          paths=[str(row.get("file","")).replace("\\","/") for row in rows]
+          for filename in ("BotRaidConsumables.cpp","MeetingStoneProgression.cpp","BotGolemaggReachGuard.cpp"):
+              suffix="/mod-naxxramas-core/src/Systems/"+filename
+              found=[p for p in paths if p.endswith(suffix)]
+              assert len(found)==1, f"Expected one compile command for {filename}; found {len(found)}"
+              print("PINNED TU PRESENT:",filename)
+          PY
+      - name: Compile guard translation unit explicitly
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_golemagg_reach_guard_pinned_compile.py \
+            --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Compile and link real pinned Worldserver, never launch it
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify combined registration symbols in archive and final binary
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          archive=acore-build/modules/libmodules.a
+          test -s "$archive" && test -s "$binary" && test -x "$binary"
+          nm -C --defined-only "$archive" > /tmp/fourfix_archive_symbols.txt
+          nm -C --defined-only "$binary" > /tmp/fourfix_binary_symbols.txt
+          for output in /tmp/fourfix_archive_symbols.txt /tmp/fourfix_binary_symbols.txt; do
+            grep -Fq 'AddBotRaidConsumablesScripts()' "$output"
+            grep -Fq 'AddMeetingStoneProgressionScripts()' "$output"
+            grep -Fq 'AddBotGolemaggReachGuardScripts()' "$output"
+          done
+          grep -aFq 'NaxxramasCoreMeetingStoneProgression' "$binary"
+          grep -aFq 'NaxxramasCoreGolemaggReachGuard' "$binary"
+          sha256sum "$binary"
+          echo 'PASS combined linked Worldserver and all three production registrations.'
+      - name: Preserve safety boundary
+        if: always()
+        run: |
+          echo 'No release artifacts are uploaded. Worldserver never launched. No server, SQL, DBC or active config changed.'
+          echo 'Pinned Playerbots is public d750b4b, NOT the owner installed e88cc409 with local edits.'
+          echo 'Combined S4 link is NOT owner gameplay acceptance, permission to merge or permission to deploy.'

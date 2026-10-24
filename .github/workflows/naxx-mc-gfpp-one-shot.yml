@@ -1,4 +1,4 @@
-name: MC Greater Fire Protection 90s one-shot source tests
+name: MC Greater Fire Protection 120s one-shot source tests
 
 on:
   pull_request:

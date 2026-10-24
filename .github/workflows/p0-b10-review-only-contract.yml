@@ -1,0 +1,41 @@
+name: "P0 B10 combined review-only source checks"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'src/Systems/BotGolemaggReachGuard.cpp'
+      - 'src/Systems/MeetingStoneProgression.cpp'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/test_combined_p0_b10_source.py'
+      - 'tests/test_mc_gfpp_one_shot.py'
+      - '.github/workflows/p0-b10-review-only-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  combined-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Assert exact integrated head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Combined source and GFPP tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest tests/test_combined_p0_b10_source.py -v
+          python3 -m unittest tests/test_mc_gfpp_one_shot.py -v
+          python3 -m unittest tests/test_combined_115_116_integration.py -v
+          python3 -m unittest tests/test_crossmap_aura_safety.py -v
+          python3 -m unittest tests/test_thread_safety_player_state.py -v
+          python3 -m unittest tests/test_golemagg_reach_guard.py -v
+          python3 -m unittest tests/test_meeting_stone_ritual_isolation.py -v
+          python3 -m unittest tests/test_shaman_totem_no_regrant.py -v
+          echo 'Source/native synthetic-only; no binary upload, server, deploy or SQL/DBC.'

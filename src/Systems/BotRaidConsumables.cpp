@@ -331,7 +331,7 @@ namespace
         ObjectGuid::LowType BotGuid = 0;
         uint32 SpellId = 0;
         bool OriginallyRandomBot = false;
-        NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};
+        NaxxramasOneShotTimer Timer{120 * IN_MILLISECONDS};
     };
 
     struct RaidConsumableTracker final : DataMap::Base
@@ -1165,7 +1165,7 @@ namespace
     }
 
     // =========================================================
-    // Molten Core: optional, exactly one 90-second GFPP refresh
+    // Molten Core: optional, exactly one 120-second GFPP refresh
     // =========================================================
 
     void ApplyTimedGreaterFireProtection(
@@ -3283,7 +3283,7 @@ void PrepareManaUser(
     }
 
     // Unlike Juju Flurry, this timer is deliberately consumed at
-    // ~90s, with NO retries at 95s/180s. The original bot must remain
+    // ~120s, with NO retries at 125s/240s. The original bot must remain
     // eligible and inside MC; even a failed refresh is a used attempt.
     void ProcessOneShotFireProtections(
         Player* master,

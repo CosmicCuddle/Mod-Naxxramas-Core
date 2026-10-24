@@ -1,0 +1,33 @@
+name: Shaman permanent totem no-regrant source checks
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'tests/test_shaman_totem_no_regrant.py'
+      - '.github/workflows/naxx-shaman-totem-no-regrant.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-shaman-totem-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-only-permanent-totem-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact source candidate
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Assert totems are not automatically granted
+        run: python3 -m unittest discover -s tests -p 'test_shaman_totem_no_regrant.py' -v
+      - name: State source-only safety boundary
+        run: |
+          echo 'Source regression only; no Worldserver build, active config, DB, character inventory or gameplay test.'
+          echo 'No packages or release artifacts are produced.'
