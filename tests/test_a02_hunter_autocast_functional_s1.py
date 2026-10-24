@@ -239,6 +239,44 @@ class HunterAutocastFunctionalDesign(unittest.TestCase):
             path.read_text() for path in WORKFLOWS.glob("*.yml")
         ))
 
+    def test_pinned_spell_ranks_identity_is_recorded(self):
+        rows = {
+            17253: [17253, 17255, 17256, 17257, 17258, 17259, 17260, 17261, 27050, 52473, 52474],
+            16827: [16827, 16828, 16829, 16830, 16831, 16832, 3010, 3009, 27049, 52471, 52472],
+            24604: [24604, 64491, 64492, 64493, 64494, 64495],
+            24450: [24450, 24452, 24453],
+        }
+        self.assertEqual([len(rows[17253]), len(rows[16827]), len(rows[24604]), len(rows[24450])], [11, 11, 6, 3])
+        self.assertEqual(sum(len(spells) for spells in rows.values()), 31)
+        self.assertEqual(len({spell for spells in rows.values() for spell in spells}), 31)
+        for first, spells in rows.items():
+            self.assertIn(str(first), self.note)
+            for spell in spells:
+                self.assertIn(str(spell), self.note)
+        for phrase in (
+            "ca2ca5916cca570d219ff11088688eb4c80d24a6",
+            "11 + 11 + 6 + 3 = 31",
+            "58147 bytes, 3552 lines, 3502",
+            "Source chain identity is **VERIFIED** at the pin.",
+            "The owner's live `acore_world.spell_ranks` is **UNKNOWN**.",
+            "SELECT first_spell_id, spell_id, `rank` FROM spell_ranks",
+            "WHERE first_spell_id IN (17253, 16827, 24604, 24450)",
+            "ORDER BY first_spell_id, `rank`;",
+            "Cower stays `NO_LEARN`.",
+            "This design does not call `learnSpell` to put it back.",
+            "does not name `52471`, `52472`, `52473`, `52474`, or `64495`",
+            "SpellMgr.cpp:1287",
+            "IndividualProgressionSpells.cpp:56-469",
+            "Object.h:233",
+            "Pet.cpp:1909-1915",
+            "CharmInfo.h:54-55",
+            "ACTION_BAR_INDEX_PET_SPELL_START",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.note)
+        for absent in (1753, 1754, 1755, 1756, 16697, 27048):
+            self.assertIn(str(absent), self.note)
+
 
 if __name__ == "__main__":
     unittest.main()

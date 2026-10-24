@@ -52,7 +52,7 @@ The load callback (`Pet.cpp:416-496`) runs `_LoadSpells` (`:435`), `InitLevelupS
 
 ### Where Individual Progression drops the byte
 
-**VERIFIED.** `IndividualProgression::checkHunterPetSpells` (`IndividualProgressionSpells.cpp:56-112`) returns immediately unless the player is in world, `VanillaHunterPets` is on, the account is not a bot account, the class is hunter, and progression has not passed `PROGRESSION_TBC_TIER_5` (`:58-68`). `VanillaHunterPets` defaults to true (`IndividualProgression.cpp:1076`). `isBotAccount` (`:398-408`) matches `IndividualProgression.BotAccountsRegex`, default `^RNDBOT.*` (`:1118`).
+**VERIFIED.** `IndividualProgression::checkHunterPetSpells` (`IndividualProgressionSpells.cpp:56-469`) returns immediately unless the player is in world, `VanillaHunterPets` is on, the account is not a bot account, the class is hunter, and progression has not passed `PROGRESSION_TBC_TIER_5` (`:58-68`). The reconcile lambda is `:91-111`. The Cower calls at `:445`, `:453`, `:460`, and `:467` are inside the function. `VanillaHunterPets` defaults to true (`IndividualProgression.cpp:1076`). `isBotAccount` (`:398-408`) matches `IndividualProgression.BotAccountsRegex`, default `^RNDBOT.*` (`:1118`).
 
 The reconcile lambda (`IndividualProgressionSpells.cpp:91-111`) picks `keepId = dummyId - 600000` from the highest dummy the hunter knows (`:94-100`). It then `unlearnSpell(id, false, true)` for every other wipe id the pet still has (`:103-106`), and `learnSpell(keepId)` when `keepId` is missing (`:109-110`). It never calls `ToggleAutocast`.
 
@@ -94,7 +94,7 @@ IP already returns before the reconcile for an account matching the bot regex. A
 `Pet::Update` (`Pet.cpp:736`) calls `Creature::Update`, which calls `Unit::Update` for an alive creature (`Creature.cpp:777`). `Unit::Update` (`Unit.cpp:510-517`) does three things in this order:
 
 1. `sScriptMgr->OnUnitUpdate` — `UnitScript::OnUnitUpdate` (`UnitScript.h:104`).
-2. `WorldObject::Update` (`Object.cpp:1074-1085`), which runs `m_Events.Update` and then `sScriptMgr->OnWorldObjectUpdate` — `WorldObjectScript::OnWorldObjectUpdate` (`WorldObjectScript.h:76`).
+2. `WorldObject::Update` (`Object.cpp:1074-1085`), which runs `m_Events.Update`, then the heartbeat loop, then `sScriptMgr->OnWorldObjectUpdate` — `WorldObjectScript::OnWorldObjectUpdate` (`WorldObjectScript.h:76`). `Heartbeat()` is an empty virtual (`Object.h:233`). `Object.cpp`, `Unit.cpp`, and `Pet.cpp` at this pin do not override it. An override in another translation unit was not searched in this pass, so that remainder is **UNKNOWN**. S2 re-checks the bracket if the core pin moves. The restore hook is after the heartbeat on that same update.
 3. The rest of the unit update.
 
 IP's check is step 2's event queue. `Object::m_Events` is public (`Object.h:749`, access `public` at `:485`). The same `Pet::Update` both reaches the snapshot hook and drains the event. A grid that skips the pet also skips the IP event. The two stay on the same call.
@@ -113,11 +113,34 @@ On `OnWorldObjectUpdate` of that same pet update, run the decision table below a
 
 - `Pet::ToggleAutocast(spellInfo, true)` and `CharmInfo::SetSpellAutocast(spellInfo, true)` for `RESTORE_ENABLED`.
 - `Pet::ToggleAutocast(spellInfo, false)` and `CharmInfo::SetSpellAutocast(spellInfo, false)` for `RESTORE_DISABLED`.
-- One `Player::PetSpellInitialize()` (`Player.h:1712`, public) after at least one of those writes on that tick.
+- One `Player::PetSpellInitialize()` (`Player.h:1712`, public) after at least one of those writes on that tick. `Pet::learnSpell` already calls `PetSpellInitialize` when `!m_loading` (`Pet.cpp:1909-1915`), so the client is shown the dropped state from that learn. The module packet is the later correction. What the 3.3.5 client shows after that second packet is **NOT TESTED**.
 
-The chain key is `SpellMgr::GetFirstSpellInChain` (`SpellMgr.cpp:603-608`), which returns the spell id when the chain map has no node. `SpellInfo::GetFirstRankSpell` (`SpellInfo.cpp:2934-2938`) is the same notion. Rank helpers `IsDifferentRankOf` / `IsHighRankOf` are `SpellInfo.cpp:3011-3028`. The table treats two spells as the same family only when that key matches. It does not invent a link from IP's wipe list.
+The chain key is `SpellMgr::GetFirstSpellInChain` (`SpellMgr.cpp:603-608`), which returns the spell id when `mSpellChains` has no node. Non-talent chains load from the world table `spell_ranks` (`SpellMgr::LoadSpellRanks`, query at `SpellMgr.cpp:1287`) after talent ranks load from the talent DBC (`LoadSpellTalentRanks`, `SpellMgr.cpp:1218`). `LoadSpellRanks` does not read a `SpellChain.dbc`. `SpellInfo::GetFirstRankSpell` (`SpellInfo.cpp:2934-2938`) is the same notion. Rank helpers `IsDifferentRankOf` / `IsHighRankOf` are `SpellInfo.cpp:3011-3028`. The table treats two spells as the same family only when that key matches. It does not invent a link from IP's wipe list. If the keys differ, the table returns `NO_LEARN` for the old chain and leaves the new spell at the learn default.
 
-Whether the server DBC chain map links each wiped id to its `keepId` (for example Wolf Bite `17253` with `17261`) is **UNKNOWN**. This note did not open `SpellChain.dbc` or `spell_ranks`. If the keys differ, the table returns `NO_LEARN` for the old chain and leaves the new spell at the learn default.
+### Source chain identity at the pin
+
+Source chain identity is **VERIFIED** at the pin. The owner's live `acore_world.spell_ranks` is **UNKNOWN**.
+
+This pass read `data/sql/base/db_world/spell_ranks.sql` at Grimfeather `8daffdabe9202c228e45d833c9a1d399597a15cd`. The blob is `ca2ca5916cca570d219ff11088688eb4c80d24a6`, 58147 bytes, 3552 lines, 3502 `(first_spell_id, spell_id, rank)` tuples. No live database was queried. No DBC file was opened. The file is not copied into this module.
+
+| Family | `first_spell_id` | Rows | Spell ids in rank order |
+| --- | --- | --- | --- |
+| Bite | 17253 | 11 | 17253, 17255, 17256, 17257, 17258, 17259, 17260, 17261, 27050, 52473, 52474 |
+| Claw | 16827 | 11 | 16827, 16828, 16829, 16830, 16831, 16832, 3010, 3009, 27049, 52471, 52472 |
+| Furious Howl | 24604 | 6 | 24604, 64491, 64492, 64493, 64494, 64495 |
+| Prowl | 24450 | 3 | 24450, 24452, 24453 |
+
+11 + 11 + 6 + 3 = 31. Bite ranks 10–11 (`52473`, `52474`), Claw ranks 10–11 (`52471`, `52472`), and Furious Howl rank 6 (`64495`) use the same `first_spell_id` as the lower ranks. Cower `1742` has no `spell_ranks` row, and neither do `1753`, `1754`, `1755`, `1756`, `16697`, or `27048`. Cower stays `NO_LEARN`. This design does not call `learnSpell` to put it back.
+
+IP `dd96f2b77e3ebfa2a4726bf785525ba133f1ab61` `checkHunterPetSpells` does not name `52471`, `52472`, `52473`, `52474`, or `64495`. A pet that knows only one of those ids is the same-id path, because the reconcile does not unlearn it. The rank 1–9 Bite and Claw ids, and Furious Howl through `64494`, which that function does name, share the `first_spell_id` values above. Every uncommented non-empty dummy list in that function (52 calls) keeps its wipe ids and its `keepId` values (`dummy - 600000`) on one chain key in this file. Empty dummy lists stay `NO_LEARN`.
+
+Owner-run read-only check. The expected count under this pinned base is 31 rows. A different live count is an owner difference to record, and it is not a link this module invents.
+
+```sql
+SELECT first_spell_id, spell_id, `rank` FROM spell_ranks
+WHERE first_spell_id IN (17253, 16827, 24604, 24450)
+ORDER BY first_spell_id, `rank`;
+```
 
 ### What the other tokens do
 
@@ -202,7 +225,9 @@ Check order for an in-scope call, per baseline chain: one baseline spell, active
 - Successor missing from the bar: `NO_BAR`. No new slot is created.
 - Same spell id, whatever the active byte did inside `m_Events`: `NO_WRITE`.
 - Another `WorldObjectScript::OnWorldObjectUpdate` that runs after this module can still change the bar. Script list order is not a contract. **UNKNOWN** which other scripts on this server run there.
-- A full action bar (`AddSpellToActionBar` returns false, `CharmInfo.cpp:208`) is the `NO_BAR` path. How often a hunter pet fills all ten slots (`CharmInfo.h:56`) is **UNKNOWN**.
+- `InitPetActionBar` (`CharmInfo.cpp:52-64`) puts commands on slots 0–2, spells on indices 3–6 (`ACTION_BAR_INDEX_PET_SPELL_START` / `ACTION_BAR_INDEX_PET_SPELL_END`, `CharmInfo.h:54-55`), and reactions on slots 7–9. The bar length is 10 (`CharmInfo.h:56`). `IsActionBarForSpell` is true for `ACT_DISABLED`, `ACT_ENABLED`, and `ACT_PASSIVE` (`CharmInfo.h:103-107`), so only the four spell slots take a pet spell.
+- IP's `clear_ab` leaves the old slot as action `0`, type `ACT_DISABLED` (`CharmInfo.cpp:221`). That counts as an empty spell slot. `AddSpellToActionBar` (`CharmInfo.cpp:172-183`) fills the first empty spell slot, which is the cleared slot unless a lower spell slot was already empty. The restore does not move slots.
+- A full set of four spell slots (`AddSpellToActionBar` returns false, `CharmInfo.cpp:208`) is the `NO_BAR` path. How often a hunter pet fills all four is **UNKNOWN**.
 
 ## Rollback
 
@@ -211,7 +236,7 @@ With the key at `0`, the module does not read or write pet spells. Turning a fut
 ## NOT TESTED
 
 - Any character, pet family, relog, resummon, stable swap, level-up, or client bar.
-- The owner's DBC spell-chain map, so the link from a wipe id to `keepId` is **UNKNOWN**.
+- The owner's live `acore_world.spell_ranks`. The pinned base file above is **VERIFIED**. Whether the running world matches those 31 rows is **UNKNOWN**.
 - The owner's two local edits on Playerbots `e88cc409`.
 - Live `MapUpdate.Threads` and the installed binary.
 - That `PetSpellInitialize` after a restore matches what the 3.3.5 client shows.
@@ -230,18 +255,20 @@ With the key at `0`, the module does not read or write pet spells. Turning a fut
 | Explicit ON on a non-empty dummy replacement becomes OFF in that control flow | **VERIFIED** source. Player-visible result remains a **POTENTIAL ISSUE** and is **NOT TESTED** in game |
 | Explicit OFF matches the learn default numerically; the old byte is not read | **VERIFIED** source |
 | Growl is absent from `checkHunterPetSpells`; no Growl spell id claimed | **VERIFIED** source, **NOT TESTED** in game |
-| Cower `1742` on Serpent, Moth, Chimaera, and Silithid is removal with an empty dummy list | **VERIFIED** source. **POTENTIAL ISSUE** for the lost spell. Putting the byte back is infeasible without `learnSpell`, which this design refuses |
+| Cower `1742` on Serpent, Moth, Chimaera, and Silithid is removal with an empty dummy list, and `1742` has no `spell_ranks` row | **VERIFIED** source. **POTENTIAL ISSUE** for the lost spell. The spell stays unlearned. `NO_LEARN`. This design does not call `learnSpell` to put it back |
 | Empty dummy lists (Wolf Claw and the same shape) are the same removal | **VERIFIED** source |
+| Source chain identity of Bite `17253` (11), Claw `16827` (11), Furious Howl `24604` (6), and Prowl `24450` (3), total 31, at blob `ca2ca5916cca570d219ff11088688eb4c80d24a6` | **VERIFIED** at the pin |
+| Owner live `acore_world.spell_ranks` | **UNKNOWN** |
 | `OnPetAddToWorld` / `OnInitStatsForLevel` run before the spell book is loaded | **VERIFIED** |
 | `OnUnitUpdate` then `m_Events` then `OnWorldObjectUpdate` inside one `Unit::Update` brackets the IP event | **VERIFIED** source order. Future writer **NOT TESTED** |
-| DBC chain identity of wipe id and `keepId` | **UNKNOWN** |
+| Non-talent chain load is `spell_ranks` (`SpellMgr.cpp:1287`), not a `SpellChain.dbc` read in `LoadSpellRanks` | **VERIFIED** source. No DBC file was opened |
 | Playerbots `IsRealPlayer` and the Cower-off autocast action at both published SHAs | **VERIFIED**. The two local edits on top of `e88cc409` are **UNKNOWN** |
 | In-game autocast after IP, relog, resummon, or stable | **NOT TESTED** |
 | PR #69 | Open draft, unchanged, still blocked |
 
 ## Commands
 
-Pins were checked out read-only under `/tmp/pins` on 24 October 2026. Citations are `file:line` against those commits. The synthetic contract does not clone them again:
+Pins were checked out read-only under `/tmp/pins` on 24 October 2026. Citations are `file:line` against those commits. The synthetic contract does not clone them again. The `spell_ranks` count is blob `ca2ca5916cca570d219ff11088688eb4c80d24a6`, fetched read-only the same day. The tests assert the recorded rows. They do not download the file.
 
 ```
 python3 -m unittest discover -s tests -p 'test_a02_hunter_autocast_functional_s1.py' -v
