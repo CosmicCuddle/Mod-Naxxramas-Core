@@ -17,11 +17,27 @@ def sql_examples():
 
 
 class SQLPreflightContract(unittest.TestCase):
-    def test_three_classification_queries_present(self):
+    def test_four_classification_queries_present(self):
         blocks = sql_examples()
-        self.assertEqual(len(blocks), 3)
+        self.assertEqual(len(blocks), 4)
         for table in ("item_template", "creature_loot_template", "gameobject_loot_template"):
             self.assertTrue(any(f"FROM {table}" in q for q in blocks), table)
+
+    def test_reference_join_is_one_hop_and_does_not_hide_outer_flags(self):
+        reference = sql_examples()[3]
+        self.assertEqual(reference.count("JOIN reference_loot_template AS r"), 2)
+        self.assertEqual(reference.count("WHERE r.Item = @a04_item_id"), 2)
+        self.assertIn("UNION ALL", reference)
+        for name in (
+            "outer_quest_required",
+            "referenced_quest_required",
+            "deeper_reference_id",
+            "outer_loot_mode",
+            "referenced_loot_mode",
+        ):
+            self.assertIn(name, reference)
+        self.assertIn("one reference hop", DOC)
+        self.assertIn("not a proven resolved runtime rule", DOC)
 
     def test_no_world_write_statement_in_examples(self):
         for block in sql_examples():
