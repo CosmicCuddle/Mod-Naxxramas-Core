@@ -13,9 +13,9 @@
 
 ## Proposed opt-in rule
 
-Only in the **existing, enabled, creature-corpse** `CMSG_AUTOSTORE_LOOT_ITEM` hook, and only for a normal `loot.items` slot:
+Only in the existing **creature-corpse** `CMSG_AUTOSTORE_LOOT_ITEM` hook, and only for a normal `loot.items` slot. The new switch is **independent** of the old quest-turn master: either can be enabled without forcing the other. For an ordinary stock-loot parity pilot the legacy master should remain OFF; its quest-view denial is an additional custom rule, not automatically part of native stock behavior. Both options default OFF.
 
-- New suboption `NaxxramasCore.QuestLootProtection.RestrictHiddenOrdinarySlots = 0`; missing key also means OFF. Existing `QuestLootProtection.Enabled=0` master stays OFF. When either is OFF, there is no change.
+- New suboption `NaxxramasCore.QuestLootProtection.RestrictHiddenOrdinarySlots = 0`; missing key also means OFF. Existing `QuestLootProtection.Enabled=0` legacy quest-turn switch stays OFF. **The switches are independent:** if both are OFF, the module makes no loot change; if only the new one is ON, only the ordinary-slot pilot can act; if only the legacy one is ON, existing legacy quest-turn behavior applies. Both ON combines both rules, which is **not** the stock-parity test configuration.
 - `RoundRobin` with an active, different looter -> deny a hidden **unblocked, ordinary, unconditional, non-FFA, non-winner, non-special** item request.
 - `GroupLoot` / `NeedBeforeGreed` -> additionally require `is_underthreshold`; higher-quality visible/rolled items stay native.
 - The turn owner must still be present and grouped, in world and on the **same live map and instance**. If departed/missing, fail open. This is deliberately more conservative than the native viewer hide when the turn is stale.
