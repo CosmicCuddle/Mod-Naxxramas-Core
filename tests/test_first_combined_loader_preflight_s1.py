@@ -72,7 +72,11 @@ REQUIRED_FLAGS = {
     "NaxxramasCore.QuestLootProtection.Enabled": "0",  # legacy OFF
     "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled": "0",
     "NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled": "0",
+    "NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName": '""',
+    "NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug": "0",
+    "NaxxramasCore.BotConsumables.CrossMapAuraSafety": "0",
     "NaxxramasCore.ScarletExits.Enabled": "0",
+    "NaxxramasCore.ScarletExits.RouteDungeonFinderExits": "0",
     "NaxxramasCore.Atiesh.VanillaOutdoorArrival.Enabled": "0",
     "NaxxramasCore.HunterPetAutocast.RestoreHumanChain": "0",
 }
@@ -137,6 +141,29 @@ def tree_implementations():
             for path, _symbol in IMPLEMENTATIONS}
 
 
+def strip_draft_loader_extras(source):
+    """Independent synthetic baseline from either main or an assembled union.
+
+    Remove only exact complete declaration/call lines for the four draft
+    registrations. This prevents the model double-appending on a real union.
+    --check-tree always inspects the unmodified actual source instead.
+    """
+    extra_lines = set()
+    for name in EXTRAS:
+        extra_lines.add("void %s();" % name)
+        extra_lines.add("%s();" % name)
+    return "\n".join(line for line in source.split("\n")
+                     if line.strip() not in extra_lines)
+
+
+def gfpp_timer_errors(source):
+    needle = "NaxxramasOneShotTimer Timer{120 * IN_MILLISECONDS};"
+    count = source.count(needle)
+    return [] if count == 1 else [
+        "BotRaidConsumables.cpp: expected one 120-second GFPP one-shot, found %d" % count
+    ]
+
+
 def simulated_loader(main_source, extras=EXTRAS):
     marker = "void Addmod_naxxramas_coreScripts()"
     if main_source.count(marker) != 1 or not main_source.rstrip().endswith("}"):
@@ -156,7 +183,7 @@ def simulated_config(main_source):
 class UnionContractModel(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.base = LOADER.read_text(encoding="utf-8")
+        cls.base = strip_draft_loader_extras(LOADER.read_text(encoding="utf-8"))
         cls.conf = CONFIG.read_text(encoding="utf-8")
         cls.union = simulated_loader(cls.base)
         cls.config_union = simulated_config(cls.conf)
@@ -165,6 +192,43 @@ class UnionContractModel(unittest.TestCase):
         d, c = Counter(declarations(self.base)), Counter(registrations(self.base))
         for name in BASELINE:
             self.assertEqual((d[name], c[name]), (1, 1), name)
+
+    def test_model_is_idempotent_on_preintegrated_loader(self):
+        self.assertEqual(strip_draft_loader_extras(self.union), self.base)
+        reassembled = simulated_loader(strip_draft_loader_extras(self.union))
+        self.assertEqual(loader_errors(reassembled), [])
+        self.assertEqual(declarations(reassembled), declarations(self.union))
+        self.assertEqual(registrations(reassembled), registrations(self.union))
+
+    def test_all_hazardous_integration_flags_are_default_off(self):
+        self.assertEqual(config_errors(self.config_union), [])
+        for key in (
+            "NaxxramasCore.ScarletExits.RouteDungeonFinderExits",
+            "NaxxramasCore.BotConsumables.CrossMapAuraSafety",
+            "NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName",
+            "NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug",
+        ):
+            self.assertIn(key, REQUIRED_FLAGS)
+            self.assertIn(key + " = " + REQUIRED_FLAGS[key], self.config_union)
+
+    def test_dungeon_finder_flag_accidentally_enabled_is_detected(self):
+        mutant = self.config_union.replace(
+            "NaxxramasCore.ScarletExits.RouteDungeonFinderExits = 0",
+            "NaxxramasCore.ScarletExits.RouteDungeonFinderExits = 1", 1)
+        self.assertIn("RouteDungeonFinderExits", "\n".join(config_errors(mutant)))
+
+    def test_golemagg_allowlist_accidentally_populated_is_detected(self):
+        mutant = self.config_union.replace(
+            'NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName = ""',
+            'NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName = "Someone"', 1)
+        self.assertIn("AllowedBotName", "\n".join(config_errors(mutant)))
+
+    def test_120_second_gfpp_timer_gate_rejects_90_seconds(self):
+        valid = "NaxxramasOneShotTimer Timer{120 * IN_MILLISECONDS};"
+        self.assertEqual(gfpp_timer_errors(valid), [])
+        self.assertIn("120-second GFPP", "\n".join(
+            gfpp_timer_errors("NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};")))
+        self.assertTrue(gfpp_timer_errors(valid + "\n" + valid))
 
     def test_complete_synthetic_union_passes(self):
         self.assertEqual(loader_errors(self.union), [])
@@ -240,6 +304,8 @@ def main():
         errors = loader_errors(LOADER.read_text(encoding="utf-8"))
         errors += config_errors(CONFIG.read_text(encoding="utf-8"))
         errors += implementation_errors(tree_implementations())
+        gfpp = ROOT / "src/Systems/BotRaidConsumables.cpp"
+        errors += gfpp_timer_errors(gfpp.read_text(encoding="utf-8") if gfpp.is_file() else "")
         for err in errors:
             print("BLOCKED: " + err)
         if errors:
