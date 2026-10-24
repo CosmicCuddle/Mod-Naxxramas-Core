@@ -401,8 +401,10 @@ NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
 # not enough on its own. The pet hooks also return while AddonOptIn
 # below is 0. An unchanged book at the same opt-in generation returns
 # before FillBook and DecideChains. The map-thread writer does not call
-# IsRealPlayer. A write requires a published addon opt-in. Cower (1742)
-# is never relearned and is never toggled. No SQL, DBC, core, Individual
+# IsRealPlayer. A write requires a published addon opt-in. A listed spell
+# the pet does not have, including Cower (1742) on a family Individual
+# Progression removed it from, is never learned. When the pet has that
+# spell, the published on/off is applied. No SQL, DBC, core, Individual
 # Progression, or Playerbots change. In-game behaviour is not tested.
 # 0 = off (default). A config reload picks the new value up.
 # This draft does not set the key on.

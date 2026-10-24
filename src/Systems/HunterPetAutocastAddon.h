@@ -256,7 +256,7 @@ namespace NaxxramasHunterPetAutocast
 
     inline void PushToggle(std::vector<PlannedToggle>& toggles, uint32_t spellId, bool enable)
     {
-        if (spellId == 0 || spellId == COWER_SPELL_ID)
+        if (spellId == 0)
             return;
         for (PlannedToggle const& toggle : toggles)
             if (toggle.SpellId == spellId)
@@ -267,10 +267,11 @@ namespace NaxxramasHunterPetAutocast
         toggles.push_back(toggle);
     }
 
-    // A new generation applies listed chains onto spells the pet has now.
-    // The same generation applies again only where DecideChains reports a
-    // rank replacement. Unlisted spells, missing spells, and Cower 1742
-    // produce no toggle. A null snapshot produces no toggle and does not
+    // A new generation applies listed chains onto spells the pet has now,
+    // including Cower 1742 when that spell is present. The same generation
+    // applies again only where DecideChains reports a rank replacement.
+    // Unlisted spells and spells the pet does not have produce no toggle
+    // and are not learned. A null snapshot produces no toggle and does not
     // call DecideChains.
     inline AddonPlan BuildAddonPlan(
         std::vector<SpellView> const& baseline,
@@ -310,8 +311,6 @@ namespace NaxxramasHunterPetAutocast
             bool const wantRestore = outcome.Result == Outcome::RestoreEnabled
                 || outcome.Result == Outcome::RestoreDisabled;
             if (!wantRestore)
-                continue;
-            if (outcome.SuccessorSpellId == COWER_SPELL_ID || outcome.BaselineSpellId == COWER_SPELL_ID)
                 continue;
             ChainChoice const* choice = FindChoice(*optIn, outcome.ChainId);
             if (!choice)

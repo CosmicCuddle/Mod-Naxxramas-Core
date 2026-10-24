@@ -228,8 +228,13 @@ namespace
 
         AddonPlan fresh = BuildAddonPlan({oldOn}, {neuOff, cowerOn}, &set, 1, 0, &work);
         Check(fresh.OptedIn && !fresh.UsedDecide && work.DecideCalls == 0, "a new set does not call DecideChains", __FILE__, __LINE__);
-        Check(fresh.Toggles.size() == 1 && fresh.Toggles[0].SpellId == 17260 && fresh.Toggles[0].Enable,
-            "fresh apply matches the chain and skips cower", __FILE__, __LINE__);
+        Check(fresh.Toggles.size() == 2, "fresh apply toggles every listed spell the pet has", __FILE__, __LINE__);
+        Check(fresh.Toggles[0].SpellId == 17260 && fresh.Toggles[0].Enable, "fresh apply enables the bite chain", __FILE__, __LINE__);
+        Check(fresh.Toggles[1].SpellId == 1742 && !fresh.Toggles[1].Enable, "a pet that has cower gets that choice", __FILE__, __LINE__);
+
+        AddonPlan withoutCower = BuildAddonPlan({oldOn}, {neuOff}, &set, 2, 0, &work);
+        Check(withoutCower.Toggles.size() == 1 && withoutCower.Toggles[0].SpellId == 17260 && withoutCower.Toggles[0].Enable,
+            "a pet without cower skips 1742", __FILE__, __LINE__);
 
         AddonPlan missing = BuildAddonPlan({}, {}, &set, 1, 0, &work);
         Check(missing.Toggles.empty(), "a listed spell the pet lacks is not learned", __FILE__, __LINE__);

@@ -1,6 +1,6 @@
 # A02 S2 — default-OFF human Hunter pet autocast writer
 
-**S2c follow-up:** the addon opt-in that replaces the Playerbots classification is specified in `docs/A02-ADDON-PROTOCOL.md`. The notes below are the earlier fail-closed record. They are not a claim that S2c is enabled, merged, or proven in game.
+**S2c follow-up:** the addon opt-in that replaces the Playerbots classification is specified in `docs/A02-ADDON-PROTOCOL.md`. A pet that currently has Cower 1742 receives that protocol's explicit on/off. A pet that lacks 1742 is not taught the spell. The notes below are the earlier fail-closed record. They are not a claim that S2c is enabled, merged, or proven in game.
 
 **Status:** isolated draft. The config key defaults to 0. **FUNCTIONAL S2 REMAINS BLOCKED.** In-game behaviour is **NOT TESTED**. This draft does not establish gameplay, does not speak for the owner, and is not a merge.
 

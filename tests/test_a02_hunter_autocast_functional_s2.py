@@ -75,12 +75,13 @@ def classification_fails_closed(policy):
     )
 
 
-def cower_write_is_blocked(source):
+def missing_spell_is_not_learned(source):
     return (
-        "toggle.SpellId == Policy::COWER_SPELL_ID" in source
-        and "spellId == COWER_SPELL_ID" in ADDON
+        "if (!before.Present)\n" in source
         and "learnSpell" not in source
         and "unlearnSpell" not in source
+        and "toggle.SpellId == Policy::COWER_SPELL_ID" not in source
+        and "spellId == COWER_SPELL_ID" not in ADDON
     )
 
 
@@ -239,19 +240,20 @@ class HumanAndChainGuards(unittest.TestCase):
         self.assertFalse(opt_in_gate_before_toggle(consulted))
 
     def test_cower_is_not_learned_and_the_guard_is_load_bearing(self):
-        self.assertTrue(cower_write_is_blocked(CPP))
-        self.assertTrue(cower_write_is_blocked(RESTORE))
+        self.assertTrue(missing_spell_is_not_learned(CPP))
+        self.assertTrue(missing_spell_is_not_learned(RESTORE))
+        self.assertIn("if (!spell.Present || !spell.Autocastable)", ADDON)
         self.assertNotIn("learnSpell", CPP)
         self.assertNotIn("learnSpell", POLICY)
         self.assertNotIn("unlearnSpell", CPP)
         self.assertNotIn("AddSpellToActionBar", CPP)
         mutated = CPP.replace(
-            "if (toggle.SpellId == Policy::COWER_SPELL_ID)\n"
+            "if (!before.Present)\n"
             "                    continue;\n",
             "",
             1)
         self.assertNotEqual(mutated, CPP)
-        self.assertFalse(cower_write_is_blocked(mutated))
+        self.assertFalse(missing_spell_is_not_learned(mutated))
 
     def test_chain_key_is_spell_mgr_and_not_a_hardcoded_rank_table(self):
         self.assertTrue(same_chain_uses_spell_mgr(CPP, ADDON))

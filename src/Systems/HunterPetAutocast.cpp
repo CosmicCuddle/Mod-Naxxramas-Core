@@ -15,8 +15,10 @@
  * owner states 8.
  *
  * A write requires a published addon opt-in. ClassifyOwnerOnMapThread
- * stays Uncertain and is not consulted. Cower 1742 is not learned and
- * is not toggled. An unchanged book at the same opt-in generation
+ * stays Uncertain and is not consulted. A listed spell the pet does not
+ * have is not learned, including Cower 1742 after Individual Progression
+ * removes it. When the pet still has that spell, the explicit choice is
+ * applied. An unchanged book at the same opt-in generation
  * returns before FillBook and DecideChains. Protocol:
  * docs/A02-ADDON-PROTOCOL.md. In-game behaviour is NOT TESTED.
  */
@@ -320,9 +322,6 @@ namespace
             bool claimed = false;
             for (Policy::PlannedToggle const& toggle : plan.Toggles)
             {
-                if (toggle.SpellId == Policy::COWER_SPELL_ID)
-                    continue;
-
                 SpellInfo const* info = sSpellMgr->GetSpellInfo(toggle.SpellId);
                 if (!info || !info->IsAutocastable())
                     continue;

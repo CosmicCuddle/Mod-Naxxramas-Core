@@ -31,9 +31,12 @@ class ProtocolText(unittest.TestCase):
             "NaxxramasCore.HunterPetAutocast.RestoreHumanChain = 0",
             "no pet identifier",
             "The server sends no reply.",
+            "Spell 1742 is never learned.",
+            "When the current pet has spell 1742, its explicit on/off is applied like any other listed spell.",
         ):
             with self.subTest(needle=needle):
                 self.assertIn(needle, PROTOCOL)
+        self.assertNotIn("never toggled", PROTOCOL)
 
     def test_doc_uses_the_review_labels_and_does_not_claim_a_game_pass(self):
         for label in ("VERIFIED", "POTENTIAL ISSUE", "UNKNOWN", "NOT TESTED"):
