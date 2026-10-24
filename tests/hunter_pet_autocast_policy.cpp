@@ -313,8 +313,8 @@ namespace
         Check(SnapshotTick(true, true, true, false, true, loaded, wrongOrder), "snapshot before event", __FILE__, __LINE__);
         RestoreOptions options;
         RestoreTickResult early = RestoreTick(wrongOrder, loaded, options);
-        Check(!early.Wrote && early.Outcomes.size() == 1 && early.Outcomes[0].Result == Outcome::NoWrite,
-            "restore before the event writes nothing", __FILE__, __LINE__);
+        Check(!early.Wrote && early.SkippedUnchanged && early.Outcomes.empty(),
+            "unchanged book skips the decision and writes nothing", __FILE__, __LINE__);
         RestoreTickResult missed = RestoreTick(wrongOrder, dropped, options);
         Check(!missed.Wrote && !wrongOrder.Pending, "a second restore without a new snapshot does not repair", __FILE__, __LINE__);
         Check(missed.Book.size() == 1 && missed.Book[0].Active == ACT_DISABLED, "dropped byte remains", __FILE__, __LINE__);
@@ -421,6 +421,168 @@ namespace
             Check(pets[index].Book[0].SpellId == 17253 + static_cast<uint32_t>(index), "baselines did not cross", __FILE__, __LINE__);
         }
     }
+
+    void Differ(char const* name, SpellView const& base, void (*mutate)(SpellView&))
+    {
+        SpellView other = base;
+        mutate(other);
+        Check(!ViewFieldsEqual(base, other), name, __FILE__, __LINE__);
+        Check(!SameBook({base}, {other}), name, __FILE__, __LINE__);
+    }
+
+    void TestFastPathAndFailClosed()
+    {
+        SpellView base = Choice(17253, 17253, ACT_ENABLED);
+        Check(ViewFieldsEqual(base, base), "view equals itself", __FILE__, __LINE__);
+        Check(SameBook({base}, {base}), "book equals itself", __FILE__, __LINE__);
+        Check(SameBook({}, {}), "empty books match", __FILE__, __LINE__);
+        Differ("spell id", base, [](SpellView& spell) { spell.SpellId = 1; });
+        Differ("chain id", base, [](SpellView& spell) { spell.ChainId = 1; });
+        Differ("active byte", base, [](SpellView& spell) { spell.Active = ACT_DISABLED; });
+        Differ("autocastable", base, [](SpellView& spell) { spell.Autocastable = false; });
+        Differ("bar flag", base, [](SpellView& spell) { spell.HasBar = false; });
+        Differ("bar byte", base, [](SpellView& spell) { spell.Bar = ACT_DISABLED; });
+        Differ("autospell vector", base, [](SpellView& spell) { spell.InAutospells = false; });
+        Differ("duplicate bar", base, [](SpellView& spell) { spell.BarDuplicated = true; });
+        Differ("present", base, [](SpellView& spell) { spell.Present = false; });
+        SpellView claw = Choice(16827, 16827, ACT_DISABLED);
+        Check(!SameBook({base, claw}, {claw, base}), "order is part of the signature", __FILE__, __LINE__);
+
+        std::vector<SpellView> steady{base, claw};
+        BaselineMemory memory;
+        ExpensiveWork work;
+        RestoreOptions options;
+        options.Work = &work;
+        Check(SnapshotTick(true, true, true, false, true, steady, memory), "prime snapshot", __FILE__, __LINE__);
+        int const copiesAfterPrime = memory.BaselineCopies;
+        int const allocationsAfterPrime = memory.Allocations;
+        Check(copiesAfterPrime == 1 && allocationsAfterPrime == 1, "prime copies and allocates once", __FILE__, __LINE__);
+        for (int tick = 0; tick < 1000; ++tick)
+        {
+            Check(SnapshotTick(true, true, true, false, true, steady, memory), "steady snapshot", __FILE__, __LINE__);
+            RestoreTickResult tickResult = RestoreTick(memory, steady, options);
+            Check(tickResult.SkippedUnchanged && !tickResult.Wrote && !tickResult.ConsultedRealPlayer,
+                "steady restore skips the decision", __FILE__, __LINE__);
+        }
+        Check(work.DecideCalls == 0, "1000 identical snapshots do not call DecideChains", __FILE__, __LINE__);
+        Check(work.VectorConstructions == 0, "1000 identical snapshots construct no decision vectors", __FILE__, __LINE__);
+        Check(memory.BaselineCopies == copiesAfterPrime, "steady ticks do not recopy the baseline", __FILE__, __LINE__);
+        Check(memory.Allocations == allocationsAfterPrime, "steady ticks do not allocate another baseline", __FILE__, __LINE__);
+
+        ExpensiveWork removedWork;
+        BaselineMemory removed;
+        RestoreOptions removedOptions = options;
+        removedOptions.HonorUnchangedFastPath = false;
+        removedOptions.Work = &removedWork;
+        Check(SnapshotTick(true, true, true, false, true, steady, removed, true, false, false),
+            "mutation prime", __FILE__, __LINE__);
+        for (int tick = 0; tick < 1000; ++tick)
+        {
+            Check(SnapshotTick(true, true, true, false, true, steady, removed, true, false, false),
+                "mutation snapshot", __FILE__, __LINE__);
+            RestoreTick(removed, steady, removedOptions);
+        }
+        Check(removedWork.DecideCalls == 1000, "removing the fast path decides every identical snapshot", __FILE__, __LINE__);
+        Check(removedWork.VectorConstructions > 0, "removing the fast path constructs decision vectors", __FILE__, __LINE__);
+        Check(removed.BaselineCopies > copiesAfterPrime, "removing the snapshot fast path recopies", __FILE__, __LINE__);
+
+        std::vector<SpellView> flipped{Choice(9001, 9001, ACT_DISABLED)};
+        std::vector<SpellView> wasOn{Choice(9001, 9001, ACT_ENABLED)};
+        Check(!SameBook(wasOn, flipped), "same-id toggle is a different book", __FILE__, __LINE__);
+        BaselineMemory toggleMemory;
+        ExpensiveWork toggleWork;
+        RestoreOptions toggleOptions;
+        toggleOptions.Work = &toggleWork;
+        Check(SnapshotTick(true, true, true, false, true, wasOn, toggleMemory), "toggle snapshot", __FILE__, __LINE__);
+        RestoreTickResult toggle = RestoreTick(toggleMemory, flipped, toggleOptions);
+        Check(toggleWork.DecideCalls == 1 && !toggle.SkippedUnchanged, "same-id toggle still decides", __FILE__, __LINE__);
+        Check(toggle.Outcomes.size() == 1 && toggle.Outcomes[0].Result == Outcome::NoWrite,
+            "same-id toggle stays NO_WRITE", __FILE__, __LINE__);
+        Check(!toggle.Wrote && !toggle.ConsultedRealPlayer, "same-id toggle does not write or consult", __FILE__, __LINE__);
+        toggleWork = {};
+        for (int tick = 0; tick < 1000; ++tick)
+        {
+            Check(SnapshotTick(true, true, true, false, true, flipped, toggleMemory), "post-toggle snapshot", __FILE__, __LINE__);
+            RestoreTickResult quiet = RestoreTick(toggleMemory, flipped, toggleOptions);
+            Check(quiet.SkippedUnchanged, "post-toggle steady path", __FILE__, __LINE__);
+        }
+        Check(toggleWork.DecideCalls == 0 && toggleWork.VectorConstructions == 0,
+            "post-toggle identical ticks do no decision work", __FILE__, __LINE__);
+
+        std::vector<SpellView> dropped{Choice(17255, 17253, ACT_DISABLED)};
+        std::vector<SpellView> raised{Choice(16828, 16827, ACT_ENABLED)};
+        std::vector<SpellView> changed{dropped[0], raised[0]};
+        Check(!SameBook(steady, changed), "rank swap is a different book", __FILE__, __LINE__);
+        BaselineMemory changeMemory;
+        ExpensiveWork changeWork;
+        RestoreOptions changeOptions;
+        changeOptions.Work = &changeWork;
+        Check(SnapshotTick(true, true, true, false, true, steady, changeMemory), "change snapshot", __FILE__, __LINE__);
+        RestoreTickResult changedResult = RestoreTick(changeMemory, changed, changeOptions);
+        Check(changeWork.DecideCalls == 1, "ON and OFF replacements still decide", __FILE__, __LINE__);
+        Check(changedResult.Wrote, "a confirmed human still restores both chains", __FILE__, __LINE__);
+        Check(changedResult.Book.size() == 2, "both successors remain", __FILE__, __LINE__);
+        Check(changedResult.Book[0].Active == ACT_ENABLED && changedResult.Book[1].Active == ACT_DISABLED,
+            "each chain keeps its own byte", __FILE__, __LINE__);
+        std::vector<SpellView> restored = changedResult.Book;
+        changeWork = {};
+        for (int tick = 0; tick < 1000; ++tick)
+        {
+            Check(SnapshotTick(true, true, true, false, true, restored, changeMemory), "post-restore snapshot", __FILE__, __LINE__);
+            RestoreTickResult quiet = RestoreTick(changeMemory, restored, changeOptions);
+            Check(quiet.SkippedUnchanged && !quiet.Wrote, "post-restore steady path", __FILE__, __LINE__);
+        }
+        Check(changeWork.DecideCalls == 0 && changeWork.VectorConstructions == 0,
+            "post-restore identical ticks do no decision work", __FILE__, __LINE__);
+
+        Check(ClassifyOwnerOnMapThread() == OwnerClass::Uncertain, "map-thread classification fails closed", __FILE__, __LINE__);
+        Check(!WriteAllowed(ClassifyOwnerOnMapThread()), "uncertain owner is not written", __FILE__, __LINE__);
+        Check(!WriteAllowed(OwnerClass::Uncertain), "uncertain gate is closed", __FILE__, __LINE__);
+        Check(!WriteAllowed(OwnerClass::ConfirmedNotHuman), "known bot gate is closed", __FILE__, __LINE__);
+        Check(WriteAllowed(OwnerClass::ConfirmedHuman), "only a confirmed human may write", __FILE__, __LINE__);
+
+        BaselineMemory uncertainMemory;
+        ExpensiveWork uncertainWork;
+        RestoreOptions uncertain = options;
+        uncertain.Owner = OwnerClass::Uncertain;
+        uncertain.IsRealPlayer = true;
+        uncertain.Work = &uncertainWork;
+        std::vector<SpellView> loaded{Choice(17253, 17253, ACT_ENABLED)};
+        Check(SnapshotTick(true, true, true, false, true, loaded, uncertainMemory), "uncertain snapshot", __FILE__, __LINE__);
+        RestoreTickResult blocked = RestoreTick(uncertainMemory, dropped, uncertain);
+        Check(uncertainWork.DecideCalls == 1, "a real book change still decides", __FILE__, __LINE__);
+        Check(!blocked.Wrote && !blocked.ConsultedRealPlayer, "uncertain writes nothing and does not read the map", __FILE__, __LINE__);
+        Check(blocked.Outcomes.size() == 1 && blocked.Outcomes[0].Result == Outcome::OutOfScope,
+            "uncertain restore is out of scope", __FILE__, __LINE__);
+        Check(blocked.Book[0].Active == ACT_DISABLED, "uncertain leaves the dropped byte", __FILE__, __LINE__);
+        uncertainWork = {};
+        for (int tick = 0; tick < 1000; ++tick)
+        {
+            Check(SnapshotTick(true, true, true, false, true, dropped, uncertainMemory), "post-refusal snapshot", __FILE__, __LINE__);
+            RestoreTickResult quiet = RestoreTick(uncertainMemory, dropped, uncertain);
+            Check(quiet.SkippedUnchanged && !quiet.Wrote && !quiet.ConsultedRealPlayer, "post-refusal steady path", __FILE__, __LINE__);
+        }
+        Check(uncertainWork.DecideCalls == 0 && uncertainWork.VectorConstructions == 0,
+            "a refused change does not decide again while the book stays put", __FILE__, __LINE__);
+
+        BaselineMemory botClass;
+        Check(SnapshotTick(true, true, true, false, true, loaded, botClass), "known bot snapshot", __FILE__, __LINE__);
+        RestoreOptions knownBot = uncertain;
+        knownBot.Owner = OwnerClass::ConfirmedNotHuman;
+        knownBot.Work = &uncertainWork;
+        RestoreTickResult botBlocked = RestoreTick(botClass, dropped, knownBot);
+        Check(!botBlocked.Wrote && !botBlocked.ConsultedRealPlayer, "known bot does not read the map", __FILE__, __LINE__);
+
+        BaselineMemory forcedMemory;
+        ExpensiveWork forcedWork;
+        Check(SnapshotTick(true, true, true, false, true, loaded, forcedMemory), "forced snapshot", __FILE__, __LINE__);
+        RestoreOptions forced = uncertain;
+        forced.Owner = OwnerClass::ConfirmedHuman;
+        forced.Work = &forcedWork;
+        RestoreTickResult forcedResult = RestoreTick(forcedMemory, dropped, forced);
+        Check(forcedResult.Wrote && forcedResult.ConsultedRealPlayer,
+            "treating uncertain as a confirmed human writes and consults", __FILE__, __LINE__);
+    }
 }
 
 #define CHECK(condition) Check((condition), #condition, __FILE__, __LINE__)
@@ -431,6 +593,7 @@ int main()
     TestPinnedChains();
     TestGuardMutations();
     TestHotPathAndSeam();
+    TestFastPathAndFailClosed();
     if (g_failed != 0)
     {
         std::cerr << g_failed << " failure(s)\n";

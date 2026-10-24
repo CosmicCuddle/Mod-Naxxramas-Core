@@ -12,9 +12,12 @@
  * do not share a dictionary. The live MapUpdate.Threads value was not
  * read and is UNKNOWN; the owner states 8.
  *
- * Real humans only. IsRealPlayer runs only when a restore is about to
- * be written. Without Playerbots.h the writer stays off. Cower 1742 is
- * not learned. In-game behaviour is NOT TESTED.
+ * Real humans only. The map-thread writer does not call IsRealPlayer.
+ * Pinned Playerbots reads _playerbotsAIMap with no lock, and that read
+ * is not proven safe with MapUpdate.Threads, so classification stays
+ * Uncertain and the writer does not toggle. Cower 1742 is not learned.
+ * An unchanged book returns before FillBook and DecideChains.
+ * In-game behaviour is NOT TESTED.
  */
 
 #include "HunterPetAutocastPolicy.h"
@@ -25,15 +28,10 @@
 #include "ScriptMgr.h"
 #include "SpellMgr.h"
 
-#if __has_include("Playerbots.h")
-#include "Playerbots.h"
-#define NAXXRAMAS_CORE_HUNTER_PET_AUTOCAST_HAS_PLAYERBOTS 1
-#else
-#define NAXXRAMAS_CORE_HUNTER_PET_AUTOCAST_HAS_PLAYERBOTS 0
-#endif
-
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
+#include <string>
 #include <vector>
 
 namespace
@@ -41,7 +39,11 @@ namespace
     namespace Policy = NaxxramasHunterPetAutocast;
 
     std::atomic<bool> RestoreHumanChainEnabled{false};
-    constexpr char const* BASELINE_KEY = "NaxxramasCore.HunterPetAutocast.Baseline";
+    // Process-lifetime key. DataMap::Get takes std::string const&
+    // (DataMap.h:29). A string literal would construct a temporary on
+    // every tick. This object is built once, then find() does not allocate.
+    // It is not a pet dictionary.
+    std::string const BaselineKey("NaxxramasCore.HunterPetAutocast.Baseline");
 
     struct Baseline final : DataMap::Base
     {
@@ -55,19 +57,6 @@ namespace
             Scratch.reserve(16);
         }
     };
-
-    // Playerbots.h present: public IsRealPlayer. Header absent: not a human.
-    // The unlocked _playerbotsAIMap read stays inside that call, and only
-    // the write path below reaches it.
-    bool OwnerIsRealHuman(Player* owner)
-    {
-#if NAXXRAMAS_CORE_HUNTER_PET_AUTOCAST_HAS_PLAYERBOTS
-        return IsRealPlayer(owner);
-#else
-        (void)owner;
-        return false;
-#endif
-    }
 
     bool InScope(Unit* unit, Pet*& pet, Player*& owner)
     {
@@ -151,6 +140,31 @@ namespace
         }
     }
 
+    // Same filter and order as FillBook. Stack SpellView only: no vector,
+    // no push_back, no temporary book. Used to skip FillBook and DecideChains
+    // when every stored field still matches the live pet.
+    bool LiveBookMatches(Pet* pet, std::vector<Policy::SpellView> const& book)
+    {
+        std::size_t index = 0;
+        for (PetSpellMap::const_iterator itr = pet->m_spells.begin(); itr != pet->m_spells.end(); ++itr)
+        {
+            if (itr->second.state == PETSPELL_REMOVED)
+                continue;
+            if (index >= book.size())
+                return false;
+            if (!Policy::ViewFieldsEqual(ReadSpell(pet, itr->first), book[index]))
+                return false;
+            ++index;
+        }
+        return index == book.size();
+    }
+
+    void CopyBook(std::vector<Policy::SpellView>& dst, std::vector<Policy::SpellView> const& src)
+    {
+        dst.clear();
+        dst.insert(dst.end(), src.begin(), src.end());
+    }
+
     class NaxxramasHunterPetAutocastConfigScript final : public WorldScript
     {
     public:
@@ -189,7 +203,12 @@ namespace
             // The human check is intentionally not done on this tick.
             (void)owner;
 
-            Baseline* state = pet->CustomData.GetDefault<Baseline>(BASELINE_KEY);
+            Baseline* state = pet->CustomData.GetDefault<Baseline>(BaselineKey);
+            if (LiveBookMatches(pet, state->Book))
+            {
+                state->Pending = true;
+                return;
+            }
             FillBook(pet, state->Book);
             state->Pending = true;
         }
@@ -220,28 +239,37 @@ namespace
             if (!InScope(object->ToUnit(), pet, owner))
                 return;
 
-            Baseline* state = pet->CustomData.Get<Baseline>(BASELINE_KEY);
+            Baseline* state = pet->CustomData.Get<Baseline>(BaselineKey);
             if (!state || !state->Pending)
                 return;
 
             state->Pending = false;
-            FillBook(pet, state->Scratch);
+            if (LiveBookMatches(pet, state->Book))
+                return;
 
+            FillBook(pet, state->Scratch);
             std::vector<Policy::ChainOutcome> outcomes = Policy::DecideChains(state->Book, state->Scratch);
             if (!Policy::WantsWrite(outcomes))
+            {
+                CopyBook(state->Book, state->Scratch);
                 return;
+            }
 
-#if NAXXRAMAS_CORE_HUNTER_PET_AUTOCAST_HAS_PLAYERBOTS
-            bool const apiPresent = true;
-#else
-            bool const apiPresent = false;
-#endif
-            Policy::HumanGate gate = Policy::AuthorizeRestore(
-                apiPresent,
-                apiPresent && OwnerIsRealHuman(owner),
-                owner->GetPet() == pet);
-            if (gate.Gate != Policy::WriteGate::Write)
+            // ClassifyOwnerOnMapThread is Uncertain. It does not call
+            // IsRealPlayer and does not read _playerbotsAIMap. A refused
+            // write still stores the post-event book so the next unchanged
+            // ticks stay on the fast path.
+            if (!Policy::WriteAllowed(Policy::ClassifyOwnerOnMapThread()))
+            {
+                CopyBook(state->Book, state->Scratch);
                 return;
+            }
+
+            if (owner->GetPet() != pet)
+            {
+                CopyBook(state->Book, state->Scratch);
+                return;
+            }
 
             bool claimed = false;
             for (Policy::ChainOutcome const& outcome : outcomes)
@@ -284,6 +312,7 @@ namespace
 
             if (claimed)
                 owner->PetSpellInitialize();
+            FillBook(pet, state->Book);
         }
     };
 }

@@ -398,11 +398,13 @@ NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
 
 # Default OFF. While this stays 0 the module does not read or write pet
 # spells, does not query this key on the map tick, and does not allocate
-# a per-pet baseline. Setting 1 arms a same-pet snapshot on OnUnitUpdate
-# and a same-chain restore on OnWorldObjectUpdate for a real human
-# Hunter only. Playerbots-owned pets are left alone. Cower (1742) is
-# never relearned. No SQL, DBC, core, Individual Progression, or
+# a per-pet baseline. Setting 1 arms a same-pet snapshot. An unchanged
+# book returns before FillBook and DecideChains. The map-thread writer
+# does not call IsRealPlayer and does not toggle: the pinned Playerbots
+# lookup is not a proven thread-safe human classification. Cower (1742)
+# is never relearned. No SQL, DBC, core, Individual Progression, or
 # Playerbots change. In-game behaviour is not tested by this draft.
-# 0 = off (default). 1 = restore. A config reload picks the new value up.
+# 0 = off (default). A config reload picks the new value up.
+# Writes stay fail-closed.
 NaxxramasCore.HunterPetAutocast.RestoreHumanChain = 0
 

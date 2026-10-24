@@ -14,6 +14,7 @@
 #ifndef NAXXRAMAS_CORE_HUNTER_PET_AUTOCAST_POLICY_H
 #define NAXXRAMAS_CORE_HUNTER_PET_AUTOCAST_POLICY_H
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -39,6 +40,21 @@ namespace NaxxramasHunterPetAutocast
         OutOfScope,
         NoWrite,
         Write
+    };
+
+    // ConfirmedHuman is a test seam for a classification this module can
+    // already trust. The map-thread writer never produces it.
+    enum class OwnerClass : uint8_t
+    {
+        ConfirmedHuman,
+        ConfirmedNotHuman,
+        Uncertain
+    };
+
+    struct ExpensiveWork
+    {
+        int DecideCalls = 0;
+        int VectorConstructions = 0;
     };
 
     struct SpellView
@@ -95,6 +111,9 @@ namespace NaxxramasHunterPetAutocast
         bool HonorConsistencyGuard = true;
         bool HonorPostWriteCheck = true;
         bool WriteBar = true;
+        bool HonorUnchangedFastPath = true;
+        OwnerClass Owner = OwnerClass::ConfirmedHuman;
+        ExpensiveWork* Work = nullptr;
     };
 
     struct BaselineMemory
@@ -104,6 +123,7 @@ namespace NaxxramasHunterPetAutocast
         bool Pending = false;
         std::vector<SpellView> Book;
         std::vector<SpellView> Scratch;
+        int BaselineCopies = 0;
 
         void GetDefault()
         {
@@ -133,6 +153,7 @@ namespace NaxxramasHunterPetAutocast
         std::vector<ChainOutcome> Outcomes;
         bool ConsultedRealPlayer = false;
         bool Wrote = false;
+        bool SkippedUnchanged = false;
         int Packets = 0;
         ApplyStats Stats{};
         std::vector<SpellView> Book;
@@ -153,6 +174,31 @@ namespace NaxxramasHunterPetAutocast
         return spell.Present && spell.Autocastable && spell.HasBar && !spell.BarDuplicated
             && spell.Active == wantActive && spell.Bar == wantActive
             && spell.InAutospells == (wantActive == ACT_ENABLED);
+    }
+
+    // Every field DecideChains reads. A same-id autocast toggle changes
+    // Active, Bar, and InAutospells, so it must not compare equal.
+    inline bool ViewFieldsEqual(SpellView const& left, SpellView const& right)
+    {
+        return left.SpellId == right.SpellId
+            && left.ChainId == right.ChainId
+            && left.Active == right.Active
+            && left.Autocastable == right.Autocastable
+            && left.HasBar == right.HasBar
+            && left.Bar == right.Bar
+            && left.InAutospells == right.InAutospells
+            && left.BarDuplicated == right.BarDuplicated
+            && left.Present == right.Present;
+    }
+
+    inline bool SameBook(std::vector<SpellView> const& baseline, std::vector<SpellView> const& current)
+    {
+        if (baseline.size() != current.size())
+            return false;
+        for (std::size_t index = 0; index < baseline.size(); ++index)
+            if (!ViewFieldsEqual(baseline[index], current[index]))
+                return false;
+        return true;
     }
 
     inline bool HotFilterPasses(
@@ -231,6 +277,32 @@ namespace NaxxramasHunterPetAutocast
         return gate;
     }
 
+    // Pinned mod-playerbots d750b4b3a50effdf22bedc8032f0e8e5f7cb8091 has no
+    // mutex on PlayerbotsMgr (PlayerbotMgr.h:135 holds the AI map alone).
+    // The public human helper (PlayerbotAI.cpp:4523-4528) reaches
+    // GetPlayerbotAI (Playerbots.h:31, PlayerbotMgr.cpp:1858-1875) and
+    // find()s _playerbotsAIMap at line 1868. AddPlayerbotData erase/emplace
+    // is PlayerbotMgr.cpp:1828-1834. RemovePlayerBotData erase is
+    // PlayerbotMgr.cpp:1842-1845. The AI destructor removes at
+    // PlayerbotAI.cpp:247. OnBotLogin inserts at PlayerbotMgr.cpp:514.
+    // `.bot self` inserts at PlayerbotMgr.cpp:1117. OnPlayerAfterUpdate
+    // reads that map from the player update (Playerbots.cpp:248-250).
+    // OnPlayerLogin adds manager data for every non-headless session
+    // (Playerbots.cpp:148-150). IsSelfBot (PlayerbotAI.cpp:4531-4535) is a
+    // non-headless player whose AI master is itself, so a headless check
+    // is not a positive human test. Concurrent find/emplace/erase on that
+    // map is a data race. No happens-before against MapUpdate.Threads was
+    // proven. This function does not read the map.
+    inline OwnerClass ClassifyOwnerOnMapThread()
+    {
+        return OwnerClass::Uncertain;
+    }
+
+    inline bool WriteAllowed(OwnerClass ownerClass)
+    {
+        return ownerClass == OwnerClass::ConfirmedHuman;
+    }
+
     inline void CollectChain(
         std::vector<SpellView> const& spells,
         uint32_t chainId,
@@ -242,14 +314,25 @@ namespace NaxxramasHunterPetAutocast
                 out.push_back(spell);
     }
 
+    inline void CountVector(ExpensiveWork* work)
+    {
+        if (work)
+            ++work->VectorConstructions;
+    }
+
     inline std::vector<ChainOutcome> DecideChains(
         std::vector<SpellView> const& baseline,
         std::vector<SpellView> const& current,
         bool honorCowerGuard = true,
         bool honorSameChain = true,
-        bool honorConsistencyGuard = true)
+        bool honorConsistencyGuard = true,
+        ExpensiveWork* work = nullptr)
     {
+        if (work)
+            ++work->DecideCalls;
+
         std::vector<SpellView> adjusted = current;
+        CountVector(work);
         if (!honorSameChain && !baseline.empty())
         {
             uint32_t const forced = baseline.front().ChainId;
@@ -258,6 +341,7 @@ namespace NaxxramasHunterPetAutocast
         }
 
         std::vector<uint32_t> order;
+        CountVector(work);
         for (SpellView const& spell : baseline)
         {
             bool seen = false;
@@ -269,6 +353,7 @@ namespace NaxxramasHunterPetAutocast
         }
 
         std::vector<ChainOutcome> outcomes;
+        CountVector(work);
         if (order.empty())
         {
             ChainOutcome only;
@@ -278,7 +363,9 @@ namespace NaxxramasHunterPetAutocast
         }
 
         std::vector<SpellView> base;
+        CountVector(work);
         std::vector<SpellView> live;
+        CountVector(work);
         for (uint32_t chainId : order)
         {
             ChainOutcome outcome;
@@ -502,11 +589,18 @@ namespace NaxxramasHunterPetAutocast
         std::vector<SpellView> const& live,
         BaselineMemory& memory,
         bool honorEnabledGuard = true,
-        bool useSet = false)
+        bool useSet = false,
+        bool honorFastPath = true)
     {
         bool const effectiveEnabled = honorEnabledGuard ? enabled : true;
         if (!HotFilterPasses(effectiveEnabled, isPet, hunterPet, loading, ownerIsHunterInWorld))
             return false;
+
+        if (!useSet && honorFastPath && memory.Allocated && SameBook(memory.Book, live))
+        {
+            memory.Pending = true;
+            return true;
+        }
 
         if (useSet)
             memory.SetReplace();
@@ -515,6 +609,7 @@ namespace NaxxramasHunterPetAutocast
 
         memory.Book.clear();
         memory.Book.insert(memory.Book.end(), live.begin(), live.end());
+        ++memory.BaselineCopies;
         memory.Pending = true;
         return true;
     }
@@ -532,15 +627,44 @@ namespace NaxxramasHunterPetAutocast
             return result;
 
         memory.Pending = false;
+        if (options.HonorUnchangedFastPath && SameBook(memory.Book, live))
+        {
+            result.SkippedUnchanged = true;
+            return result;
+        }
+
         result.Outcomes = DecideChains(
             memory.Book,
             live,
             options.HonorCowerGuard,
             options.HonorSameChain,
-            options.HonorConsistencyGuard);
+            options.HonorConsistencyGuard,
+            options.Work);
+
+        auto remember = [&]() {
+            memory.Book.clear();
+            memory.Book.insert(memory.Book.end(), result.Book.begin(), result.Book.end());
+            ++memory.BaselineCopies;
+        };
 
         if (!WantsWrite(result.Outcomes))
+        {
+            remember();
             return result;
+        }
+
+        // Uncertain and ConfirmedNotHuman do not read the Playerbots map.
+        if (!WriteAllowed(options.Owner))
+        {
+            result.ConsultedRealPlayer = false;
+            for (ChainOutcome& outcome : result.Outcomes)
+            {
+                if (outcome.Result == Outcome::RestoreEnabled || outcome.Result == Outcome::RestoreDisabled)
+                    outcome.Result = Outcome::OutOfScope;
+            }
+            remember();
+            return result;
+        }
 
         bool const consultHuman = options.HonorHumanGuard;
         HumanGate gate = AuthorizeRestore(
@@ -560,6 +684,7 @@ namespace NaxxramasHunterPetAutocast
                 if (outcome.Result == Outcome::RestoreEnabled || outcome.Result == Outcome::RestoreDisabled)
                     outcome.Result = replacement;
             }
+            remember();
             return result;
         }
 
@@ -600,6 +725,7 @@ namespace NaxxramasHunterPetAutocast
 
         if (result.Wrote)
             result.Packets = 1;
+        remember();
         return result;
     }
 }

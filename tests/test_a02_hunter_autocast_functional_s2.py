@@ -44,11 +44,34 @@ def off_guard_is_first(body):
     return 0 <= guard < pet and guard < allocation
 
 
-def human_check_is_write_time(body):
-    wants = body.find("WantsWrite(")
-    human = body.find("OwnerIsRealHuman(")
+def fast_path_before_expensive(body, decide_required):
+    match = body.find("LiveBookMatches(")
+    if match < 0:
+        return False
+    fill = body.find("FillBook(", match)
+    if fill < 0 or body.find("return;", match, fill) < 0:
+        return False
+    if not decide_required:
+        return True
+    decide = body.find("DecideChains(", match)
+    return 0 <= match < decide
+
+
+def fail_closed_before_toggle(body):
+    gate = body.find("WriteAllowed(Policy::ClassifyOwnerOnMapThread())")
     toggle = body.find("ToggleAutocast(")
-    return 0 <= wants < human < toggle
+    if gate < 0 or toggle < 0 or gate > toggle:
+        return False
+    return "return;" in body[gate:toggle] and "IsRealPlayer(" not in body
+
+
+def classification_fails_closed(policy):
+    body = function_body(policy, "inline OwnerClass ClassifyOwnerOnMapThread()")
+    return (
+        body.count("return OwnerClass::Uncertain;") == 1
+        and "ConfirmedHuman" not in body
+        and "IsRealPlayer" not in body
+    )
 
 
 def cower_write_is_blocked(source):
@@ -122,30 +145,69 @@ class HotPath(unittest.TestCase):
 
     def test_snapshot_does_not_write_or_classify_bots(self):
         for needle in ("ToggleAutocast", "SetSpellAutocast", "PetSpellInitialize",
-                       "IsRealPlayer", "OwnerIsRealHuman", "learnSpell"):
+                       "IsRealPlayer", "OwnerIsRealHuman", "ClassifyOwnerOnMapThread",
+                       "learnSpell"):
             with self.subTest(needle=needle):
                 self.assertNotIn(needle, SNAPSHOT)
 
+    def test_unchanged_book_returns_before_fill_and_decide(self):
+        self.assertTrue(fast_path_before_expensive(SNAPSHOT, False))
+        self.assertTrue(fast_path_before_expensive(RESTORE, True))
+        live = function_body(CPP, "bool LiveBookMatches(")
+        self.assertIn("ViewFieldsEqual(", live)
+        self.assertIn("PETSPELL_REMOVED", live)
+        self.assertNotIn("push_back", live)
+        self.assertNotIn("std::vector<", live)
+        self.assertIn("std::string const BaselineKey(", CPP)
+        self.assertIn("GetDefault<Baseline>(BaselineKey)", SNAPSHOT)
+        self.assertIn("Get<Baseline>(BaselineKey)", RESTORE)
+        self.assertNotIn('GetDefault<Baseline>("', CPP)
+        self.assertNotIn('Get<Baseline>("', CPP)
+
+    def test_removing_the_unchanged_return_fails_the_contract(self):
+        snapshot_gate = "if (LiveBookMatches(pet, state->Book))\n            {\n                state->Pending = true;\n                return;\n            }\n"
+        self.assertIn(snapshot_gate, SNAPSHOT)
+        self.assertFalse(fast_path_before_expensive(SNAPSHOT.replace(snapshot_gate, "", 1), False))
+        restore_gate = "if (LiveBookMatches(pet, state->Book))\n                return;\n"
+        self.assertIn(restore_gate, RESTORE)
+        mutated = RESTORE.replace(restore_gate, "", 1)
+        self.assertNotEqual(mutated, RESTORE)
+        self.assertFalse(fast_path_before_expensive(mutated, True))
+
 
 class HumanAndChainGuards(unittest.TestCase):
-    def test_real_player_runs_only_when_a_write_is_proposed(self):
-        self.assertTrue(human_check_is_write_time(RESTORE))
-        self.assertIn("IsRealPlayer(owner)", CPP)
-        self.assertEqual(CPP.count("IsRealPlayer("), 1)
-        self.assertIn('#if __has_include("Playerbots.h")', CPP)
-        self.assertIn("return false;", function_body(CPP, "bool OwnerIsRealHuman(Player* owner)"))
-        self.assertIn("owner->GetPet() == pet", RESTORE)
+    def test_real_player_map_read_fails_closed(self):
+        self.assertTrue(fail_closed_before_toggle(RESTORE))
+        self.assertTrue(classification_fails_closed(POLICY))
+        self.assertEqual(CPP.count("ClassifyOwnerOnMapThread()"), 1)
+        self.assertNotIn("IsRealPlayer(", CPP)
+        self.assertNotIn('__has_include("Playerbots.h")', CPP)
+        self.assertNotIn("GET_PLAYERBOT_AI", CPP)
+        self.assertIn("owner->GetPet() != pet", RESTORE)
         self.assertNotIn("RNDBOT", CPP)
         self.assertNotIn("BotAccountsRegex", CPP)
+        self.assertNotIn("IsHeadless", CPP)
 
-    def test_removing_the_write_time_return_fails_the_contract(self):
-        self.assertTrue(human_check_is_write_time(RESTORE))
+    def test_removing_the_fail_closed_return_fails_the_contract(self):
+        self.assertTrue(fail_closed_before_toggle(RESTORE))
         mutated = RESTORE.replace(
-            "if (!Policy::WantsWrite(outcomes))\n                return;\n",
+            "if (!Policy::WriteAllowed(Policy::ClassifyOwnerOnMapThread()))\n"
+            "            {\n"
+            "                CopyBook(state->Book, state->Scratch);\n"
+            "                return;\n"
+            "            }\n",
             "",
             1)
         self.assertNotEqual(mutated, RESTORE)
-        self.assertFalse(human_check_is_write_time(mutated))
+        self.assertFalse(fail_closed_before_toggle(mutated))
+        called = POLICY.replace(
+            "return OwnerClass::Uncertain;",
+            "return OwnerClass::ConfirmedHuman;",
+            1)
+        self.assertNotEqual(called, POLICY)
+        self.assertFalse(classification_fails_closed(called))
+        consulted = CPP + "\nIsRealPlayer(owner);\n"
+        self.assertFalse(fail_closed_before_toggle(consulted))
 
     def test_cower_is_not_learned_and_the_guard_is_load_bearing(self):
         self.assertTrue(cower_write_is_blocked(CPP))
