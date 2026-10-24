@@ -410,9 +410,11 @@ NaxxramasCore.ScarletExits.Enabled = 0
 # Default: 1 (has no effect while Enabled = 0)
 NaxxramasCore.ScarletExits.UseVanillaDoorTargets = 1
 
+# OPTIONAL, separate from the walk-in/walk-out fix above. Turning on
+# Enabled does not change Dungeon Finder exits; only this key does.
 # 1 = Dungeon Finder groups also leave by the door instead of being sent to
 #     the queue position or hearthstone. Their stored queue position is
 #     kept; the Dungeon Finder "teleport out" button still uses it.
 # 0 = Dungeon Finder exits stay stock.
-# Default: 1 (has no effect while Enabled = 0)
-NaxxramasCore.ScarletExits.RouteDungeonFinderExits = 1
+# Default: 0 (stock Dungeon Finder exits)
+NaxxramasCore.ScarletExits.RouteDungeonFinderExits = 0

@@ -56,8 +56,7 @@ namespace
         f.RowMap = 0;
         f.UseDoorTargets = true;
         f.DoorTargetSafe = true;
-        f.RouteDungeonFinderExits = true;
-        return f;
+        return f;  // RouteDungeonFinderExits keeps its default (false)
     }
 }
 
@@ -157,15 +156,33 @@ int main()
         f = Eligible(); f.DoorTargetSafe = false;
         Check(Decide(f) == Route::Stock, "S12 normal exit, unsafe target -> stock");
     }
+    // Dungeon Finder is out of scope by default (owner, #48 6386621902):
+    // the master switch alone never changes an LFG exit.
+    Check(!Facts().RouteDungeonFinderExits, "LFG routing defaults off");
     {
         Facts f = Eligible(); f.DungeonFinderExit = true;
-        Check(Decide(f) == Route::DoorTarget, "S09 LFG -> door");
+        Check(Decide(f) == Route::Stock, "S10 master on, LFG exit, defaults -> stock");
+        f.DoorTargetSafe = false;
+        Check(Decide(f) == Route::Stock, "S10 defaults, unsafe target -> stock");
         f.UseDoorTargets = false;
-        Check(Decide(f) == Route::LiveRow, "S09b LFG, targets off -> live row");
-        f = Eligible(); f.DungeonFinderExit = true; f.DoorTargetSafe = false;
-        Check(Decide(f) == Route::LiveRow, "S12 LFG, unsafe target -> live row");
-        f = Eligible(); f.DungeonFinderExit = true; f.RouteDungeonFinderExits = false;
-        Check(Decide(f) == Route::Stock, "S10 LFG routing off -> stock");
+        Check(Decide(f) == Route::Stock, "S10 defaults, targets off -> stock");
+    }
+    {
+        // Optional routing, only when explicitly switched on.
+        Facts f = Eligible(); f.DungeonFinderExit = true; f.RouteDungeonFinderExits = true;
+        Check(Decide(f) == Route::DoorTarget, "S09 LFG opt-in -> door");
+        f.UseDoorTargets = false;
+        Check(Decide(f) == Route::LiveRow, "S09b LFG opt-in, targets off -> live row");
+        f = Eligible(); f.DungeonFinderExit = true; f.RouteDungeonFinderExits = true;
+        f.DoorTargetSafe = false;
+        Check(Decide(f) == Route::LiveRow, "S12 LFG opt-in, unsafe target -> live row");
+    }
+    {
+        // Normal walk-out exits never depend on the LFG switch.
+        Facts f = Eligible();
+        Check(Decide(f) == Route::DoorTarget, "S07 normal exit, LFG switch off -> door");
+        f.RouteDungeonFinderExits = true;
+        Check(Decide(f) == Route::DoorTarget, "S07 normal exit, LFG switch on -> door");
     }
 
     if (failures)

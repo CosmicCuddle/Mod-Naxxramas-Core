@@ -45,7 +45,7 @@ namespace NaxxramasScarletExits
     bool RouteDungeonFinderExits()
     {
         return sConfigMgr->GetOption<bool>(
-            "NaxxramasCore.ScarletExits.RouteDungeonFinderExits", true);
+            "NaxxramasCore.ScarletExits.RouteDungeonFinderExits", false);
     }
 
     TriggerShape ShapeOf(uint32 triggerId)

@@ -35,7 +35,14 @@ class ConfigAndLoader(unittest.TestCase):
 
     def test_sub_switches_present(self):
         self.assertRegex(CONF, r"(?m)^NaxxramasCore\.ScarletExits\.UseVanillaDoorTargets = 1$")
-        self.assertRegex(CONF, r"(?m)^NaxxramasCore\.ScarletExits\.RouteDungeonFinderExits = 1$")
+        self.assertRegex(CONF, r"(?m)^NaxxramasCore\.ScarletExits\.RouteDungeonFinderExits = 0$")
+
+    def test_dungeon_finder_routing_defaults_off_everywhere(self):
+        # Owner scope (#48 6386621902): Dungeon Finder is out of scope and
+        # must not change just because the master switch is on.
+        self.assertIn('"NaxxramasCore.ScarletExits.RouteDungeonFinderExits", false', CPP)
+        self.assertIn("bool RouteDungeonFinderExits = false;", POLICY)
+        self.assertNotIn('"NaxxramasCore.ScarletExits.RouteDungeonFinderExits", true', CPP)
 
     def test_code_default_matches_conf(self):
         self.assertIn('"NaxxramasCore.ScarletExits.Enabled", false', CPP)

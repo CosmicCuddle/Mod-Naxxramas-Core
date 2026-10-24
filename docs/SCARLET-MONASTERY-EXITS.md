@@ -6,17 +6,20 @@ tested in game. The design was reviewed as S1 in PR #124
 
 ## What it changes
 
-With `NaxxramasCore.ScarletExits.Enabled = 1`, leaving the Cathedral (area
-trigger 604) or the Armory (606) puts the player just behind that wing's own
-entrance door, facing away from it, like the Graveyard and Library exits
-already do. Nothing else is touched.
+**Owner scope (#48 comment `6386621902`):** walking in and out through the
+original portals. Cathedral: outside entrance 610 → map 189 → inside exit
+604 → the Cathedral door. Armory: 612 → map 189 → 606 → the Armory door.
+Dungeon Finder is out of scope.
 
-Two problems are covered, each with its own switch:
+With `NaxxramasCore.ScarletExits.Enabled = 1`, walking out of the Cathedral
+(area trigger 604) or the Armory (606) puts the player just behind that
+wing's own entrance door, facing away from it, like the Graveyard and
+Library exits already do. The entrances (610, 612) are not changed.
 
 | Problem | Stock behaviour | With the switch on |
 |---|---|---|
-| The baseline 604/606 rows land 18–20 yd from their doors, facing 40–50° off | Lands there | `UseVanillaDoorTargets = 1`: lands at the Vanilla-core point 9–11 yd behind the door |
-| A Dungeon Finder group member is sent to the queue position or hearthstone | `TeleportToEntryPoint` | `RouteDungeonFinderExits = 1`: leaves by the door too |
+| The baseline 604/606 rows land 18–20 yd from their doors, facing 40–50° off | Lands there | `UseVanillaDoorTargets = 1` (default): lands at the Vanilla-core point 9–11 yd behind the door |
+| Optional, off by default: a Dungeon Finder group member is sent to the queue position or hearthstone | `TeleportToEntryPoint` | Only with `RouteDungeonFinderExits = 1`: leaves by the door too. `Enabled = 1` alone leaves Dungeon Finder exits stock. |
 
 The Vanilla-core points come from MaNGOS Zero `database` `325948a` and
 cMaNGOS `classic-db` `4e3d118` (identical in both). They are used only after
@@ -55,9 +58,27 @@ Dungeon Finder member to the queue position, and `TeleportTo` can already
 have ended a duel before a late refusal. `TeleportTo` returning true means
 the teleport was accepted, not that the player arrived.
 
+## Entrance side (610, 612): source check, unchanged
+
+The round trip starts at the outside entrances, so their stock rows were
+checked too (`areatrigger.sql`, `areatrigger_teleport.sql`, core `8daffda`):
+
+| Entrance | Stock landing on map 189 | Distance to that wing's exit trigger (radius 8) | Vanilla-core landing (cMaNGOS `4e3d118`) |
+|---|---|---|---|
+| 610 Cathedral | `(855.683, 1321.5, 18.6709)`, facing 0.0017 | 13.6 yd: outside it, so no bounce back out | `(853.179, 1319.18, 18.6714)`, facing 1.5708; 3.4 yd away |
+| 612 Armory | `(1610.83, -323.433, 18.6738)`, facing 6.2802 | 14.8 yd: outside it | `(1608.1, -318.919, 18.6714)`, facing 4.7124; 5.3 yd away |
+
+No base `areatrigger_scripts`, tavern or quest row names 604, 606, 610 or
+612, and IP's SQL does not touch them. The stock entrances land in the
+right wing, clear of the exit, and differ from Vanilla only by a few yards
+and a 90° facing. That is not a proved defect, so the module leaves the
+entrances alone. The owner's live rows and in-game geometry are **NOT
+VERIFIED**.
+
 ## Known differences and limits
 
-- **Dungeon Finder exits** skip `TeleportToEntryPoint`, so no remount or
+- **Dungeon Finder exits** (only with the optional
+  `RouteDungeonFinderExits = 1`) skip `TeleportToEntryPoint`, so no remount or
   taxi resume, and the stored queue position stays stored. The Dungeon Finder
   "teleport out" button still uses it; "teleport in" from outside refreshes
   it.
@@ -71,7 +92,7 @@ the teleport was accepted, not that the player arrived.
 
 ## Tests
 
-- `tests/scarlet_exit_policy.cpp` — native C++17/C++20 `-Werror`: door table,
+- `tests/scarlet_exit_policy.cpp` — native C++17/C++20 `-Werror`: Dungeon Finder routing off by default (master on alone keeps LFG exits stock), door table,
   geometry (both points safe, swapped wings, inside/margin, missing or
   wrong-map entrance, a real box trigger) and every decision case.
 - `tests/test_scarlet_monastery_exits.py` — source contract: default OFF,

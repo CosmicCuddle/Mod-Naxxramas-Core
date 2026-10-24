@@ -145,7 +145,7 @@ namespace NaxxramasScarletExitPolicy
         bool AlreadyOnExitMap = false;
         bool EntryDenied = false;
         bool DungeonFinderExit = false;  // LFG group inside a dungeon
-        bool RouteDungeonFinderExits = true;
+        bool RouteDungeonFinderExits = false;  // optional, out of scope by default
         bool UseDoorTargets = true;
         bool DoorTargetSafe = false;
     };
