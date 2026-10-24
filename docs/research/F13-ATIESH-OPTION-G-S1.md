@@ -98,7 +98,10 @@ rows are source predictions, **not test results**.
 | N14 | Double click / already teleporting | Second cast | Ignored (step 7) | Guard |
 | N15 | GM | GM bypasses admission → inside | Stock (D1) | F12 |
 | N16 | `GO_FLAG_NOT_SELECTABLE` set | Rejected before hook | Same (hook never runs) | F8 |
-| N17 | Bot (Playerbots) uses portal | Same path as a player | Same rule as players (D5) | F10 |
+| N17 | Bot clicks the portal via `CMSG_GAMEOBJ_USE` | Same path as a player | Same per-character era rule (D5) | F10, §5b |
+| N17b | Bot told `teleport` near the portal (Playerbots `TeleportAction`) | Bot casts 28147 **directly** (no GO use, no `partyOnly`) | **Not covered: stock** (known limit) | §5b |
+| N17c | Random bot in a Vanilla leader's group | IP forces the leader's stage onto the bot | Treated as Vanilla, outside with the leader | §5b |
+| N17d | Altbot whose own stage differs from the master's (only if `EnforceGroupRules = 0`) | Per character | Each character follows its own era | §5b |
 | N18 | Charges | 0 = unlimited | `AddUse` only on success; no new limit | D4 |
 | N19 | Cooldown | None for type 22 | No new cooldown | F9 |
 | N20 | Portal summoned outside Deadwind (another map) | Far teleport attempt | Far teleport to map 0 | F16 |
@@ -134,7 +137,39 @@ flag off once. Record position and facing on arrival.
 | D2 Ownerless | **Mirror stock: allow** | F4/F5: a spell-made Atiesh portal always has an owner, so the native `partyOnly` rule applies to every real portal. Ownerless 181146 exists only after a manual spawn, which is already a GM/debug situation. Requiring an owner would add a rule stock does not have, for a case players cannot create. | Same as stock |
 | D3 Fail closed | **Block the inside cast** when row 4436 is missing/invalid or `TeleportTo` refuses | For a Vanilla character, the only alternatives are the native inside cast (refused by admission at level 60, or *inside* if admission passes, which is the bug F13 exists to stop). Blocking plus a system message never sends anyone inside early and never claims a landing. | Stricter, only for eligible Vanilla users with the flag on |
 | D4 Charges | **`AddUse()` only after `TeleportTo` returns true** | Native calls `AddUse()` after `CastSpell == SPELL_CAST_OK` (`GameObject.cpp` L2114–2117). At baseline `charges = 0`, so this is a no-op; it only matters if the owner's live row has charges, where it keeps the same count. Never on a refused request. | Same as stock in effect |
-| D5 Bots | **Same rule as players** | The hook receives any `Player`; Playerbots bots that use the portal go through the same `GameObject::Use` (F10). IP's teleport gate skips bot accounts (`isNormalAccount`, L178), so a Vanilla-stage Altbot could otherwise go *inside* where its master cannot. Applying the same era rule keeps bot and master together outside. Whether bots ever click this portal is UNKNOWN; this choice only affects them if they do. | Stricter than IP for bots, matches the master |
+| D5 Bots | **Per-character era, same helper as players** (no bot exemption) | §5b: random-bot accounts get the group leader's progression written onto them when they join (`OnPlayerCanGroupAccept`, `IndividualProgressionPlayer.cpp` L595–655; `SyncBotsProgressionToLeader`, `IndividualProgression.cpp` L431–456 via `OnAddMember` L980–989), so they follow the leader. Altbots are normal accounts and keep their own stage, exactly as IP gates them everywhere else. No leader lookup or Playerbots dependency is needed. The `teleport` chat command path cannot be covered by this hook (N17b). | Same as IP's per-character model |
+
+## 5b. Bot paths (Playerbots `e88cc409`, IP `dd96f2b`)
+
+- **Who is a "bot account" to IP:** account names matching
+  `IndividualProgression.BotAccountsRegex` (default `^RNDBOT.*`,
+  `IndividualProgression.cpp` L363–381). Altbots on the owner's own account
+  are normal accounts.
+- **Random bots follow the leader:** on joining a group IP rewrites their
+  hidden progression quests to the leader's stage (L595–655 and L431–456).
+  With `EnforceGroupRules = 1` it also refuses a bot whose level does not
+  match the leader's era. Default is 0 (`individualProgression.conf.dist`
+  L23–30).
+- **Altbots keep their own stage.** With `EnforceGroupRules = 0` a group can
+  mix eras (N17d); with 1, IP refuses mismatched normal-account members
+  (L651–653).
+- **How bots use portals:** Playerbots' `teleport` chat command
+  (`src/Ai/Base/Actions/TeleportAction.cpp` L68–95) finds a nearby type-22
+  or goober GO whose spell teleports and **casts that spell itself**
+  (`new Spell(bot, ...)`, `prepare`, then `cast(true)`). It never calls
+  `GameObject::Use`, so no GO hook sees it, and `partyOnly` does not apply.
+  An older version that sent `CMSG_GAMEOBJ_USE` (and listed 181146) is
+  commented out (L17–65).
+- **Why not move to a spell hook:** `AllSpellScript::CanPrepare` can cancel
+  28147 in `Spell::prepare` (`Spell.cpp` L3571–3575), but `TeleportAction`
+  calls `cast(true)` without checking the result, and `Spell::_cast`
+  (L3916+) has no finished-state guard. The cancelled spell could still run,
+  so a spell-level seam would not reliably stop the bot path and adds
+  lifetime risk. Option G stays on the GO hook.
+- **Effect of the known limit (N17b):** the bot's own 28147 cast goes to
+  stock admission for map 532 (level 68 + raid group). A level-60 bot is
+  refused and stays put; only a level-68+ bot in a raid group could enter.
+  Normal follow-the-master movement is unaffected by this design.
 
 ## 6. Acceptance premises
 
