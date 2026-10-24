@@ -55,7 +55,7 @@ class SQLPreflightContract(unittest.TestCase):
             "not necessarily a creature entry",
             "do not rule out",
             "No matching direct source row",
-            "do not modify the world database",
+            "does not modify the world database",
         ):
             self.assertIn(phrase.lower(), DOC.lower())
 
