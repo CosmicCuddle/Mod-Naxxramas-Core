@@ -187,6 +187,25 @@ class HumanAndChainGuards(unittest.TestCase):
         self.assertNotIn("RNDBOT", CPP)
         self.assertNotIn("BotAccountsRegex", CPP)
         self.assertNotIn("IsHeadless", CPP)
+        self.assertNotIn("PLAYERHOOK_ON_LOGIN", CPP)
+        self.assertNotIn("SESSIONHOOK_ON_UPDATE", CPP)
+
+    def test_positive_human_classification_stays_blocked(self):
+        self.assertTrue(classification_fails_closed(POLICY))
+        self.assertIn("Functional S2 remains blocked", POLICY)
+        self.assertNotIn("return OwnerClass::ConfirmedHuman", POLICY)
+        for phrase in (
+            "FUNCTIONAL S2 REMAINS BLOCKED",
+            "no positive human fact",
+            "LogoutPlayerBot",
+            "SelfBotLevel",
+            "memory_order_acquire",
+            "OnTryExecuteCommand",
+            "OnBotLoginOperation",
+            "there is no positive human fact",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, DOC)
 
     def test_removing_the_fail_closed_return_fails_the_contract(self):
         self.assertTrue(fail_closed_before_toggle(RESTORE))

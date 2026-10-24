@@ -12,10 +12,12 @@
  * do not share a dictionary. The live MapUpdate.Threads value was not
  * read and is UNKNOWN; the owner states 8.
  *
- * Real humans only. The map-thread writer does not call IsRealPlayer.
- * Pinned Playerbots reads _playerbotsAIMap with no lock, and that read
- * is not proven safe with MapUpdate.Threads, so classification stays
- * Uncertain and the writer does not toggle. Cower 1742 is not learned.
+ * Real humans only. The map-thread writer does not call into Playerbots.
+ * No module hook can prove a human owner without reading the unlocked
+ * Playerbots AI map, and that read is not safe on a map worker. The
+ * classifier stays Uncertain and the writer does not toggle. The pin
+ * citations are on ClassifyOwnerOnMapThread and in the S2 note.
+ * Functional S2 remains blocked. Cower 1742 is not learned.
  * An unchanged book returns before FillBook and DecideChains.
  * In-game behaviour is NOT TESTED.
  */

@@ -277,22 +277,75 @@ namespace NaxxramasHunterPetAutocast
         return gate;
     }
 
-    // Pinned mod-playerbots d750b4b3a50effdf22bedc8032f0e8e5f7cb8091 has no
-    // mutex on PlayerbotsMgr (PlayerbotMgr.h:135 holds the AI map alone).
-    // The public human helper (PlayerbotAI.cpp:4523-4528) reaches
-    // GetPlayerbotAI (Playerbots.h:31, PlayerbotMgr.cpp:1858-1875) and
-    // find()s _playerbotsAIMap at line 1868. AddPlayerbotData erase/emplace
-    // is PlayerbotMgr.cpp:1828-1834. RemovePlayerBotData erase is
-    // PlayerbotMgr.cpp:1842-1845. The AI destructor removes at
-    // PlayerbotAI.cpp:247. OnBotLogin inserts at PlayerbotMgr.cpp:514.
-    // `.bot self` inserts at PlayerbotMgr.cpp:1117. OnPlayerAfterUpdate
-    // reads that map from the player update (Playerbots.cpp:248-250).
-    // OnPlayerLogin adds manager data for every non-headless session
-    // (Playerbots.cpp:148-150). IsSelfBot (PlayerbotAI.cpp:4531-4535) is a
-    // non-headless player whose AI master is itself, so a headless check
-    // is not a positive human test. Concurrent find/emplace/erase on that
-    // map is a data race. No happens-before against MapUpdate.Threads was
-    // proven. This function does not read the map.
+    // No positive human classification is reachable from this module.
+    // Full pin citations: docs/research/a02-hunter-autocast-functional-s2.md
+    //
+    // Pinned Playerbots d750b4b3a50effdf22bedc8032f0e8e5f7cb8091 has no
+    // mutex on PlayerbotsMgr (PlayerbotMgr.h:111-137). The AI map is
+    // :135. IsRealPlayer (PlayerbotAI.cpp:4523-4528) is
+    // player && !GET_PLAYERBOT_AI. GET_PLAYERBOT_AI is Playerbots.h:31.
+    // GetPlayerbotAI find()s that map at PlayerbotMgr.cpp:1868 with no
+    // lock (:1858-1875). AddPlayerbotData erase/emplace is :1828-1834.
+    // RemovePlayerBotData erase is :1842-1845. The AI destructor removes
+    // at PlayerbotAI.cpp:247. IsSelfBot (PlayerbotAI.cpp:4531-4535) is
+    // that same unlocked find, plus master == player.
+    //
+    // Map workers perform that find. Map::Update (Map.cpp:436) calls
+    // player->Update at :489 on a MapUpdater worker when
+    // MapUpdate.Threads > 0 (MapMgr.cpp:56-62; schedule and wait at
+    // :273-280). Player::Update calls OnPlayerAfterUpdate
+    // (PlayerUpdates.cpp:431). Playerbots.cpp:248-255 find()s and calls
+    // UpdateAI (PlayerbotAI.cpp:250), which calls UpdateAIInternal at
+    // :438. A queued logout command (PlayerbotAI.cpp:1138-1168) calls
+    // LogoutPlayerBot (PlayerbotMgr.cpp:394), which calls LogoutPlayer
+    // on that worker (:446-452). Destruction runs OnDestructPlayer
+    // (Playerbots.cpp:397-402), which deletes the AI, and the destructor
+    // erases the map. Another worker can be inside find() in the same
+    // map phase. That is a source-reachable data race on the unlocked map.
+    //
+    // A world-thread find is not a proven escape. update_finished
+    // (MapUpdater.cpp:161-169) uses memory_order_acquire and only the
+    // last worker locks _lock. wait() (MapUpdater.cpp:124-131) therefore
+    // does not happen-before a non-last worker's erase. The world-thread
+    // queue mutex (PlayerbotWorldThreadProcessor.h:139) guards that queue
+    // only. currentBots (RandomPlayerbotMgr.h:254) has no mutex and is
+    // not a human test. No Playerbots classifier takes a lock.
+    //
+    // A non-headless session is not a positive human fact. _headless is
+    // const !socket (WorldSession.cpp:148, WorldSession.h:1234, :1350).
+    // Bots created later use a null socket (PlayerbotMgr.cpp:158-160)
+    // and receive an AI from OnBotLogin (PlayerbotMgr.cpp:506-514),
+    // queued by OnBotLoginOperation (PlayerbotOperations.h:493-512) and
+    // run from WorldScript::OnUpdate (Playerbots.cpp:545-549,
+    // World.cpp:1355). A human socket stays non-headless. SelfBot attaches
+    // an AI to that socket: OnPlayerLogin adds a manager only
+    // (Playerbots.cpp:148-150), SelfBotLevel > 2 calls
+    // HandlePlayerbotCommand("self") directly (PlayerbotMgr.cpp:1733-1734),
+    // and the self command inserts or deletes the AI
+    // (PlayerbotMgr.cpp:1100-1122). OnTryExecuteCommand runs before the
+    // invoker (ChatCommand.cpp:326, invoke at :333, reached from
+    // Chat.cpp:238). It cannot see whether an AI was attached.
+    // PlayerbotMgr.cpp:1733-1734 calls HandlePlayerbotCommand("self")
+    // directly and never enters that hook.
+    //
+    // Publishing a per-player atomic before the next map schedule would
+    // be visible on the worker. World::Update runs sessions
+    // (World.cpp:1227) before MapMgr::Update (:1254), and
+    // PCQueue::Push/WaitAndPop (PCQueue.h:39-46, :71-83) is that
+    // happens-before. Player::CustomData is Object.h:237. DataMap is
+    // itself an unlocked unordered_map (DataMap.h:73), so the node would
+    // have to be inserted before publication and later stores would have
+    // to be atomic. There is nothing safe to store. Playerbots does not
+    // use CustomData. The pinned core has no bot bit on Player.
+    // Taxi-cheater is not that bit (PlayerbotAI.cpp:148-149,
+    // CharacterHandler.cpp:1055-1056). OnPlayerLogin
+    // (CharacterHandler.cpp:1126) cannot freeze the answer: hook order
+    // against Playerbots is not a contract, and SelfBot can attach at
+    // login or later.
+    //
+    // This function stays Uncertain. It does not read the AI map.
+    // ConfirmedHuman remains a test seam. Production does not reach
+    // ToggleAutocast. Functional S2 remains blocked.
     inline OwnerClass ClassifyOwnerOnMapThread()
     {
         return OwnerClass::Uncertain;
