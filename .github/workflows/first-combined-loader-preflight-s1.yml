@@ -27,6 +27,22 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$HEAD_SHA"
       - name: Run synthetic union, missing/duplicate registration and config witnesses
         run: python3 -m unittest discover -s tests -p 'test_first_combined_loader_preflight_s1.py' -v
+      - name: Prove real-tree gate rejects this unintegrated draft
+        shell: bash
+        run: |
+          # A nonzero exit must mean the EXPECTED missing registrations and
+          # default-off flags, not a crash or a failed Python import.
+          set +e
+          python3 tests/test_first_combined_loader_preflight_s1.py --check-tree > /tmp/first-combined-gate.txt 2>&1
+          code=$?
+          set -e
+          cat /tmp/first-combined-gate.txt
+          test "$code" -eq 1
+          grep -F "BLOCKED: AddBotGolemaggReachGuardScripts:" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: AddScarletMonasteryExitScripts:" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: AddAtieshKarazhanPortalScripts:" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: AddHunterPetAutocastScripts:" /tmp/first-combined-gate.txt
+          grep -F "Not a combined candidate. NO deployment or test build authorised." /tmp/first-combined-gate.txt
       - name: Explicitly no actual integration, binary or upload
         run: |
           test -f docs/research/FIRST-COMBINED-LOADER-PREFLIGHT-S1.md
