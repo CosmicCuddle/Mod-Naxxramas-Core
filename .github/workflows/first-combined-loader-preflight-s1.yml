@@ -1,0 +1,34 @@
+name: S1 first combined loader/config collision model (review-only)
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_first_combined_loader_preflight_s1.py'
+      - 'docs/research/FIRST-COMBINED-LOADER-PREFLIGHT-S1.md'
+      - '.github/workflows/first-combined-loader-preflight-s1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact source head
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+      - name: Run synthetic union, missing/duplicate registration and config witnesses
+        run: python3 -m unittest discover -s tests -p 'test_first_combined_loader_preflight_s1.py' -v
+      - name: Explicitly no actual integration, binary or upload
+        run: |
+          test -f docs/research/FIRST-COMBINED-LOADER-PREFLIGHT-S1.md
+          test -f tests/test_first_combined_loader_preflight_s1.py
+          echo "S1 models only. Actual --check-tree intentionally blocked here."
