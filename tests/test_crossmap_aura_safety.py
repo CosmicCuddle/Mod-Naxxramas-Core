@@ -111,6 +111,15 @@ class MapThreadNeverTouchesOffMapBots(unittest.TestCase):
         self.assertIn(gate, gfpp)
         self.assertLess(gfpp.index(gate), gfpp.index("!bot->IsInWorld()"))
         self.assertLess(gfpp.index(gate), gfpp.index("bot->GetMap() != master->GetMap()"))
+        # CS01 #118 6383119623: the deadline is still consumed first, the
+        # gate only skips (continue), and no protection is awarded.
+        self.assertLess(gfpp.index("pending.Timer.ConsumeIfDue(diff)"), gfpp.index(gate))
+        block = gfpp[gfpp.index("if (!bot ||"):]
+        block = block[:block.index("}") + 1]
+        self.assertIn(gate, block)
+        self.assertIn("continue;", block)
+        self.assertNotIn("AddAura(", block)
+        self.assertLess(gfpp.index(gate), gfpp.index("bot->AddAura(pending.SpellId, bot)"))
 
     def test_check_skips_before_resolving_target(self):
         check = function_body(self.code, "void CheckTrackedAuras(")
