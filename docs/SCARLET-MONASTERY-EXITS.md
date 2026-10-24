@@ -37,10 +37,13 @@ Progression stage.
 - `src/Systems/ScarletExitPolicy.h` — dependency-free decision and geometry
   rules, unit-tested natively.
 
-Any native early exit (in flight, unknown trigger, outside its radius, a
-bound trigger script, a quest on the trigger, tavern, battleground,
-OutdoorPvP, missing row, row not on map 0, already on map 0, entry denied,
-GM with `.debug areatriggers`) leaves the stock handler in charge.
+These cases leave the stock handler in charge. Some are native early
+returns (in flight, unknown trigger, outside its radius, tavern,
+battleground in progress, missing row, entry denied). The rest are deferred
+**conservatively** because the native handler may do extra work there: a
+quest on the trigger (credit, no return), a bound trigger script, OutdoorPvP,
+a GM with `.debug areatriggers`, a row not on map 0, or already being on
+map 0 (native still teleports to the row).
 
 **Fail closed:** once an exit is eligible, the native handler does not run
 for it. If `TeleportTo` refuses, the player stays in place with a short
