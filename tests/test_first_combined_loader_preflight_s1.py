@@ -118,8 +118,8 @@ OPTIONAL_A04_KEY = "NaxxramasCore.QuestLootProtection.RestrictHiddenOrdinarySlot
 def optional_a04_errors(config, quest_source):
     present = OPTIONAL_A04_KEY in quest_source
     assignments = re.findall(
-        r"(?m)^[ \\t]*" + re.escape(OPTIONAL_A04_KEY) +
-        r"[ \\t]*=[ \\t]*([^#\\r\\n]+)", config)
+        r"(?m)^[ \t]*" + re.escape(OPTIONAL_A04_KEY) +
+        r"[ \t]*=[ \t]*([^#\r\n]+)", config)
     if not present and not assignments:
         return []
     if len(assignments) != 1 or assignments[0].strip() != "0":
@@ -254,22 +254,22 @@ class UnionContractModel(unittest.TestCase):
         self.assertEqual(optional_a04_errors(self.config_union, ""), [])
 
     def test_optional_a04_switch_included_off_is_allowed(self):
-        cfg = self.config_union + "\\n" + OPTIONAL_A04_KEY + " = 0\\n"
+        cfg = self.config_union + "\n" + OPTIONAL_A04_KEY + " = 0\n"
         reader = 'sConfigMgr->GetOption<bool>("' + OPTIONAL_A04_KEY + '", false);'
         self.assertEqual(optional_a04_errors(cfg, reader), [])
 
     def test_optional_a04_switch_on_duplicate_or_unpaired_fails(self):
         reader = 'sConfigMgr->GetOption<bool>("' + OPTIONAL_A04_KEY + '", false);'
-        off = self.config_union + "\\n" + OPTIONAL_A04_KEY + " = 0\\n"
-        enabled = self.config_union + "\\n" + OPTIONAL_A04_KEY + " = 1\\n"
+        off = self.config_union + "\n" + OPTIONAL_A04_KEY + " = 0\n"
+        enabled = self.config_union + "\n" + OPTIONAL_A04_KEY + " = 1\n"
         for config, source in (
             (enabled, reader),
             (self.config_union, reader),
-            (off + OPTIONAL_A04_KEY + " = 0\\n", reader),
+            (off + OPTIONAL_A04_KEY + " = 0\n", reader),
             (off, ""),
         ):
             with self.subTest(config=config[-90:], source=bool(source)):
-                self.assertIn(OPTIONAL_A04_KEY, "\\n".join(
+                self.assertIn(OPTIONAL_A04_KEY, "\n".join(
                     optional_a04_errors(config, source)))
 
     def test_120_second_gfpp_timer_gate_rejects_90_seconds(self):
