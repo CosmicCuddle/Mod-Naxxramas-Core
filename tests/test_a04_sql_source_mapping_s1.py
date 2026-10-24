@@ -82,7 +82,7 @@ class A04SQLSourceMappingWitness(unittest.TestCase):
 
     def test_deeper_reference_id_retained_but_not_followed(self):
         gameobjects = {row[0]: row for row in self.query(1)}
-        self.assertEqual(gameobjects[202][9], 902)  # one-hop row points deeper
+        self.assertEqual(gameobjects[202][10], 902)  # one-hop row points deeper
         self.assertNotIn(204, gameobjects)  # target only two levels deep
 
     def test_item_id_scoping_on_both_sources(self):
