@@ -19,7 +19,7 @@ def sql_examples():
 class SQLPreflightContract(unittest.TestCase):
     def test_four_classification_queries_present(self):
         blocks = sql_examples()
-        self.assertEqual(len(blocks), 4)
+        self.assertEqual(len(blocks), 6)
         for table in ("item_template", "creature_loot_template", "gameobject_loot_template"):
             self.assertTrue(any(f"FROM {table}" in q for q in blocks), table)
 
@@ -38,6 +38,22 @@ class SQLPreflightContract(unittest.TestCase):
             self.assertIn(name, reference)
         self.assertIn("one reference hop", DOC)
         self.assertIn("not a proven resolved runtime rule", DOC)
+
+    def test_source_mapping_queries_are_type_scoped_and_one_hop(self):
+        creature, go = sql_examples()[4:6]
+        self.assertIn("FROM creature_template AS c", creature)
+        self.assertIn("c.lootid = l.Entry", creature)
+        self.assertIn("FROM gameobject_template AS g", go)
+        self.assertIn("g.Data1 = l.Entry", go)
+        self.assertIn("g.type IN (3, 25)", go)
+        for query in (creature, go):
+            self.assertIn("LEFT JOIN reference_loot_template AS r ON l.Reference = r.Entry", query)
+            self.assertIn("l.Item = @a04_item_id OR r.Item = @a04_item_id", query)
+            self.assertIn("outer_quest_required", query)
+            self.assertIn("referenced_quest_required", query)
+            self.assertIn("deeper_reference_id", query)
+        self.assertIn("not necessarily", DOC)
+        self.assertIn("not proof", DOC.lower())
 
     def test_no_world_write_statement_in_examples(self):
         for block in sql_examples():
