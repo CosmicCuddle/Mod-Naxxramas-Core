@@ -329,7 +329,106 @@ int main()
             "remover exception clears the in-progress mark");
     }
 
-    // 11. Concurrent producers (map workers) and NoteApplied calls.
+    // 11. CS01 #118 6383075641 (a): many distinct keys are retired after a
+    //     drain, so memory does not grow with every bot/spell ever seen.
+    {
+        RemovalQueue queue;
+        for (uint32_t bot = 1; bot <= 2000; ++bot)
+            for (uint32_t spell = 1; spell <= 5; ++spell)
+                queue.NoteApplied({ bot, spell, (spell & 1u) != 0 });
+        std::size_t before = queue.GenerationCount();
+        DrainAll(queue);
+        Check(before == 10000 && queue.GenerationCount() == 0,
+            "retire: 10000 noted keys drop to 0 after a drain with nothing queued");
+    }
+
+    // 12. (b) A key with a queued removal survives retirement until that
+    //     removal is drained; stale cancellation still works across it.
+    {
+        RemovalQueue queue;
+        AuraKey const kept{ BOT, FLASK, false };
+        AuraKey const stale{ BOT, JUJU_FLURRY, false };
+        queue.Enqueue({ OTHER_BOT, PET_BUFF, true });
+
+        // During drain #1 a map worker queues two removals.
+        queue.Drain([&](AuraKey const&, uint64_t)
+        {
+            queue.NoteApplied(kept);
+            queue.Enqueue(kept);
+            queue.NoteApplied(stale);
+            queue.Enqueue(stale);
+        });
+        Check(queue.GenerationCount() == 2 && queue.PendingCount() == 2,
+            "retire: keys referenced by queued removals are kept");
+
+        queue.NoteApplied(stale); // re-applied before drain #2
+
+        auto removed = DrainAll(queue);
+        bool keptRemoved = false;
+        bool staleRemoved = false;
+        for (AuraKey const& key : removed)
+        {
+            keptRemoved = keptRemoved || key == kept;
+            staleRemoved = staleRemoved || key == stale;
+        }
+        Check(keptRemoved,
+            "retire: a queued removal is not lost to retirement");
+        Check(!staleRemoved,
+            "ABA: a stale removal is never accepted after retirement");
+        Check(queue.GenerationCount() == 0, "retire: map empty once drained");
+    }
+
+    // 13. (c) Same GUID + spell reused after logout/re-login: a removal
+    //     queued for the old session is never accepted for the new one,
+    //     with or without a retirement in between (no ABA).
+    {
+        AuraKey const key{ BOT, FLASK, false };
+
+        // (c1) No drain between: the new session's application wins.
+        RemovalQueue queue;
+        queue.NoteApplied(key);   // old session applied
+        queue.Enqueue(key);       // leader left: removal queued
+        queue.NoteApplied(key);   // bot re-logged, module applied again
+        Check(DrainAll(queue).empty(),
+            "ABA: re-login application cancels the old session's removal");
+
+        // (c2) A drain retires the key, then the old-session removal is
+        //      queued (stamp 0 = "never noted"), then the new session
+        //      applies: the fresh stamp never equals 0.
+        RemovalQueue retired;
+        retired.NoteApplied(key);
+        DrainAll(retired);                       // key retired
+        Check(retired.GenerationCount() == 0, "ABA: key retired");
+        retired.Drain([&](AuraKey const&, uint64_t) {});
+        retired.Enqueue(key);                    // captured stamp 0
+        retired.NoteApplied(key);                // new session: fresh stamp
+        Check(DrainAll(retired).empty(),
+            "ABA: retired key re-noted gets a fresh stamp; stale 0 rejected");
+
+        // (c3) Repeated retire/re-note cycles never make an old stamp current.
+        RemovalQueue cycles;
+        bool anyStaleAccepted = false;
+        for (int i = 0; i < 1000; ++i)
+        {
+            cycles.NoteApplied(key);
+            cycles.Drain([&](AuraKey const&, uint64_t) {
+                anyStaleAccepted = true; });     // nothing queued: no call
+            // Queue inside a drain so it survives that drain's retirement.
+            cycles.Enqueue({ OTHER_BOT, FLASK, false });
+            cycles.Drain([&](AuraKey const&, uint64_t) {
+                cycles.Enqueue(key);             // queued with current stamp
+            });
+            cycles.NoteApplied(key);             // newer application
+            cycles.Drain([&](AuraKey const& k, uint64_t) {
+                if (k == key)
+                    anyStaleAccepted = true;
+            });
+        }
+        Check(!anyStaleAccepted && cycles.GenerationCount() == 0,
+            "ABA: 1000 retire/re-note cycles never accept a stale removal");
+    }
+
+    // 14. Concurrent producers (map workers) and NoteApplied calls.
     {
         RemovalQueue queue;
         constexpr int THREADS = 8;

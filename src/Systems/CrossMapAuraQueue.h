@@ -21,6 +21,15 @@
  *
  * The remover must not call NoteApplied for the key it is removing.
  *
+ * Bounded memory: a generation is a stamp from one process-wide counter
+ * that only increases, so a stamp is never reused (0 means "never
+ * noted"). At the end of every drain, keys that no queued removal refers
+ * to are retired. A retired key that is noted again gets a fresh, larger
+ * stamp, so an older queued stamp can never match it (no ABA). A key that
+ * a queued removal still refers to is kept until that removal is drained.
+ * Between drains the map holds at most the keys noted since the last drain
+ * plus the keys of queued removals.
+ *
  * Dependency-free so it can be unit-tested without the server.
  */
 
@@ -89,7 +98,7 @@ namespace NaxxramasCrossMapAura
                 --_blockedNotes;
             }
 
-            ++_generation[key];
+            _generation[key] = ++_lastStamp;
         }
 
         // How many NoteApplied calls are currently waiting for a removal.
@@ -111,6 +120,13 @@ namespace NaxxramasCrossMapAura
         {
             std::lock_guard<std::mutex> lock(_lock);
             return _pending.size();
+        }
+
+        // Number of keys currently holding a generation stamp.
+        std::size_t GenerationCount() const
+        {
+            std::lock_guard<std::mutex> lock(_lock);
+            return _generation.size();
         }
 
         // Takes every queued removal and calls remove(key, targetToken)
@@ -149,6 +165,7 @@ namespace NaxxramasCrossMapAura
                 ++attempted;
             }
 
+            RetireUnreferenced();
             return attempted;
         }
 
@@ -164,6 +181,28 @@ namespace NaxxramasCrossMapAura
 
             _removing = pending.Key;
             return true;
+        }
+
+        // Drop stamps that no queued removal can still compare against.
+        void RetireUnreferenced()
+        {
+            std::lock_guard<std::mutex> lock(_lock);
+
+            if (_pending.empty())
+            {
+                _generation.clear();
+                return;
+            }
+
+            std::map<AuraKey, uint64_t> kept;
+            for (PendingRemoval const& pending : _pending)
+            {
+                auto itr = _generation.find(pending.Key);
+                if (itr != _generation.end())
+                    kept.insert(*itr);
+            }
+
+            _generation.swap(kept);
         }
 
         void EndRemoval()
@@ -186,6 +225,7 @@ namespace NaxxramasCrossMapAura
         std::condition_variable _removalDone;
         std::optional<AuraKey> _removing;
         std::size_t _blockedNotes = 0;
+        uint64_t _lastStamp = 0;
         std::map<AuraKey, uint64_t> _generation;
         std::vector<PendingRemoval> _pending;
     };

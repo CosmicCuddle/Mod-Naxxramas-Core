@@ -217,10 +217,24 @@ class StaleWorkGeneration(unittest.TestCase):
         self.assertIn("std::unique_lock<std::mutex> lock(_lock);", note)
         self.assertIn("_removalDone.wait(lock", note)
         self.assertIn("!(*_removing == key)", note)
-        self.assertLess(note.index("_removalDone.wait("), note.index("++_generation[key];"))
+        self.assertLess(note.index("_removalDone.wait("), note.index("_generation[key] = ++_lastStamp;"))
         end = header[header.index("void EndRemoval("):]
         self.assertIn("_removing.reset();", end)
         self.assertIn("_removalDone.notify_all();", end)
+
+    def test_generation_map_is_bounded_without_aba(self):
+        # CS01 #118 6383075641: retire stamps after each drain, but only
+        # those no queued removal refers to; stamps are never reused.
+        header = QUEUE.read_text(encoding="utf-8")
+        self.assertIn("_generation[key] = ++_lastStamp;", header)
+        self.assertNotIn("++_generation[key]", header)
+        drain = header[header.index("std::size_t Drain("):header.index("private:")]
+        self.assertLess(drain.index("for (PendingRemoval const& pending : work)"),
+                        drain.index("RetireUnreferenced();"))
+        retire = header[header.index("void RetireUnreferenced("):]
+        retire = retire[:retire.index("\n        }\n")]
+        self.assertIn("std::lock_guard<std::mutex> lock(_lock);", retire)
+        self.assertIn("for (PendingRemoval const& pending : _pending)", retire)
 
     def test_no_raw_pointers_in_queue(self):
         header = strip_comments(QUEUE.read_text(encoding="utf-8"))
