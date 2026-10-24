@@ -159,13 +159,19 @@ class StaleWorkGeneration(unittest.TestCase):
     def setUp(self):
         self.code = strip_comments(SOURCE.read_text(encoding="utf-8"))
 
-    def test_every_module_application_bumps_generation(self):
-        add = function_body(self.code, "void AddTrackedAura(")
-        self.assertIn("NoteModuleAuraApplied(", add)
+    def test_generation_is_bumped_before_every_module_application(self):
+        # Before the aura is touched, so a concurrent removal of the same
+        # key either sees the new generation or finishes first (#116 review).
+        apply = function_body(self.code, "bool ApplyTrackedAura(")
+        self.assertLess(apply.index("NoteModuleAuraApplied("), apply.index("GetAura(spellId)"))
+        self.assertLess(apply.index("NoteModuleAuraApplied("), apply.index("RemoveAurasDueToSpell("))
+        self.assertLess(apply.index("NoteModuleAuraApplied("), apply.index("AddAura("))
+        self.assertLess(apply.index("NoteModuleAuraApplied("), apply.index("AddTrackedAura("))
         juju = function_body(self.code, "void ApplyTimedJujuFlurry(")
-        self.assertIn("NoteModuleAuraApplied(", juju)
+        self.assertLess(juju.index("NoteModuleAuraApplied("), juju.index("RemoveAurasDueToSpell("))
+        self.assertLess(juju.index("NoteModuleAuraApplied("), juju.index("AddAura("))
         timed = function_body(self.code, "void ProcessTimedAuras(")
-        self.assertLess(timed.index("bot->AddAura("), timed.index("NoteModuleAuraApplied("))
+        self.assertLess(timed.index("NoteModuleAuraApplied("), timed.index("bot->AddAura("))
         gfpp = function_body(self.code, "void ProcessOneShotFireProtections(")
         self.assertLess(gfpp.index("NoteModuleAuraApplied("), gfpp.index("bot->AddAura("))
 
@@ -176,17 +182,36 @@ class StaleWorkGeneration(unittest.TestCase):
         self.assertIn("std::lock_guard<std::mutex> lock(_lock);", swap_block)
         loop = drain[drain.index("for (PendingRemoval const& pending : work)"):]
         self.assertNotIn("lock_guard", loop)
-        self.assertLess(loop.index("IsCurrent(pending)"), loop.index("remove(pending.Key)"))
-        for method in ("void NoteApplied(", "void Enqueue(", "bool IsCurrent("):
+        self.assertLess(loop.index("BeginRemovalIfCurrent(pending)"),
+                        loop.index("remove(pending.Key)"))
+        self.assertLess(loop.index("EndRemovalGuard"), loop.index("remove(pending.Key)"))
+        for method in ("void Enqueue(", "bool BeginRemovalIfCurrent(", "void EndRemoval("):
             body = header[header.index(method):]
-            body = body[:body.index("}\n")]
+            body = body[:body.index("\n        }\n")]
             self.assertIn("std::lock_guard<std::mutex> lock(_lock);", body, method)
+
+    def test_check_and_mark_are_atomic_and_notes_wait(self):
+        header = QUEUE.read_text(encoding="utf-8")
+        begin = header[header.index("bool BeginRemovalIfCurrent("):]
+        begin = begin[:begin.index("\n        }\n")]
+        self.assertLess(begin.index("CurrentLocked(pending.Key) != pending.Generation"),
+                        begin.index("_removing = pending.Key;"))
+        note = header[header.index("void NoteApplied("):]
+        note = note[:note.index("\n        }\n")]
+        self.assertIn("std::unique_lock<std::mutex> lock(_lock);", note)
+        self.assertIn("_removalDone.wait(lock", note)
+        self.assertIn("!(*_removing == key)", note)
+        self.assertLess(note.index("_removalDone.wait("), note.index("++_generation[key];"))
+        end = header[header.index("void EndRemoval("):]
+        self.assertIn("_removing.reset();", end)
+        self.assertIn("_removalDone.notify_all();", end)
 
     def test_no_raw_pointers_in_queue(self):
         header = strip_comments(QUEUE.read_text(encoding="utf-8"))
         self.assertNotIn("Player", header)
         self.assertNotIn("Unit", header)
-        self.assertNotIn("*", re.sub(r"/\*.*?\*/", "", header))
+        # No pointer-typed declarations (members, locals or parameters).
+        self.assertIsNone(re.search(r"\b\w+\s*\*\s*(const\s+)?\w+\s*[;=,)]", header))
 
 
 if __name__ == "__main__":

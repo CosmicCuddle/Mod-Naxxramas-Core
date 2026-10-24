@@ -801,8 +801,11 @@ namespace
         return false;
     }
 
-    // The module applied or took ownership of this aura. A removal
-    // queued before this point is now stale and will be skipped.
+    // Call BEFORE the module applies or takes ownership of this aura.
+    // A removal queued earlier is now stale and will be skipped; if the
+    // world thread is removing this exact aura right now, this waits
+    // until that removal has finished, so the new application lands
+    // after it and survives.
     void NoteModuleAuraApplied(
         ObjectGuid::LowType botGuid,
         uint32 spellId,
@@ -832,11 +835,6 @@ namespace
 
         ObjectGuid::LowType botGuid =
             bot->GetGUID().GetCounter();
-
-        NoteModuleAuraApplied(
-            botGuid,
-            spellId,
-            isPetAura);
 
         for (TrackedAura& existing : tracker.Auras)
         {
@@ -886,6 +884,13 @@ namespace
                 "invalid bot, target, or spell id");
             return false;
         }
+
+        // Record ownership BEFORE touching the aura (both the preserve
+        // and the re-apply path): a removal queued earlier is now stale.
+        NoteModuleAuraApplied(
+            bot->GetGUID().GetCounter(),
+            spellId,
+            isPetAura);
 
         // Preserve a healthy existing aura instead of resetting it.
         // Normal consumables refresh at 10 minutes remaining;
@@ -1058,6 +1063,11 @@ namespace
             return;
         }
 
+        NoteModuleAuraApplied(
+            bot->GetGUID().GetCounter(),
+            spellId,
+            false);
+
         bot->RemoveAurasDueToSpell(spellId);
 
         if (!bot->AddAura(spellId, bot))
@@ -1076,11 +1086,6 @@ namespace
         timed.BotGuid =
             bot->GetGUID().GetCounter();
         timed.SpellId = spellId;
-
-        NoteModuleAuraApplied(
-            timed.BotGuid,
-            spellId,
-            false);
         timed.BotName = bot->GetName();
         timed.AuraName = "Juju Flurry";
         timed.ApplicationsUsed = 1;
@@ -3180,6 +3185,11 @@ void PrepareManaUser(
                 continue;
             }
 
+            NoteModuleAuraApplied(
+                timed.BotGuid,
+                timed.SpellId,
+                false);
+
             if (!bot->AddAura(
                     timed.SpellId,
                     bot))
@@ -3189,11 +3199,6 @@ void PrepareManaUser(
 
                 continue;
             }
-
-            NoteModuleAuraApplied(
-                timed.BotGuid,
-                timed.SpellId,
-                false);
 
             ++timed.ApplicationsUsed;
 

@@ -5,6 +5,8 @@
 
 #include "CrossMapAuraQueue.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <thread>
@@ -156,7 +158,93 @@ int main()
         Check(DrainAll(queue).size() == 1, "re-entrant entry drains next time");
     }
 
-    // 8. Concurrent producers (map workers) and NoteApplied calls.
+    // 8. CS01 #116 interleaving: the drain has passed the generation check
+    //    and is inside the removal when a map worker re-applies the SAME
+    //    aura. NoteApplied must wait for the removal to finish, so the
+    //    re-application lands after it and survives.
+    {
+        RemovalQueue queue;
+        AuraKey const key{ BOT, JUJU_FLURRY, false };
+        queue.NoteApplied(key);
+        queue.Enqueue(key);
+
+        std::atomic<bool> auraPresent{ true };
+        std::atomic<bool> noteReturned{ false };
+        bool blockedDuringRemoval = false;
+        std::thread worker;
+
+        queue.Drain([&](AuraKey const&)
+        {
+            // Check already passed. A worker now re-applies the aura.
+            worker = std::thread([&]()
+            {
+                queue.NoteApplied(key);   // must wait for the removal
+                noteReturned = true;
+                auraPresent = true;       // the module's new application
+            });
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            blockedDuringRemoval = !noteReturned.load();
+            auraPresent = false;          // the (stale) removal itself
+        });
+        worker.join();
+
+        Check(blockedDuringRemoval,
+            "interleave: NoteApplied for the key being removed waits");
+        Check(auraPresent.load(),
+            "interleave: re-application after the removal survives");
+
+        // The new generation is current: a later queued removal still works.
+        queue.Enqueue(key);
+        Check(DrainAll(queue).size() == 1,
+            "interleave: later removal of the new generation proceeds");
+    }
+
+    // 9. A different key is never blocked by an in-progress removal.
+    {
+        RemovalQueue queue;
+        queue.Enqueue({ BOT, FLASK, false });
+        std::atomic<bool> otherReturned{ false };
+        queue.Drain([&](AuraKey const&)
+        {
+            std::thread other([&]()
+            {
+                queue.NoteApplied({ BOT, JUJU_FLURRY, false });
+                otherReturned = true;
+            });
+            other.join(); // would hang here if other keys were blocked
+        });
+        Check(otherReturned.load(),
+            "interleave: other keys are not blocked during a removal");
+    }
+
+    // 10. If the remover throws, the mark is cleared and NoteApplied
+    //     for that key does not block afterwards.
+    {
+        RemovalQueue queue;
+        AuraKey const key{ BOT, FLASK, false };
+        queue.Enqueue(key);
+        bool threw = false;
+        try
+        {
+            queue.Drain([](AuraKey const&) { throw 1; });
+        }
+        catch (int)
+        {
+            threw = true;
+        }
+        std::atomic<bool> returned{ false };
+        std::thread after([&]()
+        {
+            queue.NoteApplied(key);
+            returned = true;
+        });
+        after.join();
+        Check(threw && returned.load(),
+            "remover exception clears the in-progress mark");
+    }
+
+    // 11. Concurrent producers (map workers) and NoteApplied calls.
     {
         RemovalQueue queue;
         constexpr int THREADS = 8;

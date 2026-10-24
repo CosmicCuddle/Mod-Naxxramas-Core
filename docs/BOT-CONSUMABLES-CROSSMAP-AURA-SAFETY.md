@@ -43,12 +43,48 @@ The GFPP one-shot already compares `Map` pointers and is unchanged.
 
   A missing bot or pet is skipped. The queue lock is never held during
   these calls.
-- **Stale-work gate:** each `{bot, spell, isPet}` has a generation number.
-  The module bumps it whenever it applies or takes ownership of that aura:
-  `AddTrackedAura`, the initial Juju Flurry, a timed refresh, or the GFPP
-  one-shot refresh. A queued removal remembers the generation it saw, and
-  the drain skips it if the generation has moved on. A delayed removal
-  therefore never strips a newer module application.
+- **Stale-work gate:** each `{bot, spell, isPet}` has a generation
+  number.
+  - **Bump:** the module bumps it **before** it applies or takes ownership
+    of that aura — at the top of `ApplyTrackedAura` (both the preserve and
+    the re-apply path), before the initial Juju Flurry, before a timed
+    refresh, and before the GFPP one-shot refresh.
+  - **Check:** a queued removal remembers the generation it saw. The drain
+    checks it and marks the key "being removed" in one critical section,
+    then removes outside the lock.
+  - **Wait:** `NoteApplied` for that exact key waits until the removal is
+    done; other keys are never blocked.
+  - **Result:** every module application either is seen by the check (the
+    removal is skipped) or lands after the removal (the new aura
+    survives). This closes the check-then-remove window that CS01 found in
+    review 6382682125.
+  - **Robustness:** the remover never calls `NoteApplied` for the key it
+    is removing (`RemoveAurasDueToSpell` does not call module code). An
+    exception in the remover still clears the mark.
+
+### Why no other thread races the drain (pinned sources)
+
+- **World loop** (`World.cpp` at core `8daffda`):
+  - L1227 `UpdateSessions` runs `PROCESS_THREADUNSAFE` opcodes, including
+    `CMSG_MESSAGECHAT` (`Opcodes.cpp` L280), so `.bot consumables` runs on
+    the world thread;
+  - L1254 `MapMgr::Update` schedules every map and calls `m_updater.wait()`;
+  - L1355 `OnWorldUpdate` runs the drain.
+
+  The world thread is single-threaded, so nothing else runs during the
+  drain. The new wait is a second line of defence, not the only one.
+- **Bot map changes** (Playerbots `e88cc409`): the worldport
+  acknowledgement (`PlayerbotHolder::UpdateSessions` →
+  `HandleTeleportAck` → `HandleMoveWorldportAck`) runs from
+  `SessionScript::OnSessionUpdate` and `WorldScript::OnUpdate`, both on the
+  world thread. A bot is therefore only added to a `Map`'s player list from
+  the world thread.
+- **Player-list iteration:** `IsPlayerOnMap` iterates the **leader's own**
+  map list on that map's own thread, where it cannot change concurrently.
+- **Drain lookups:** `ObjectAccessor::FindPlayerByLowGUID` returns only
+  in-world players, and logout and deletion happen in `UpdateSessions`
+  earlier in the same world loop, so the pointer is valid for the drain.
+  `GetPet()` resolves the bot's *current* pet.
 
 With the flag at 0, generations are not recorded, nothing is queued, and
 every path behaves exactly as before. The drain always runs, so removals
@@ -66,6 +102,9 @@ queued before a config reload that turned the flag off still happen.
   would remove it today.
 - **Timing:** removal normally happens in the same world tick. No strict
   bound is claimed.
+- **Wait cost:** a map worker re-applying the exact aura that the world
+  thread is removing waits for that one removal. By the ordering above,
+  this does not happen in practice.
 - **Group walk:** the walk in `ResetConsumableCooldownForGroup` is out of
   scope (see #114).
 - **Not tested:** build and link prove compilation only. Runtime behaviour
@@ -75,11 +114,16 @@ queued before a config reload that turned the flag off still happen.
 ## Tests
 
 - `tests/crossmap_aura_queue.cpp` — native queue tests (C++17, C++20 and
-  ThreadSanitizer). They cover once-only drain, the stale gate, per-spell
-  and pet keys, a missing bot, re-entrant enqueue, concurrent producers,
-  and CS01's mandatory case: the leader teleports while the bot keeps a
-  tracked buff, a pet buff and a timed Juju Flurry, and a newer Juju
-  survives.
+  ThreadSanitizer). They cover:
+  - once-only drain, the stale gate, per-spell and pet keys, a missing
+    bot, re-entrant enqueue and concurrent producers;
+  - CS01's mandatory case: the leader teleports while the bot keeps a
+    tracked buff, a pet buff and a timed Juju Flurry, and a newer Juju
+    survives;
+  - CS01's review interleaving: the check passes, the same aura is
+    re-applied mid-removal, and the re-application waits and survives;
+    other keys are not blocked; a remover exception clears the mark.
+    Against the previous queue, the interleaving checks fail.
 - `tests/test_crossmap_aura_safety.py` — source contract: default OFF,
   OFF parity, both vectors deferred before any dereference, world-thread
   drain, generation bumps and lock discipline.
