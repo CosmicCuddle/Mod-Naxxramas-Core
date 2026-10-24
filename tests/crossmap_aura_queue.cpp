@@ -10,6 +10,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 using NaxxramasCrossMapAura::AuraKey;
@@ -30,6 +32,48 @@ namespace
         {
             std::printf("ok:   %s\n", what);
         }
+    }
+
+    // Bounded wait: a broken queue fails the test instead of hanging CI.
+    template <class Pred>
+    bool WaitUntil(Pred pred, int timeoutMs = 5000)
+    {
+        auto const deadline = std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(timeoutMs);
+        while (!pred())
+        {
+            if (std::chrono::steady_clock::now() > deadline)
+                return false;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return true;
+    }
+
+    [[noreturn]] void AbortHung(char const* what)
+    {
+        std::printf("FAIL: %s (timed out; aborting instead of hanging)\n", what);
+        std::fflush(stdout);
+        std::_Exit(EXIT_FAILURE);
+    }
+
+    // BlockedNoteCount() exists on the fixed queue. Detecting it lets the
+    // same test source build against an older queue header, so the
+    // negative control runs the identical controlled schedule.
+    template <class Q, class = void>
+    struct HasBlockedNoteCount : std::false_type { };
+
+    template <class Q>
+    struct HasBlockedNoteCount<Q,
+        std::void_t<decltype(std::declval<Q const&>().BlockedNoteCount())>>
+        : std::true_type { };
+
+    template <class Q>
+    std::size_t BlockedNotes(Q const& queue)
+    {
+        if constexpr (HasBlockedNoteCount<Q>::value)
+            return queue.BlockedNoteCount();
+        else
+            return 0;
     }
 
     std::vector<AuraKey> DrainAll(RemovalQueue& queue)
@@ -203,7 +247,17 @@ int main()
                 auraPresent = true;       // the module's new application
             });
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            // Controlled schedule, no sleeps: proceed only once the worker
+            // is provably inside NoteApplied waiting (fixed queue), or has
+            // already returned from it (a check-then-remove queue).
+            if (!WaitUntil([&]()
+                {
+                    return BlockedNotes(queue) == 1 || noteReturned.load();
+                }))
+            {
+                AbortHung("interleave: worker never reached NoteApplied");
+            }
+
             blockedDuringRemoval = !noteReturned.load();
             auraPresent = false;          // the (stale) removal itself
         });
@@ -232,7 +286,13 @@ int main()
                 queue.NoteApplied({ BOT, JUJU_FLURRY, false });
                 otherReturned = true;
             });
-            other.join(); // would hang here if other keys were blocked
+
+            if (!WaitUntil([&]() { return otherReturned.load(); }))
+            {
+                other.detach();
+                AbortHung("interleave: a different key was blocked");
+            }
+            other.join();
         });
         Check(otherReturned.load(),
             "interleave: other keys are not blocked during a removal");
@@ -259,6 +319,11 @@ int main()
             queue.NoteApplied(key);
             returned = true;
         });
+        if (!WaitUntil([&]() { return returned.load(); }))
+        {
+            after.detach();
+            AbortHung("remover exception left the key marked");
+        }
         after.join();
         Check(threw && returned.load(),
             "remover exception clears the in-progress mark");

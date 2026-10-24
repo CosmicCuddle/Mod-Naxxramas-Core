@@ -75,11 +75,29 @@ namespace NaxxramasCrossMapAura
         void NoteApplied(AuraKey const& key)
         {
             std::unique_lock<std::mutex> lock(_lock);
-            _removalDone.wait(lock, [&]()
+            auto notBeingRemoved = [&]()
             {
                 return !_removing || !(*_removing == key);
-            });
+            };
+
+            if (!notBeingRemoved())
+            {
+                // Counted under the lock before waiting, so an observer
+                // that sees the count knows this call is committed to wait.
+                ++_blockedNotes;
+                _removalDone.wait(lock, notBeingRemoved);
+                --_blockedNotes;
+            }
+
             ++_generation[key];
+        }
+
+        // How many NoteApplied calls are currently waiting for a removal.
+        // Used by tests to build a deterministic interleaving.
+        std::size_t BlockedNoteCount() const
+        {
+            std::lock_guard<std::mutex> lock(_lock);
+            return _blockedNotes;
         }
 
         // Remember to remove this aura later, as of its current generation.
@@ -167,6 +185,7 @@ namespace NaxxramasCrossMapAura
         mutable std::mutex _lock;
         std::condition_variable _removalDone;
         std::optional<AuraKey> _removing;
+        std::size_t _blockedNotes = 0;
         std::map<AuraKey, uint64_t> _generation;
         std::vector<PendingRemoval> _pending;
     };
