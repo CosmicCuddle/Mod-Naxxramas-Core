@@ -3322,6 +3322,10 @@ void PrepareManaUser(
                 manager, pending.BotGuid);
 
             if (!bot ||
+                // With cross-map safety, prove the bot is on the leader's
+                // own map before the first dereference below.
+                (IsCrossMapAuraSafetyEnabled() &&
+                    !IsPlayerOnMap(master->GetMap(), bot)) ||
                 !bot->IsInWorld() ||
                 !bot->IsAlive() ||
                 // Map ID alone is not enough: MC may have many

@@ -103,6 +103,15 @@ class MapThreadNeverTouchesOffMapBots(unittest.TestCase):
         self.assertLess(timed.index("IsPlayerOnMap(master->GetMap(), bot)"),
                         timed.index("!bot->IsInWorld()"))
 
+    def test_gfpp_one_shot_checks_map_before_dereferencing(self):
+        # CS02 #116 6383105153 item 5: the MC one-shot dereferenced the bot
+        # (IsInWorld/IsAlive/GetMap) before any same-map proof.
+        gfpp = function_body(self.code, "void ProcessOneShotFireProtections(")
+        gate = "(IsCrossMapAuraSafetyEnabled() &&\n                    !IsPlayerOnMap(master->GetMap(), bot))"
+        self.assertIn(gate, gfpp)
+        self.assertLess(gfpp.index(gate), gfpp.index("!bot->IsInWorld()"))
+        self.assertLess(gfpp.index(gate), gfpp.index("bot->GetMap() != master->GetMap()"))
+
     def test_check_skips_before_resolving_target(self):
         check = function_body(self.code, "void CheckTrackedAuras(")
         self.assertLess(check.index("IsPlayerOnMap("),

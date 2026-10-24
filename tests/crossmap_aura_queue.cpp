@@ -76,6 +76,25 @@ namespace
             return 0;
     }
 
+    template <class Q, class = void>
+    struct HasGenerationCount : std::false_type { };
+
+    template <class Q>
+    struct HasGenerationCount<Q,
+        std::void_t<decltype(std::declval<Q const&>().GenerationCount())>>
+        : std::true_type { };
+
+    // An older queue without GenerationCount() reports "unknown" (max), so
+    // the bounded-memory checks fail for it rather than not compiling.
+    template <class Q>
+    std::size_t Generations(Q const& queue)
+    {
+        if constexpr (HasGenerationCount<Q>::value)
+            return queue.GenerationCount();
+        else
+            return static_cast<std::size_t>(-1);
+    }
+
     std::vector<AuraKey> DrainAll(RemovalQueue& queue)
     {
         std::vector<AuraKey> removed;
@@ -243,8 +262,8 @@ int main()
             worker = std::thread([&]()
             {
                 queue.NoteApplied(key);   // must wait for the removal
-                noteReturned = true;
                 auraPresent = true;       // the module's new application
+                noteReturned = true;      // published last (CS02 review)
             });
 
             // Controlled schedule, no sleeps: proceed only once the worker
@@ -336,9 +355,9 @@ int main()
         for (uint32_t bot = 1; bot <= 2000; ++bot)
             for (uint32_t spell = 1; spell <= 5; ++spell)
                 queue.NoteApplied({ bot, spell, (spell & 1u) != 0 });
-        std::size_t before = queue.GenerationCount();
+        std::size_t before = Generations(queue);
         DrainAll(queue);
-        Check(before == 10000 && queue.GenerationCount() == 0,
+        Check(before == 10000 && Generations(queue) == 0,
             "retire: 10000 noted keys drop to 0 after a drain with nothing queued");
     }
 
@@ -358,7 +377,7 @@ int main()
             queue.NoteApplied(stale);
             queue.Enqueue(stale);
         });
-        Check(queue.GenerationCount() == 2 && queue.PendingCount() == 2,
+        Check(Generations(queue) == 2 && queue.PendingCount() == 2,
             "retire: keys referenced by queued removals are kept");
 
         queue.NoteApplied(stale); // re-applied before drain #2
@@ -375,7 +394,7 @@ int main()
             "retire: a queued removal is not lost to retirement");
         Check(!staleRemoved,
             "ABA: a stale removal is never accepted after retirement");
-        Check(queue.GenerationCount() == 0, "retire: map empty once drained");
+        Check(Generations(queue) == 0, "retire: map empty once drained");
     }
 
     // 13. (c) Same GUID + spell reused after logout/re-login: a removal
@@ -398,7 +417,7 @@ int main()
         RemovalQueue retired;
         retired.NoteApplied(key);
         DrainAll(retired);                       // key retired
-        Check(retired.GenerationCount() == 0, "ABA: key retired");
+        Check(Generations(retired) == 0, "ABA: key retired");
         retired.Drain([&](AuraKey const&, uint64_t) {});
         retired.Enqueue(key);                    // captured stamp 0
         retired.NoteApplied(key);                // new session: fresh stamp
@@ -424,7 +443,7 @@ int main()
                     anyStaleAccepted = true;
             });
         }
-        Check(!anyStaleAccepted && cycles.GenerationCount() == 0,
+        Check(!anyStaleAccepted && Generations(cycles) == 0,
             "ABA: 1000 retire/re-note cycles never accept a stale removal");
     }
 

@@ -17,7 +17,7 @@ at the same moment. Three map-thread paths touch that bot's auras:
 
 Command paths (`.bot consumables <profile>`, `status`, `clear`) run on the
 world thread, which never overlaps the map threads, and are unchanged.
-The GFPP one-shot already compares `Map` pointers and is unchanged.
+The GFPP one-shot compared `Map` pointers, but only after reading the bot (`IsInWorld`, `IsAlive`); with the flag on it now also proves same-map membership first (CS02 review).
 
 ## Change (only when `NaxxramasCore.BotConsumables.CrossMapAuraSafety = 1`)
 
@@ -131,6 +131,12 @@ queued before a config reload that turned the flag off still happen.
     once the bot is confirmed on the leader's map, a pet it returns is on
     that map too. Map-thread `HasAura` and `RemoveAurasDueToSpell` on that
     pet stay on that map's thread.
+- **Same-map pet clear:** the immediate (same-map) clear removes the aura
+  from the bot's current pet without a GUID check, as before. It runs on
+  that map's own thread, so it is not a race. Only queued removals check
+  the pet GUID.
+- **Remover exceptions:** if the remover threw, the rest of that drain
+  batch would be dropped. The production remover does not throw.
 - **Other sources:** an aura applied by something other than this module
   between the queue and the drain is removed, just as the immediate removal
   would remove it today.
