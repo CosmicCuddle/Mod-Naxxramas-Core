@@ -7,8 +7,10 @@
  * Writer note: docs/research/a02-hunter-autocast-functional-s2.md
  *
  * The chain id is supplied by the caller. Production uses
- * SpellMgr::GetFirstSpellInChain and does not invent a link. Cower 1742
- * is never a restore target and this header never learns a spell.
+ * SpellMgr::GetFirstSpellInChain and does not invent a link. This header
+ * never learns a spell. DecideChains does not copy Cower 1742 onto
+ * another spell. BuildAddonPlan applies an explicit choice when the pet
+ * already has that spell.
  */
 
 #ifndef NAXXRAMAS_CORE_HUNTER_PET_AUTOCAST_POLICY_H
@@ -344,8 +346,9 @@ namespace NaxxramasHunterPetAutocast
     // login or later.
     //
     // This function stays Uncertain. It does not read the AI map.
-    // ConfirmedHuman remains a test seam. Production does not reach
-    // ToggleAutocast. Functional S2 remains blocked.
+    // ConfirmedHuman remains a test seam for RestoreTick only.
+    // Production does not call this function. An addon opt-in is the
+    // write gate. See docs/A02-ADDON-PROTOCOL.md.
     inline OwnerClass ClassifyOwnerOnMapThread()
     {
         return OwnerClass::Uncertain;

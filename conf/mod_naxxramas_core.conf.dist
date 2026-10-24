@@ -397,14 +397,24 @@ NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
 ###############################################
 
 # Default OFF. While this stays 0 the module does not read or write pet
-# spells, does not query this key on the map tick, and does not allocate
-# a per-pet baseline. Setting 1 arms a same-pet snapshot. An unchanged
-# book returns before FillBook and DecideChains. The map-thread writer
-# does not call IsRealPlayer and does not toggle: the pinned Playerbots
-# lookup is not a proven thread-safe human classification. Cower (1742)
-# is never relearned. No SQL, DBC, core, Individual Progression, or
-# Playerbots change. In-game behaviour is not tested by this draft.
+# spells and does not allocate a per-pet baseline. Setting it to 1 is
+# not enough on its own. The pet hooks also return while AddonOptIn
+# below is 0. An unchanged book at the same opt-in generation returns
+# before FillBook and DecideChains. The map-thread writer does not call
+# IsRealPlayer. A write requires a published addon opt-in. A listed spell
+# the pet does not have, including Cower (1742) on a family Individual
+# Progression removed it from, is never learned. When the pet has that
+# spell, the published on/off is applied. No SQL, DBC, core, Individual
+# Progression, or Playerbots change. In-game behaviour is not tested.
 # 0 = off (default). A config reload picks the new value up.
-# Writes stay fail-closed.
+# This draft does not set the key on.
 NaxxramasCore.HunterPetAutocast.RestoreHumanChain = 0
+#
+# Default OFF. Addon opt-in listener (A02 S2c). While 0 the chat hook
+# returns before it parses a message, and config load clears any
+# published set. Protocol: docs/A02-ADDON-PROTOCOL.md. Both this key
+# and RestoreHumanChain stay 0 in this draft. A write needs both keys
+# on and a complete addon sequence. This draft does not set the key on.
+# 0 = off (default). A config reload picks the new value up.
+NaxxramasCore.HunterPetAutocast.AddonOptIn = 0
 

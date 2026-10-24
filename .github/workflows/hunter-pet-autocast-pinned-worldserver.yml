@@ -6,11 +6,15 @@ on:
     paths:
       - 'src/Systems/HunterPetAutocast.cpp'
       - 'src/Systems/HunterPetAutocastPolicy.h'
+      - 'src/Systems/HunterPetAutocastAddon.h'
       - 'src/NaxxramasCore_loader.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'tests/hunter_pet_autocast_policy.cpp'
+      - 'tests/hunter_pet_autocast_addon.cpp'
       - 'tests/test_a02_hunter_autocast_functional_s2.py'
+      - 'tests/test_a02_hunter_autocast_functional_s2c.py'
       - 'docs/research/a02-hunter-autocast-functional-s2.md'
+      - 'docs/A02-ADDON-PROTOCOL.md'
       - '.github/workflows/hunter-pet-autocast-pinned-worldserver.yml'
   workflow_dispatch:
 
@@ -44,6 +48,9 @@ jobs:
             g++ -std=$std -Wall -Wextra -Werror -pedantic \
               -Isrc/Systems tests/hunter_pet_autocast_policy.cpp -o /tmp/hunter_pet_$std
             /tmp/hunter_pet_$std
+            g++ -std=$std -Wall -Wextra -Werror -pedantic -pthread \
+              -Isrc/Systems tests/hunter_pet_autocast_addon.cpp -o /tmp/hunter_pet_addon_$std
+            /tmp/hunter_pet_addon_$std
           done
 
   pinned-worldserver-link:
@@ -88,6 +95,8 @@ jobs:
           test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           grep -Fqx 'NaxxramasCore.HunterPetAutocast.RestoreHumanChain = 0' \
             acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          grep -Fqx 'NaxxramasCore.HunterPetAutocast.AddonOptIn = 0' \
+            acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
       - name: Install compiler dependencies on disposable runner
         run: |
           set -euo pipefail
@@ -129,6 +138,7 @@ jobs:
           grep -F ' T AddHunterPetAutocastScripts()' /tmp/naxx_a02_symbols.txt
           grep -F 'NaxxramasHunterPetAutocastSnapshotScript::OnUnitUpdate' /tmp/naxx_a02_symbols.txt
           grep -F 'NaxxramasHunterPetAutocastRestoreScript::OnWorldObjectUpdate' /tmp/naxx_a02_symbols.txt
-          echo "PASS linked: AddHunterPetAutocastScripts + both update hooks"
+          grep -F 'NaxxramasHunterPetAutocastAddonScript::OnPlayerBeforeSendChatMessage' /tmp/naxx_a02_symbols.txt
+          echo "PASS linked: AddHunterPetAutocastScripts + both update hooks + addon chat hook"
           echo "The binary stays on the runner and is not uploaded."
           echo "Public-pin link only. Not an in-game result and not an owner-installed build."

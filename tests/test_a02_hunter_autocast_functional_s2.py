@@ -10,6 +10,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 CPP = (ROOT / "src/Systems/HunterPetAutocast.cpp").read_text(encoding="utf-8")
 POLICY = (ROOT / "src/Systems/HunterPetAutocastPolicy.h").read_text(encoding="utf-8")
+ADDON = (ROOT / "src/Systems/HunterPetAutocastAddon.h").read_text(encoding="utf-8")
 LOADER = (ROOT / "src/NaxxramasCore_loader.cpp").read_text(encoding="utf-8")
 CONF = (ROOT / "conf/mod_naxxramas_core.conf.dist").read_text(encoding="utf-8")
 DOC = (ROOT / "docs/research/a02-hunter-autocast-functional-s2.md").read_text(encoding="utf-8")
@@ -44,21 +45,21 @@ def off_guard_is_first(body):
     return 0 <= guard < pet and guard < allocation
 
 
-def fast_path_before_expensive(body, decide_required):
+def fast_path_before_expensive(body, later_marker):
     match = body.find("LiveBookMatches(")
     if match < 0:
         return False
     fill = body.find("FillBook(", match)
     if fill < 0 or body.find("return;", match, fill) < 0:
         return False
-    if not decide_required:
+    if not later_marker:
         return True
-    decide = body.find("DecideChains(", match)
-    return 0 <= match < decide
+    later = body.find(later_marker, match)
+    return later > match
 
 
-def fail_closed_before_toggle(body):
-    gate = body.find("WriteAllowed(Policy::ClassifyOwnerOnMapThread())")
+def opt_in_gate_before_toggle(body):
+    gate = body.find("if (!optIn)")
     toggle = body.find("ToggleAutocast(")
     if gate < 0 or toggle < 0 or gate > toggle:
         return False
@@ -74,12 +75,13 @@ def classification_fails_closed(policy):
     )
 
 
-def cower_write_is_blocked(source):
+def missing_spell_is_not_learned(source):
     return (
-        "outcome.BaselineSpellId == Policy::COWER_SPELL_ID" in source
-        and "outcome.SuccessorSpellId == Policy::COWER_SPELL_ID" in source
+        "if (!before.Present)\n" in source
         and "learnSpell" not in source
         and "unlearnSpell" not in source
+        and "toggle.SpellId == Policy::COWER_SPELL_ID" not in source
+        and "spellId == COWER_SPELL_ID" not in ADDON
     )
 
 
@@ -90,9 +92,9 @@ def post_write_before_claim(body):
     return 0 <= agree < claimed < packet
 
 
-def same_chain_uses_spell_mgr(source):
-    call = "Policy::DecideChains(state->Book, state->Scratch)"
-    return source.count(call) == 1 and "GetFirstSpellInChain" in source
+def same_chain_uses_spell_mgr(cpp, addon):
+    call = "DecideChains(baseline, live, true, true, true, work)"
+    return addon.count(call) == 1 and "GetFirstSpellInChain" in cpp and "BuildAddonPlan(" in cpp
 
 
 SNAPSHOT = function_body(CPP, "void OnUnitUpdate(Unit* unit, uint32 /*diff*/) override")
@@ -152,7 +154,7 @@ class HotPath(unittest.TestCase):
 
     def test_unchanged_book_returns_before_fill_and_decide(self):
         self.assertTrue(fast_path_before_expensive(SNAPSHOT, False))
-        self.assertTrue(fast_path_before_expensive(RESTORE, True))
+        self.assertTrue(fast_path_before_expensive(RESTORE, "BuildAddonPlan("))
         live = function_body(CPP, "bool LiveBookMatches(")
         self.assertIn("ViewFieldsEqual(", live)
         self.assertIn("PETSPELL_REMOVED", live)
@@ -168,31 +170,39 @@ class HotPath(unittest.TestCase):
         snapshot_gate = "if (LiveBookMatches(pet, state->Book))\n            {\n                state->Pending = true;\n                return;\n            }\n"
         self.assertIn(snapshot_gate, SNAPSHOT)
         self.assertFalse(fast_path_before_expensive(SNAPSHOT.replace(snapshot_gate, "", 1), False))
-        restore_gate = "if (LiveBookMatches(pet, state->Book))\n                return;\n"
+        restore_gate = (
+            "if (LiveBookMatches(pet, state->Book) && state->AppliedGeneration == publishedGeneration)\n"
+            "                return;\n"
+        )
         self.assertIn(restore_gate, RESTORE)
         mutated = RESTORE.replace(restore_gate, "", 1)
         self.assertNotEqual(mutated, RESTORE)
-        self.assertFalse(fast_path_before_expensive(mutated, True))
+        self.assertFalse(fast_path_before_expensive(mutated, "BuildAddonPlan("))
 
 
 class HumanAndChainGuards(unittest.TestCase):
     def test_real_player_map_read_fails_closed(self):
-        self.assertTrue(fail_closed_before_toggle(RESTORE))
+        self.assertTrue(opt_in_gate_before_toggle(RESTORE))
         self.assertTrue(classification_fails_closed(POLICY))
-        self.assertEqual(CPP.count("ClassifyOwnerOnMapThread()"), 1)
+        self.assertEqual(CPP.count("ClassifyOwnerOnMapThread()"), 0)
         self.assertNotIn("IsRealPlayer(", CPP)
         self.assertNotIn('__has_include("Playerbots.h")', CPP)
         self.assertNotIn("GET_PLAYERBOT_AI", CPP)
+        self.assertNotIn("_playerbotsAIMap", ADDON)
         self.assertIn("owner->GetPet() != pet", RESTORE)
         self.assertNotIn("RNDBOT", CPP)
         self.assertNotIn("BotAccountsRegex", CPP)
         self.assertNotIn("IsHeadless", CPP)
-        self.assertNotIn("PLAYERHOOK_ON_LOGIN", CPP)
+        self.assertIn("PLAYERHOOK_ON_LOGIN", CPP)
         self.assertNotIn("SESSIONHOOK_ON_UPDATE", CPP)
+        login = function_body(CPP, "void OnPlayerLogin(Player* player) override")
+        self.assertNotIn("IsRealPlayer", login)
+        self.assertNotIn("IsHeadless", login)
+        self.assertNotIn("_playerbotsAIMap", login)
 
     def test_positive_human_classification_stays_blocked(self):
         self.assertTrue(classification_fails_closed(POLICY))
-        self.assertIn("Functional S2 remains blocked", POLICY)
+        self.assertIn("addon opt-in", POLICY)
         self.assertNotIn("return OwnerClass::ConfirmedHuman", POLICY)
         for phrase in (
             "FUNCTIONAL S2 REMAINS BLOCKED",
@@ -208,53 +218,55 @@ class HumanAndChainGuards(unittest.TestCase):
                 self.assertIn(phrase, DOC)
 
     def test_removing_the_fail_closed_return_fails_the_contract(self):
-        self.assertTrue(fail_closed_before_toggle(RESTORE))
+        self.assertTrue(opt_in_gate_before_toggle(RESTORE))
         mutated = RESTORE.replace(
-            "if (!Policy::WriteAllowed(Policy::ClassifyOwnerOnMapThread()))\n"
+            "if (!optIn)\n"
             "            {\n"
             "                CopyBook(state->Book, state->Scratch);\n"
+            "                state->AppliedGeneration = publishedGeneration;\n"
             "                return;\n"
             "            }\n",
             "",
             1)
         self.assertNotEqual(mutated, RESTORE)
-        self.assertFalse(fail_closed_before_toggle(mutated))
+        self.assertFalse(opt_in_gate_before_toggle(mutated))
         called = POLICY.replace(
             "return OwnerClass::Uncertain;",
             "return OwnerClass::ConfirmedHuman;",
             1)
         self.assertNotEqual(called, POLICY)
         self.assertFalse(classification_fails_closed(called))
-        consulted = CPP + "\nIsRealPlayer(owner);\n"
-        self.assertFalse(fail_closed_before_toggle(consulted))
+        consulted = RESTORE + "\nIsRealPlayer(owner);\n"
+        self.assertFalse(opt_in_gate_before_toggle(consulted))
 
     def test_cower_is_not_learned_and_the_guard_is_load_bearing(self):
-        self.assertTrue(cower_write_is_blocked(CPP))
-        self.assertTrue(cower_write_is_blocked(RESTORE))
+        self.assertTrue(missing_spell_is_not_learned(CPP))
+        self.assertTrue(missing_spell_is_not_learned(RESTORE))
+        self.assertIn("if (!spell.Present || !spell.Autocastable)", ADDON)
         self.assertNotIn("learnSpell", CPP)
         self.assertNotIn("learnSpell", POLICY)
         self.assertNotIn("unlearnSpell", CPP)
         self.assertNotIn("AddSpellToActionBar", CPP)
         mutated = CPP.replace(
-            "outcome.BaselineSpellId == Policy::COWER_SPELL_ID\n"
-            "                    || outcome.SuccessorSpellId == Policy::COWER_SPELL_ID\n"
-            "                    || ",
+            "if (!before.Present)\n"
+            "                    continue;\n",
             "",
             1)
         self.assertNotEqual(mutated, CPP)
-        self.assertFalse(cower_write_is_blocked(mutated))
+        self.assertFalse(missing_spell_is_not_learned(mutated))
 
     def test_chain_key_is_spell_mgr_and_not_a_hardcoded_rank_table(self):
-        self.assertTrue(same_chain_uses_spell_mgr(CPP))
+        self.assertTrue(same_chain_uses_spell_mgr(CPP, ADDON))
         for invented in ("52471", "52472", "52473", "52474", "64495"):
             with self.subTest(spell=invented):
                 self.assertNotIn(invented, CPP)
                 self.assertNotIn(invented, POLICY)
-        mutated = CPP.replace(
-            "Policy::DecideChains(state->Book, state->Scratch)",
-            "Policy::DecideChains(state->Book, state->Scratch, true, false)",
+        mutated = ADDON.replace(
+            "DecideChains(baseline, live, true, true, true, work)",
+            "DecideChains(baseline, live, true, false, true, work)",
             1)
-        self.assertFalse(same_chain_uses_spell_mgr(mutated))
+        self.assertNotEqual(mutated, ADDON)
+        self.assertFalse(same_chain_uses_spell_mgr(CPP, mutated))
 
     def test_post_write_agreement_is_required_before_the_packet(self):
         self.assertTrue(post_write_before_claim(RESTORE))
