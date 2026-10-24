@@ -11,6 +11,17 @@
 - `QuestLootProtection.cpp` previously returned true early for all `requestedSlot < loot.items.size()`. A forged or stale `CMSG_AUTOSTORE_LOOT_ITEM` for a hidden ordinary slot can potentially reach `StoreLootItem`. A normal client sending such a slot, and whether the owner's specific item was ordinary versus quest bucket, remain UNKNOWN.
 - A true `QuestRequired=1` item already goes through `LootItem::AllowedForPlayer` with `HasQuestForItem` unless a template custom ignore-quest-status flag applies. A `QuestRequired=0` item can be legitimately shared, even when used by a quest; this candidate **does not make it personal loot**.
 
+## Independently verified native permission mapping (source QA)
+
+I revisited pinned `Player::SendLoot` in `src/server/game/Entities/Player/Player.cpp` (two permission-setting branches, for GO and creature):
+
+- `ROUND_ROBIN` uses `ROUND_ROBIN_PERMISSION`; `FREE_FOR_ALL` uses `ALL_PERMISSION`; `MASTER_LOOT` uses `MASTER_PERMISSION` or `RESTRICTED_PERMISSION`; `GROUP_LOOT` and `NEED_BEFORE_GREED` use the `GROUP_PERMISSION` default.
+- Pinned `LootView::operator<<` in `src/server/game/Loot/LootMgr.cpp` (approximately 990–1100) shows an unlooted, non-FFA, unconditional ordinary item under `ROUND_ROBIN_PERMISSION` only if there is no turn owner or the current viewer *is* that owner.
+- Under `GROUP_PERMISSION`, a normal nonblocked, non-roll-winner ordinary item is hidden from a nonholder only when `is_underthreshold` is true. Blocked and roll-winner rows have *different* permitted/locked/owner appearances. The prototype conservatively defers **all** blocked and roll-winner handling to stock core.
+- The `CMSG_AUTOSTORE_LOOT_ITEM` handler reaches `Player::StoreLootItem`. Its inventory-award path rechecks `AllowedForPlayer`, blocked state and roll winner, but does **not** generally repeat the above ordinary-slot turn-holder check. This is the *candidate* hidden-slot discrepancy. It does not establish that a normal client sent a hidden slot or that the owner's friend's item matched these flags.
+
+**Native model safeguard:** `tests/quest_loot_normal_slot_policy.cpp` now runs **16,384 exhaustive combinations** (4 permission modes × 4,096 Boolean states) against an independently expressed source-shaped stock-visibility expectation. The conservative "owner present in same group/map" gate and special/FFA/conditional/blocked/roll safeguards deliberately leave more cases to stock than the full UI visibility algorithm. This count is *model cases*, not 16,384 Worldserver tests; CI results must be verified at the exact head.
+
 ## Proposed opt-in rule
 
 Only in the existing **creature-corpse** `CMSG_AUTOSTORE_LOOT_ITEM` hook, and only for a normal `loot.items` slot. The new switch is **independent** of the old quest-turn master: either can be enabled without forcing the other. For an ordinary stock-loot parity pilot the legacy master should remain OFF; its quest-view denial is an additional custom rule, not automatically part of native stock behavior. Both options default OFF.
