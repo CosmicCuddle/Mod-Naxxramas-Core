@@ -114,7 +114,40 @@ def decide(s: Scenario) -> str:
         # Normal party: the live row is exactly what stock does anyway.
         return "stock"
     route = "door_target" if use_door else "live_row"
-    return route if s.teleport_accepted else "stock"
+    # Fail closed: an eligible exit never falls back to the stock handler.
+    return route if s.teleport_accepted else "blocked"
+
+
+def lfg_join_position_sequence(events, enabled=True, route_lfg=True):
+    """Join-position lifecycle model (LFGMgr TeleportPlayer, MiscHandler).
+
+    State: whether a stored join position exists. Returns the list of
+    destinations requested. Events:
+      'exit'        - step on 604/606 from inside, in an LFG group
+      'ui_out'      - Dungeon Finder "teleport out" from inside
+      'ui_in'       - Dungeon Finder "teleport in" from outside
+      'walk_in'     - walk back in through the door
+    """
+    stored = True
+    out = []
+    for event in events:
+        if event == "exit":
+            if enabled and route_lfg:
+                out.append("door_target")      # stored position untouched
+            else:
+                out.append("join_position" if stored else "homebind")
+                stored = False                  # TeleportToEntryPoint clears it
+        elif event == "ui_out":
+            out.append("join_position" if stored else "homebind")
+            stored = False
+        elif event == "ui_in":
+            stored = True                       # SetEntryPoint() outside a dungeon
+            out.append("dungeon")
+        elif event == "walk_in":
+            out.append("dungeon")
+        else:
+            raise ValueError(event)
+    return out
 
 
 class GeometryEvidence(unittest.TestCase):
@@ -224,11 +257,60 @@ class DecisionModel(unittest.TestCase):
     def test_s12b_invalid_door_target_normal_party_is_stock(self):
         self.assertEqual(decide(Scenario(vanilla_target_valid=False)), "stock")
 
-    def test_s13_refused_teleport_falls_back_to_stock(self):
+    def test_s13_refused_teleport_fails_closed(self):
         for lfg in (False, True):
             with self.subTest(lfg=lfg):
                 self.assertEqual(decide(Scenario(
-                    lfg_in_dungeon=lfg, teleport_accepted=False)), "stock")
+                    lfg_in_dungeon=lfg, teleport_accepted=False)), "blocked")
+
+    def test_s13b_refusal_never_reaches_join_position_or_homebind(self):
+        result = decide(Scenario(lfg_in_dungeon=True, teleport_accepted=False))
+        self.assertNotIn(result, ("stock", "join_position", "homebind"))
+
+    def test_s13c_ineligible_inputs_still_stock_when_teleport_would_fail(self):
+        for key, val in (("enabled", False), ("trigger", 602),
+                         ("in_radius", False), ("route_lfg", False)):
+            with self.subTest(key=key):
+                self.assertEqual(decide(Scenario(
+                    lfg_in_dungeon=True, teleport_accepted=False,
+                    **{key: val})), "stock")
+
+
+class JoinPositionLifecycle(unittest.TestCase):
+    def test_s18_exit_reenter_exit_stays_at_door(self):
+        self.assertEqual(
+            lfg_join_position_sequence(["exit", "walk_in", "exit"]),
+            ["door_target", "dungeon", "door_target"])
+
+    def test_s19_ui_teleport_out_after_module_exit_uses_queue_spot(self):
+        self.assertEqual(
+            lfg_join_position_sequence(["exit", "walk_in", "ui_out"]),
+            ["door_target", "dungeon", "join_position"])
+
+    def test_s20_ui_teleport_in_refreshes_stored_position(self):
+        self.assertEqual(
+            lfg_join_position_sequence(
+                ["exit", "ui_in", "ui_out"]),
+            ["door_target", "dungeon", "join_position"])
+
+    def test_s21_switch_off_returns_to_stock_lifecycle(self):
+        self.assertEqual(
+            lfg_join_position_sequence(["exit", "walk_in", "exit"],
+                                       enabled=False),
+            ["join_position", "dungeon", "homebind"])
+
+    def test_stock_baseline_second_exit_goes_home(self):
+        self.assertEqual(
+            lfg_join_position_sequence(["exit", "walk_in", "exit"],
+                                       route_lfg=False),
+            ["join_position", "dungeon", "homebind"])
+
+
+class EraScope(unittest.TestCase):
+    def test_s22_decision_has_no_era_input(self):
+        # The proposed handler is era-independent by design (doc, Era scope).
+        self.assertNotIn("era", Scenario.__dataclass_fields__)
+        self.assertNotIn("vanilla_stage", Scenario.__dataclass_fields__)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,13 @@ MaNGOS Zero `database` `325948a78015794e6cc626212bc19fee70c805b2`
 **Goal (#28 F12):** leaving the Cathedral or the Armory should put the
 player just behind that wing's own entrance door outside.
 
+**Era scope (decision for CS01):** the switch applies to **every IP stage**.
+F12 corrects where an exit lands; it is not an era restriction like F13.
+The Graveyard and Library exits already land behind their doors in every
+era, and the Cathedral/Armory geometry does not change with progression.
+No era helper is used. If CS01 prefers Vanilla-only, the F13 shared helper
+can gate step 4; the matrix covers both (S22).
+
 ## 1. Two independent causes
 
 ### Cause A — the baseline exit rows for 604/606 are unlike the other wings
@@ -124,8 +131,20 @@ Proposed keys (names are proposals; no config file changes here):
    other SM entrance and nearer its own (no wing swap). Otherwise the live
    `areatrigger_teleport` row, which can only happen on the LFG path.
 6. `TeleportTo(0, x, y, z, o, TELE_TO_NOT_LEAVE_TRANSPORT)` (same option
-   as native). True → return **false** (handled). False → return **true**
-   so the stock handler runs unchanged.
+   as native). Either way return **false**, so the stock handler does not
+   run for an eligible exit. If `TeleportTo` refused, send a short system
+   message and leave the player where they are; they can step on the
+   trigger again. **Fail closed, no fallback** (CS01 review 6385993172):
+   - a stock retry for an LFG member would call `TeleportToEntryPoint` and
+     send them to the queue spot or homebind, which is the behaviour F12
+     removes;
+   - `Player::TeleportTo` can already have done work before a late refusal
+     (it ends a duel at L1496 before the `OnPlayerBeforeTeleport` veto at
+     L1498), so a second attempt is not a pure no-op.
+
+   `true` from `TeleportTo` means the teleport was accepted, not that the
+   player arrived. Ineligible inputs and the flag off still return **true**
+   at steps 1–4, so the stock handler runs unchanged for them.
 
 **What changes for an LFG exit:** the module path skips
 `TeleportToEntryPoint`, so the join position stays stored, and the remount,
@@ -133,6 +152,23 @@ taxi restore and group refresh it schedules
 (`Player.cpp` L1650–1652, L1697–1725) do not run. Leaving the dungeon map
 still clears Luck of the Draw and disbands one-person groups
 (`LFGScripts.cpp` L103–143), which is path-independent.
+
+**Join-position lifecycle after a module exit** (pinned `LFGMgr.cpp`
+`TeleportPlayer`):
+- walk back in, exit again → door again; the stored position is unused (S18);
+- Dungeon Finder "teleport out" from inside → stock `TeleportToEntryPoint`
+  (L2272–2276) uses the still-stored queue position, as stock does for that
+  button (S19);
+- Dungeon Finder "teleport in" from outside → `SetEntryPoint()` refreshes the
+  stored position because the player is not in a dungeon (L2291–2294), so no
+  stale position survives a new entry (S20);
+- switch turned off later → the next exit is stock and uses whatever is
+  stored (S21);
+- the stored position is saved with the character (`Player.cpp`
+  L15045–15059), so it survives relog in every case.
+
+No remount or taxi resume after a module exit is a visible difference from
+a stock LFG exit; it is listed for acceptance testing.
 
 ## 4. Negative-case matrix (source predictions, NOT test results)
 
@@ -151,12 +187,17 @@ still clears Luck of the Draw and disbands one-person groups
 | S10 | LFG, LFG routing off | Stock (join position / homebind) |
 | S11 | Second LFG exit after walking back in | Door target again (no homebind) |
 | S12 | Door target fails validation | LFG: live row; normal: stock. Never a bounce |
-| S13 | `TeleportTo` refuses | Stock handler runs |
+| S13 | `TeleportTo` refuses on an eligible exit | **Blocked**: message, player stays, no stock fallback |
 | S14 | GM | Same as a player; with `.debug areatriggers` on, stock |
 | S15 | Bot follows the leader | Not affected (no socket packet) |
 | S15b | Bot told `teleport` after touching the exit (Playerbots `TeleportAction` replays the last area trigger) | **Not covered: stock** (known limit, see below) |
 | S16 | Cathedral vs Armory | Each uses its own target; never swapped |
 | S17 | Other instances' exits | Never touched |
+| S18 | LFG: module exit → walk back in → exit | Door target both times; stored position unused |
+| S19 | LFG: module exit → walk back in → Dungeon Finder "teleport out" | Stock: stored queue position |
+| S20 | LFG: module exit → Dungeon Finder "teleport in" from outside | Stock refreshes the stored position |
+| S21 | Switch turned off after a module exit | Next exit is stock (stored position or homebind) |
+| S22 | Post-TBC character, switch on | Same as Vanilla (era-independent by design) |
 
 ## 5. Alternative for the owner (no module code)
 
