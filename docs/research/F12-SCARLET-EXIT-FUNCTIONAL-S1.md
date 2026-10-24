@@ -103,17 +103,21 @@ Proposed keys (names are proposals; no config file changes here):
    trigger; outside the trigger radius (`IsInAreaTriggerRadius`, L716); a
    bound trigger script (`GetAreaTriggerScriptId != 0`); a quest tied to
    the trigger; tavern; battleground in progress; OutdoorPvP; no
-   `areatrigger_teleport` row; row target map not 0.
-4. Choose the destination:
-   - LFG group in a dungeon and `RouteDungeonFinderExits = 1` → door
-     target (below);
-   - otherwise, `UseVanillaDoorTargets = 1` → door target;
-   - otherwise **true** (stock).
-5. **Door target:** the built-in Vanilla-core point for that trigger. It
-   is used only if **all** of these hold, otherwise the live row is used:
-   map 0; `MapMgr::IsValidMapCoord`; outside the trigger's own outdoor
-   entrance (610 or 612) by its live radius + 1 yd (no bounce back in);
-   nearer its own entrance than any other SM entrance (no wing swap).
+   `areatrigger_teleport` row; row target map not 0; already on map 0;
+   `PlayerCannotEnter(0)` denies. A GM with `.debug areatriggers` on also
+   gets the stock path, so debugging shows native behaviour.
+4. Choose the path:
+   - LFG group in a dungeon: `RouteDungeonFinderExits = 0` → **true**
+     (stock); otherwise the module handles it;
+   - normal exit: if the door target is off or fails validation → **true**
+     (stock, which already uses the live row); otherwise the module handles
+     it.
+5. **Destination:** the door target (the built-in Vanilla-core point) when
+   `UseVanillaDoorTargets = 1` **and** it passes all of: map 0;
+   `MapMgr::IsValidMapCoord`; outside its own outdoor entrance (610 or
+   612) by the live radius or box + 1 yd (no bounce back in); outside every
+   other SM entrance and nearer its own (no wing swap). Otherwise the live
+   `areatrigger_teleport` row, which can only happen on the LFG path.
 6. `TeleportTo(0, x, y, z, o, TELE_TO_NOT_LEAVE_TRANSPORT)` (same option
    as native). True → return **false** (handled). False → return **true**
    so the stock handler runs unchanged.
@@ -138,11 +142,12 @@ still clears Luck of the Draw and disbands one-person groups
 | S07 | Normal party, Vanilla targets on | Door target |
 | S08 | Normal party, Vanilla targets off | Stock row |
 | S09 | LFG in dungeon, LFG routing on | Door target, join position kept |
+| S09b | LFG, LFG routing on, Vanilla targets off | Live row (not the join position) |
 | S10 | LFG, LFG routing off | Stock (join position / homebind) |
 | S11 | Second LFG exit after walking back in | Door target again (no homebind) |
-| S12 | Door target fails validation | Live row, never a bounce |
+| S12 | Door target fails validation | LFG: live row; normal: stock. Never a bounce |
 | S13 | `TeleportTo` refuses | Stock handler runs |
-| S14 | GM | Same as a player (the hook runs before GM script skipping) |
+| S14 | GM | Same as a player; with `.debug areatriggers` on, stock |
 | S15 | Bot follows the leader | Not affected (no socket packet) |
 | S16 | Cathedral vs Armory | Each uses its own target; never swapped |
 | S17 | Other instances' exits | Never touched |

@@ -84,6 +84,9 @@ class Scenario:
     outdoor_pvp: bool = False
     row_exists: bool = True
     row_map: int = 0
+    already_on_exit_map: bool = False
+    entry_denied: bool = False
+    gm_debug_areatriggers: bool = False
     lfg_in_dungeon: bool = False
     vanilla_target_valid: bool = True
     teleport_accepted: bool = True
@@ -97,20 +100,20 @@ def decide(s: Scenario) -> str:
         return "stock"
     if s.trigger not in HANDLED_TRIGGERS:
         return "stock"
-    if (s.in_flight or not s.trigger_known or not s.in_radius
-            or s.bound_script or s.quest_trigger or s.tavern
-            or s.battleground_active or s.outdoor_pvp
-            or not s.row_exists or s.row_map != 0):
+    if (s.in_flight or s.gm_debug_areatriggers or not s.trigger_known
+            or not s.in_radius or s.bound_script or s.quest_trigger
+            or s.tavern or s.battleground_active or s.outdoor_pvp
+            or not s.row_exists or s.row_map != 0
+            or s.already_on_exit_map or s.entry_denied):
         return "stock"
+    use_door = s.use_vanilla_targets and s.vanilla_target_valid
     if s.lfg_in_dungeon:
         if not s.route_lfg:
             return "stock"
-    elif not s.use_vanilla_targets:
-        return "stock"
-    route = "door_target" if s.vanilla_target_valid else "live_row"
-    if route == "live_row" and not s.lfg_in_dungeon:
+    elif not use_door:
         # Normal party: the live row is exactly what stock does anyway.
         return "stock"
+    route = "door_target" if use_door else "live_row"
     return route if s.teleport_accepted else "stock"
 
 
@@ -194,9 +197,15 @@ class DecisionModel(unittest.TestCase):
     def test_s09_lfg_routes_to_door(self):
         self.assertEqual(decide(Scenario(lfg_in_dungeon=True)), "door_target")
 
-    def test_s09b_lfg_routing_independent_of_target_switch(self):
+    def test_s09b_lfg_with_targets_off_uses_live_row(self):
         self.assertEqual(decide(Scenario(
-            lfg_in_dungeon=True, use_vanilla_targets=False)), "door_target")
+            lfg_in_dungeon=True, use_vanilla_targets=False)), "live_row")
+
+    def test_s03b_more_native_early_exits_stay_stock(self):
+        for key in ("already_on_exit_map", "entry_denied",
+                    "gm_debug_areatriggers"):
+            with self.subTest(key=key):
+                self.assertEqual(decide(Scenario(**{key: True})), "stock")
 
     def test_s10_lfg_routing_off_is_stock(self):
         self.assertEqual(decide(Scenario(
