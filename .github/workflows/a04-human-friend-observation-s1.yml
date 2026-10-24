@@ -1,0 +1,34 @@
+name: A04 human-friend observation gates (synthetic, review-only)
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_a04_human_friend_observation_s1.py'
+      - 'docs/research/A04-HUMAN-FRIEND-OBSERVATION-GATES-S1.md'
+      - 'src/Systems/QuestLootProtection.cpp'
+      - '.github/workflows/a04-human-friend-observation-s1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  observation-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact pull request source head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact head
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+      - name: Synthetic human friend source/decision checks only
+        run: python3 -m unittest discover -s tests -p 'test_a04_human_friend_observation_s1.py' -v
+      - name: No live testing, database access or uploaded artifact
+        run: |
+          test -f tests/test_a04_human_friend_observation_s1.py
+          echo 'Synthetic only. No character, loot, database, server or upload action.'
