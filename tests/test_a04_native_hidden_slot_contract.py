@@ -90,7 +90,7 @@ class GuardContract(unittest.TestCase):
         self.assertIn(
             "Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);",
             CPP[stop:])
-        self.assertIn("if (!legacyQuestTurnEnabled)\\n            return true;", CPP)
+        self.assertIn("if (!legacyQuestTurnEnabled)\n            return true;", CPP)
 
     def test_per_player_and_roll_paths_fail_open(self):
         for needle in (
