@@ -1,0 +1,30 @@
+name: "F12 Scarlet exits functional design (synthetic only)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tests/test_f12_scarlet_exit_functional_model.py'
+      - 'docs/research/F12-SCARLET-EXIT-FUNCTIONAL-S1.md'
+      - '.github/workflows/f12-scarlet-exit-functional-s1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-functional-model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Run F12 functional model tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest tests/test_f12_scarlet_exit_functional_model.py -v
+          echo "Synthetic model only: no build, server, SQL, DBC or artifact."
