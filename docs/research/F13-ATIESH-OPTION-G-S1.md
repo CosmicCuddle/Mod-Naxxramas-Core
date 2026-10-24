@@ -6,7 +6,8 @@ review of this document.
 
 **Pins:** Grimfeather AzerothCore `8daffdabe9202c228e45d833c9a1d399597a15cd`,
 Individual Progression `dd96f2b77e3ebfa2a4726bf785525ba133f1ab61`, Playerbots
-`e88cc409` / `d750b4b`, this module `main` `80e9de1`. Line numbers refer to
+`e88cc409` / `d750b4b`, this module `main` `80e9de1`. External read-only
+spell data: VMaNGOS `brotalnia/database` `fc4af4870578efa63b36824bfd48fca7933f7362`. Line numbers refer to
 those trees. Nothing here describes the owner's loaded database.
 
 **Goal (#28 F13):** keep the Atiesh portal working, but during the Vanilla
@@ -20,8 +21,9 @@ the raid map. Later eras keep the stock behaviour.
 | F1 | GO 181146 "Portal to Karazhan" is type 22 SPELLCASTER: Data0 spell 28147, Data1 charges 0, Data2 partyOnly 1, Data3 allowMounted 1; no `ScriptName`/`AIName` | `gameobject_template.sql` L10542; field meaning `GameObjectData.h` L250–257 | Verified (baseline) |
 | F2 | Spell 28147 targets map 532 `(-11100, -2001.64, 49.8927, 0.7995)` | `spell_target_position.sql` L348 | Verified (baseline) |
 | F3 | Items 22589/22630/22631/22632 carry on-use spell 28148; IP keeps it and only removes 31796 | `item_template.sql`; IP `vanilla_item_changes.sql` L18905–18914 | Verified |
-| F4 | 28148 summons GO 181146 | Client `Spell.dbc` only; no server source references it | **UNKNOWN** |
-| F5 | Summon type decides the GO owner: `EffectSummonObjectWild` sets **no owner** (`SpellEffects.cpp` L4008); `EffectTransmitted` sets the caster as owner (L5765) | pinned core | Verified; which one 28148 uses is **UNKNOWN** (F4) |
+| F4 | 28148 summons GO 181146: effect1 **50** (`SPELL_EFFECT_TRANS_DOOR`), misc value **181146**, target A **47** (`TARGET_DEST_CASTER_FRONT`), cast-time index 7 | VMaNGOS `brotalnia/database` `fc4af48`, `world_full_14_june_2021.sql` `spell_template` line 882436 (client build 5464). Enum values: `SharedDefines.h` L816, L1455 | Verified for **Vanilla client data**; the 3.3.5a `Spell.dbc` the owner's core loads is not read (very likely identical, still a premise) |
+| F5 | Summon type decides the GO owner: `EffectSummonObjectWild` sets **no owner** (`SpellEffects.cpp` L4008); `EffectTransmitted` (effect 50, L122) sets the caster as owner (L5765) | pinned core | Verified. With F4, a real Atiesh portal **has an owner**; an ownerless 181146 only comes from a manual spawn (e.g. GM `.gobject add`) |
+| F4b | 28147: effect1 5 `TELEPORT_UNITS` (A 25 `TARGET_UNIT_TARGET_ANY`, B 17 `TARGET_DEST_DB`), effect2 77 `SCRIPT_EFFECT` | same VMaNGOS row 882435; `SharedDefines.h` L771, L843, L1426, L1433 | Verified (Vanilla data). No `spell_script_names` or `spell_scripts` row for 28147 in pinned core, so effect 2 has nothing to run there |
 | F6 | Native `partyOnly` check applies **only when the GO has an owner GUID**: a non-owner must be in a group that contains that GUID (`Group::IsMember`, no online check) | `GameObject.cpp` L1920–1934; `Group.cpp` L2556–2559 | Verified |
 | F7 | Global hook `AllGameObjectScript::CanGameObjectGossipHello(Player*, GameObject*)`, registered by constructor with no DB binding; first `true` wins | `AllGameObjectScript.h` L56; `AllGameObjectScript.cpp` L52–56; `GameObjectScript.cpp` L24–42; `ScriptMgrMacros.h` L24–36 | Verified; already used by `MeetingStoneProgression.cpp` L108 (`main`) |
 | F8 | In `GameObject::Use`, the order is: `GO_FLAG_NOT_SELECTABLE` reject (L1499) → **hook** (L1509) → GO AI → cooldown (L1516) → dismount unless usable mounted (L1524–1526) → type switch → cast and `AddUse` (L2114–2117) | `GameObject.cpp` | Verified |
@@ -89,7 +91,7 @@ rows are source predictions, **not test results**.
 | N07 | Vanilla, member of the owner's group | As N06 | Outside | F6 |
 | N08 | Vanilla, offline owner still in user's group | Native allows (GUID check only) | Outside (same rule) | F6 |
 | N09 | Vanilla stranger, GO has an owner | Silently rejected | Rejected the same way (false → native) | F6 |
-| N10 | Vanilla stranger, **ownerless** GO | Native allows | Outside, mirroring stock (D2) | F5, F6 |
+| N10 | Vanilla stranger, **ownerless** GO (manual spawn only, F5) | Native allows | Outside, mirroring stock (D2) | F5, F6 |
 | N11 | Vanilla, mounted | No dismount (allowMounted 1) | No dismount | F9 |
 | N12 | Row 4436 missing or wrong map | — | No teleport, message, no inside fallback | D3 |
 | N13 | `TeleportTo` refuses (e.g. another module's `OnPlayerBeforeTeleport`) | — | No teleport, no inside fallback | D3 |
@@ -124,24 +126,35 @@ flag off once. Record position and facing on arrival.
 - The helper does not exempt GMs or bot accounts. IP's own teleport gate
   exempts both (`IndividualProgressionPlayer.cpp` L178). See D1 and D5.
 
-## 5. Decisions for CS01
+## 5. Decisions (CS03 recommendation, for CS01 sign-off)
 
-- **D1 GM:** stock path for GMs (proposed), or the same rule as players.
-- **D2 Ownerless portal:** mirror stock and allow (proposed), or require an
-  owner (stricter than stock; label it as such).
-- **D3 Fail closed:** when the outside teleport cannot happen, block the
-  inside cast (proposed) instead of falling back to it.
-- **D4 Charges:** call `AddUse()` after a successful request (proposed) for
-  parity with a non-zero loaded `charges`.
-- **D5 Bots:** apply the same rule to bot players (proposed). Whether bots
-  ever use this portal is unknown.
+| ID | Recommendation | Why (source) | Stricter or looser than stock? |
+|---|---|---|---|
+| D1 GM | **Stock path for GMs** (return false at step 5) | Both era gates already exempt GMs: IP's teleport hook (`IndividualProgressionPlayer.cpp` L178) and core admission (`MapMgr.cpp` L160). A GM using the portal today goes inside; keeping that keeps GM debugging honest. Acceptance must therefore use a non-GM character (N15). | Same as stock |
+| D2 Ownerless | **Mirror stock: allow** | F4/F5: a spell-made Atiesh portal always has an owner, so the native `partyOnly` rule applies to every real portal. Ownerless 181146 exists only after a manual spawn, which is already a GM/debug situation. Requiring an owner would add a rule stock does not have, for a case players cannot create. | Same as stock |
+| D3 Fail closed | **Block the inside cast** when row 4436 is missing/invalid or `TeleportTo` refuses | For a Vanilla character, the only alternatives are the native inside cast (refused by admission at level 60, or *inside* if admission passes, which is the bug F13 exists to stop). Blocking plus a system message never sends anyone inside early and never claims a landing. | Stricter, only for eligible Vanilla users with the flag on |
+| D4 Charges | **`AddUse()` only after `TeleportTo` returns true** | Native calls `AddUse()` after `CastSpell == SPELL_CAST_OK` (`GameObject.cpp` L2114–2117). At baseline `charges = 0`, so this is a no-op; it only matters if the owner's live row has charges, where it keeps the same count. Never on a refused request. | Same as stock in effect |
+| D5 Bots | **Same rule as players** | The hook receives any `Player`; Playerbots bots that use the portal go through the same `GameObject::Use` (F10). IP's teleport gate skips bot accounts (`isNormalAccount`, L178), so a Vanilla-stage Altbot could otherwise go *inside* where its master cannot. Applying the same era rule keeps bot and master together outside. Whether bots ever click this portal is UNKNOWN; this choice only affects them if they do. | Stricter than IP for bots, matches the master |
 
-## 6. Not verified
+## 6. Acceptance premises
 
-- 28148 → GO 181146 and its summon type (F4, F5): needs a 3.3.5a `Spell.dbc`
-  read.
+| Premise | Status | Evidence | Blocks S2 code? |
+|---|---|---|---|
+| Global hook exists and is DB-free | Verified | F7; linked precedent `MeetingStoneProgression.cpp` | No |
+| 181146 is type 22 → 28147, partyOnly 1, allowMounted 1, charges 0 | Verified (baseline) | F1 | No; handler reads live template |
+| 28148 summons 181146 with an owner | Verified (Vanilla data) | F4, F5 | No (handler keys on the GO, not the spell) |
+| 28147 targets inside map 532 | Verified (baseline) | F2 | No |
+| Row 4436 is the outside main-gate exit | Verified (baseline) | F13, F14 | No; runtime lookup, fail closed |
+| Era helper semantics | Verified | §4 | No; shared header plan |
+| Owner's live rows and `Instance.Ignore*` | UNKNOWN | — | No (runtime validation); needed for acceptance |
+| In-game landing height/facing at 4436 | UNKNOWN | — | No; owner acceptance test |
+| 3.3.5a `Spell.dbc` for 28148 | Premise | F4 | No |
+
+## 7. Not verified
+
 - The owner's loaded rows (181146, 28147, 4436, access template 29) and
   `Instance.IgnoreLevel` / `IgnoreRaid`.
+- The 3.3.5a `Spell.dbc` entry for 28148 (Vanilla data read instead).
 - Ground height, facing and line of sight at the 4436 point in game.
 - Today's in-game behaviour for the owner's characters.
 
