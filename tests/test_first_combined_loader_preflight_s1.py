@@ -123,7 +123,7 @@ def implementation_errors(sources):
             errors.append("%s: missing implementation for %s" % (path, symbol))
             continue
         definitions = re.findall(
-            r"(?m)^[ \\t]*void[ \\t]+" + re.escape(symbol) + r"\\(\\)\\s*\\{", source)
+            r"(?m)^[ \t]*void[ \t]+" + re.escape(symbol) + r"\(\)\s*\{", source)
         if len(definitions) != 1:
             errors.append("%s: expected one definition of %s, found %d" %
                           (path, symbol, len(definitions)))
@@ -170,22 +170,22 @@ class UnionContractModel(unittest.TestCase):
         self.assertEqual(loader_errors(self.union), [])
 
     def test_complete_synthetic_implementation_set_passes(self):
-        sources = {path: "void %s()\\n{\\n}\\n" % symbol
+        sources = {path: "void %s()\n{\n}\n" % symbol
                    for path, symbol in IMPLEMENTATIONS}
         self.assertEqual(implementation_errors(sources), [])
 
     def test_missing_implementation_is_detected_even_with_loader_union(self):
-        sources = {path: "void %s()\\n{\\n}\\n" % symbol
+        sources = {path: "void %s()\n{\n}\n" % symbol
                    for path, symbol in IMPLEMENTATIONS}
         sources.pop("src/Systems/AtieshKarazhanPortal.cpp")
         self.assertEqual(loader_errors(self.union), [])
-        self.assertIn("AtieshKarazhanPortal.cpp", "\\n".join(implementation_errors(sources)))
+        self.assertIn("AtieshKarazhanPortal.cpp", "\n".join(implementation_errors(sources)))
 
     def test_wrong_translation_unit_symbol_is_detected(self):
-        sources = {path: "void %s()\\n{\\n}\\n" % symbol
+        sources = {path: "void %s()\n{\n}\n" % symbol
                    for path, symbol in IMPLEMENTATIONS}
-        sources["src/Systems/HunterPetAutocast.cpp"] = "void UnrelatedScript()\\n{\\n}\\n"
-        self.assertIn("AddHunterPetAutocastScripts", "\\n".join(implementation_errors(sources)))
+        sources["src/Systems/HunterPetAutocast.cpp"] = "void UnrelatedScript()\n{\n}\n"
+        self.assertIn("AddHunterPetAutocastScripts", "\n".join(implementation_errors(sources)))
 
     def test_individual_branch_loader_is_not_a_combined_candidate(self):
         for extra in EXTRAS:
