@@ -51,16 +51,25 @@ PRESENCE_FAIL_OPEN = (
 
 
 def presence_fail_open(source):
-    """True when every presence guard permits and the deny is still last."""
-    deny = source.rfind("return false;")
-    if deny < 0:
+    """Verify the LEGACY quest-slot guard, not an earlier ordinary-slot deny.
+
+    A04's new independently gated ordinary-slot branch may have its own
+    SendLootError before the legacy owner lookup. Anchor every check to
+    that owner lookup, or the old tests accidentally reject a safe extra
+    branch without actually checking the legacy fail-open semantics.
+    """
+    at_owner = source.find(OWNER_LOOKUP)
+    if at_owner < 0 or source.count(OWNER_LOOKUP) != 1:
         return False
-    locked = source.find("player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED)")
-    if locked < 0 or locked > deny:
+    locked = source.find(
+        "player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED)", at_owner
+    )
+    deny = source.find("return false;", locked)
+    if locked < at_owner or deny < locked:
         return False
     for snippet in PRESENCE_FAIL_OPEN:
-        at = source.find(snippet)
-        if at < 0 or at > locked:
+        at = source.find(snippet, at_owner)
+        if at < 0 or at >= locked:
             return False
     return "Distance and death are not extra denies" in source
 
@@ -401,14 +410,23 @@ class QuestLootProtectionContract(unittest.TestCase):
         start = CPP.index("bool CanPacketReceive")
         body = CPP[start:]
         opcode = body.index("packet.GetOpcode() != CMSG_AUTOSTORE_LOOT_ITEM")
-        enabled = body.index("!NaxxramasQuestLootProtection::Enabled()")
         size = body.index("packet.size() < 1")
+        legacy = body.index("NaxxramasQuestLootProtection::Enabled()")
+        hidden = body.index("NaxxramasQuestLootProtection::RestrictHiddenOrdinarySlots()")
+        reject_off = body.index("if (!legacyQuestTurnEnabled && !hiddenOrdinarySlotEnabled)")
         copy = body.index("WorldPacket copy(packet)")
         read = body.index("copy >> requestedSlot")
-        self.assertLess(opcode, enabled)
-        self.assertLess(enabled, size)
-        self.assertLess(size, copy)
+        self.assertLess(opcode, size)
+        self.assertLess(size, legacy)
+        self.assertLess(legacy, hidden)
+        self.assertLess(hidden, reject_off)
+        self.assertLess(reject_off, copy)
         self.assertLess(copy, read)
+        # New pilot is independent: ON alone must never arm the older
+        # quest-turn denial, and either switch OFF remains stock in its
+        # own branch.
+        self.assertIn("if (!legacyQuestTurnEnabled)\\n            return true;", CPP)
+        self.assertIn("if (!hiddenOrdinarySlotEnabled)\\n                return true;", CPP)
         self.assertNotIn("packet >> requestedSlot", CPP)
         # Trailing bytes are not a model bypass. Live packet bytes are not sent.
         self.assertFalse(modeled_pickup(padded=True))
