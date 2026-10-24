@@ -62,6 +62,30 @@ The GFPP one-shot already compares `Map` pointers and is unchanged.
     is removing (`RemoveAurasDueToSpell` does not call module code). An
     exception in the remover still clears the mark.
 
+### Bounded memory (CS01 #118 6383075641)
+
+- **Stamps, not counters:** generations are stamps from one process-wide
+  counter that only increases (`_lastStamp`). A stamp is never reused,
+  and 0 means "never noted".
+- **Retirement:** at the end of every drain, every key that no queued
+  removal refers to is retired. A key a queued removal still refers to is
+  kept until that removal is drained.
+- **Bound:** between drains, the map holds at most the keys noted since
+  the last drain plus the keys of queued removals. The drain runs every
+  world tick, so this is a per-tick quantity, not a lifetime one.
+- **No ABA, twice over:**
+  - a key is never retired while a queued removal can compare against it;
+  - a retired key that is noted again gets a fresh, larger stamp, which
+    can never equal an older queued stamp or 0.
+- **Tests:** native tests cover 10,000 keys retired to 0; a referenced key
+  kept and still cancelled correctly; and re-login reuse of the same
+  GUID and spell, with and without retirement, over 1,000 cycles.
+- **Negative controls (identical test source):**
+  - no retirement → growth caught (4 failures);
+  - blind erase with per-key counters → the stale removal is accepted
+    (ABA caught);
+  - blind erase with stamps → a queued removal is lost (caught).
+
 ### Why no other thread races the drain (pinned sources)
 
 - **World loop** (`World.cpp` at core `8daffda`):
