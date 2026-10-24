@@ -196,3 +196,7 @@ Do not merge this note and do not treat it as a gameplay result. For a human hun
 ## Workflow note
 
 NOT TESTED as a GitHub Actions run at the time this file was written. On `main` `80e9de1`, no file under `.github/workflows/` contains `upload-artifact` or `actions/upload-artifact`. Every `pull_request` trigger in those files has a `paths` list, and none of those paths is `docs/research/` or this filename. A pull request whose only change is this file does not match those filters, so it should not start a job that builds or uploads a binary. This file does not add or edit a workflow.
+
+## Extension
+
+The separate read-only diagnostics plan and observed-input matrix requested in [#48 comment 6385255481](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6385255481) is [`docs/research/a02-human-hunter-autocast-diagnostics-plan.md`](a02-human-hunter-autocast-diagnostics-plan.md). It does not change the findings in this note. In-game behaviour remains NOT TESTED.
