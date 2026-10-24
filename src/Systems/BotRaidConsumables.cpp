@@ -27,6 +27,7 @@
 #include "Chat.h"
 #include "CommandScript.h"
 #include "Config.h"
+#include "CrossMapAuraQueue.h"
 #include "DBCStores.h"
 #include "GameTime.h"
 #include "GreaterFireProtectionOneShot.h"
@@ -35,6 +36,8 @@
 #include "Item.h"
 #include "ItemTemplate.h"
 #include "Map.h"
+#include "MapReference.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Pet.h"
 #include "Player.h"
@@ -47,8 +50,10 @@
 #include "WorldSession.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <initializer_list>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -87,10 +92,6 @@ namespace
     constexpr uint32 ITEM_SYMBOL_OF_KINGS = 21177;
     constexpr uint32 ITEM_SYMBOL_OF_DIVINITY = 17033;
     constexpr uint32 ITEM_SACRED_CANDLE = 17029;
-    constexpr uint32 ITEM_EARTH_TOTEM = 5175;
-    constexpr uint32 ITEM_FIRE_TOTEM = 5176;
-    constexpr uint32 ITEM_WATER_TOTEM = 5177;
-    constexpr uint32 ITEM_AIR_TOTEM = 5178;
     constexpr uint32 ITEM_ANKH = 17030;
     constexpr uint32 ITEM_SHINY_FISH_SCALES = 17057;
     constexpr uint32 ITEM_FISH_OIL = 17058;
@@ -302,6 +303,10 @@ namespace
         bool IsPetAura = false;
         bool WarnOnMissing = true;
         bool MissingNotified = false;
+        // GUID of the unit that received the aura, recorded on the thread
+        // that applied it. A queued pet removal only proceeds if the bot's
+        // pet at drain time is still this exact pet.
+        uint64 TargetGuidRaw = 0;
     };
 
     struct TimedAura
@@ -322,10 +327,10 @@ namespace
         ObjectGuid::LowType BotGuid = 0;
         uint32 SpellId = 0;
         bool OriginallyRandomBot = false;
-        NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};
+        NaxxramasOneShotTimer Timer{120 * IN_MILLISECONDS};
     };
 
-    struct RaidConsumableTracker
+    struct RaidConsumableTracker final : DataMap::Base
     {
         std::string Profile;
         uint32 UpdateTimer = 0;
@@ -355,14 +360,46 @@ namespace
         std::vector<std::string> DebugMessages;
     };
 
-    std::unordered_map<ObjectGuid::LowType, RaidConsumableTracker>
-        RaidConsumableTrackers;
+    // Thread safety (#114): player hooks run on parallel map threads
+    // when MapUpdate.Threads > 1, and each Player is only updated by the
+    // thread of its current map.
+    //
+    // - The tracker and the alive flag belong to one Player and are only
+    //   touched for that Player, so they live in Player::CustomData.
+    // - The command cooldown is cross-player: a death on one map clears
+    //   the cooldown of every group member, who may be on another map.
+    //   It stays a shared map guarded by ConsumableCooldownLock. Hold the
+    //   lock only around the map access itself, never around game calls.
+    // CustomData keys must be unique module-wide: GetDefault<T> on a key
+    // already holding another type would not replace it.
+    constexpr char const* RAID_CONSUMABLE_TRACKER_KEY =
+        "NaxxramasCore.BotRaidConsumables.Tracker";
+    constexpr char const* CONSUMABLE_ALIVE_STATE_KEY =
+        "NaxxramasCore.BotRaidConsumables.AliveState";
+
+    struct ConsumableAliveState final : DataMap::Base
+    {
+        bool Alive = false;
+    };
+
+    RaidConsumableTracker* FindRaidConsumableTracker(
+        Player* player)
+    {
+        return player->CustomData.Get<RaidConsumableTracker>(
+            RAID_CONSUMABLE_TRACKER_KEY);
+    }
+
+    void EraseRaidConsumableTracker(
+        Player* player)
+    {
+        player->CustomData.Erase(
+            RAID_CONSUMABLE_TRACKER_KEY);
+    }
+
+    std::mutex ConsumableCooldownLock;
 
     std::unordered_map<ObjectGuid::LowType, uint64>
         ConsumableCooldownUntil;
-
-    std::unordered_map<ObjectGuid::LowType, bool>
-        ConsumableAliveState;
 
     void AddConsumableDebugMessage(
         PreparationStats& stats,
@@ -440,6 +477,12 @@ namespace
             player->GetGUID().
                 GetCounter();
 
+        uint64 now =
+            GetConsumableNow();
+
+        std::lock_guard<std::mutex> lock(
+            ConsumableCooldownLock);
+
         auto itr =
             ConsumableCooldownUntil.find(
                 guid);
@@ -449,9 +492,6 @@ namespace
         {
             return 0;
         }
-
-        uint64 now =
-            GetConsumableNow();
 
         if (itr->second <= now)
         {
@@ -470,11 +510,19 @@ namespace
         if (!player)
             return;
 
-        ConsumableCooldownUntil[
+        ObjectGuid::LowType guid =
             player->GetGUID().
-                GetCounter()] =
+                GetCounter();
+
+        uint64 until =
             GetConsumableNow() +
             CONSUMABLE_COMMAND_COOLDOWN_SECONDS;
+
+        std::lock_guard<std::mutex> lock(
+            ConsumableCooldownLock);
+
+        ConsumableCooldownUntil[guid] =
+            until;
     }
 
     void ResetConsumableCooldownForGroup(
@@ -486,28 +534,42 @@ namespace
         Group* group =
             deadPlayer->GetGroup();
 
+        // Collect the GUIDs first so the lock is never held while
+        // walking the group.
+        std::vector<ObjectGuid::LowType> guids;
+
         if (!group)
         {
-            ConsumableCooldownUntil.erase(
+            guids.push_back(
                 deadPlayer->GetGUID().
                     GetCounter());
-            return;
+        }
+        else
+        {
+            for (GroupReference* itr =
+                     group->GetFirstMember();
+                 itr != nullptr;
+                 itr = itr->next())
+            {
+                Player* member =
+                    itr->GetSource();
+
+                if (!member)
+                    continue;
+
+                guids.push_back(
+                    member->GetGUID().
+                        GetCounter());
+            }
         }
 
-        for (GroupReference* itr =
-                 group->GetFirstMember();
-             itr != nullptr;
-             itr = itr->next())
+        std::lock_guard<std::mutex> lock(
+            ConsumableCooldownLock);
+
+        for (ObjectGuid::LowType guid : guids)
         {
-            Player* member =
-                itr->GetSource();
-
-            if (!member)
-                continue;
-
             ConsumableCooldownUntil.erase(
-                member->GetGUID().
-                    GetCounter());
+                guid);
         }
     }
 
@@ -753,12 +815,75 @@ namespace
     }
 
     // =========================================================
+    // Cross-map aura safety (#114 follow-up, default OFF)
+    // =========================================================
+    //
+    // OnPlayerUpdate runs on the master's map thread. A prepared bot
+    // may be on another map that a different worker is updating, so
+    // its auras must not be read or changed from here. When enabled:
+    // - checks and timed refreshes skip bots that are not on the
+    //   master's own map (same Map object, not just map ID);
+    // - leaving the profile's instance queues removal of off-map bot
+    //   auras, which the world thread performs after all map workers
+    //   have finished (WorldScript::OnUpdate).
+    // When disabled, every path behaves exactly as before.
+
+    static_assert(sizeof(ObjectGuid::LowType) <= sizeof(uint32_t),
+        "CrossMapAuraQueue stores bot GUIDs as uint32_t");
+
+    std::atomic<bool> CrossMapAuraSafetyEnabled{ false };
+
+    NaxxramasCrossMapAura::RemovalQueue CrossMapAuraRemovals;
+
+    bool IsCrossMapAuraSafetyEnabled()
+    {
+        return CrossMapAuraSafetyEnabled.load(
+            std::memory_order_relaxed);
+    }
+
+    // Pointer comparison only: never dereferences the candidate, so it
+    // is safe to call for a bot that another worker is updating.
+    bool IsPlayerOnMap(
+        Map const* map,
+        Player const* candidate)
+    {
+        if (!map || !candidate)
+            return false;
+
+        for (MapReference const& ref : map->GetPlayers())
+        {
+            if (ref.GetSource() == candidate)
+                return true;
+        }
+
+        return false;
+    }
+
+    // Call BEFORE the module applies or takes ownership of this aura.
+    // A removal queued earlier is now stale and will be skipped; if the
+    // world thread is removing this exact aura right now, this waits
+    // until that removal has finished, so the new application lands
+    // after it and survives.
+    void NoteModuleAuraApplied(
+        ObjectGuid::LowType botGuid,
+        uint32 spellId,
+        bool isPetAura)
+    {
+        if (!IsCrossMapAuraSafetyEnabled())
+            return;
+
+        CrossMapAuraRemovals.NoteApplied(
+            { botGuid, spellId, isPetAura });
+    }
+
+    // =========================================================
     // Aura helpers
     // =========================================================
 
     void AddTrackedAura(
         RaidConsumableTracker& tracker,
         Player* bot,
+        ObjectGuid targetGuid,
         uint32 spellId,
         std::string const& auraName,
         bool isPetAura,
@@ -779,6 +904,7 @@ namespace
                 existing.AuraName = auraName;
                 existing.WarnOnMissing = warnOnMissing;
                 existing.MissingNotified = false;
+                existing.TargetGuidRaw = targetGuid.GetRawValue();
                 return;
             }
         }
@@ -791,6 +917,7 @@ namespace
         aura.IsPetAura = isPetAura;
         aura.WarnOnMissing = warnOnMissing;
         aura.MissingNotified = false;
+        aura.TargetGuidRaw = targetGuid.GetRawValue();
 
         tracker.Auras.push_back(aura);
     }
@@ -819,6 +946,13 @@ namespace
             return false;
         }
 
+        // Record ownership BEFORE touching the aura (both the preserve
+        // and the re-apply path): a removal queued earlier is now stale.
+        NoteModuleAuraApplied(
+            bot->GetGUID().GetCounter(),
+            spellId,
+            isPetAura);
+
         // Preserve a healthy existing aura instead of resetting it.
         // Normal consumables refresh at 10 minutes remaining;
         // food effects use a shorter 5-minute threshold.
@@ -835,6 +969,7 @@ namespace
                 AddTrackedAura(
                     tracker,
                     bot,
+                    target->GetGUID(),
                     spellId,
                     auraName,
                     isPetAura,
@@ -865,6 +1000,7 @@ namespace
         AddTrackedAura(
             tracker,
             bot,
+            target->GetGUID(),
             spellId,
             auraName,
             isPetAura,
@@ -990,6 +1126,11 @@ namespace
             return;
         }
 
+        NoteModuleAuraApplied(
+            bot->GetGUID().GetCounter(),
+            spellId,
+            false);
+
         bot->RemoveAurasDueToSpell(spellId);
 
         if (!bot->AddAura(spellId, bot))
@@ -1020,7 +1161,7 @@ namespace
     }
 
     // =========================================================
-    // Molten Core: optional, exactly one 90-second GFPP refresh
+    // Molten Core: optional, exactly one 120-second GFPP refresh
     // =========================================================
 
     void ApplyTimedGreaterFireProtection(
@@ -1232,10 +1373,11 @@ namespace
                 topUp(ITEM_BLINDING_POWDER, 20);
                 break;
             case CLASS_SHAMAN:
-                topUp(ITEM_EARTH_TOTEM, 1);
-                topUp(ITEM_FIRE_TOTEM, 1);
-                topUp(ITEM_WATER_TOTEM, 1);
-                topUp(ITEM_AIR_TOTEM, 1);
+                // Permanent, quest-earned elemental totems are not consumables.
+                // Do not recreate any totem merely because it is absent from
+                // bags: it may be banked, and a missing quest reward must not
+                // be bypassed by this command. The owner retrieves banked
+                // totems normally; no automatic bank movement is performed.
                 topUp(ITEM_ANKH, 5);
                 topUp(ITEM_SHINY_FISH_SCALES, 20);
                 topUp(ITEM_FISH_OIL, 20);
@@ -3071,7 +3213,11 @@ void PrepareManaUser(
             // A bot that is temporarily unavailable, dead, or no
             // longer in the master's preparation scope is retried
             // shortly instead of consuming one of the three uses.
+            // With cross-map safety, a bot on another map counts as
+            // unavailable and is checked before it is dereferenced.
             if (!bot ||
+                (IsCrossMapAuraSafetyEnabled() &&
+                    !IsPlayerOnMap(master->GetMap(), bot)) ||
                 !bot->IsInWorld() ||
                 !bot->IsAlive() ||
                 !IsProfileLocationValid(
@@ -3103,6 +3249,11 @@ void PrepareManaUser(
                 continue;
             }
 
+            NoteModuleAuraApplied(
+                timed.BotGuid,
+                timed.SpellId,
+                false);
+
             if (!bot->AddAura(
                     timed.SpellId,
                     bot))
@@ -3129,7 +3280,7 @@ void PrepareManaUser(
     }
 
     // Unlike Juju Flurry, this timer is deliberately consumed at
-    // ~90s, with NO retries at 95s/180s. The original bot must remain
+    // ~120s, with NO retries at 125s/240s. The original bot must remain
     // eligible and inside MC; even a failed refresh is a used attempt.
     void ProcessOneShotFireProtections(
         Player* master,
@@ -3168,6 +3319,10 @@ void PrepareManaUser(
                 manager, pending.BotGuid);
 
             if (!bot ||
+                // With cross-map safety, prove the bot is on the leader's
+                // own map before the first dereference below.
+                (IsCrossMapAuraSafetyEnabled() &&
+                    !IsPlayerOnMap(master->GetMap(), bot)) ||
                 !bot->IsInWorld() ||
                 !bot->IsAlive() ||
                 // Map ID alone is not enough: MC may have many
@@ -3194,6 +3349,13 @@ void PrepareManaUser(
                 if (current->GetCasterGUID() != bot->GetGUID())
                     continue;
             }
+
+            // The module is (re)applying this aura: a removal queued
+            // earlier for it is now stale.
+            NoteModuleAuraApplied(
+                pending.BotGuid,
+                pending.SpellId,
+                false);
 
             if (!bot->AddAura(pending.SpellId, bot) &&
                 master->GetSession())
@@ -3297,11 +3459,27 @@ void PrepareManaUser(
         std::vector<std::string>
             newlyMissing;
 
+        bool const crossMapSafety =
+            IsCrossMapAuraSafetyEnabled();
+
         for (TrackedAura& tracked :
              tracker.Auras)
         {
             if (!tracked.WarnOnMissing)
                 continue;
+
+            // Skip, without changing MissingNotified, a bot that is
+            // not on the master's map: its auras belong to another
+            // worker. The warning resumes once it is back.
+            if (crossMapSafety &&
+                !IsPlayerOnMap(
+                    master->GetMap(),
+                    ResolvePreparedBot(
+                        manager,
+                        tracked.BotGuid)))
+            {
+                continue;
+            }
 
             Unit* target =
                 ResolveTrackedAuraTarget(
@@ -3379,9 +3557,13 @@ void PrepareManaUser(
     // Clear tracker and applied auras
     // =========================================================
 
+    // deferOffMap is true only on the master's map-thread path (leaving
+    // the profile's instance). Command paths run on the world thread and
+    // keep removing immediately.
     void ClearTrackedAuras(
         Player* master,
-        RaidConsumableTracker& tracker)
+        RaidConsumableTracker& tracker,
+        bool deferOffMap = false)
     {
         if (!master)
             return;
@@ -3396,6 +3578,27 @@ void PrepareManaUser(
         for (TrackedAura const& tracked :
              tracker.Auras)
         {
+            if (deferOffMap)
+            {
+                Player* bot =
+                    ResolvePreparedBot(
+                        manager,
+                        tracked.BotGuid);
+
+                if (!bot)
+                    continue;
+
+                if (!IsPlayerOnMap(master->GetMap(), bot))
+                {
+                    CrossMapAuraRemovals.Enqueue(
+                        { tracked.BotGuid,
+                          tracked.SpellId,
+                          tracked.IsPetAura },
+                        tracked.TargetGuidRaw);
+                    continue;
+                }
+            }
+
             Unit* target =
                 ResolveTrackedAuraTarget(
                     manager,
@@ -3415,6 +3618,18 @@ void PrepareManaUser(
                 ResolvePreparedBot(
                     manager,
                     timed.BotGuid);
+
+            if (deferOffMap &&
+                bot &&
+                !IsPlayerOnMap(master->GetMap(), bot))
+            {
+                CrossMapAuraRemovals.Enqueue(
+                    { timed.BotGuid,
+                      timed.SpellId,
+                      false },
+                    0);
+                continue;
+            }
 
             if (!bot ||
                 !bot->IsInWorld())
@@ -3562,25 +3777,18 @@ public:
             uint32 mapId,
             ProfileArea area)
     {
-        ObjectGuid::LowType masterGuid =
-            master->GetGUID().
-                GetCounter();
-
-        auto oldTracker =
-            RaidConsumableTrackers.find(
-                masterGuid);
-
-        if (oldTracker !=
-            RaidConsumableTrackers.end())
+        if (RaidConsumableTracker* oldTracker =
+                FindRaidConsumableTracker(
+                    master))
         {
             ClearTrackedAuras(
                 master,
-                oldTracker->second);
+                *oldTracker);
         }
 
         RaidConsumableTracker& tracker =
-            RaidConsumableTrackers[
-                masterGuid];
+            *master->CustomData.GetDefault<RaidConsumableTracker>(
+                RAID_CONSUMABLE_TRACKER_KEY);
 
         tracker.Profile = profile;
         tracker.UpdateTimer = 0;
@@ -4277,13 +4485,11 @@ public:
         if (!master)
             return false;
 
-        auto itr =
-            RaidConsumableTrackers.find(
-                master->GetGUID().
-                    GetCounter());
+        RaidConsumableTracker const* trackerPtr =
+            FindRaidConsumableTracker(
+                master);
 
-        if (itr ==
-            RaidConsumableTrackers.end())
+        if (!trackerPtr)
         {
             handler->SendSysMessage(
                 "[Bot Consumables] No consumable profile is currently being tracked.");
@@ -4291,7 +4497,7 @@ public:
         }
 
         RaidConsumableTracker const& tracker =
-            itr->second;
+            *trackerPtr;
 
         uint32 cooldownRemaining =
             GetConsumableCooldownRemaining(
@@ -4367,16 +4573,11 @@ public:
         if (!master)
             return false;
 
-        ObjectGuid::LowType masterGuid =
-            master->GetGUID().
-                GetCounter();
+        RaidConsumableTracker* tracker =
+            FindRaidConsumableTracker(
+                master);
 
-        auto itr =
-            RaidConsumableTrackers.find(
-                masterGuid);
-
-        if (itr ==
-            RaidConsumableTrackers.end())
+        if (!tracker)
         {
             handler->SendSysMessage(
                 "[Bot Consumables] Nothing is currently being tracked.");
@@ -4385,10 +4586,10 @@ public:
 
         ClearTrackedAuras(
             master,
-            itr->second);
+            *tracker);
 
-        RaidConsumableTrackers.erase(
-            itr);
+        EraseRaidConsumableTracker(
+            master);
 
         handler->SendSysMessage(
             "[Bot Consumables] Tracked consumable auras have been removed and tracking has been cleared.");
@@ -4571,55 +4772,51 @@ public:
         if (!player)
             return;
 
-        ObjectGuid::LowType guid =
-            player->GetGUID().
-                GetCounter();
-
         bool alive =
             player->IsAlive();
 
-        auto aliveItr =
-            ConsumableAliveState.find(
-                guid);
+        ConsumableAliveState* aliveState =
+            player->CustomData.Get<ConsumableAliveState>(
+                CONSUMABLE_ALIVE_STATE_KEY);
 
-        if (aliveItr ==
-            ConsumableAliveState.end())
+        if (!aliveState)
         {
-            ConsumableAliveState[
-                guid] = alive;
+            player->CustomData.GetDefault<ConsumableAliveState>(
+                CONSUMABLE_ALIVE_STATE_KEY)->Alive = alive;
         }
         else
         {
-            if (aliveItr->second &&
+            if (aliveState->Alive &&
                 !alive)
             {
                 ResetConsumableCooldownForGroup(
                     player);
             }
 
-            aliveItr->second = alive;
+            aliveState->Alive = alive;
         }
 
-        auto itr =
-            RaidConsumableTrackers.find(
-                guid);
+        RaidConsumableTracker* trackerPtr =
+            FindRaidConsumableTracker(
+                player);
 
-        if (itr ==
-            RaidConsumableTrackers.end())
-        {
+        if (!trackerPtr)
             return;
-        }
 
         RaidConsumableTracker& tracker =
-            itr->second;
+            *trackerPtr;
 
         if (!IsProfileLocationValid(
                 player,
                 tracker.RequiredMapId,
                 tracker.RequiredArea))
         {
-            ClearTrackedAuras(player, tracker);
-            RaidConsumableTrackers.erase(itr);
+            ClearTrackedAuras(
+                player,
+                tracker,
+                IsCrossMapAuraSafetyEnabled());
+            // Invalidates 'tracker'; nothing below may use it.
+            EraseRaidConsumableTracker(player);
 
             if (player->GetSession())
             {
@@ -4658,18 +4855,84 @@ public:
         if (!player)
             return;
 
-        ObjectGuid::LowType guid =
-            player->GetGUID().
-                GetCounter();
+        EraseRaidConsumableTracker(
+            player);
 
-        RaidConsumableTrackers.erase(
-            guid);
-
-        ConsumableAliveState.erase(
-            guid);
+        player->CustomData.Erase(
+            CONSUMABLE_ALIVE_STATE_KEY);
 
         // Keep an unexpired cooldown across logout so relogging
         // cannot bypass the 10-minute restriction.
+    }
+};
+
+// =============================================================
+// Cross-map aura removals (world thread)
+// =============================================================
+
+class NaxxramasCoreBotRaidConsumablesWorld :
+    public WorldScript
+{
+public:
+    NaxxramasCoreBotRaidConsumablesWorld()
+        : WorldScript(
+            "NaxxramasCoreBotRaidConsumablesWorld",
+            {
+                WORLDHOOK_ON_AFTER_CONFIG_LOAD,
+                WORLDHOOK_ON_UPDATE
+            })
+    {
+    }
+
+    void OnAfterConfigLoad(
+        bool /*reload*/) override
+    {
+        CrossMapAuraSafetyEnabled.store(
+            sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.BotConsumables.CrossMapAuraSafety",
+                false),
+            std::memory_order_relaxed);
+    }
+
+    // World::Update calls this after MapMgr::Update has waited for every
+    // map worker, so no map thread is updating these bots right now.
+    // Always drained, so removals queued before a config reload that
+    // disabled the feature still happen.
+    void OnUpdate(
+        uint32 /*diff*/) override
+    {
+        CrossMapAuraRemovals.Drain(
+            [](NaxxramasCrossMapAura::AuraKey const& key,
+                uint64 targetGuidRaw)
+            {
+                Player* bot =
+                    ObjectAccessor::FindPlayerByLowGUID(
+                        key.BotGuid);
+
+                if (!bot)
+                    return;
+
+                Unit* target = bot;
+
+                if (key.IsPet)
+                {
+                    // Only the exact pet that received the aura. A
+                    // re-summoned or different pet has a new GUID and is
+                    // left alone; its aura then expires on its own.
+                    Pet* pet = bot->GetPet();
+
+                    if (!pet ||
+                        pet->GetGUID().GetRawValue() != targetGuidRaw)
+                    {
+                        return;
+                    }
+
+                    target = pet;
+                }
+
+                target->RemoveAurasDueToSpell(
+                    key.SpellId);
+            });
     }
 };
 
@@ -4681,4 +4944,5 @@ void AddBotRaidConsumablesScripts()
 {
     new NaxxramasCoreBotRaidConsumablesCommand();
     new NaxxramasCoreBotRaidConsumablesTracker();
+    new NaxxramasCoreBotRaidConsumablesWorld();
 }

@@ -1,0 +1,138 @@
+name: P1 Warlock portal Meeting Stone pinned full Worldserver
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/MeetingStoneProgression.cpp'
+      - 'tests/test_meeting_stone_ritual_isolation.py'
+      - '.github/workflows/naxx-p1-warlock-portal-worldserver.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-p1-warlock-portal-worldserver-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pinned-full-worldserver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout exact Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+      - name: Checkout latest public Playerbots pinned snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout latest public Individual Progression pinned snapshot
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact PR head of this module
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/Mod-Naxxramas-Core
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Enforce four exact snapshot SHAs
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          # Public Playerbots pin only. Not owner e88cc409, and the two local
+          # owner compatibility edits are not applied.
+          conf=acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          grep -Fqx 'NaxxramasCore.MeetingStones.ClassicMode.Enabled = 1' "$conf"
+          grep -Fxq '    AddMeetingStoneProgressionScripts();' acore/modules/mod-naxxramas-core/src/NaxxramasCore_loader.cpp
+      - name: Run Meeting Stone source and model tests
+        run: |
+          python3 -m unittest discover -s acore/modules/mod-naxxramas-core/tests -p 'test_meeting_stone_ritual_isolation.py' -v
+      - name: Install compiler dependencies on disposable GitHub runner
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure full pinned Worldserver and all modules
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Require MeetingStoneProgression translation unit
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          commands = json.loads(Path("acore-build/compile_commands.json").read_text(encoding="utf-8"))
+          suffix = "/mod-naxxramas-core/src/Systems/MeetingStoneProgression.cpp"
+          matches = [entry for entry in commands
+                     if str(entry.get("file", "")).replace("\\", "/").endswith(suffix)]
+          assert len(matches) == 1, f"Expected exactly one MeetingStoneProgression.cpp compile command: {len(matches)}"
+          print("PASS real pinned compile command: MeetingStoneProgression.cpp")
+          PY
+      - name: Compile actual MeetingStoneProgression translation unit
+        run: |
+          python3 - <<'PY'
+          import json
+          import shlex
+          import subprocess
+          from pathlib import Path
+          commands = json.loads(Path("acore-build/compile_commands.json").read_text(encoding="utf-8"))
+          suffix = "mod-naxxramas-core/src/Systems/MeetingStoneProgression.cpp"
+          found = [row for row in commands
+                   if str(row.get("file", "")).replace("\\", "/").endswith(suffix)]
+          if len(found) != 1:
+              raise SystemExit(
+                  f"FAIL: expected one MeetingStoneProgression.cpp compile command, found {len(found)}")
+          entry = found[0]
+          argv = entry.get("arguments") or shlex.split(entry["command"])
+          if not any("MeetingStoneProgression.cpp" in part for part in argv):
+              raise SystemExit("FAIL: compile command points to the wrong source unit")
+          print("Compiling actual pinned MeetingStoneProgression.cpp", flush=True)
+          subprocess.run(argv, cwd=Path(entry["directory"]).resolve(), check=True, timeout=360)
+          print("PASS: MeetingStoneProgression.cpp translation unit compiled", flush=True)
+          PY
+      - name: Build and link real Worldserver without launching
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify Meeting Stone registration in archive and linked executable
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          archive=acore-build/modules/libmodules.a
+          test -s "$archive" && test -s "$binary" && test -x "$binary"
+          nm -C --defined-only "$archive" > /tmp/naxx_p1_portal_archive_symbols.txt
+          nm -C --defined-only "$binary" > /tmp/naxx_p1_portal_binary_symbols.txt
+          for f in /tmp/naxx_p1_portal_archive_symbols.txt /tmp/naxx_p1_portal_binary_symbols.txt; do
+            grep -Fq 'AddMeetingStoneProgressionScripts()' "$f"
+          done
+          grep -aFq 'NaxxramasCoreMeetingStoneProgression' "$binary"
+          sha256sum "$binary"
+          echo 'PASS: AddMeetingStoneProgressionScripts() is defined in libmodules.a and the final linked Worldserver.'
+      - name: Preserve safety boundary
+        if: always()
+        run: |
+          echo 'VERIFIED only if earlier steps passed: source/model tests, MeetingStoneProgression.cpp translation unit, full Worldserver link, AddMeetingStoneProgressionScripts() registration symbol.'
+          echo 'NOT TESTED in game. No Worldserver launched.'
+          echo 'No SQL, DB, DBC, server config, secrets, packages, releases, or published artifacts.'
+          echo 'Playerbots pin is public d750b4b3a50effdf22bedc8032f0e8e5f7cb8091. Owner e88cc409 compile is NOT claimed.'
+          echo 'No merge performed. Distributed MeetingStones ClassicMode default was not changed by this job.'

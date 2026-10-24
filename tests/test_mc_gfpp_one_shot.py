@@ -16,7 +16,7 @@ FLAG = "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled"
 
 
 class GreaterFireProtectionOneShot(unittest.TestCase):
-    def test_standalone_native_timer_exact_once_after_90s(self):
+    def test_standalone_native_timer_exact_once_after_120s(self):
         compiler = shutil.which("g++")
         if compiler is None:
             self.fail("g++ is mandatory for a native one-shot timing regression test")
@@ -25,31 +25,31 @@ class GreaterFireProtectionOneShot(unittest.TestCase):
 #include <cassert>
 int main()
 {
-    NaxxramasOneShotTimer exact(90000);
+    NaxxramasOneShotTimer exact(120000);
     assert(!exact.ConsumeIfDue(0));
-    assert(!exact.ConsumeIfDue(89999));
+    assert(!exact.ConsumeIfDue(119999));
     assert(exact.RemainingMs == 1);
     assert(exact.ConsumeIfDue(1));
     assert(!exact.Pending);
     assert(exact.RemainingMs == 0);
-    assert(!exact.ConsumeIfDue(90000));
+    assert(!exact.ConsumeIfDue(120000));
     assert(!exact.ConsumeIfDue(1000000));
 
-    NaxxramasOneShotTimer ticks(90000);
-    for (int i = 0; i < 90; ++i)
-        assert(!ticks.ConsumeIfDue(1000) || i == 89);
+    NaxxramasOneShotTimer ticks(120000);
+    for (int i = 0; i < 120; ++i)
+        assert(!ticks.ConsumeIfDue(1000) || i == 119);
     assert(!ticks.Pending);
-    assert(!ticks.ConsumeIfDue(90000));
+    assert(!ticks.ConsumeIfDue(120000));
 
-    NaxxramasOneShotTimer bigDiff(90000);
+    NaxxramasOneShotTimer bigDiff(120000);
     assert(bigDiff.ConsumeIfDue(200000));
     assert(!bigDiff.ConsumeIfDue(200000));
 
-    NaxxramasOneShotTimer independent(90000);
+    NaxxramasOneShotTimer independent(120000);
     assert(!independent.ConsumeIfDue(30000));
-    NaxxramasOneShotTimer nextCommand(90000);
-    assert(nextCommand.ConsumeIfDue(90000));
-    assert(!independent.ConsumeIfDue(59999));
+    NaxxramasOneShotTimer nextCommand(120000);
+    assert(nextCommand.ConsumeIfDue(120000));
+    assert(!independent.ConsumeIfDue(89999));
     assert(independent.ConsumeIfDue(1));
 }
 """
@@ -70,6 +70,13 @@ int main()
                 timeout=12, check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_source_schedules_exactly_one_120s_deadline(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertEqual(
+            source.count("NaxxramasOneShotTimer Timer{120 * IN_MILLISECONDS};"), 1
+        )
+        self.assertNotIn("NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};", source)
 
     def test_config_is_default_off_and_matches_consumer(self):
         config = CONFIG.read_text(encoding="utf-8")
@@ -170,7 +177,7 @@ int main()
     def test_clear_reset_and_logout_cancel_future_actions(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertGreaterEqual(source.count("tracker.FireProtectionOneShots.clear();"), 2)
-        self.assertIn("RaidConsumableTrackers.erase(", source)
+        self.assertIn("EraseRaidConsumableTracker(", source)
         self.assertIn("OnPlayerLogout(", source)
         self.assertIn("ProcessOneShotFireProtections(player, tracker, diff);", source)
 

@@ -4,15 +4,34 @@
 
 # When .bot consumables mc successfully applies (or preserves) the
 # Greater Fire Protection aura, schedule ONE refresh attempt for each
-# originally eligible grouped/controlled bot 90 seconds afterwards.
+# originally eligible grouped/controlled bot 120 seconds afterwards.
 # The one-shot is consumed even if the bot has died, left the group
 # or instance, or refresh fails. It never runs on another timer tick.
 # The normal initial Greater Fire Protection and Juju Flurry behavior
-# are unchanged when disabled. No repeat at 180 seconds.
-# 1 = enable one optional 90-second GFPP refresh attempt
+# are unchanged when disabled. No repeat at 240 seconds.
+# 1 = enable one optional 120-second GFPP refresh attempt
 # 0 = existing MC consumable behavior unchanged
 # Default: 0 (disabled until owner-approved gameplay tests)
 NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled = 0
+
+
+#####################################
+# Bot consumables — cross-map aura safety (#114 follow-up)
+#####################################
+
+# Bot consumable checks and cleanup run on the leader's map thread. With
+# MapUpdate.Threads > 1, a bot left on another map (for example still
+# inside Molten Core after the leader hearths out) is updated by a
+# different thread at the same time.
+# 1 = never read or change an off-map bot's auras from the leader's
+#     thread: missing-buff checks and timed refreshes skip it until it is
+#     back on the leader's map, and leaving the instance queues its aura
+#     removal for the world thread, after all map threads have finished.
+#     Auras are still removed; a removal is skipped only if this module
+#     re-applied the same aura in the meantime.
+# 0 = existing behaviour unchanged
+# Default: 0 (disabled until owner-approved gameplay tests)
+NaxxramasCore.BotConsumables.CrossMapAuraSafety = 0
 
 
 #####################################
@@ -392,3 +411,36 @@ NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0
 # Default: "" (no bots are sampled)
 NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
 
+#####################################
+# Molten Core / Golemagg — melee reach guard
+#####################################
+
+# EXPERIMENTAL, default OFF. At 20 Magma Splash stacks Playerbots backs
+# non-tank melee away from Golemagg and blocks their attacks until the stack
+# expires, but its generic "reach melee" movement can still walk them back
+# in, so they shuttle in and out without attacking. When enabled, this guard
+# denies only "reach melee" toward Golemagg for the one named Altbot below
+# (non-tank melee DPS, map 409, Golemagg alive, in combat and above 10%
+# health, own Magma Splash at 20+ stacks). The bot then waits out the stack
+# and resumes normal combat.
+# Unaffected: tanks, Core Ragers, healers, ranged, lava escape, other targets,
+# the final 10% burn phase, and any bot below 20 stacks.
+# While the guard applies, a player-issued "do reach melee" on that bot is
+# also refused. Requires Playerbots with a public
+# PlayerbotAI::GetCurrentEngine(); on older revisions it stays inactive.
+# Config changes need a Worldserver restart.
+# Default: 0
+NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled = 0
+#
+# SECOND INDEPENDENT GATE: one exact Altbot character name. The guard applies
+# to nobody while this is empty, even with Enabled = 1. No wildcard, list or
+# "all" mode. ASCII names match case-insensitively; surrounding whitespace is
+# ignored. Random Bots and human players are never guarded.
+# For a pilot, use "Grau".
+# Default: "" (no bots are guarded)
+NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName = ""
+#
+# Log one line per bot at most every 5 seconds when the guard refuses
+# "reach melee", plus one line when a bot's listener is registered.
+# Default: 0
+NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug = 0
