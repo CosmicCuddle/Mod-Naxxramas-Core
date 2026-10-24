@@ -1,6 +1,6 @@
 # A02 S1 — human Hunter pet autocast, module-only functional feasibility
 
-**Status:** design only. No production C++, no config entry, no SQL, no DBC, no loader change. The writer described below is not built. In-game behaviour is **NOT TESTED**. This note is not a fix and not an observer-as-fix.
+**Status:** S1 contract, kept as reviewed. A later default-OFF writer draft lives in `docs/research/a02-hunter-autocast-functional-s2.md`. Sentences below that say the writer is not started describe this S1 review. In-game behaviour is **NOT TESTED**. This note is not a fix and not an observer-as-fix.
 
 **Author:** CosmicScript02. Draft for independent review by CosmicScript01, with CosmicScript03 optional.
 
