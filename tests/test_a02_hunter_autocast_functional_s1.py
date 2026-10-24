@@ -92,11 +92,136 @@ def decide(enabled, human, baseline, current):
         if successor.bar is None:
             results.append("NO_BAR")
             continue
+        if successor.bar != successor.active:
+            results.append("NO_WRITE")
+            continue
         if successor.active == chosen.active and successor.bar == chosen.active:
             results.append("NO_WRITE")
             continue
         results.append("RESTORE_ENABLED" if chosen.active == ACT_ENABLED else "RESTORE_DISABLED")
     return results
+
+
+class SpellStores:
+    """One spell's active byte, autocast vector membership, and bar slot."""
+
+    def __init__(self, present, active, in_autospells, bar):
+        self.present = present
+        self.active = active
+        self.in_autospells = in_autospells
+        self.bar = bar
+
+
+def toggle_autocast(state, apply):
+    """Pet.cpp:2247-2286. A vector mismatch is a no-op and does not repair active."""
+    if not state.present:
+        return "absent"
+    if apply:
+        if state.in_autospells:
+            return "noop"
+        state.in_autospells = True
+        if state.active != ACT_ENABLED:
+            state.active = ACT_ENABLED
+        return "wrote"
+    if not state.in_autospells:
+        return "noop"
+    state.in_autospells = False
+    if state.active != ACT_DISABLED:
+        state.active = ACT_DISABLED
+    return "wrote"
+
+
+def set_spell_autocast(state, enabled):
+    """CharmInfo.cpp:291-300. An absent slot stays absent."""
+    if state.bar is None:
+        return "noop"
+    state.bar = ACT_ENABLED if enabled else ACT_DISABLED
+    return "wrote"
+
+
+def stores_agree(state):
+    if not state.present or state.active not in CHOICE_BYTES or state.bar != state.active:
+        return False
+    return state.in_autospells == (state.active == ACT_ENABLED)
+
+
+def restore_choice(state, want_enabled, write_bar=True):
+    """Refuse splits before writing. After a write, disagreement is NO_WRITE."""
+    if not state.present or state.active not in CHOICE_BYTES:
+        return "NO_WRITE"
+    if state.bar is None:
+        return "NO_BAR"
+    if state.bar != state.active:
+        return "NO_WRITE"
+    if state.in_autospells != (state.active == ACT_ENABLED):
+        return "NO_WRITE"
+    if (state.active == ACT_ENABLED) == want_enabled:
+        return "NO_WRITE"
+    toggle_autocast(state, want_enabled)
+    if write_bar:
+        set_spell_autocast(state, want_enabled)
+    if not stores_agree(state):
+        return "NO_WRITE"
+    return "RESTORE_ENABLED" if want_enabled else "RESTORE_DISABLED"
+
+
+class BaselineStore:
+    def __init__(self):
+        self.allocations = 0
+        self.obj = None
+
+    def get_default(self):
+        if self.obj is None:
+            self.allocations += 1
+            self.obj = {"book": None}
+        return self.obj
+
+    def set_replace(self):
+        self.allocations += 1
+        self.obj = {"book": None}
+        return self.obj
+
+
+class CachedConfig:
+    def __init__(self):
+        self.load_reads = 0
+        self.value = False
+
+    def on_config_load(self, raw):
+        self.load_reads += 1
+        self.value = bool(raw)
+
+    def enabled(self):
+        return self.value
+
+
+def hot_path_tick(config, is_pet, is_hunter_pet, store, use_set=False):
+    """Cached flag, then hunter pet, then in-place GetDefault. No work before that."""
+    if not config.enabled():
+        return "skip"
+    if not is_pet or not is_hunter_pet:
+        return "skip"
+    if use_set:
+        slot = store.set_replace()
+    else:
+        slot = store.get_default()
+    slot["book"] = []
+    return "snap"
+
+
+def authorize_write(header_present, is_real_player, owner_pet_matches):
+    """IsRealPlayer runs only at write time. A missing header does not count as human."""
+    if not header_present:
+        return "OUT_OF_SCOPE", False
+    if not is_real_player:
+        return "OUT_OF_SCOPE", True
+    if not owner_pet_matches:
+        return "NO_WRITE", True
+    return "WRITE", True
+
+
+def a02_pet_in_scope(pet_type, owner_class):
+    return pet_type == "HUNTER_PET" and owner_class == "HUNTER"
 
 
 def decision_rows(note):
@@ -120,7 +245,7 @@ class HunterAutocastFunctionalDesign(unittest.TestCase):
 
     def test_decision_table_matches_the_writer_contract(self):
         rows = decision_rows(self.note)
-        self.assertGreaterEqual(len(rows), 16)
+        self.assertGreaterEqual(len(rows), 18)
         seen = set()
         for name, enabled, human, baseline, current, expect in rows:
             self.assertNotIn(name, seen)
@@ -133,6 +258,8 @@ class HunterAutocastFunctionalDesign(unittest.TestCase):
             "rank-swap-on",
             "rank-swap-off-already",
             "rank-swap-off-bar-on",
+            "successor-split-row-off",
+            "successor-split-row-on",
             "removal-no-successor",
             "same-spell-on",
             "chain-mismatch",
@@ -276,6 +403,127 @@ class HunterAutocastFunctionalDesign(unittest.TestCase):
                 self.assertIn(phrase, self.note)
         for absent in (1753, 1754, 1755, 1756, 16697, 27048):
             self.assertIn(str(absent), self.note)
+
+    def test_post_write_consistency_rejects_noop_splits(self):
+        learned_off = SpellStores(True, ACT_DISABLED, False, ACT_DISABLED)
+        self.assertEqual(restore_choice(learned_off, True), "RESTORE_ENABLED")
+        self.assertTrue(stores_agree(learned_off))
+        self.assertEqual(learned_off.active, ACT_ENABLED)
+        self.assertTrue(learned_off.in_autospells)
+        self.assertEqual(learned_off.bar, ACT_ENABLED)
+
+        already_on = SpellStores(True, ACT_ENABLED, True, ACT_ENABLED)
+        self.assertEqual(restore_choice(already_on, True), "NO_WRITE")
+
+        turn_off = SpellStores(True, ACT_ENABLED, True, ACT_ENABLED)
+        self.assertEqual(restore_choice(turn_off, False), "RESTORE_DISABLED")
+        self.assertEqual(turn_off.active, ACT_DISABLED)
+        self.assertFalse(turn_off.in_autospells)
+        self.assertEqual(turn_off.bar, ACT_DISABLED)
+
+        split_row = SpellStores(True, ACT_DISABLED, False, ACT_ENABLED)
+        self.assertEqual(restore_choice(split_row, False), "NO_WRITE")
+        self.assertEqual(split_row.bar, ACT_ENABLED)
+        self.assertFalse(split_row.in_autospells)
+
+        split_vector_on = SpellStores(True, ACT_DISABLED, True, ACT_DISABLED)
+        self.assertEqual(toggle_autocast(split_vector_on, True), "noop")
+        self.assertEqual(split_vector_on.active, ACT_DISABLED)
+        fresh_vector = SpellStores(True, ACT_DISABLED, True, ACT_DISABLED)
+        self.assertEqual(restore_choice(fresh_vector, True), "NO_WRITE")
+        self.assertTrue(fresh_vector.in_autospells)
+
+        split_vector_off = SpellStores(True, ACT_ENABLED, False, ACT_ENABLED)
+        self.assertEqual(toggle_autocast(split_vector_off, False), "noop")
+        self.assertEqual(split_vector_off.active, ACT_ENABLED)
+        self.assertEqual(restore_choice(SpellStores(True, ACT_ENABLED, False, ACT_ENABLED), False), "NO_WRITE")
+
+        missing = SpellStores(True, ACT_DISABLED, False, None)
+        self.assertEqual(set_spell_autocast(missing, True), "noop")
+        self.assertIsNone(missing.bar)
+        self.assertEqual(restore_choice(SpellStores(True, ACT_DISABLED, False, None), True), "NO_BAR")
+
+        bar_left_behind = SpellStores(True, ACT_DISABLED, False, ACT_DISABLED)
+        self.assertEqual(restore_choice(bar_left_behind, True, write_bar=False), "NO_WRITE")
+        self.assertFalse(stores_agree(bar_left_behind))
+
+    def test_hot_path_caches_config_and_avoids_per_tick_allocation(self):
+        config = CachedConfig()
+        config.on_config_load(False)
+        store = BaselineStore()
+        for _ in range(8):
+            self.assertEqual(hot_path_tick(config, True, True, store), "skip")
+        self.assertEqual(store.allocations, 0)
+        self.assertEqual(config.load_reads, 1)
+
+        config.on_config_load(True)
+        self.assertEqual(config.load_reads, 2)
+        for _ in range(8):
+            self.assertEqual(hot_path_tick(config, False, False, store), "skip")
+            self.assertEqual(hot_path_tick(config, True, False, store), "skip")
+        self.assertEqual(store.allocations, 0)
+
+        for _ in range(8):
+            self.assertEqual(hot_path_tick(config, True, True, store), "snap")
+        self.assertEqual(store.allocations, 1)
+        self.assertEqual(config.load_reads, 2)
+        self.assertIs(store.get_default(), store.obj)
+
+        replacing = BaselineStore()
+        for _ in range(8):
+            hot_path_tick(config, True, True, replacing, use_set=True)
+        self.assertEqual(replacing.allocations, 8)
+
+    def test_human_check_is_write_time_and_fail_closed(self):
+        self.assertEqual(authorize_write(False, True, True), ("OUT_OF_SCOPE", False))
+        self.assertEqual(authorize_write(True, False, True), ("OUT_OF_SCOPE", True))
+        self.assertEqual(authorize_write(True, True, False), ("NO_WRITE", True))
+        self.assertEqual(authorize_write(True, True, True), ("WRITE", True))
+
+    def test_pet_guard_competing_hooks_and_warlock_scope(self):
+        self.assertTrue(a02_pet_in_scope("HUNTER_PET", "HUNTER"))
+        self.assertFalse(a02_pet_in_scope("SUMMON_PET", "WARLOCK"))
+        self.assertFalse(a02_pet_in_scope("HUNTER_PET", "WARLOCK"))
+        for phrase in (
+            "The S2 writer is not started.",
+            "successor-split-vector",
+            "cached config bool",
+            "DataMap.h:50-59",
+            "DataMap::Set",
+            "DataMap.h:65",
+            "only when a restore is about to be written",
+            "`_playerbotsAIMap` without a lock",
+            "b5a5d7236af6e71312c8c89c10d0d1008ece4d86a3373eab8ab6fa06a9750610",
+            "HallowsEndShadeOfTheHorseman.cpp:57",
+            "A missing header is not a human.",
+            "owner->GetPet() == pet",
+            "IndividualProgressionSpells.cpp:1344",
+            "Pet.cpp:656-657",
+            "does not make this module the last writer",
+            "owner's other modules",
+            "Warlock pets are out of A02 scope.",
+            "19505",
+            "54049",
+            "19244",
+            "24259",
+            "30151",
+            "30154",
+            "30213",
+            "30214",
+            "UnitScript.h:57",
+            "WorldObjectScript.h:37",
+            "UnitScript.cpp:109",
+            "WorldObjectScript.cpp:54",
+            "Pet.cpp:2247-2286",
+            "CharmInfo.cpp:291-300",
+            "src/Bot/PlayerbotMgr.cpp:1858-1875",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.note)
+        sources = "\n".join(path.read_text() for path in (ROOT / "src").rglob("*.cpp"))
+        sources += "\n".join(path.read_text() for path in (ROOT / "src").rglob("*.h"))
+        self.assertNotIn("OnUnitUpdate", sources)
+        self.assertNotIn("OnWorldObjectUpdate", sources)
 
 
 if __name__ == "__main__":

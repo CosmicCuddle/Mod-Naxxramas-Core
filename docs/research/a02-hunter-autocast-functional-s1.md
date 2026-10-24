@@ -146,7 +146,7 @@ ORDER BY first_spell_id, `rank`;
 
 `NO_LEARN` is a removed chain with no successor. `learnSpell` of `1742`, or of a wiped Claw/Bite rank, would put back a spell IP just removed. The table does not call `learnSpell` or `unlearnSpell`.
 
-`NO_WRITE` leaves the pet alone. That includes Growl when its spell id is unchanged, an explicit OFF successor that is already `ACT_DISABLED` on both the row and the bar, a same-id active flip inside the event queue, a passive row, a split baseline, and more than one live spell in the chain.
+`NO_WRITE` leaves the pet alone. That includes Growl when its spell id is unchanged, an explicit OFF successor that is already `ACT_DISABLED` on both the row and the bar, a same-id active flip inside the event queue, a passive row, a split baseline, a successor whose row and bar disagree, and more than one live spell in the chain.
 
 `NO_BAR` means the successor spell has no action-bar slot. `SetSpellAutocast` would not see it (`CharmInfo.cpp:295`). Creating a slot is out of this design. `ToggleAutocast` without the matching bar type would be undone by the next `CleanupActionBar`, or would save a split the next load does not repair. The table does not write.
 
@@ -189,7 +189,7 @@ The baseline lives in that `Pet::CustomData`. It dies with the pet object. `OnUn
 
 Normative for one chain. `baseline` and `current` use `spell,chain,active,autocastable,bar`. Several spells are joined with `+`. `-` means no spells. `active` and `bar` are `81` (`ACT_DISABLED`), `C1` (`ACT_ENABLED`), `01` (`ACT_PASSIVE`), or `NONE` when the spell has no bar slot. The synthetic ids are chain keys for the contract, not DBC proof. `python3 -m unittest discover -s tests -p 'test_a02_hunter_autocast_functional_s1.py' -v` executes this table.
 
-Check order for an in-scope call, per baseline chain: one baseline spell, active in `{81, C1}`, baseline bar equal to that active byte, then current count, same spell id, autocastable flag, bar present, already-matching row and bar, otherwise restore the baseline byte.
+Check order for an in-scope call, per baseline chain: one baseline spell, active in `{81, C1}`, baseline bar equal to that active byte, then current count, same spell id, autocastable flag, bar present, current row and bar agree, already-matching row and bar, otherwise restore the baseline byte. `m_autospells` membership is not a column in this table. The S2 write model rejects a successor-split-vector before any call.
 
 <!-- DECISION-TABLE-BEGIN -->
 | case | enabled | human | baseline | current | expect |
@@ -199,6 +199,8 @@ Check order for an in-scope call, per baseline chain: one baseline spell, active
 | rank-swap-on | 1 | 1 | 801,800,C1,1,C1 | 800,800,81,1,81 | RESTORE_ENABLED |
 | rank-swap-off-already | 1 | 1 | 801,800,81,1,81 | 800,800,81,1,81 | NO_WRITE |
 | rank-swap-off-bar-on | 1 | 1 | 801,800,81,1,81 | 800,800,C1,1,C1 | RESTORE_DISABLED |
+| successor-split-row-off | 1 | 1 | 801,800,81,1,81 | 800,800,81,1,C1 | NO_WRITE |
+| successor-split-row-on | 1 | 1 | 801,800,C1,1,C1 | 800,800,C1,1,81 | NO_WRITE |
 | removal-no-successor | 1 | 1 | 1742,1742,C1,1,C1 | - | NO_LEARN |
 | same-spell-on | 1 | 1 | 9001,9001,C1,1,C1 | 9001,9001,81,1,81 | NO_WRITE |
 | same-spell-off | 1 | 1 | 9001,9001,81,1,81 | 9001,9001,81,1,81 | NO_WRITE |
@@ -212,7 +214,7 @@ Check order for an in-scope call, per baseline chain: one baseline spell, active
 | already-enabled | 1 | 1 | 801,800,C1,1,C1 | 800,800,C1,1,C1 | NO_WRITE |
 <!-- DECISION-TABLE-END -->
 
-`rank-swap-on` is the #103 explicit ON drop, once the successor shares the chain key. `rank-swap-off-already` is the explicit OFF case where the learn default already equals the old byte, so the module has nothing to write. `removal-no-successor` is Cower `1742` and every empty dummy list. `chain-mismatch` is the DBC-unknown case. `same-spell-on` is a same-id flip, which this seam leaves alone so a click or another event-time `ToggleAutocast` on the same id is not overwritten one hook later.
+`rank-swap-on` is the #103 explicit ON drop, once the successor shares the chain key. `rank-swap-off-already` is the explicit OFF case where the learn default already equals the old byte, so the module has nothing to write. `rank-swap-off-bar-on` restores OFF when the successor row and bar are both `C1`. `successor-split-row-off` and `successor-split-row-on` are current books whose row and bar disagree, and they stay `NO_WRITE`. `removal-no-successor` is Cower `1742` and every empty dummy list. `chain-mismatch` is a successor whose chain key differs. The hunter families counted above share a key at the pin, so that row is the contract for a key this file does not link. `same-spell-on` is a same-id flip, which this seam leaves alone so a click or another event-time `ToggleAutocast` on the same id is not overwritten one hook later.
 
 ## Negative cases
 
@@ -228,6 +230,64 @@ Check order for an in-scope call, per baseline chain: one baseline spell, active
 - `InitPetActionBar` (`CharmInfo.cpp:52-64`) puts commands on slots 0–2, spells on indices 3–6 (`ACTION_BAR_INDEX_PET_SPELL_START` / `ACTION_BAR_INDEX_PET_SPELL_END`, `CharmInfo.h:54-55`), and reactions on slots 7–9. The bar length is 10 (`CharmInfo.h:56`). `IsActionBarForSpell` is true for `ACT_DISABLED`, `ACT_ENABLED`, and `ACT_PASSIVE` (`CharmInfo.h:103-107`), so only the four spell slots take a pet spell.
 - IP's `clear_ab` leaves the old slot as action `0`, type `ACT_DISABLED` (`CharmInfo.cpp:221`). That counts as an empty spell slot. `AddSpellToActionBar` (`CharmInfo.cpp:172-183`) fills the first empty spell slot, which is the cleared slot unless a lower spell slot was already empty. The restore does not move slots.
 - A full set of four spell slots (`AddSpellToActionBar` returns false, `CharmInfo.cpp:208`) is the `NO_BAR` path. How often a hunter pet fills all four is **UNKNOWN**.
+
+## S2 acceptance criteria
+
+The S2 writer is not started. This section is the gate for a later default-OFF patch. It is not that patch. In-game behaviour stays **NOT TESTED**. No production C++, config entry, SQL, or DBC is added here. Core, Individual Progression, and Playerbots stay unedited. PR #69 stays blocked.
+
+Acceptance is a source and synthetic contract. It is not a gameplay pass and not a worldserver link. The writer stays unstarted until CS01 and CS03 accept this S1 delta.
+
+### Post-write consistency
+
+**VERIFIED** as the shape of the pinned calls. Whether a later writer leaves a saved pet consistent is **NOT TESTED**.
+
+`Pet::ToggleAutocast` (`Pet.cpp:2247-2286`) returns without a write when the spell is missing or not autocastable. `ToggleAutocast(true)` is a no-op when the id is already in `m_autospells`, and that no-op leaves `m_spells[].active` unchanged. `ToggleAutocast(false)` is a no-op when the id is absent from `m_autospells`, and that no-op leaves `active` unchanged. `CharmInfo::SetSpellAutocast` (`CharmInfo.cpp:291-300`) changes the type of an existing spell slot whose action id equals the spell id. It does not create a slot.
+
+The decision table has no `m_autospells` column. A successor whose `active` byte and bar type disagree is `NO_WRITE` (`successor-split-row-off`, `successor-split-row-on`). A successor whose `m_autospells` membership disagrees with the `active` byte is `NO_WRITE` (`successor-split-vector`). The writer does not call `ToggleAutocast` to repair either split. Those no-op gates would leave the split in place.
+
+A call that does run is followed by a read of `active`, `m_autospells` membership, and the bar type. Disagreement is recorded as `NO_WRITE` and is not claimed as persistence. `NO_BAR` still creates no slot.
+
+On the IP learn path the successor is a consistent OFF, so `RESTORE_ENABLED` is not a no-op. `addSpell` stores `ACT_DISABLED` for an autocastable `ACT_DECIDE` (`Pet.cpp:1812-1813`). The closing `ToggleAutocast(spellInfo, false)` at `Pet.cpp:1889` does nothing, because the id was never pushed onto `m_autospells`. `AddSpellToActionBar` stores `ACT_DISABLED` for that `ACT_DECIDE`. The three stores agree on OFF. `ToggleAutocast(true)` then pushes the id and sets `ACT_ENABLED`, and `SetSpellAutocast(true)` sets the existing slot.
+
+### Hot-path filter order
+
+Both hooks run for every unit or world object on every map tick, on each map thread. The future scripts register only these hooks on the enabled-hook lists (`UnitScript` constructor, `UnitScript.h:57`; `WorldObjectScript` constructor, `WorldObjectScript.h:37`). `CALL_ENABLED_HOOKS` is `UnitScript.cpp:109` and `WorldObjectScript.cpp:54`.
+
+The synthetic tests execute this filter order:
+
+1. A cached config bool, read when config loads. The tick does not call `sConfigMgr`. A false cache returns with no allocation.
+2. `IsPet()` and `HUNTER_PET`. Any other unit returns with no allocation.
+3. Baseline storage is one `CustomData.GetDefault` struct (`DataMap.h:50-59`), mutated in place. The first call allocates. Later ticks do not. `DataMap::Set` (`DataMap.h:65`) replaces the object on every call and is not used on this path.
+4. `Pet::Update` already returns while `m_loading` is set (`Pet.cpp:659-660`), so these hooks do not run during load. The writer still refuses a loading pet.
+
+### Human-only fail-closed Playerbots check
+
+The check runs only when a restore is about to be written. The snapshot tick does not call it.
+
+`GET_PLAYERBOT_AI` is `sPlayerbotsMgr.GetPlayerbotAI` (`src/Script/Playerbots.h:31`). `IsRealPlayer` (`src/Bot/PlayerbotAI.cpp:4523-4528`) is true only for a player pointer with no `PlayerbotAI`. `PlayerbotsMgr::GetPlayerbotAI` (`src/Bot/PlayerbotMgr.cpp:1858-1875`) reads `_playerbotsAIMap` without a lock in that function (`:1868`). Login and logout erase and emplace that map (`:1828-1834`, `:1842-1845`). `src/Bot/PlayerbotMgr.cpp` and `src/Script/Playerbots.h` are byte-identical at `d750b4b3a50effdf22bedc8032f0e8e5f7cb8091` and `e88cc4099e69f35126b28942a412ca702d20453b`. The `.cpp` sha256 is `b5a5d7236af6e71312c8c89c10d0d1008ece4d86a3373eab8ab6fa06a9750610`.
+
+The owner states `MapUpdate.Threads = 8`. This note still has not read the live `worldserver.conf`, so the live value is **UNKNOWN**. Concurrent map threads are the reason that unlocked map is not read on every tick. Upstream already reads it from map threads. This design does not add a per-tick read.
+
+A missing `Playerbots.h` fails closed. The precedent in this module is `HallowsEndShadeOfTheHorseman.cpp:57`, where the header guard leaves `IsRealPlayer` false (`ReadOneBucketCaster`, `:110-120`). A missing header is not a human. Both the header-present path and the header-absent path are part of acceptance. The IP account regex is not a substitute.
+
+### `owner->GetPet() == pet`
+
+IP's event uses `player->GetPet()` (`IndividualProgressionSpells.cpp:1344`), the owner's current pet, rather than a pointer saved from the object whose `m_Events` ran. `Pet::Update` returns before `Creature::Update` when `m_removed` (`Pet.cpp:656-657`) and, for a living controlled pet, when `owner->GetPetGUID()` differs (`Pet.cpp:684-691`). The writer still requires `owner->GetPet() == pet` before a write. A mismatch is `NO_WRITE`.
+
+### Competing subscribers
+
+Same-thread order of `OnUnitUpdate` and `OnWorldObjectUpdate` does not make this module the last writer. Another `OnWorldObjectUpdate` that runs later can still change the bar. This module's sources do not define `OnUnitUpdate` or `OnWorldObjectUpdate`. Subscribers in the owner's other modules, and any Eluna scripts, are **UNKNOWN**. S2 does not add a process-global map or a world-thread poll. The acceptance record is that limitation.
+
+### Warlock pets
+
+Warlock pets are out of A02 scope. The scope check returns `OUT_OF_SCOPE`. `checkWarlockPetSpells` (`IndividualProgressionSpells.cpp:471-585`, called at `:1364`) uses the same reconcile shape, so a warlock demon can drop an autocast byte the same way. That drop is a **POTENTIAL ISSUE** for a future warlock design and is not an A02 fix. Four of those calls mix chain keys in the pinned `spell_ranks`, so extending this table would return `NO_LEARN` for the old key:
+
+| Mixed wipe | Keys at the pin |
+| --- | --- |
+| Devour Magic / Shadow Bite `19505` through `54053` | `19505` and `54049` |
+| Spell Lock `19244`, `19647`, `24259` | `19244`, and `24259` has no `spell_ranks` row |
+| Intercept `30151`, `30154`, `30199`, `30200` | `30151` and `30154` |
+| Cleave `30213`, `30214`, `30222`, `30224` | `30213` and `30214` |
 
 ## Rollback
 
@@ -260,10 +320,18 @@ With the key at `0`, the module does not read or write pet spells. Turning a fut
 | Source chain identity of Bite `17253` (11), Claw `16827` (11), Furious Howl `24604` (6), and Prowl `24450` (3), total 31, at blob `ca2ca5916cca570d219ff11088688eb4c80d24a6` | **VERIFIED** at the pin |
 | Owner live `acore_world.spell_ranks` | **UNKNOWN** |
 | `OnPetAddToWorld` / `OnInitStatsForLevel` run before the spell book is loaded | **VERIFIED** |
-| `OnUnitUpdate` then `m_Events` then `OnWorldObjectUpdate` inside one `Unit::Update` brackets the IP event | **VERIFIED** source order. Future writer **NOT TESTED** |
+| `OnUnitUpdate`, then `m_Events`, then `Heartbeat()`, then `OnWorldObjectUpdate` inside one `Unit::Update` brackets the IP event | **VERIFIED** source order. An override of `Heartbeat()` outside `Object.cpp`, `Unit.cpp`, and `Pet.cpp` is **UNKNOWN**. Future writer **NOT TESTED** |
 | Non-talent chain load is `spell_ranks` (`SpellMgr.cpp:1287`), not a `SpellChain.dbc` read in `LoadSpellRanks` | **VERIFIED** source. No DBC file was opened |
 | Playerbots `IsRealPlayer` and the Cower-off autocast action at both published SHAs | **VERIFIED**. The two local edits on top of `e88cc409` are **UNKNOWN** |
 | In-game autocast after IP, relog, resummon, or stable | **NOT TESTED** |
+| `ToggleAutocast` no-op gates and `SetSpellAutocast` existing-slot-only, at `Pet.cpp:2247-2286` and `CharmInfo.cpp:291-300` | **VERIFIED** source. Post-write persistence is **NOT TESTED** |
+| Successor row/bar split (`successor-split-row-off`, `successor-split-row-on`) and successor-split-vector | **NO_WRITE**. Synthetic model only. **NOT TESTED** in game |
+| Hot path: cached config bool, then hunter pet, `GetDefault` in place, no `DataMap::Set` on the tick | **VERIFIED** as the acceptance order. The writer is not started |
+| Human-only Playerbots read, only when a restore is about to be written; `_playerbotsAIMap` read without a lock in `GetPlayerbotAI` | **VERIFIED** source at both published Playerbots pins. Live `MapUpdate.Threads` **UNKNOWN**. Missing header fails closed |
+| `owner->GetPet() == pet` before a write | Required. Mismatch is `NO_WRITE`. **NOT TESTED** in game |
+| Competing `OnUnitUpdate` / `OnWorldObjectUpdate` subscribers in the owner's other modules | **UNKNOWN**. This module does not define those hooks. Hook order is not last-writer proof |
+| Warlock pets | Out of A02 scope. `OUT_OF_SCOPE`. Mixed warlock chains at the pin are a **POTENTIAL ISSUE** only for a future warlock design |
+| S2 writer | Not started |
 | PR #69 | Open draft, unchanged, still blocked |
 
 ## Commands
