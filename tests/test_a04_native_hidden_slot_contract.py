@@ -28,7 +28,7 @@ class GuardContract(unittest.TestCase):
         start = CPP.index("if (requestedSlot < normalCount)")
         end = CPP.index("auto const& personal = loot.GetPlayerQuestItems();", start)
         body = CPP[start:end]
-        self.assertIn("!RestrictHiddenOrdinarySlots()", body)
+        self.assertIn("!hiddenOrdinarySlotEnabled", body)
         self.assertIn("loot.items[requestedSlot]", body)
         self.assertIn("RejectHiddenOrdinarySlot(facts)", body)
         self.assertIn("return true;", body)
@@ -36,6 +36,13 @@ class GuardContract(unittest.TestCase):
         self.assertIn("return false;", body)
         self.assertNotIn("StoreNewItem", body)
         self.assertNotIn("roundRobinPlayer.Clear()", body)
+
+    def test_new_hidden_slot_flag_does_not_arm_legacy_quest_turn(self):
+        self.assertIn("bool legacyQuestTurnEnabled, bool hiddenOrdinarySlotEnabled", CPP)
+        self.assertIn("if (!legacyQuestTurnEnabled)\\n            return true;", CPP)
+        self.assertIn("if (!legacyQuestTurnEnabled && !hiddenOrdinarySlotEnabled)", CPP)
+        self.assertIn("NaxxramasQuestLootProtection::Enabled()", CPP)
+        self.assertIn("NaxxramasQuestLootProtection::RestrictHiddenOrdinarySlots()", CPP)
 
     def test_existing_quest_bucket_owner_guard_retained(self):
         for needle in (
