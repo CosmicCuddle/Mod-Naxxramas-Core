@@ -11,7 +11,7 @@ Exact GitHub source read: main `80e9de1c39a6dc995188a80c31a5e785d0f2a6f9` and fo
 | #120 P0/B10 | `599d1cbb211e6f108a2a6ff9fec78242ffe7a37c` | `AddBotGolemaggReachGuardScripts` |
 | #125 F12 Scarlet | `04367fb0f21da75f47af2bb3519c8a023df3b7eb` | `AddScarletMonasteryExitScripts` |
 | #127 F13 Atiesh | `d7fdfc44cd47a75b098818f58adeff82b0fe1373` | `AddAtieshKarazhanPortalScripts` |
-| #130 A02 Hunter | `d3c5a1d57268cc45fd3f1b1589667ebd97dfac17` | `AddHunterPetAutocastScripts` |
+| #130 A02 Hunter | `c4e861029ad6ca5d9d8155f5ac9c10247f6f03da` | `AddHunterPetAutocastScripts` |
 
 Every loader contains all **29 historical main declarations and 29 historical registrations**, plus its own one new symbol. Copying any one whole loader to combine the drafts loses the others. A04 candidate #129 has **no added loader symbol** and is **not accepted** as the reported human quest-loot functional fix.
 
