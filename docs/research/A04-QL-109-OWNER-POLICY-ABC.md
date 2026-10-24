@@ -40,7 +40,7 @@ Every member who still needs the quest gets their own copy. The friend's copy is
 
 **Gold and dice.** Coins stay shared. Rolled items stay on the roll.
 
-**How.** No existing check can create that second copy without changing the shared drop. The click check can only refuse a click. The loot-generation points that could mark a drop as one-per-player would edit the shared drop, which this note does not allow.
+**How.** The click/packet check (`CanPacketReceive`) cannot mint a copy. It can only refuse a click. B is potentially module-feasible at loot generation via `OnAfterLootTemplateProcess` (`LootMgr.cpp:563` on Grimfeather `8daffdabe`, after `tab->Process` at `LootMgr.cpp:561` and before `roundRobinPlayer` at `LootMgr.cpp:569` and `FillNotNormalLootFor` at `LootMgr.cpp:577` and `LootMgr.cpp:591`). That reuses the core `freeforall` / multi-drop per-player behaviour (`ITEM_FLAG_MULTI_DROP` at `LootMgr.cpp:400`; a `freeforall` quest line counts `unlootedCount` per eligible player at `LootMgr.cpp:683-685`). It requires separately authorised selection and scope, and native tests. The hook gets `LootStore const& store` (`MiscScript.h:84`), not the loot source object. `Loot::FillLoot` can take `WorldObject* lootSource` (`LootMgr.cpp:540`) and does not forward it. `loot_type` is not reliably `LOOT_CORPSE` at that point. `clear()` sets `LOOT_NONE` (`LootMgr.h:364`), and `Player::SendLoot` sets `loot->loot_type` later (`Player.cpp:8371`), before `OnPlayerBeforeSendLoot` (`Player.cpp:8383`). Creature corpses reach the hook from `Unit::Kill` (`Unit.cpp:13687`) before the window is sent. The same hook also runs for an item or container (`Player.cpp:8142-8177`), skinning (`Player.cpp:8308`), and pickpocket (`Player.cpp:8245`). It must not affect those, or an existing `MULTI_DROP`. It must preserve `unlootedCount`, viewer ordering, and master/roll rules. This does not choose or approve B. It is not Michael's decision.
 
 **Proven in the source.** A one-copy quest line is counted once. A multi-drop line is counted per player. **Unresolved:** whether the extra items are wanted. Not tried on a running server.
 
@@ -66,6 +66,6 @@ The one copy is reserved for a named player, such as the person who still has th
 
 ## Note for CS03 to review — not chosen
 
-If the owner wants the friend's human click stopped without creating extra items, A or C can use the existing single-slot click check, and B cannot, because a personal copy changes the shared drop.
+If the owner wants the friend's human click stopped without creating extra items, A or C can use the existing single-slot click check. The click check cannot mint a copy. B would use the generation-time hook instead. This note does not choose or approve B, and it is not Michael's decision.
 
 The five-case table is `docs/research/A04-QL-109-DECISION-TABLE.md`. It does not choose A, B, or C.

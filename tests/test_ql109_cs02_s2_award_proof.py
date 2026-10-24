@@ -35,8 +35,10 @@ CONCLUSION = (
 )
 POLICY_NOTE = (
     "If the owner wants the friend's human click stopped without creating "
-    "extra items, A or C can use the existing single-slot click check, and "
-    "B cannot, because a personal copy changes the shared drop."
+    "extra items, A or C can use the existing single-slot click check. "
+    "The click check cannot mint a copy. B would use the generation-time "
+    "hook instead. This note does not choose or approve B, and it is not "
+    "Michael's decision."
 )
 
 CORE_SHA = "8daffdabe9202c228e45d833c9a1d399597a15cd"
@@ -1338,7 +1340,18 @@ class AwardPathTests(unittest.TestCase):
         ):
             self.assertGreaterEqual(text.count(phrase), 3, phrase)
         self.assertIn("does not rewrite the shared item", text)
-        self.assertIn("without changing the shared drop", text)
+        self.assertIn("The click/packet check (`CanPacketReceive`) cannot mint a copy.", text)
+        self.assertIn("potentially module-feasible at loot generation", text)
+        self.assertIn("OnAfterLootTemplateProcess", text)
+        self.assertIn("`LootMgr.cpp:563`", text)
+        self.assertIn("LootStore const& store", text)
+        self.assertIn("not reliably `LOOT_CORPSE`", text)
+        self.assertIn("separately authorised selection and scope", text)
+        self.assertIn("does not choose or approve B", text)
+        self.assertIn("not Michael's decision", text)
+        self.assertIn("must not affect those, or an existing `MULTI_DROP`", text)
+        self.assertNotIn("without changing the shared drop", text)
+        self.assertNotIn("would edit the shared drop", text)
         self.assertNotIn("src/", text)
         words = len(text.split())
         self.assertLess(words, 1200)
@@ -1487,6 +1500,13 @@ class AwardPathTests(unittest.TestCase):
             "Whether it should: UNKNOWN",
             "How far B extends onto this row: UNKNOWN",
             "B must not mint a second copy",
+            "The click check cannot mint a copy.",
+            "B would use the generation-time hook instead",
+            "OnAfterLootTemplateProcess",
+            "LootMgr.cpp:563",
+            "does not choose or approve B",
+            "It is not Michael's decision.",
+            "Other `FillLoot` callers outside those two files: UNKNOWN",
             "Naming one owner here would take the other human's copy",
             "NOT TESTED",
             "UNKNOWN",
