@@ -87,6 +87,28 @@ int main()
             "own entrance on wrong map fails closed");
     }
 
+    // Every other entrance is a required witness (CS01 #125 review).
+    {
+        Point const cathedral = FindDoorTarget(604)->Where;
+        TriggerShape const all[] = { GRAVEYARD, LIBRARY, ARMORY };
+        Check(TargetIsSafe(cathedral, CATHEDRAL, all, 3), "all witnesses present -> safe");
+        for (int i = 0; i < 3; ++i)
+        {
+            TriggerShape missing[] = { GRAVEYARD, LIBRARY, ARMORY };
+            missing[i] = TriggerShape();
+            Check(!TargetIsSafe(cathedral, CATHEDRAL, missing, 3),
+                "missing other entrance fails closed");
+
+            TriggerShape wrong[] = { GRAVEYARD, LIBRARY, ARMORY };
+            wrong[i].Map = 189;
+            Check(!TargetIsSafe(cathedral, CATHEDRAL, wrong, 3),
+                "other entrance on wrong map fails closed");
+        }
+        // Swapped-wing falsifier: the Armory point judged as the Cathedral's.
+        Check(!TargetIsSafe(FindDoorTarget(606)->Where, CATHEDRAL, all, 3),
+            "Armory point with Cathedral as own entrance is rejected");
+    }
+
     // Box trigger: Karazhan outdoor entrance 4131 (areatrigger.sql L453).
     {
         TriggerShape box;

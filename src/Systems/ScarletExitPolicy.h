@@ -101,6 +101,9 @@ namespace NaxxramasScarletExitPolicy
     // The built-in point is trusted only if the live entrance rows confirm
     // it lands outside its own door (no bounce back in), outside every other
     // SM entrance, and nearer its own door than any other (no wing swap).
+    // Every entrance row is a required witness: if any is missing or not on
+    // map 0, the point is not trusted (callers fall back to the live row or
+    // stock; nothing is invented).
     inline bool TargetIsSafe(Point const& target, TriggerShape const& own,
         TriggerShape const* others, std::size_t otherCount)
     {
@@ -113,7 +116,7 @@ namespace NaxxramasScarletExitPolicy
         {
             TriggerShape const& other = others[i];
             if (!other.Present || other.Map != EXIT_MAP)
-                continue;
+                return false;
 
             if (InsideTrigger(target, other, SAFETY_MARGIN) ||
                 Distance(target, other) <= ownDistance)

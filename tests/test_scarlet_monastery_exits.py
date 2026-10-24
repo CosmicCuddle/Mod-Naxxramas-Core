@@ -134,6 +134,11 @@ class Boundaries(unittest.TestCase):
         self.assertIn("{ 606, 612, { 2885.96f, -835.802f, 160.327f, 0.349066f } }", POLICY)
         self.assertEqual(POLICY.count("{ 60"), 2)
 
+    def test_every_other_entrance_is_a_required_witness(self):
+        body = function_body(POLICY, "inline bool TargetIsSafe(Point const& target, TriggerShape const& own,")
+        self.assertIn("if (!other.Present || other.Map != EXIT_MAP)\n                return false;", body)
+        self.assertNotIn("continue;", body)
+
     def test_entrances_cover_all_four_wings(self):
         self.assertIn("SM_ENTRANCES[] = { 45, 610, 612, 614 }", POLICY)
 

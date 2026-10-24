@@ -22,8 +22,11 @@ The Vanilla-core points come from MaNGOS Zero `database` `325948a` and
 cMaNGOS `classic-db` `4e3d118` (identical in both). They are used only after
 the live entrance rows confirm the point is outside its own door by the
 door's radius + 1 yd, outside every other Scarlet Monastery entrance, and
-nearer its own door than any other. Otherwise the live
-`areatrigger_teleport` row is used. Applies at every Individual
+nearer its own door than any other. All four entrance rows (45, 610, 612,
+614) must be present on map 0 to serve as witnesses; if any is missing or
+on another map, the point is not trusted. Otherwise the live
+`areatrigger_teleport` row is used (Dungeon Finder path) or the stock
+handler runs (normal exit). Applies at every Individual
 Progression stage.
 
 ## How
