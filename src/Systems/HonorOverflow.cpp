@@ -29,7 +29,6 @@
 
 #include <algorithm>
 #include <sstream>
-#include <unordered_map>
 
 namespace
 {
@@ -38,21 +37,24 @@ namespace
     bool HonorOverflowNotify = true;
     bool HonorOverflowIncludeBots = false;
 
-    struct HonorSnapshot
+    // Per-player state lives in Player::CustomData, not in a shared map.
+    // Player hooks run on parallel map threads (MapUpdate.Threads > 1), and
+    // each Player is only updated by the thread of its current map.
+    constexpr char const* HONOR_SNAPSHOT_KEY = "NaxxramasCore.HonorOverflow.Snapshot";
+    constexpr char const* BG_SUMMARY_KEY = "NaxxramasCore.HonorOverflow.BattlegroundSummary";
+
+    struct HonorSnapshot final : DataMap::Base
     {
         uint32 Honor = 0;
         uint32 TodayContribution = 0;
     };
 
-    struct BattlegroundHonorSummary
+    struct BattlegroundHonorSummary final : DataMap::Base
     {
         uint64 ExcessHonor = 0;
         uint64 RequestedCopper = 0;
         uint64 AwardedCopper = 0;
     };
-
-    std::unordered_map<ObjectGuid::LowType, HonorSnapshot> HonorSnapshots;
-    std::unordered_map<ObjectGuid::LowType, BattlegroundHonorSummary> BattlegroundHonorSummaries;
 
     bool IsPlayerBot(Player* player)
     {
@@ -102,11 +104,12 @@ namespace
 
     void StoreHonorSnapshot(Player* player)
     {
-        HonorSnapshots[player->GetGUID().GetCounter()] =
-        {
-            player->GetHonorPoints(),
-            player->GetUInt32Value(PLAYER_FIELD_TODAY_CONTRIBUTION)
-        };
+        HonorSnapshot* snapshot =
+            player->CustomData.GetDefault<HonorSnapshot>(HONOR_SNAPSHOT_KEY);
+
+        snapshot->Honor = player->GetHonorPoints();
+        snapshot->TodayContribution =
+            player->GetUInt32Value(PLAYER_FIELD_TODAY_CONTRIBUTION);
     }
 
     void AddBattlegroundSummary(
@@ -116,7 +119,7 @@ namespace
         uint32 awardedCopper)
     {
         BattlegroundHonorSummary& summary =
-            BattlegroundHonorSummaries[player->GetGUID().GetCounter()];
+            *player->CustomData.GetDefault<BattlegroundHonorSummary>(BG_SUMMARY_KEY);
 
         summary.ExcessHonor += excessHonor;
         summary.RequestedCopper += requestedCopper;
@@ -128,14 +131,13 @@ namespace
         if (!player)
             return;
 
-        ObjectGuid::LowType guid = player->GetGUID().GetCounter();
-
-        auto itr = BattlegroundHonorSummaries.find(guid);
-        if (itr == BattlegroundHonorSummaries.end())
+        BattlegroundHonorSummary const* stored =
+            player->CustomData.Get<BattlegroundHonorSummary>(BG_SUMMARY_KEY);
+        if (!stored)
             return;
 
-        BattlegroundHonorSummary summary = itr->second;
-        BattlegroundHonorSummaries.erase(itr);
+        BattlegroundHonorSummary summary = *stored;
+        player->CustomData.Erase(BG_SUMMARY_KEY);
 
         if (!HonorOverflowNotify || !player->GetSession() || summary.ExcessHonor == 0)
             return;
@@ -170,26 +172,25 @@ namespace
         if (!player)
             return;
 
-        ObjectGuid::LowType guid = player->GetGUID().GetCounter();
-
         uint32 currentHonor = player->GetHonorPoints();
         uint32 currentTodayContribution =
             player->GetUInt32Value(PLAYER_FIELD_TODAY_CONTRIBUTION);
 
-        auto itr = HonorSnapshots.find(guid);
+        HonorSnapshot* stored =
+            player->CustomData.Get<HonorSnapshot>(HONOR_SNAPSHOT_KEY);
 
-        if (itr == HonorSnapshots.end())
+        if (!stored)
         {
             StoreHonorSnapshot(player);
             return;
         }
 
-        HonorSnapshot previous = itr->second;
+        HonorSnapshot previous = *stored;
 
         // Update the snapshot immediately so every check starts
         // from the latest known values.
-        itr->second.Honor = currentHonor;
-        itr->second.TodayContribution = currentTodayContribution;
+        stored->Honor = currentHonor;
+        stored->TodayContribution = currentTodayContribution;
 
         if (!HonorOverflowEnabled || HonorOverflowCopperPerHonor == 0)
             return;
@@ -345,16 +346,15 @@ public:
         StoreHonorSnapshot(player);
 
         // A fresh login should never inherit an old in-memory BG summary.
-        BattlegroundHonorSummaries.erase(
-            player->GetGUID().GetCounter());
+        player->CustomData.Erase(BG_SUMMARY_KEY);
     }
 
     void OnPlayerLogout(Player* player) override
     {
-        ObjectGuid::LowType guid = player->GetGUID().GetCounter();
-
-        HonorSnapshots.erase(guid);
-        BattlegroundHonorSummaries.erase(guid);
+        // CustomData is destroyed with the Player; erasing here keeps the
+        // previous logout semantics explicit.
+        player->CustomData.Erase(HONOR_SNAPSHOT_KEY);
+        player->CustomData.Erase(BG_SUMMARY_KEY);
     }
 
     void OnPlayerUpdate(Player* player, uint32 /*diff*/) override
