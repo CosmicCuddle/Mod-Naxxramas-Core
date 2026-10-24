@@ -46,10 +46,11 @@ namespace NaxxramasQuestLootProtection
     }
 
     // Return true to leave this request to normal AzerothCore validation.
-    // The only false path is a verified one-copy creature quest drop whose
-    // round-robin owner is still grouped, eligible, in the world, and on
-    // the same live map and instance as the looter and corpse.
-    bool PermitPickup(Player* player, uint8 requestedSlot)
+    // The legacy one-copy quest-turn guard and the new ordinary hidden-slot
+    // parity candidate have INDEPENDENT default-OFF switches. Neither
+    // requires enabling the other; all supported source/method checks stay.
+    bool PermitPickup(Player* player, uint8 requestedSlot,
+        bool legacyQuestTurnEnabled, bool hiddenOrdinarySlotEnabled)
     {
         if (!player || !player->IsInWorld() || !player->GetMap())
             return true;
@@ -93,7 +94,7 @@ namespace NaxxramasQuestLootProtection
             // REVIEW-ONLY candidate: there is a native difference between
             // ordinary-item loot window visibility and its store-time check.
             // Never reinterpret normal quest-collection items as personal.
-            if (!RestrictHiddenOrdinarySlots())
+            if (!hiddenOrdinarySlotEnabled)
                 return true;
 
             LootItem const& item = loot.items[requestedSlot];
@@ -160,6 +161,11 @@ namespace NaxxramasQuestLootProtection
             player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED);
             return false;
         }
+
+        // A stock-compatible ordinary-slot pilot must NOT implicitly arm
+        // the older, non-stock one-copy quest-turn protection.
+        if (!legacyQuestTurnEnabled)
+            return true;
 
         auto const& personal = loot.GetPlayerQuestItems();
         auto const found = personal.find(player->GetGUID());
@@ -288,8 +294,13 @@ public:
         // The hook runs for every incoming opcode. Fast-exit unrelated
         // packets before any ConfigMgr lookup or WorldSession inspection.
         if (packet.GetOpcode() != CMSG_AUTOSTORE_LOOT_ITEM ||
-            !NaxxramasQuestLootProtection::Enabled() ||
             !session || !session->GetPlayer() || packet.size() < 1)
+            return true;
+
+        bool const legacyQuestTurnEnabled = NaxxramasQuestLootProtection::Enabled();
+        bool const hiddenOrdinarySlotEnabled =
+            NaxxramasQuestLootProtection::RestrictHiddenOrdinarySlots();
+        if (!legacyQuestTurnEnabled && !hiddenOrdinarySlotEnabled)
             return true;
 
         // WorldPacket(copy) preserves the caller's original read cursor.
@@ -302,7 +313,8 @@ public:
         uint8 requestedSlot = 0;
         copy >> requestedSlot;
         return NaxxramasQuestLootProtection::PermitPickup(
-            session->GetPlayer(), requestedSlot);
+            session->GetPlayer(), requestedSlot,
+            legacyQuestTurnEnabled, hiddenOrdinarySlotEnabled);
     }
 };
 
