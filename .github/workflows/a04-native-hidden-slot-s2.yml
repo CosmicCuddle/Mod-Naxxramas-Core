@@ -1,0 +1,42 @@
+name: A04 native hidden ordinary-slot stock parity prototype
+
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/QuestLootProtection.cpp'
+      - 'src/Systems/QuestLootNormalSlotPolicy.h'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/quest_loot_normal_slot_policy.cpp'
+      - 'tests/test_a04_native_hidden_slot_contract.py'
+      - 'docs/research/A04-NATIVE-HIDDEN-SLOT-S2-PROTOTYPE.md'
+      - '.github/workflows/a04-native-hidden-slot-s2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-and-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Confirm exact head
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+      - name: Source contract and both default OFF gates
+        run: python3 -m unittest discover -s tests -p 'test_a04_native_hidden_slot_contract.py' -v
+      - name: Native decision tests C++17 and C++20
+        run: |
+          for std in c++17 c++20; do
+            g++ -std="$std" -Wall -Wextra -Werror -pedantic -Isrc/Systems tests/quest_loot_normal_slot_policy.cpp -o "/tmp/naxx-a04-$std"
+            "/tmp/naxx-a04-$std"
+          done
+      - name: No server launch, DB read or test artifact
+        run: |
+          echo 'A04 source + dependency-free native candidate only; NOT a pinned linked Worldserver or gameplay pass.'
