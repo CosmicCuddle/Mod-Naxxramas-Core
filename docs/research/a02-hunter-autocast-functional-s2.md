@@ -6,6 +6,8 @@
 
 The S1 contract remains `docs/research/a02-hunter-autocast-functional-s1.md`. This note only records the writer that contract authorised.
 
+A later pass on this branch checks the session, holder-lock, and login-hook avenues this note left open. No positive human signal was found. Runtime is unchanged. The API proposal, which still needs the owner's separate approval, is `docs/research/a02-hunter-autocast-positive-human-signal.md`. Allowlist S2b is not approved.
+
 ## What the module does
 
 `NaxxramasCore.HunterPetAutocast.RestoreHumanChain` is 0 in `conf/mod_naxxramas_core.conf.dist`. The C++ fallback passed to `GetOption<bool>` is `false`. The cached flag starts false. Both hooks return on that flag before a pet read, a config lookup, or a `CustomData` allocation.
