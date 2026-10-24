@@ -37,6 +37,14 @@ The pure `QuestLootNormalSlotPolicy.h` decision is native-testable without a run
 
 **Important limitation:** This is intended to reject only an *invisible* ordinary item slot request, not arbitrary human group quest pickup. It will **not solve an unintended quest item erroneously flagged as ordinary and still visible to an eligible turn-holder**, nor a Playerbot direct award/GO/master/roll bypass. It cannot be called the first full functional fix without item-level evidence tying it to the reported complaint.
 
+## Map-thread safety correction (source-backed, review required)
+
+At pinned Grimfeather core `8daffdabe9202c228e45d833c9a1d399597a15cd`, `src/server/game/Globals/ObjectAccessor.h` directly documents the **global** `ObjectAccessor::FindPlayer` family as **"ACCESS LIKE THAT IS NOT THREAD SAFE"**. Although `HashMapHolder<Player>::Find` takes a `shared_lock` during its map lookup, the returned `Player*` is examined **after that lock is released**. Do not treat the lock as proof that out-of-map player field reads/lifetime are safe on an eight-map-thread server.
+
+The **new ordinary-slot pilot only** now uses `ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer)`, which is the documented map-scoped overload. Its pinned implementation wraps `GetPlayer(player.GetMap(), guid)` and returns a player only when `player->IsInWorld()` and their map object equals that argument. The prototype then separately checks same group, same map/instance with corpse and requester, failing **open** to native whenever any fact is absent or mismatched.
+
+**Important limit:** Map-scoping is a risk reduction and stronger source constraint, **not** a proof that arbitrary packet callback execution and player destruction are synchronized. Before any default-ON behavior, independently verify handler thread affinity / logout ordering at the user's actual core and Playerbots pins, under their eight-map-thread configuration. If no safe guarantee exists, leave both flags OFF and revise the design. The older independently switched legacy quest-only guard still contains its existing global `FindPlayer`; it was not silently modified by this prototype. When checking the new path, the source regression must reject any global `FindPlayer` inside the new ordinary-slot branch while retaining the older implementation unchanged for a separate review.
+
 ## Verification and go/no-go
 
 1. Validate `tests/quest_loot_normal_slot_policy.cpp` with C++17 and C++20, warnings as errors, and `tests/test_a04_native_hidden_slot_contract.py` on **exact SHA** (pure policy/source test, NOT server link).
