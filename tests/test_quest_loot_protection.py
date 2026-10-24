@@ -425,8 +425,8 @@ class QuestLootProtectionContract(unittest.TestCase):
         # New pilot is independent: ON alone must never arm the older
         # quest-turn denial, and either switch OFF remains stock in its
         # own branch.
-        self.assertIn("if (!legacyQuestTurnEnabled)\\n            return true;", CPP)
-        self.assertIn("if (!hiddenOrdinarySlotEnabled)\\n                return true;", CPP)
+        self.assertIn("if (!legacyQuestTurnEnabled)\n            return true;", CPP)
+        self.assertIn("if (!hiddenOrdinarySlotEnabled)\n                return true;", CPP)
         self.assertNotIn("packet >> requestedSlot", CPP)
         # Trailing bytes are not a model bypass. Live packet bytes are not sent.
         self.assertFalse(modeled_pickup(padded=True))
