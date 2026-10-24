@@ -197,8 +197,8 @@ def main():
         print("Loader/default-config source gate PASS ONLY; still need CMake, pinned full link, "
               "functional A02/A04, reviews, owner backup/approval.")
         return 0
-    unittest.main(module=__name__, argv=[sys.argv[0]], exit=False)
-    return 0
+    result = unittest.main(module=__name__, argv=[sys.argv[0]], exit=False).result
+    return 0 if result.wasSuccessful() else 1
 
 
 if __name__ == "__main__":
