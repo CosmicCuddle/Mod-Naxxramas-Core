@@ -17,13 +17,16 @@ from __future__ import annotations
 
 import re
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD_PATH = ROOT / "src" / "Systems" / "QuestLootProtection.cpp"
 DOC_PATH = ROOT / "docs" / "research" / "A04-QL-109-CS02-S2-AWARD-PROOF.md"
 POLICY_PATH = ROOT / "docs" / "research" / "A04-QL-109-OWNER-POLICY-ABC.md"
+TABLE_PATH = ROOT / "docs" / "research" / "A04-QL-109-DECISION-TABLE.md"
+WORKFLOW_PATH = ROOT / ".github" / "workflows" / "naxx-a04-ql109-cs02-s2-award.yml"
+CONF_DIST = ROOT / "conf" / "mod_naxxramas_core.conf.dist"
 CONCLUSION = (
     "No hook inside `StoreLootItem`. For human socket pickups the existing "
     "`CanPacketReceive` guard can reject a single slot, so closing "
@@ -621,6 +624,75 @@ def hook_named(name: str) -> Hook:
 
 FRIEND = "friend"
 OWNER = "owner"
+
+
+def decision_scene(
+    case_id: str,
+    method: str = "ROUND_ROBIN",
+    items_multidrop: bool = False,
+) -> Scene:
+    """The five CS01 cases, modeled against today's PermitPickup guard.
+
+    (i) friend holds the turn and needs the one-copy quest line.
+    (ii) owner holds the turn and no longer needs it; the friend still does.
+    (iii) the turn is cleared.
+    (iv) the only line is an unconditional under-threshold loot.items row
+    with QuestRequired = 0. The friend is not the holder.
+    (v) both humans qualify for ITEM_FLAG_MULTI_DROP. The friend is not
+    the holder. items_multidrop selects the loot.items bucket.
+    """
+    if case_id == "i":
+        return Scene(case_id, method, FRIEND, FRIEND, True, True, one_copy_quest())
+    if case_id == "ii":
+        return Scene(case_id, method, OWNER, FRIEND, True, False, one_copy_quest())
+    if case_id == "iii":
+        return Scene(case_id, method, None, FRIEND, True, True, one_copy_quest())
+    if case_id == "iv":
+        return Scene(case_id, method, OWNER, FRIEND, True, True, quest_required_zero())
+    if case_id == "v":
+        line = (
+            LootLine("items", False, freeforall=True)
+            if items_multidrop
+            else LootLine("quest", True, freeforall=True)
+        )
+        return Scene(case_id, method, OWNER, FRIEND, True, True, line)
+    raise AssertionError(case_id)
+
+
+def current_guard_token(scene: Scene) -> tuple[str, str]:
+    """Effect of today's guard plus the first permit/deny site.
+
+    socket deny is a false CanPacketReceive. A hide is a missing row and
+    no sparkle. personal-copy is a freeforall store with the row still shown.
+    permit-and-show stores the one shared copy while the row stays visible.
+    """
+    row = trace(scene)
+    if row.guard == "deny":
+        effect = "socket-deny"
+    elif row.personal_copy and row.sparkle and row.slot == "ALLOW_LOOT":
+        effect = "personal-copy"
+    elif row.slot is None and not row.sparkle and row.guard != "deny":
+        effect = "hide-not-socket-deny"
+    elif (
+        row.sparkle
+        and row.slot == "ALLOW_LOOT"
+        and row.shared_consumed
+        and row.guard != "deny"
+    ):
+        effect = "permit-and-show"
+    else:
+        raise AssertionError((scene.case_id, row))
+    return effect, row.guard_site
+
+
+CURRENT_GUARD_TOKENS = {
+    "i": ("permit-and-show", "QuestLootProtection.cpp:75"),
+    "ii": ("permit-and-show", "QuestLootProtection.cpp:177"),
+    "iii": ("permit-and-show", "QuestLootProtection.cpp:74"),
+    "iv": ("hide-not-socket-deny", "QuestLootProtection.cpp:82"),
+    "v-quest": ("personal-copy", "QuestLootProtection.cpp:102"),
+    "v-items": ("personal-copy", "QuestLootProtection.cpp:82"),
+}
 
 
 def scene_h09_friend(**kwargs: object) -> Scene:
@@ -1240,6 +1312,11 @@ class AwardPathTests(unittest.TestCase):
         self.assertIn("LootMgr.cpp:1154", doc)
         self.assertIn("Player.cpp:13941", doc)
         self.assertIn("Opcodes.h:294", doc)
+        self.assertIn("not merely visual", doc)
+        self.assertIn("Enabled() default is false", doc)
+        self.assertIn("actually loaded config/binary is UNKNOWN", doc)
+        self.assertIn("A04-QL-109-DECISION-TABLE.md", doc)
+        self.assertIn("No owner policy is chosen", doc)
 
     def test_owner_policy_note_is_not_a_choice(self) -> None:
         text = POLICY_PATH.read_text(encoding="utf-8")
@@ -1248,6 +1325,8 @@ class AwardPathTests(unittest.TestCase):
         self.assertIn("## C — Name one owner", text)
         self.assertIn("not chosen", text.lower())
         self.assertIn(POLICY_NOTE, text)
+        self.assertIn("docs/research/A04-QL-109-DECISION-TABLE.md", text)
+        self.assertIn("It does not choose A, B, or C.", text)
         for phrase in (
             "Does the friend still take it?",
             "Vanilla and the economy.",
@@ -1264,6 +1343,173 @@ class AwardPathTests(unittest.TestCase):
         words = len(text.split())
         self.assertLess(words, 1200)
         self.assertGreater(words, 500)
+
+    def test_decision_cases_match_current_guard_and_not_a_hide_or_deny(self) -> None:
+        scenes = {
+            "i": decision_scene("i"),
+            "ii": decision_scene("ii"),
+            "iii": decision_scene("iii"),
+            "iv": decision_scene("iv"),
+            "v-quest": decision_scene("v"),
+            "v-items": decision_scene("v", items_multidrop=True),
+        }
+        for key, scene in scenes.items():
+            self.assertEqual(current_guard_token(scene), CURRENT_GUARD_TOKENS[key], key)
+            auto = trace(replace(scene, path="autoloot"))
+            manual = trace(scene)
+            self.assertEqual(auto.stages(), manual.stages())
+            self.assertEqual(auto.opcode, AUTOSTORE)
+            self.assertEqual(manual.opcode, AUTOSTORE)
+        for method in ("ROUND_ROBIN", "GROUP_LOOT", "NEED_BEFORE_GREED"):
+            for key, case_id, items in (
+                ("i", "i", False),
+                ("ii", "ii", False),
+                ("iii", "iii", False),
+                ("iv", "iv", False),
+                ("v-quest", "v", False),
+                ("v-items", "v", True),
+            ):
+                row = current_guard_token(
+                    decision_scene(case_id, method=method, items_multidrop=items)
+                )
+                self.assertEqual(row, CURRENT_GUARD_TOKENS[key], (key, method))
+
+    def test_decision_case_i_ii_iii_store_the_shared_copy_without_hiding(self) -> None:
+        for case_id in ("i", "ii", "iii"):
+            row = trace(decision_scene(case_id))
+            self.assertTrue(row.sparkle, case_id)
+            self.assertEqual(row.slot, "ALLOW_LOOT", case_id)
+            self.assertNotEqual(row.guard, "deny", case_id)
+            self.assertEqual(row.award, "stored_shared_consumed", case_id)
+            self.assertTrue(row.shared_consumed, case_id)
+            self.assertFalse(row.personal_copy, case_id)
+
+    def test_decision_case_iv_hides_the_row_and_still_stores_a_packet(self) -> None:
+        row = trace(decision_scene("iv"))
+        self.assertFalse(row.sparkle)
+        self.assertIsNone(row.slot)
+        self.assertEqual(row.guard, "permit_normal_slot")
+        self.assertEqual(row.guard_site, "QuestLootProtection.cpp:82")
+        self.assertNotEqual(row.guard, "deny")
+        self.assertEqual(row.award, "stored_shared_consumed")
+        self.assertTrue(row.shared_consumed)
+        off = trace(replace(decision_scene("iv"), guard_enabled=False))
+        self.assertEqual(off.guard, "permit_disabled")
+        self.assertEqual(off.guard_site, "QuestLootProtection.cpp:211")
+        self.assertFalse(off.sparkle)
+        self.assertIsNone(off.slot)
+        self.assertEqual(off.award, "stored_shared_consumed")
+
+    def test_decision_case_v_both_humans_keep_a_personal_copy(self) -> None:
+        for items in (False, True):
+            friend = trace(decision_scene("v", items_multidrop=items))
+            holder = trace(
+                replace(
+                    decision_scene("v", items_multidrop=items),
+                    clicker=OWNER,
+                    case_id="v-holder",
+                )
+            )
+            for row in (friend, holder):
+                self.assertTrue(row.sparkle)
+                self.assertEqual(row.slot, "ALLOW_LOOT")
+                self.assertNotEqual(row.guard, "deny")
+                self.assertEqual(row.award, "stored_personal_copy")
+                self.assertTrue(row.personal_copy)
+                self.assertFalse(row.shared_consumed)
+            self.assertEqual(
+                holder.guard_site,
+                "QuestLootProtection.cpp:75",
+            )
+            self.assertEqual(
+                friend.guard_site,
+                "QuestLootProtection.cpp:82" if items else "QuestLootProtection.cpp:102",
+            )
+
+    def test_decision_socket_deny_is_a_different_scene_and_does_not_hide(self) -> None:
+        row = trace(Scene(
+            "holder-still-needs",
+            "ROUND_ROBIN",
+            OWNER,
+            FRIEND,
+            True,
+            True,
+            one_copy_quest(),
+        ))
+        self.assertEqual(row.guard, "deny")
+        self.assertEqual(row.guard_site, "QuestLootProtection.cpp:194")
+        self.assertTrue(row.sparkle)
+        self.assertEqual(row.slot, "ALLOW_LOOT")
+        self.assertEqual(row.award, "not_reached")
+        self.assertFalse(row.shared_consumed)
+        for case_id in ("i", "ii", "iii", "iv", "v"):
+            self.assertNotEqual(trace(decision_scene(case_id)).guard, "deny", case_id)
+
+    def test_enabled_default_false_does_not_socket_deny_the_five_cases(self) -> None:
+        guard = GUARD_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            '"NaxxramasCore.QuestLootProtection.Enabled", false',
+            guard,
+        )
+        conf = CONF_DIST.read_text(encoding="utf-8")
+        self.assertIn("NaxxramasCore.QuestLootProtection.Enabled = 0", conf)
+        for case_id in ("i", "ii", "iii", "iv", "v"):
+            row = trace(replace(decision_scene(case_id), guard_enabled=False))
+            self.assertEqual(row.guard, "permit_disabled", case_id)
+            self.assertEqual(row.guard_site, "QuestLootProtection.cpp:211", case_id)
+            self.assertNotEqual(row.award, "not_reached", case_id)
+
+    def test_decision_table_pins_effects_labels_and_publishes_nothing(self) -> None:
+        text = TABLE_PATH.read_text(encoding="utf-8")
+        found = {
+            key: (effect, site)
+            for key, effect, site in re.findall(
+                r"^(i|ii|iii|iv|v-quest|v-items) "
+                r"(permit-and-show|hide-not-socket-deny|personal-copy) "
+                r"(QuestLootProtection\.cpp:\d+)\s*$",
+                text,
+                re.M,
+            )
+        }
+        self.assertEqual(found, CURRENT_GUARD_TOKENS)
+        for phrase in (
+            "The owner reported successful human pickups, so they are not merely visual.",
+            "The module Enabled() default is false, so the owner's actually loaded config/binary is UNKNOWN.",
+            "No owner policy is chosen.",
+            "Not a socket deny. Not a hide. The friend stores the one shared copy. VERIFIED `QuestLootProtection.cpp:75`",
+            "VERIFIED `QuestLootProtection.cpp:177-179`",
+            "VERIFIED `LootHandler.cpp:459-461`",
+            "Hide of the row and the sparkle. Not a socket deny.",
+            "Not a socket deny. Not a hide. Each human stores a personal copy.",
+            "Socket deny. Not a hide. C would refuse the friend's click",
+            "Whether the friend's click is a socket deny is UNKNOWN",
+            "When both humans still need it, which person that is: UNKNOWN",
+            "Whether it should: UNKNOWN",
+            "How far B extends onto this row: UNKNOWN",
+            "B must not mint a second copy",
+            "Naming one owner here would take the other human's copy",
+            "NOT TESTED",
+            "UNKNOWN",
+            "VERIFIED",
+            "CMSG_AUTOSTORE_LOOT_ITEM",
+            "QuestLootProtection.cpp:194",
+            "QuestLootProtection.cpp:211",
+            "8daffdabe9202c228e45d833c9a1d399597a15cd",
+            MODULE_BLOB,
+            "No cell here is an in-game pass.",
+        ):
+            self.assertIn(phrase, text, phrase)
+        self.assertNotIn("PASS", text)
+        self.assertNotIn("gameplay pass", text.lower())
+        # A, B, and C are not labeled as running code.
+        for option in ("A — keep one copy", "B — personal copies", "C — named owner"):
+            self.assertIn(option, text)
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("upload-artifact", workflow)
+        self.assertNotIn("actions/upload", workflow)
+        self.assertIn("A04-QL-109-DECISION-TABLE.md", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertIn("persist-credentials: false", workflow)
 
 
 if __name__ == "__main__":

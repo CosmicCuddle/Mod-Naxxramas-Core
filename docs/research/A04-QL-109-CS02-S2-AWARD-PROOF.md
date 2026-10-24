@@ -24,6 +24,8 @@ No hook inside `StoreLootItem`. For human socket pickups the existing `CanPacket
 
 That wording follows CS03 review [6382855725](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/117#issuecomment-6382855725) on head `564a768`. The negative matrix still shows there is no script call inside `Player::StoreLootItem` before the item is stored that can refuse one player and one item while leaving other loot visible. `OnAllowedForPlayerLootCheck` does run before `StoreNewItem` and also removes item rows from the window. `CanPacketSend` can only drop a whole `SMSG_LOOT_RESPONSE`. The owner-facing A/B/C comparison is `docs/research/A04-QL-109-OWNER-POLICY-ABC.md`. It is not a chosen rule.
 
+The owner reported successful human pickups, so they are not merely visual. A successful pickup is an item taken into a bag. Which item, corpse, and loot method that report refers to, and whether the protected one-copy line was the line that moved, stay UNKNOWN. The module Enabled() default is false (`QuestLootProtection.cpp:28-29`, `GetOption<bool>("NaxxramasCore.QuestLootProtection.Enabled", false)`; `conf/mod_naxxramas_core.conf.dist:364` is `0`), so the owner's actually loaded config/binary is UNKNOWN. A reported enabled setting was not read from the loaded file or the running binary. The five-case table for today's guard and for A, B, and C is `docs/research/A04-QL-109-DECISION-TABLE.md`. No owner policy is chosen.
+
 ## Labels
 
 | Label | Meaning |
@@ -120,7 +122,7 @@ No listed hook is a call inside `StoreLootItem` that can refuse one resolved ite
 - Add a second packet script, a player script, or a global loot check to `src/`.
 - Treat `FREE_FOR_ALL` loot method as `ITEM_FLAG_MULTI_DROP`.
 - Treat a personal MULTI_DROP store as the friend consuming the owner's only copy.
-- Choose personal copies, a named owner, or a different turn rule. The plain-English comparison is `docs/research/A04-QL-109-OWNER-POLICY-ABC.md`. Its one-line note is marked not chosen.
+- Choose personal copies, a named owner, or a different turn rule. The plain-English comparison is `docs/research/A04-QL-109-OWNER-POLICY-ABC.md`. Its one-line note is marked not chosen. The five-case table is `docs/research/A04-QL-109-DECISION-TABLE.md`. No row of that table is chosen.
 
 ## Evidence labels for this branch
 

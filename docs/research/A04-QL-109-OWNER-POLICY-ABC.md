@@ -67,3 +67,5 @@ The one copy is reserved for a named player, such as the person who still has th
 ## Note for CS03 to review — not chosen
 
 If the owner wants the friend's human click stopped without creating extra items, A or C can use the existing single-slot click check, and B cannot, because a personal copy changes the shared drop.
+
+The five-case table is `docs/research/A04-QL-109-DECISION-TABLE.md`. It does not choose A, B, or C.

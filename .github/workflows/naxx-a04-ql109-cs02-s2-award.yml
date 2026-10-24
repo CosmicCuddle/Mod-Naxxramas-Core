@@ -8,12 +8,14 @@ on:
       - tests/test_ql109_cs02_s2_award_proof.py
       - docs/research/A04-QL-109-CS02-S2-AWARD-PROOF.md
       - docs/research/A04-QL-109-OWNER-POLICY-ABC.md
+      - docs/research/A04-QL-109-DECISION-TABLE.md
       - .github/workflows/naxx-a04-ql109-cs02-s2-award.yml
   pull_request:
     paths:
       - tests/test_ql109_cs02_s2_award_proof.py
       - docs/research/A04-QL-109-CS02-S2-AWARD-PROOF.md
       - docs/research/A04-QL-109-OWNER-POLICY-ABC.md
+      - docs/research/A04-QL-109-DECISION-TABLE.md
       - .github/workflows/naxx-a04-ql109-cs02-s2-award.yml
 
 permissions:
@@ -43,4 +45,5 @@ jobs:
           test -f tests/test_ql109_cs02_s2_award_proof.py
           test -f docs/research/A04-QL-109-CS02-S2-AWARD-PROOF.md
           test -f docs/research/A04-QL-109-OWNER-POLICY-ABC.md
+          test -f docs/research/A04-QL-109-DECISION-TABLE.md
           echo 'Synthetic award-path proof only. No artifact upload, package, binary, or deploy.'
