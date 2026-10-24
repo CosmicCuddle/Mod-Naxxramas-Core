@@ -113,18 +113,25 @@ namespace NaxxramasQuestLootProtection
         //
         // Fail open. Deny another looter only when the owner is found,
         // IsInWorld(), and on the same live map and the same instance as
-        // the looter and this corpse. Pinned FindPlayer returns nullptr
-        // unless the player is already in world, and the explicit
-        // IsInWorld() test stays on the pointer we would deny for: GetMap()
-        // asserts when the player has no map. Pinned AllowedForPlayer does
-        // not test map, instance, or range, so a still-grouped owner who
-        // left the instance must not strand this one-copy quest item.
+        // the looter and this corpse. Pinned AllowedForPlayer does not test
+        // map, instance, or range, so a still-grouped owner who left the
+        // instance must not strand this one-copy quest item.
+        //
+        // Map-scoped lookup (thread safety, MapUpdate.Threads > 0): this
+        // packet is PROCESS_INPLACE, so it can run on the looter's map
+        // thread. ObjectAccessor::GetPlayer(*player, guid) returns the owner
+        // only if they are in world on the looter's own map, so no field of
+        // a player on another map (updated by another thread) is read here.
+        // An owner on another map was always a fail-open below; that result
+        // is unchanged. The global FindPlayer is documented as not thread
+        // safe (ObjectAccessor.h). The explicit IsInWorld() test stays on
+        // the pointer we would deny for.
         //
         // Distance and death are not extra denies. A dead owner who is
         // still in world on this map and instance keeps the turn. The
         // looter is already inside INTERACTION_DISTANCE; an owner who is
         // elsewhere in the same instance remains the round-robin owner.
-        Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);
+        Player* owner = ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer);
         if (!owner || owner->GetGroup() != group)
             return true;
 

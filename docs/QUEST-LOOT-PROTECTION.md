@@ -47,7 +47,7 @@ To deny, ALL must be true:
 3. `roundRobinPlayer` is nonempty and not the requesting player.
 4. The packet slot is a **player-visible quest slot** (not a normal loot slot), and its per-player mapping and underlying `quest_items` index are valid and not yet looted.
 5. Item is one-copy `needs_quest` loot with `count == 1`, not `freeforall`/`ITEM_FLAG_MULTI_DROP`, not `follow_loot_rules`, and not a blocked/roll-winner item.
-6. The owner is found, `IsInWorld()`, and on the **same live map and the same instance** as the looter and the corpse. Otherwise the guard permits the pickup. Pinned `LootItem::AllowedForPlayer` checks item, conditions, quest status, and scripts. It does not check map, instance, or range. `ObjectAccessor::FindPlayer` returns nullptr for an offline or not-in-world player; the denial path still tests `IsInWorld()`, live map id, and instance id itself.
+6. The owner is found, `IsInWorld()`, and on the **same live map and the same instance** as the looter and the corpse. Otherwise the guard permits the pickup. Pinned `LootItem::AllowedForPlayer` checks item, conditions, quest status, and scripts. It does not check map, instance, or range. The owner is looked up with the map-scoped `ObjectAccessor::GetPlayer(*player, guid)`, which returns nullptr for an offline or not-in-world player **and for a player on any other map**; the denial path still tests `IsInWorld()`, live map id, and instance id itself.
 7. That owner is in the same group, **has an unlooted player-specific quest-item slot for the same underlying corpse item**, and still needs/is eligible for it. If the owner was outside reward range, lacks a mapped slot, has already taken their copy, no longer needs the item, or fails native eligibility, defer to the core's existing fallback.
 
 Distance and death are not extra denies. An owner who is dead, or who is elsewhere inside the same instance, keeps the round-robin turn. A missing owner, an owner who is not in world, a different map, or the same map in a different instance does not block the other looter.
@@ -56,7 +56,21 @@ All other cases return TRUE and let AzerothCore process the packet unmodified. I
 
 **Deliberate narrow scope:** Creature drops marked as `needs_quest` and `count == 1`. Ordinary non-quest loot items used for collection objectives, stacks, gameobject loot, quest-triggered loot rolls, unknown/invalid slots and alternate direct calls to `StoreLootItem` are not modified. Do not widen this until further investigation/test coverage supports it. No attempt to hide or lock icons in the loot window.
 
-## Configuration (both OFF by default)
+## Thread safety of the owner lookup (`MapUpdate.Threads = 8`)
+
+Source-only argument at core `8daffda`. **NOT TESTED** under load.
+
+- `CMSG_AUTOSTORE_LOOT_ITEM` is `PROCESS_INPLACE` (`Opcodes.cpp` L395). Both session filters admit it (`WorldSession.cpp` L66-L107), so this hook runs on one of two routes:
+  - **World thread**, inside `World::UpdateSessions` (`World.cpp` L1227). That runs before `sMapMgr->Update` (L1254), and `MapMgr::Update` waits for every map thread before returning (`MapMgr.cpp` L280). No map is being updated during this route, so the world thread is the only writer of game objects.
+  - **The looter's map thread**, inside `Map::Update` (`Map.cpp` L441-L449, `MapSessionFilter`). Each map is updated by exactly one worker per tick.
+- The previous code used the global `ObjectAccessor::FindPlayer`, which `ObjectAccessor.h` L77 documents as *not thread safe*. On the map-thread route, a turn owner on **another** map is updated by another worker, and the guard read that owner's group, map, instance, quest status and conditions. That was a data race whenever `QuestLootProtection.Enabled = 1`.
+- The guard now uses the map-scoped `ObjectAccessor::GetPlayer(*player, guid)` (`ObjectAccessor.cpp` L244-L256), which returns the owner only when they are in world **on the looter's own map**. All later owner reads are therefore of a player updated by the same thread as the looter (map route), or made while no map is updating (world route).
+- **Behaviour is unchanged.** An owner on another map already failed open at the live-map check, and still does, just earlier.
+- **Residuals, the same as core's own `GetPlayer` everywhere:**
+  - The lookup itself reads the candidate's `IsInWorld()` and `GetMap()` after the shared lock on the global player map is released. Those fields change only when a player is added to or removed from a map (far teleport or logout), which happens on the world thread or on the player's own map thread.
+  - On the map route, `group->GetLootMethod()` is read from a group object shared across maps. It is changed only by `CMSG_LOOT_METHOD`, which is `PROCESS_THREADUNSAFE` (world thread).
+  - The concurrent LFG update scheduled inside `MapMgr::Update` does not touch these loot fields.
+
 
 ```ini
 NaxxramasCore.QuestLootProtection.Enabled = 0
