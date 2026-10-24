@@ -162,8 +162,39 @@ namespace
     }
 }
 
+namespace
+{
+    // Issue #27 6389420093: the Playerbots manager lookup must not run for a
+    // character the single-name gate rejects (empty or other name).
+    void TestNoLookupBeforeNameGate()
+    {
+        struct FakeAI {};
+        FakeAI bot;
+        int lookups = 0;
+        auto lookup = [&]() -> FakeAI* { ++lookups; return &bot; };
+
+        // Empty AllowedBotName means nobody: never a lookup.
+        for (char const* name : { "Grau", "grau", "Anyone", "" })
+            assert(LookupAfterNameGate(
+                NaxxramasGolemaggActionAudit::IsAllowedBotName(name, ""), lookup) == nullptr);
+        assert(lookups == 0);
+
+        // A different character with a configured name: no lookup.
+        assert(LookupAfterNameGate(
+            NaxxramasGolemaggActionAudit::IsAllowedBotName("Thrall", "Grau"), lookup) == nullptr);
+        assert(lookups == 0);
+
+        // The one named bot (case-insensitive, as the observer): exactly one
+        // lookup, and the eligibility checks that follow see the same AI.
+        assert(LookupAfterNameGate(
+            NaxxramasGolemaggActionAudit::IsAllowedBotName("grau", "Grau"), lookup) == &bot);
+        assert(lookups == 1);
+    }
+}
+
 int main()
 {
+    TestNoLookupBeforeNameGate();
     TestPolicy();
     TestBotNameGate();
     TestRegistration();

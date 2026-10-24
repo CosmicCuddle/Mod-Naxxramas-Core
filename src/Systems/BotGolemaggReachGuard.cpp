@@ -215,11 +215,18 @@ namespace
                 !player->IsInCombat())
                 return;
 
-            PlayerbotAI* ai = PlayerbotsMgr::instance().GetPlayerbotAI(player);
+            // The single exact-name gate runs before the Playerbots manager
+            // lookup, which reads an unlocked shared map. With an empty or
+            // non-matching AllowedBotName the guard performs no lookup at all.
+            // For the one named bot this adds one lookup per tick, the same
+            // read Playerbots' own OnPlayerAfterUpdate makes for every player
+            // on this thread (Playerbots.cpp, d750b4b).
+            PlayerbotAI* ai = LookupAfterNameGate(
+                IsGuardedBotName(config, player->GetName()),
+                [player] { return PlayerbotsMgr::instance().GetPlayerbotAI(player); });
             if (!ai || !ai->IsAltBot() ||
                 PlayerbotAI::IsTank(player) || !PlayerbotAI::IsDps(player) ||
-                !PlayerbotAI::IsMelee(player) ||
-                !IsGuardedBotName(config, player->GetName()))
+                !PlayerbotAI::IsMelee(player))
                 return;
 
             // Only the combat engine needs the listener.

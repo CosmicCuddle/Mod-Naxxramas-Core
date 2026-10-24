@@ -58,6 +58,19 @@ namespace NaxxramasGolemaggReachGuard
                c.magmaSplashStacks >= MAGMA_SPLASH_BACK_OFF_STACKS;
     }
 
+    // Calls `lookup` (the Playerbots manager lookup, an unlocked shared map
+    // read) only when every check that needs no Playerbots state has passed,
+    // including the single exact-name gate. Otherwise returns a null result
+    // without calling it, so an unmatched or empty AllowedBotName never adds
+    // a manager lookup.
+    template <typename Lookup>
+    auto LookupAfterNameGate(bool nameAllowed, Lookup&& lookup) -> decltype(lookup())
+    {
+        if (!nameAllowed)
+            return nullptr;
+        return lookup();
+    }
+
     // Shared liveness flag between a registered listener and the per-Player
     // record. Playerbots deletes listeners together with their engine, and
     // the listener destructor clears the flag.

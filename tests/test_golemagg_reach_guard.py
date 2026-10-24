@@ -82,6 +82,39 @@ class GolemaggReachGuardConfig(unittest.TestCase):
         self.assertIn('NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""', CONFIG)
 
 
+class GolemaggReachGuardLookupOrder(unittest.TestCase):
+    """Issue #27 6389420093: name gate before the Playerbots manager lookup."""
+
+    def test_name_gate_runs_before_manager_lookup(self):
+        update = method_body(CODE, "void OnPlayerUpdate(Player* player")
+        gate = update.index("IsGuardedBotName(config, player->GetName())")
+        lookup = update.index("PlayerbotsMgr::instance().GetPlayerbotAI(player)")
+        self.assertLess(gate, lookup)
+        self.assertEqual(update.count("GetPlayerbotAI("), 1)
+        self.assertEqual(update.count("IsGuardedBotName("), 1)
+        self.assertIn("LookupAfterNameGate(", update)
+        self.assertLess(update.index("LookupAfterNameGate("), lookup)
+
+    def test_lookup_only_inside_the_gate_helper(self):
+        self.assertEqual(CODE.count("GetPlayerbotAI("), 1)
+        helper = POLICY_CODE[POLICY_CODE.index("auto LookupAfterNameGate("):]
+        helper = helper[:helper.index("return lookup();")]
+        self.assertIn("if (!nameAllowed)", helper)
+        self.assertIn("return nullptr;", helper)
+
+    def test_cheap_checks_still_first(self):
+        update = method_body(CODE, "void OnPlayerUpdate(Player* player")
+        first = update.index("if (!config.enabled || !player || player->GetMapId() != MOLTEN_CORE_MAP")
+        self.assertLess(first, update.index("IsGuardedBotName("))
+
+    def test_rest_of_eligibility_unchanged(self):
+        update = method_body(CODE, "void OnPlayerUpdate(Player* player")
+        for needle in ("!ai->IsAltBot()", "PlayerbotAI::IsTank(player)", "!PlayerbotAI::IsDps(player)",
+                       "!PlayerbotAI::IsMelee(player)", "ai->GetState() != BOT_STATE_COMBAT"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, update)
+
+
 class GolemaggReachGuardRegistration(unittest.TestCase):
     def test_loader_registers_once(self):
         self.assertEqual(LOADER.count("void AddBotGolemaggReachGuardScripts();"), 1)

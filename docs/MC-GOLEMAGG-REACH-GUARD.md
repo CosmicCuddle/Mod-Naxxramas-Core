@@ -76,6 +76,17 @@ Settings are read once at startup, so changes need a Worldserver restart.
 - **AI replacement:** Playerbots can replace a live player's AI object. A changed AI or a cleared flag starts a fresh record, and the new combat engine is registered once.
 - **One combat engine per AI:** at Playerbots `d750b4b`/`e88cc409`, the `PlayerbotAI` constructor creates exactly one combat engine, and it is never reassigned (`PlayerbotAI.cpp` L160–163). `ChangeEngine` and `Reset` only switch between the existing engines. So in practice the record holds at most one engine per AI, and repeated pulls, wipes, map changes and combat exits register it once. That is verified for these revisions only; a Playerbots update that rebuilds engines would need this re-checked.
 
+## Lookup order and threads (Issue #27 6389420093)
+
+Source-only, at core `8daffda` and Playerbots `d750b4b`. **NOT TESTED** under load.
+
+- **Name gate before the Playerbots lookup.** `OnPlayerUpdate` first returns for `Enabled = 0`, any map other than 409, or out of combat. It then checks the single exact `AllowedBotName` **before** `PlayerbotsMgr::GetPlayerbotAI`, which reads an unlocked shared map (`_playerbotsAIMap`). The ordering lives in `LookupAfterNameGate` in the policy header, and the native tests count lookups:
+  - with an empty name, or for any other character, the guard makes **no** manager lookup;
+  - for the one named bot it makes exactly one per tick.
+- **The residual for the named bot is the same read Playerbots already makes.** Playerbots' own `OnPlayerAfterUpdate` calls `GetPlayerbotAI(player)` for every player on every update, on the same map worker (`Playerbots.cpp` L248-L255). For that one character, the guard adds one identical read per tick. It is not proven race-free; it is no new kind of access.
+- **Hook order.** `Player::Update` calls `OnPlayerUpdate` (`PlayerUpdates.cpp` L314) before `OnPlayerAfterUpdate` (L431), where Playerbots runs `UpdateAI`. Registration therefore happens on the player's own update thread, before that tick's engine run, so it never overlaps the engine's listener loop.
+- **Listener lifetime.** The engine owns and deletes the listener together with the AI. The listener only clears an atomic liveness token in its destructor, and the module never deletes, removes or caches a `PlayerbotAI*` across ticks: the per-Player record keeps an address for comparison only. Where Playerbots destroys an AI (logout or AI replacement) relative to other map workers is upstream behaviour and is **not proven** here.
+
 ## Tests
 
 - **`tests/golemagg_reach_guard_policy.cpp`** — standalone C++ tests:
