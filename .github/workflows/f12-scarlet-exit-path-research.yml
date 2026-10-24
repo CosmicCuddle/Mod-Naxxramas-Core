@@ -1,0 +1,29 @@
+name: "F12 Scarlet exits LFG route research (synthetic only)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tests/test_f12_scarlet_exit_path_model.py'
+      - 'docs/research/F12-SCARLET-EXIT-LFG-ROUTE-RESEARCH.md'
+      - '.github/workflows/f12-scarlet-exit-path-research.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-route-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Assert exact candidate SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Run F12 synthetic-only route tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_f12_scarlet_exit_path_model.py' -v
+          echo 'Synthetic model only; no binary, server, SQL, DBC, package or artifact upload.'
