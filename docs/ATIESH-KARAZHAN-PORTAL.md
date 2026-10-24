@@ -41,6 +41,13 @@ Rules:
 - **Parity:** no new cooldown (type 22 has none), mount aura removed only if
   the template does not allow mounted use, `AddUse()` only after an
   accepted teleport. A pending teleport makes a second click do nothing.
+- **Mount on a refused click:** the dismount happens only on the teleport
+  path. A fail-closed or ignored click returns before native `Use` reaches
+  its dismount (`GameObject.cpp` L1525), so the rider keeps the mount and
+  nothing else happens either. This is deliberate. Stock 181146 has
+  `allowMounted = 1` (Data3), where native would not dismount anyway. It
+  only differs if the owner's template sets `allowMounted = 0` (**UNKNOWN**),
+  and then a click that does nothing should not cost the mount.
 - **Era is per character** (strictly personal, as IP gates everything else).
   Random bots take the group leader's stage when they join; Altbots keep
   their own, so a mixed-era group can split.
@@ -49,7 +56,11 @@ Rules:
 
 - **Playerbots `teleport` command:** it casts 28147 directly
   (`TeleportAction.cpp`), never `GameObject::Use`, so it bypasses this hook
-  and gets stock admission. Playerbots' "use" action does go through the hook.
+  and gets stock admission. Playerbots' "use" action (`UseItemAction`,
+  registered as `"use"`) does go through the hook: it sends
+  `CMSG_GAMEOBJ_USE` to `HandleGameObjectUseOpcode`
+  (`UseItemAction.cpp` L131–L133 at `d750b4b`), which reaches
+  `GameObject::Use`.
 - **Premises for activation (not checked here):** that the owner's 3.3.5a
   spell 28148 still summons 181146 with the caster as owner (Vanilla data
   says so); the owner's loaded rows 181146 and 4436; landing height and
