@@ -108,6 +108,29 @@ def loader_errors(source):
     return problems
 
 
+# A04 #129 is only a hypothesis, NOT a required first-test fix. If a
+# future integration deliberately includes its separate experimental switch,
+# keep it OFF. Importing its production reader without its config declaration
+# is also a mismatch; do not silently permit a half-integrated candidate.
+OPTIONAL_A04_KEY = "NaxxramasCore.QuestLootProtection.RestrictHiddenOrdinarySlots"
+
+
+def optional_a04_errors(config, quest_source):
+    present = OPTIONAL_A04_KEY in quest_source
+    assignments = re.findall(
+        r"(?m)^[ \\t]*" + re.escape(OPTIONAL_A04_KEY) +
+        r"[ \\t]*=[ \\t]*([^#\\r\\n]+)", config)
+    if not present and not assignments:
+        return []
+    if len(assignments) != 1 or assignments[0].strip() != "0":
+        return ["%s: expected one default 0 when A04 pilot source/config is present, got %r" %
+                (OPTIONAL_A04_KEY, assignments)]
+    if not present:
+        return ["%s: config present without corresponding A04 pilot reader" %
+                OPTIONAL_A04_KEY]
+    return []
+
+
 def config_errors(source):
     failures = []
     for key, expected in REQUIRED_FLAGS.items():
@@ -227,6 +250,28 @@ class UnionContractModel(unittest.TestCase):
             'NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName = "Someone"', 1)
         self.assertIn("AllowedBotName", "\n".join(config_errors(mutant)))
 
+    def test_optional_a04_switch_absent_does_not_block_first_union(self):
+        self.assertEqual(optional_a04_errors(self.config_union, ""), [])
+
+    def test_optional_a04_switch_included_off_is_allowed(self):
+        cfg = self.config_union + "\\n" + OPTIONAL_A04_KEY + " = 0\\n"
+        reader = 'sConfigMgr->GetOption<bool>("' + OPTIONAL_A04_KEY + '", false);'
+        self.assertEqual(optional_a04_errors(cfg, reader), [])
+
+    def test_optional_a04_switch_on_duplicate_or_unpaired_fails(self):
+        reader = 'sConfigMgr->GetOption<bool>("' + OPTIONAL_A04_KEY + '", false);'
+        off = self.config_union + "\\n" + OPTIONAL_A04_KEY + " = 0\\n"
+        enabled = self.config_union + "\\n" + OPTIONAL_A04_KEY + " = 1\\n"
+        for config, source in (
+            (enabled, reader),
+            (self.config_union, reader),
+            (off + OPTIONAL_A04_KEY + " = 0\\n", reader),
+            (off, ""),
+        ):
+            with self.subTest(config=config[-90:], source=bool(source)):
+                self.assertIn(OPTIONAL_A04_KEY, "\\n".join(
+                    optional_a04_errors(config, source)))
+
     def test_120_second_gfpp_timer_gate_rejects_90_seconds(self):
         valid = "NaxxramasOneShotTimer Timer{120 * IN_MILLISECONDS};"
         self.assertEqual(gfpp_timer_errors(valid), [])
@@ -310,6 +355,10 @@ def main():
         errors += implementation_errors(tree_implementations())
         gfpp = ROOT / "src/Systems/BotRaidConsumables.cpp"
         errors += gfpp_timer_errors(gfpp.read_text(encoding="utf-8") if gfpp.is_file() else "")
+        quest_source = ROOT / "src/Systems/QuestLootProtection.cpp"
+        errors += optional_a04_errors(
+            CONFIG.read_text(encoding="utf-8"),
+            quest_source.read_text(encoding="utf-8") if quest_source.is_file() else "")
         for err in errors:
             print("BLOCKED: " + err)
         if errors:
