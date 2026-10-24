@@ -31,7 +31,7 @@ NOT_TESTED_CLAIMS = (
 )
 
 OWNER_LOOKUP = (
-    "        Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);"
+    "        Player* owner = ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer);"
 )
 
 # Each snippet is a fail-open permit. Denial (return false) must come later.
@@ -445,8 +445,11 @@ class QuestLootProtectionContract(unittest.TestCase):
 
     def test_workflow_pins_exact_head_and_does_not_upload(self):
         self.assertIn("8daffdabe9202c228e45d833c9a1d399597a15cd", WORKFLOW)
-        self.assertIn("037c01418b5d01506917a3db9b44fd56ac5f965c", WORKFLOW)
-        self.assertIn("4ff4b5fcc1480348f058c632573143e62d4e3a41", WORKFLOW)
+        self.assertIn("d750b4b3a50effdf22bedc8032f0e8e5f7cb8091", WORKFLOW)
+        self.assertIn("dd96f2b77e3ebfa2a4726bf785525ba133f1ab61", WORKFLOW)
+        # Project-standard public pins (CS01 #132 review); the old pair must not return.
+        for obsolete in ("037c01418b5d01506917a3db9b44fd56ac5f965c", "4ff4b5fcc1480348f058c632573143e62d4e3a41"):
+            self.assertNotIn(obsolete, WORKFLOW)
         self.assertIn("github.event.pull_request.head.sha", WORKFLOW)
         self.assertNotIn("actions/upload-artifact", WORKFLOW)
         self.assertNotIn("actions/upload-pages-artifact", WORKFLOW)
@@ -556,6 +559,51 @@ class QuestLootProtectionContract(unittest.TestCase):
                 self.assertIn("sudo rm -f", text)
                 self.assertNotIn("actions/upload-artifact", text)
                 self.assertNotIn("actions/upload-pages-artifact", text)
+
+
+class LegacyGuardThreadSafety(unittest.TestCase):
+    """CS01 decision on #109 (6388656623): map-scoped owner lookup only."""
+
+    BODY = CPP[CPP.index("bool PermitPickup(Player* player, uint8 requestedSlot)"):
+               CPP.index("class NaxxramasQuestLootProtectionScript")]
+
+    def test_owner_lookup_is_map_scoped(self):
+        self.assertEqual(CPP.count(OWNER_LOOKUP), 1)
+        self.assertNotIn("FindPlayer(", CPP)
+        self.assertEqual(CPP.count("ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer)"), 1)
+
+    def test_no_owner_field_read_before_the_lookup(self):
+        lookup = self.BODY.index(OWNER_LOOKUP)
+        self.assertNotIn("owner->", self.BODY[:lookup])
+        # The fail-open chain still follows the lookup, in order.
+        self.assertLess(lookup, self.BODY.index("if (!owner || owner->GetGroup() != group)"))
+        self.assertTrue(presence_fail_open(CPP))
+
+    def test_global_lookup_mutation_is_detected(self):
+        mutated = CPP.replace(
+            "ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer)",
+            "ObjectAccessor::FindPlayer(loot.roundRobinPlayer)")
+        self.assertNotEqual(mutated, CPP)
+        self.assertIn("FindPlayer(", mutated)
+        self.assertEqual(mutated.count(OWNER_LOOKUP), 0)
+
+    def test_cross_map_owner_still_fails_open_in_model(self):
+        # Map-scoped lookup returns null for another map: same permit as
+        # the old live-map check gave.
+        self.assertTrue(modeled_pickup(owner_same_map=False))
+        self.assertTrue(modeled_pickup(owner=None))
+        self.assertFalse(modeled_pickup())
+
+    def test_switch_still_default_off(self):
+        self.assertRegex(CONFIG, r"(?m)^NaxxramasCore\.QuestLootProtection\.Enabled = 0$")
+        self.assertIn('"NaxxramasCore.QuestLootProtection.Enabled", false', CPP)
+
+    def test_thread_argument_documented(self):
+        self.assertIn("## Thread safety of the owner lookup", DOC)
+        for needle in ("PROCESS_INPLACE", "MapMgr.cpp` L280", "GetPlayer(*player, guid)",
+                       "Behaviour is unchanged", "Residuals"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, DOC)
 
 
 if __name__ == "__main__":

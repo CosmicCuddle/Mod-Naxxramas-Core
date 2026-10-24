@@ -36,14 +36,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: mod-playerbots/mod-playerbots
-          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          ref: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
           path: acore/modules/mod-playerbots
           persist-credentials: false
       - name: Checkout pinned Grimfeather Individual Progression
         uses: actions/checkout@v4
         with:
           repository: Grimfeather/mod-individual-progression
-          ref: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+          ref: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
           path: acore/modules/mod-individual-progression
           persist-credentials: false
       - name: Checkout exact Naxxramas Core draft head
@@ -57,8 +57,8 @@ jobs:
           set -euo pipefail
           root=acore/modules/mod-naxxramas-core
           test "$(git -C acore rev-parse HEAD)" = "8daffdabe9202c228e45d833c9a1d399597a15cd"
-          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "037c01418b5d01506917a3db9b44fd56ac5f965c"
-          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "4ff4b5fcc1480348f058c632573143e62d4e3a41"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "d750b4b3a50effdf22bedc8032f0e8e5f7cb8091"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "dd96f2b77e3ebfa2a4726bf785525ba133f1ab61"
           test "$(git -C "$root" rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           conf="$root/conf/mod_naxxramas_core.conf.dist"
           loader="$root/src/NaxxramasCore_loader.cpp"

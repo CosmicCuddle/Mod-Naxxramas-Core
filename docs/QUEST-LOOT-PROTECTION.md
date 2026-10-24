@@ -6,7 +6,7 @@
 
 `scripts/check_quest_loot_pinned_compile.py` is copied unchanged from draft PR #25 head `e3e1bf339c8b1aba07ab065d50dbcc3fafbf0e51`. `src/Systems/QuestLootProtection.cpp` started from that head. It now permits the pickup unless the round-robin owner is found, `IsInWorld()`, and on the same live map and the same instance as the looter and corpse. The branch base is `main` `75315783e4921b47809d96094f4885f68ff42146`. `conf/mod_naxxramas_core.conf.dist` and `src/NaxxramasCore_loader.cpp` were hand-merged: every `NaxxramasCore.HallowsEnd.SoloFire.*` line and `AddHallowsEndShadeOfTheHorsemanScripts()` stays, and the quest-loot keys are appended default OFF. Rollback remains `NaxxramasCore.QuestLootProtection.Enabled = 0` plus a Worldserver restart after separate approval. No SQL.
 
-This branch's workflow pins Grimfeather core `8daffdabe9202c228e45d833c9a1d399597a15cd`, Playerbots `037c01418b5d01506917a3db9b44fd56ac5f965c`, and Grimfeather individual progression `4ff4b5fcc1480348f058c632573143e62d4e3a41`. It checks out the pull-request head SHA and does not upload artifacts.
+This branch's workflow pins Grimfeather core `8daffdabe9202c228e45d833c9a1d399597a15cd`, Playerbots `d750b4b3a50effdf22bedc8032f0e8e5f7cb8091`, and Grimfeather individual progression `dd96f2b77e3ebfa2a4726bf785525ba133f1ab61` (the project-standard public pins; earlier revisions used Playerbots `037c01418b5d01506917a3db9b44fd56ac5f965c` and IP `4ff4b5fcc1480348f058c632573143e62d4e3a41`). It checks out the pull-request head SHA and does not upload artifacts.
 
 On 22 Oct 2026 the following Grimfeather blobs were downloaded from both `a66f1bede6f5d905d9ab815715b4e2ee1c1f48e7` and `8daffdabe9202c228e45d833c9a1d399597a15cd` and had identical SHA-256 values. That is file-byte identity for these paths only. It is not a claim that the whole core trees match, and it is not an in-game test.
 
@@ -47,7 +47,7 @@ To deny, ALL must be true:
 3. `roundRobinPlayer` is nonempty and not the requesting player.
 4. The packet slot is a **player-visible quest slot** (not a normal loot slot), and its per-player mapping and underlying `quest_items` index are valid and not yet looted.
 5. Item is one-copy `needs_quest` loot with `count == 1`, not `freeforall`/`ITEM_FLAG_MULTI_DROP`, not `follow_loot_rules`, and not a blocked/roll-winner item.
-6. The owner is found, `IsInWorld()`, and on the **same live map and the same instance** as the looter and the corpse. Otherwise the guard permits the pickup. Pinned `LootItem::AllowedForPlayer` checks item, conditions, quest status, and scripts. It does not check map, instance, or range. `ObjectAccessor::FindPlayer` returns nullptr for an offline or not-in-world player; the denial path still tests `IsInWorld()`, live map id, and instance id itself.
+6. The owner is found, `IsInWorld()`, and on the **same live map and the same instance** as the looter and the corpse. Otherwise the guard permits the pickup. Pinned `LootItem::AllowedForPlayer` checks item, conditions, quest status, and scripts. It does not check map, instance, or range. The owner is looked up with the map-scoped `ObjectAccessor::GetPlayer(*player, guid)`, which returns nullptr for an offline or not-in-world player **and for a player on any other map**; the denial path still tests `IsInWorld()`, live map id, and instance id itself.
 7. That owner is in the same group, **has an unlooted player-specific quest-item slot for the same underlying corpse item**, and still needs/is eligible for it. If the owner was outside reward range, lacks a mapped slot, has already taken their copy, no longer needs the item, or fails native eligibility, defer to the core's existing fallback.
 
 Distance and death are not extra denies. An owner who is dead, or who is elsewhere inside the same instance, keeps the round-robin turn. A missing owner, an owner who is not in world, a different map, or the same map in a different instance does not block the other looter.
@@ -56,7 +56,22 @@ All other cases return TRUE and let AzerothCore process the packet unmodified. I
 
 **Deliberate narrow scope:** Creature drops marked as `needs_quest` and `count == 1`. Ordinary non-quest loot items used for collection objectives, stacks, gameobject loot, quest-triggered loot rolls, unknown/invalid slots and alternate direct calls to `StoreLootItem` are not modified. Do not widen this until further investigation/test coverage supports it. No attempt to hide or lock icons in the loot window.
 
-## Configuration (both OFF by default)
+## Thread safety of the owner lookup (`MapUpdate.Threads = 8`)
+
+Source-only argument at core `8daffda`. **NOT TESTED** under load.
+
+- `CMSG_AUTOSTORE_LOOT_ITEM` is `PROCESS_INPLACE` (`Opcodes.cpp` L395). Both session filters admit it (`WorldSession.cpp` L66-L107), so this hook runs on one of two routes:
+  - **World thread**, inside `World::UpdateSessions` (`World.cpp` L1227). That runs before `sMapMgr->Update` (L1254), and `MapMgr::Update` waits for every map thread before returning (`MapMgr.cpp` L280). No map is being updated during this route, so the world thread is the only writer of game objects.
+  - **The looter's map thread**, inside `Map::Update` (`Map.cpp` L441-L449, `MapSessionFilter`). Each map is updated by exactly one worker per tick.
+- The previous code used the global `ObjectAccessor::FindPlayer`, which `ObjectAccessor.h` L77 documents as *not thread safe*. On the map-thread route, a turn owner on **another** map is updated by another worker, and the guard read that owner's group, map, instance, quest status and conditions. That was a data race whenever `QuestLootProtection.Enabled = 1`.
+- The guard now uses the map-scoped `ObjectAccessor::GetPlayer(*player, guid)` (`ObjectAccessor.cpp` L244-L256), which returns the owner only when they are in world **on the looter's own map**. All later owner reads are therefore of a player updated by the same thread as the looter (map route), or made while no map is updating (world route).
+- **Behaviour is unchanged.** An owner on another map already failed open at the live-map check, and still does, just earlier.
+- **Residuals, the same as core's own `GetPlayer` everywhere:**
+  - The lookup itself reads the candidate's `IsInWorld()` and `GetMap()` after the shared lock on the global player map is released. Those fields change only when a player is added to or removed from a map (far teleport or logout), which happens on the world thread or on the player's own map thread.
+  - On the map route, `group->GetLootMethod()` is read from a group object shared across maps. It is changed only by `CMSG_LOOT_METHOD`, which is `PROCESS_THREADUNSAFE` (world thread).
+  - If those two unlocked reads were torn and matched this map, the guard's later owner reads (`GetGroup`, `HasQuestForItem`, `AllowedForPlayer`) would race too. `GetMap()` also asserts a non-null map pointer, and `SetMap`/`ResetMap` assert `!IsInWorld`, so that assert could only fire in the torn-read case.
+  - The concurrent LFG update scheduled inside `MapMgr::Update` (task 1) does not call `SetLootMethod`. It can look up connected players and read their map id and instance script; that every such script leaves the group object alone is **not proven**. `ConvertToLFG`, which writes the loot method, runs from LFG task 2 after `MapMgr::Update` returns (CS02 review on #132).
+
 
 ```ini
 NaxxramasCore.QuestLootProtection.Enabled = 0
@@ -114,7 +129,7 @@ Synthetic coverage that does exist: default OFF, Hallow's End keys still present
 ## Validation checklist (required before merge/production use)
 
 - Automated source/synthetic regression checks: correct slot translation, malformed/invalid player slot, padded packet cannot bypass the guard, native methods untouched, shared items and roll winners excluded, released owner, missing owner quest slot, owner no longer eligible, guarded group methods, config off. All use mocks/models, not the actual loot manager.
-- Pinned source compile/link: `.github/workflows/quest-loot-protection-pinned.yml` must compile and link Worldserver against Grimfeather `8daffdabe9202c228e45d833c9a1d399597a15cd`, Playerbots `037c01418b5d01506917a3db9b44fd56ac5f965c`, and Grimfeather individual progression `4ff4b5fcc1480348f058c632573143e62d4e3a41`, checking out the exact pull-request head. It must not upload artifacts. This is not gameplay proof.
+- Pinned source compile/link: `.github/workflows/quest-loot-protection-pinned.yml` must compile and link Worldserver against Grimfeather `8daffdabe9202c228e45d833c9a1d399597a15cd`, Playerbots `d750b4b3a50effdf22bedc8032f0e8e5f7cb8091`, and Grimfeather individual progression `dd96f2b77e3ebfa2a4726bf785525ba133f1ab61`, checking out the exact pull-request head. It must not upload artifacts. This is not gameplay proof.
 - **Unperformed gameplay tests**: two real group members need the same single-copy quest item, verify non-owner first pickup denied, owner collects, owner no longer needs item, owner releases then other player collects; FFA/shared/multi-drop and special `follow_loot_rules`; rolls, Master Loot, Round Robin, Need Before Greed, corpse lifetime/disconnect; 3.3.5a visual state and bot packet processing. Check no duplicated/deleted/vanished loot, no unlootable corpse, and no crash.
 - **Bot coverage limitation**: ordinary `LootAction` uses `QueuePacket` on pinned Playerbots, but paths calling `StoreLootItem` or other direct inventory APIs bypass `CanPacketReceive`. Don't assert that **all** bot pickup mechanisms are protected.
 - Check against the actual installed module list for conflicting packet hooks. This feature registers only one server packet hook and does not edit existing class/talent/progression handlers.
