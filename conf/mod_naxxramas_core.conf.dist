@@ -372,7 +372,9 @@ NaxxramasCore.QuestLootProtection.Debug = 0
 # ORDINARY, under-threshold loot slot hidden from a non-turn-holder by
 # stock group loot visibility rules. It does NOT change quest eligibility,
 # shared copy ownership, drop rates, rolls, rewards, or personal item flags.
-# Remains OFF even when QuestLootProtection.Enabled = 1.
+# Independent of the older QuestLootProtection.Enabled guard: either can
+# be turned on alone. For stock-loot parity tests keep the legacy quest-turn
+# rule OFF; enabling this new option must not also enable that old rule.
 # This candidate is NOT a proven explanation for the reported human case.
 # Default: 0
 NaxxramasCore.QuestLootProtection.RestrictHiddenOrdinarySlots = 0
