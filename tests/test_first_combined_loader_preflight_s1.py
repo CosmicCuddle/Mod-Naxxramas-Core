@@ -179,11 +179,29 @@ def strip_draft_loader_extras(source):
                      if line.strip() not in extra_lines)
 
 
+def _strip_cpp_comments_and_literals(source):
+    """Do not count a fake timer embedded in comments or quoted strings.
+
+    This is intentionally a lightweight source preflight, not a C++
+    preprocessor or semantic replacement for exact-head native/link tests.
+    """
+    token = re.compile(
+        r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
+    )
+    return token.sub(lambda match: "\n" * match.group(0).count("\n"), source)
+
+
 def gfpp_timer_errors(source):
-    needle = "NaxxramasOneShotTimer Timer{120 * IN_MILLISECONDS};"
-    count = source.count(needle)
-    return [] if count == 1 else [
-        "BotRaidConsumables.cpp: expected one 120-second GFPP one-shot, found %d" % count
+    clean = _strip_cpp_comments_and_literals(source)
+    expected = re.compile(
+        r"\bNaxxramasOneShotTimer\s+Timer\s*\{\s*120\s*\*\s*IN_MILLISECONDS\s*\}\s*;"
+    )
+    any_duration = re.compile(
+        r"\bNaxxramasOneShotTimer\s+Timer\s*\{\s*[0-9]+\s*\*\s*IN_MILLISECONDS\s*\}\s*;"
+    )
+    good, total = len(expected.findall(clean)), len(any_duration.findall(clean))
+    return [] if good == 1 and total == 1 else [
+        "BotRaidConsumables.cpp: expected one 120-second GFPP one-shot, found %d of %d valid-duration declarations" % (good, total)
     ]
 
 
@@ -277,6 +295,24 @@ class UnionContractModel(unittest.TestCase):
         self.assertEqual(gfpp_timer_errors(valid), [])
         self.assertIn("120-second GFPP", "\n".join(
             gfpp_timer_errors("NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};")))
+        self.assertTrue(gfpp_timer_errors(valid + "\n" + valid))
+
+    def test_commented_120_seconds_cannot_hide_live_90_second_gfpp(self):
+        bogus = ("// NaxxramasOneShotTimer Timer{120 * IN_MILLISECONDS};\n"
+                 "NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};\n")
+        self.assertTrue(gfpp_timer_errors(bogus))
+        bogus_block = ("/*\nNaxxramasOneShotTimer Timer{120 * IN_MILLISECONDS};\n*/\n"
+                       "NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};\n")
+        self.assertTrue(gfpp_timer_errors(bogus_block))
+
+    def test_gfpp_source_literals_cannot_spoof_timer_initializer(self):
+        bogus = ('auto comment = "NaxxramasOneShotTimer Timer{120 * IN_MILLISECONDS};";\n'
+                 "NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};\n")
+        self.assertTrue(gfpp_timer_errors(bogus))
+
+    def test_live_120_gfpp_spacing_and_duplication(self):
+        valid = "NaxxramasOneShotTimer  Timer { 120 * IN_MILLISECONDS };"
+        self.assertEqual(gfpp_timer_errors(valid), [])
         self.assertTrue(gfpp_timer_errors(valid + "\n" + valid))
 
     def test_complete_synthetic_union_passes(self):
