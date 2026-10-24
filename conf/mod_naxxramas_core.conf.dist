@@ -16,6 +16,25 @@ NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled = 0
 
 
 #####################################
+# Bot consumables — cross-map aura safety (#114 follow-up)
+#####################################
+
+# Bot consumable checks and cleanup run on the leader's map thread. With
+# MapUpdate.Threads > 1, a bot left on another map (for example still
+# inside Molten Core after the leader hearths out) is updated by a
+# different thread at the same time.
+# 1 = never read or change an off-map bot's auras from the leader's
+#     thread: missing-buff checks and timed refreshes skip it until it is
+#     back on the leader's map, and leaving the instance queues its aura
+#     removal for the world thread, after all map threads have finished.
+#     Auras are still removed; a removal is skipped only if this module
+#     re-applied the same aura in the meantime.
+# 0 = existing behaviour unchanged
+# Default: 0 (disabled until owner-approved gameplay tests)
+NaxxramasCore.BotConsumables.CrossMapAuraSafety = 0
+
+
+#####################################
 # Honor Overflow
 #####################################
 
