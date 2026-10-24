@@ -92,11 +92,21 @@ queued before a config reload that turned the flag off still happen.
 
 ## Known limits
 
-- **Pet swap:** a queued pet removal applies to the bot's pet at drain
-  time. If the bot summoned a different pet in between and the module did
-  not buff it, that pet loses the same spell's aura. Today the original pet
-  would have lost it. The module re-buffing the new pet cancels the
-  removal.
+- **Pets:** pet identity is pinned when the aura is applied.
+  - **What is recorded:** `ApplyTrackedAura` stores the receiving unit's
+    GUID (`TrackedAura::TargetGuidRaw`), on the thread that applied it.
+  - **At drain time:** a queued pet removal goes ahead only if
+    `bot->GetPet()` is that exact pet.
+  - **New pets:** a new or re-summoned pet gets a new GUID
+    (`Map::GenerateLowGuid<HighGuid::Pet>`) and is left alone. Its aura,
+    if it still has one, expires on its own. Today's immediate removal
+    would have hit the pet present at that moment; at worst, deferral
+    leaves a re-summoned pet's buff to time out.
+  - **Same-map safety:** `Player::GetPet()` resolves only through the
+    owner's own map (`ObjectAccessor::GetPet` → `GetMap()->GetPet`). So
+    once the bot is confirmed on the leader's map, a pet it returns is on
+    that map too. Map-thread `HasAura` and `RemoveAurasDueToSpell` on that
+    pet stay on that map's thread.
 - **Other sources:** an aura applied by something other than this module
   between the queue and the drain is removed, just as the immediate removal
   would remove it today.

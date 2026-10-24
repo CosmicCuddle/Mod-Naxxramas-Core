@@ -35,7 +35,7 @@ namespace
     std::vector<AuraKey> DrainAll(RemovalQueue& queue)
     {
         std::vector<AuraKey> removed;
-        queue.Drain([&](AuraKey const& key) { removed.push_back(key); });
+        queue.Drain([&](AuraKey const& key, uint64_t) { removed.push_back(key); });
         return removed;
     }
 
@@ -96,6 +96,26 @@ int main()
             "pet removal skipped after pet re-application");
     }
 
+    // 4b. The pet identity recorded at application time reaches the
+    //     remover unchanged (the module skips a different pet).
+    {
+        RemovalQueue queue;
+        constexpr uint64_t PET_GUID = 0xF140000000001234ULL;
+        queue.Enqueue({ BOT, PET_BUFF, true }, PET_GUID);
+        queue.Enqueue({ BOT, FLASK, false });
+        uint64_t petToken = 0;
+        uint64_t botToken = 1;
+        queue.Drain([&](AuraKey const& key, uint64_t token)
+        {
+            if (key.IsPet)
+                petToken = token;
+            else
+                botToken = token;
+        });
+        Check(petToken == PET_GUID && botToken == 0,
+            "target token (pet GUID) is passed to the remover unchanged");
+    }
+
     // 5. CS01 mandatory case: master teleports out while the bot stays in
     //    MC with BOTH an ordinary tracked buff (tracker.Auras, here also a
     //    pet buff) and a timed Juju Flurry (tracker.TimedAuras). Both
@@ -136,7 +156,7 @@ int main()
         RemovalQueue queue;
         queue.Enqueue({ OTHER_BOT, FLASK, false });
         std::size_t calls = 0;
-        queue.Drain([&](AuraKey const&) { ++calls; /* bot not found */ });
+        queue.Drain([&](AuraKey const&, uint64_t) { ++calls; /* bot not found */ });
         Check(calls == 1 && queue.PendingCount() == 0,
             "missing bot: one attempt, nothing left queued");
     }
@@ -147,7 +167,7 @@ int main()
         RemovalQueue queue;
         queue.Enqueue({ BOT, FLASK, false });
         std::size_t calls = 0;
-        queue.Drain([&](AuraKey const&)
+        queue.Drain([&](AuraKey const&, uint64_t)
         {
             ++calls;
             queue.NoteApplied({ OTHER_BOT, FLASK, false });
@@ -173,7 +193,7 @@ int main()
         bool blockedDuringRemoval = false;
         std::thread worker;
 
-        queue.Drain([&](AuraKey const&)
+        queue.Drain([&](AuraKey const&, uint64_t)
         {
             // Check already passed. A worker now re-applies the aura.
             worker = std::thread([&]()
@@ -205,7 +225,7 @@ int main()
         RemovalQueue queue;
         queue.Enqueue({ BOT, FLASK, false });
         std::atomic<bool> otherReturned{ false };
-        queue.Drain([&](AuraKey const&)
+        queue.Drain([&](AuraKey const&, uint64_t)
         {
             std::thread other([&]()
             {
@@ -227,7 +247,7 @@ int main()
         bool threw = false;
         try
         {
-            queue.Drain([](AuraKey const&) { throw 1; });
+            queue.Drain([](AuraKey const&, uint64_t) { throw 1; });
         }
         catch (int)
         {

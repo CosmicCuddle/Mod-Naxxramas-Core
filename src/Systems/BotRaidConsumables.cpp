@@ -306,6 +306,10 @@ namespace
         bool IsPetAura = false;
         bool WarnOnMissing = true;
         bool MissingNotified = false;
+        // GUID of the unit that received the aura, recorded on the thread
+        // that applied it. A queued pet removal only proceeds if the bot's
+        // pet at drain time is still this exact pet.
+        uint64 TargetGuidRaw = 0;
     };
 
     struct TimedAura
@@ -825,6 +829,7 @@ namespace
     void AddTrackedAura(
         RaidConsumableTracker& tracker,
         Player* bot,
+        ObjectGuid targetGuid,
         uint32 spellId,
         std::string const& auraName,
         bool isPetAura,
@@ -845,6 +850,7 @@ namespace
                 existing.AuraName = auraName;
                 existing.WarnOnMissing = warnOnMissing;
                 existing.MissingNotified = false;
+                existing.TargetGuidRaw = targetGuid.GetRawValue();
                 return;
             }
         }
@@ -857,6 +863,7 @@ namespace
         aura.IsPetAura = isPetAura;
         aura.WarnOnMissing = warnOnMissing;
         aura.MissingNotified = false;
+        aura.TargetGuidRaw = targetGuid.GetRawValue();
 
         tracker.Auras.push_back(aura);
     }
@@ -908,6 +915,7 @@ namespace
                 AddTrackedAura(
                     tracker,
                     bot,
+                    target->GetGUID(),
                     spellId,
                     auraName,
                     isPetAura,
@@ -938,6 +946,7 @@ namespace
         AddTrackedAura(
             tracker,
             bot,
+            target->GetGUID(),
             spellId,
             auraName,
             isPetAura,
@@ -3525,7 +3534,8 @@ void PrepareManaUser(
                     CrossMapAuraRemovals.Enqueue(
                         { tracked.BotGuid,
                           tracked.SpellId,
-                          tracked.IsPetAura });
+                          tracked.IsPetAura },
+                        tracked.TargetGuidRaw);
                     continue;
                 }
             }
@@ -3557,7 +3567,8 @@ void PrepareManaUser(
                 CrossMapAuraRemovals.Enqueue(
                     { timed.BotGuid,
                       timed.SpellId,
-                      false });
+                      false },
+                    0);
                 continue;
             }
 
@@ -4857,7 +4868,8 @@ public:
         uint32 /*diff*/) override
     {
         CrossMapAuraRemovals.Drain(
-            [](NaxxramasCrossMapAura::AuraKey const& key)
+            [](NaxxramasCrossMapAura::AuraKey const& key,
+                uint64 targetGuidRaw)
             {
                 Player* bot =
                     ObjectAccessor::FindPlayerByLowGUID(
@@ -4869,10 +4881,20 @@ public:
                 Unit* target = bot;
 
                 if (key.IsPet)
-                    target = bot->GetPet();
+                {
+                    // Only the exact pet that received the aura. A
+                    // re-summoned or different pet has a new GUID and is
+                    // left alone; its aura then expires on its own.
+                    Pet* pet = bot->GetPet();
 
-                if (!target)
-                    return;
+                    if (!pet ||
+                        pet->GetGUID().GetRawValue() != targetGuidRaw)
+                    {
+                        return;
+                    }
+
+                    target = pet;
+                }
 
                 target->RemoveAurasDueToSpell(
                     key.SpellId);

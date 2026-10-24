@@ -62,6 +62,9 @@ namespace NaxxramasCrossMapAura
     {
         AuraKey Key;
         uint64_t Generation = 0;
+        // Opaque identity of the unit that received the aura (for a pet,
+        // its GUID at application time). Passed to the remover unchanged.
+        uint64_t TargetToken = 0;
     };
 
     class RemovalQueue
@@ -80,10 +83,10 @@ namespace NaxxramasCrossMapAura
         }
 
         // Remember to remove this aura later, as of its current generation.
-        void Enqueue(AuraKey const& key)
+        void Enqueue(AuraKey const& key, uint64_t targetToken = 0)
         {
             std::lock_guard<std::mutex> lock(_lock);
-            _pending.push_back({ key, CurrentLocked(key) });
+            _pending.push_back({ key, CurrentLocked(key), targetToken });
         }
 
         std::size_t PendingCount() const
@@ -92,7 +95,8 @@ namespace NaxxramasCrossMapAura
             return _pending.size();
         }
 
-        // Takes every queued removal and calls remove(key) for each one
+        // Takes every queued removal and calls remove(key, targetToken)
+        // for each one
         // that is still current. The lock is NOT held while remove runs,
         // so it may resolve players, touch auras or even enqueue again
         // (a new entry waits for the next drain). While remove runs, the
@@ -123,7 +127,7 @@ namespace NaxxramasCrossMapAura
                     ~EndRemovalGuard() { Queue.EndRemoval(); }
                 } guard{ *this };
 
-                remove(pending.Key);
+                remove(pending.Key, pending.TargetToken);
                 ++attempted;
             }
 

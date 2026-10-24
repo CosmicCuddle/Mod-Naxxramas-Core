@@ -149,6 +149,22 @@ class WorldThreadDrain(unittest.TestCase):
         self.assertIn("if (key.IsPet)", on_update)
         self.assertIn("RemoveAurasDueToSpell(", on_update)
 
+    def test_pet_removal_requires_the_same_pet(self):
+        # CS01 #116 review 5637833818: never strip a different pet.
+        self.assertIn("uint64 TargetGuidRaw = 0;", self.code)
+        add = function_body(self.code, "void AddTrackedAura(")
+        self.assertEqual(add.count("TargetGuidRaw = targetGuid.GetRawValue();"), 2)
+        apply = function_body(self.code, "bool ApplyTrackedAura(")
+        self.assertEqual(apply.count("target->GetGUID(),"), 2)
+        clear = function_body(self.code, "void ClearTrackedAuras(")
+        self.assertIn("tracked.TargetGuidRaw);", clear)
+        update = self.code[self.code.index("class NaxxramasCoreBotRaidConsumablesWorld"):]
+        on_update = function_body(update, "void OnUpdate(")
+        self.assertIn("Pet* pet = bot->GetPet();", on_update)
+        self.assertIn("pet->GetGUID().GetRawValue() != targetGuidRaw", on_update)
+        self.assertLess(on_update.index("!= targetGuidRaw"),
+                        on_update.index("RemoveAurasDueToSpell("))
+
     def test_drain_is_not_gated_by_the_flag(self):
         update = self.code[self.code.index("class NaxxramasCoreBotRaidConsumablesWorld"):]
         on_update = function_body(update, "void OnUpdate(")
@@ -183,8 +199,8 @@ class StaleWorkGeneration(unittest.TestCase):
         loop = drain[drain.index("for (PendingRemoval const& pending : work)"):]
         self.assertNotIn("lock_guard", loop)
         self.assertLess(loop.index("BeginRemovalIfCurrent(pending)"),
-                        loop.index("remove(pending.Key)"))
-        self.assertLess(loop.index("EndRemovalGuard"), loop.index("remove(pending.Key)"))
+                        loop.index("remove(pending.Key, pending.TargetToken)"))
+        self.assertLess(loop.index("EndRemovalGuard"), loop.index("remove(pending.Key, pending.TargetToken)"))
         for method in ("void Enqueue(", "bool BeginRemovalIfCurrent(", "void EndRemoval("):
             body = header[header.index(method):]
             body = body[:body.index("\n        }\n")]
