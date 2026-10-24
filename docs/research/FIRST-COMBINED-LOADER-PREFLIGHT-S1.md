@@ -17,7 +17,9 @@ Every loader contains all **29 historical main declarations and 29 historical re
 
 ## What the tests enforce
 
-The new `tests/test_first_combined_loader_preflight_s1.py` is deliberately a **model**, with 11 tests. It checks all 29 baseline declarations/registrations, the four required additions exactly once in declaration and call, detects duplicate/missing functions and dropped historical Golemagg auditing, and verifies no duplicate or accidentally enabled selected config keys. Config requirements are original legacy quest-loot OFF, GFPP one-shot OFF, and Golemagg reach guard, Scarlet, Atiesh, Hunter optional switches independently OFF. These are synthetic witnesses, not a combined implementation.
+The new `tests/test_first_combined_loader_preflight_s1.py` is deliberately a **model**, now with **14 tests**. It checks all 29 baseline declarations/registrations, the four required additions exactly once in declaration and call, detects duplicate/missing functions and dropped historical Golemagg auditing, and verifies no duplicate or accidentally enabled selected config keys. Config requirements are original legacy quest-loot OFF, GFPP one-shot OFF, and Golemagg reach guard, Scarlet, Atiesh, Hunter optional switches independently OFF. These are synthetic witnesses, not a combined implementation.
+
+**New collision check:** the future real-tree mode now also requires the actual four production C++ translation units, not just declarations in the common loader. The separately reviewed exact-head source files are `src/Systems/BotGolemaggReachGuard.cpp` (#120), `src/Systems/ScarletMonasteryExits.cpp` (#125), `src/Systems/AtieshKarazhanPortal.cpp` (#127) and `src/Systems/HunterPetAutocast.cpp` (#130). Each must contain precisely one matching `void Add...Scripts()` definition. Three additional synthetic tests catch missing files or a wrong function body when all four loader entries are still present. This is still *not* CMake or linker evidence: the integrated build must compile and link those functions on its own exact SHA.
 
 Run source-model regression:
 
