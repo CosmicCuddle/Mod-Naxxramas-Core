@@ -39,7 +39,7 @@ class GuardContract(unittest.TestCase):
 
     def test_new_hidden_slot_flag_does_not_arm_legacy_quest_turn(self):
         self.assertIn("bool legacyQuestTurnEnabled, bool hiddenOrdinarySlotEnabled", CPP)
-        self.assertIn("if (!legacyQuestTurnEnabled)\\n            return true;", CPP)
+        self.assertIn("if (!legacyQuestTurnEnabled)\n            return true;", CPP)
         self.assertIn("if (!legacyQuestTurnEnabled && !hiddenOrdinarySlotEnabled)", CPP)
         self.assertIn("NaxxramasQuestLootProtection::Enabled()", CPP)
         self.assertIn("NaxxramasQuestLootProtection::RestrictHiddenOrdinarySlots()", CPP)
