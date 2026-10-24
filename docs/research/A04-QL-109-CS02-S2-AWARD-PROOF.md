@@ -20,7 +20,9 @@ That permit-then-store sequence is the current source for:
 - **Manual loot and autoloot.** Both are `CMSG_AUTOSTORE_LOOT_ITEM` (`Opcodes.h:294`, value `0x108`; `Opcodes.cpp:395` → `HandleAutostoreLootItemOpcode`). The server path is the same. `HandleAutostoreLootItemOpcode` calls `StoreLootItem` at `LootHandler.cpp:107`.
 - **MULTI_DROP / `freeforall` versus one shared copy.** `LootItem::LootItem` sets `freeforall` from `ITEM_FLAG_MULTI_DROP` (`LootMgr.cpp:400`). A `freeforall` store marks only the personal view and leaves `item->is_looted` false (`Player.cpp:13915-13943`). A group loot method of `FREE_FOR_ALL` is a different fact: the module permits it at `QuestLootProtection.cpp:59`, and a one-copy quest line is still consumed by the first successful store.
 
-**No exact module-only pre-storage hook** on Grimfeather `8daffdabe9202c228e45d833c9a1d399597a15cd` can reject one wrong-human award and leave valid loot visible. The negative matrix is below. `ServerScript::CanPacketReceive` is a socket pre-handler, not a call inside `StoreLootItem`. Widening it would be a new entitlement policy, which this proof does not write. `OnAllowedForPlayerLootCheck` can return a deny before `StoreNewItem` and also removes the same items from the loot window. `CanPacketSend` can only drop a whole `SMSG_LOOT_RESPONSE`.
+No hook inside `StoreLootItem`. For human socket pickups the existing `CanPacketReceive` guard can reject a single slot, so closing H09/H10/released-turn is an owner policy choice, not a missing hook. Rolls, master loot and bot `HandleBotPackets` remain outside it.
+
+That wording follows CS03 review [6382855725](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/117#issuecomment-6382855725) on head `564a768`. The negative matrix still shows there is no script call inside `Player::StoreLootItem` before the item is stored that can refuse one player and one item while leaving other loot visible. `OnAllowedForPlayerLootCheck` does run before `StoreNewItem` and also removes item rows from the window. `CanPacketSend` can only drop a whole `SMSG_LOOT_RESPONSE`. The owner-facing A/B/C comparison is `docs/research/A04-QL-109-OWNER-POLICY-ABC.md`. It is not a chosen rule.
 
 ## Labels
 
@@ -38,12 +40,15 @@ Both owner reports stay open. Report (a) matches the deny cell: sparkle and `ALL
 | --- | --- | --- |
 | Grimfeather `azerothcore-wotlk` | `8daffdabe9202c228e45d833c9a1d399597a15cd` | Detached checkout. `git rev-parse HEAD` returned that SHA. Loot, session, group, and script hooks cited below. |
 | Mod-Naxxramas-Core `main` | `80e9de1c39a6dc995188a80c31a5e785d0f2a6f9` | `QuestLootProtection.cpp` blob `48729dc9fdd674eea0f4bb7bd1a47762558daf6f`. This branch does not edit it. |
+| Playerbots the owner runs | `e88cc4099e69f35126b28942a412ca702d20453b` | `src/Bot/PlayerbotMgr.cpp` `HandleBotPackets` only. Not a claim about the rest of that tree. |
 
 Workflows in this repo check out Grimfeather `azerothcore-wotlk`, not another fork, at this same pin.
 
 ## Four stages
 
-Stage 1 is `Unit::PatchValuesUpdate` (`Unit.cpp:16594-16610`) calling `Player::isAllowedToLoot` (`PlayerStorage.cpp:5746-5796`). Stage 2 is `operator<<(ByteBuffer&, LootView const&)` (`LootMgr.cpp:974-1230`) inside `Player::SendLoot` (`Player.cpp:8385-8388`). Stage 3 is `NaxxramasQuestLootProtectionScript::CanPacketReceive` (`QuestLootProtection.cpp:205-226`), reached from `WorldSession::Update` only while `m_Socket` is set (`WorldSession.cpp:461-464`). Stage 4 is `Player::StoreLootItem` (`Player.cpp:13861-13961`).
+Stage 1 is `Unit::PatchValuesUpdate` (`Unit.cpp:16594-16610`) calling `Player::isAllowedToLoot` (`PlayerStorage.cpp:5746-5796`). Stage 2 is `operator<<(ByteBuffer&, LootView const&)` (`LootMgr.cpp:974-1230`) inside `Player::SendLoot` (`Player.cpp:8385-8388`). Stage 3 is `NaxxramasQuestLootProtectionScript::CanPacketReceive` (`QuestLootProtection.cpp:205-226`). Stage 4 is `Player::StoreLootItem` (`Player.cpp:13861-13961`).
+
+For a human client, `WorldSession::Update` drains the socket queue with `while (m_Socket && _recvQueue.next(packet, updater))` (`WorldSession.cpp:414`). `CanPacketReceive` is not that `m_Socket` test. It runs later, at `WorldSession.cpp:461`, inside `else if (_player->IsInWorld())` (`WorldSession.cpp:459-460`), and `opHandle->Call` follows at `WorldSession.cpp:464`. Bot loot does not use this loop. Playerbots `PlayerbotHolder::HandleBotPackets` (`src/Bot/PlayerbotMgr.cpp:308-320`, owner pin `e88cc4099e69f35126b28942a412ca702d20453b`) calls `opHandle->Call` at `PlayerbotMgr.cpp:319` and does not call `CanPacketReceive`. Rolls and master-loot give never enter it either.
 
 `LOOT_SLOT_TYPE_ALLOW_LOOT` is 0 (`LootMgr.h:114`). Quest rows for a viewer with `HasQuestForItem` (`PlayerQuest.cpp:2338`) and a non-`follow_loot_rules`, non-`freeforall` line send `partySlotType` (`LootMgr.cpp:1094-1097` and `LootMgr.cpp:1154-1155`). For group, round robin, need-before-greed, and non-master master-loot permissions, that value is `ALLOW_LOOT`. The quest loop does not read `roundRobinPlayer`.
 
@@ -76,21 +81,22 @@ These are VERIFIED call sites. They are not the human autostore click. They show
 
 | Path | Call | Guard |
 | --- | --- | --- |
-| Human manual or client autoloot | `LootHandler.cpp:107` `StoreLootItem` | Runs first, socket only |
+| Human manual or client autoloot | `LootHandler.cpp:107` `StoreLootItem` | `CanPacketReceive` runs first, at `WorldSession.cpp:461`, for a socket session whose player is in the world |
 | FFA currency token during fill | `LootMgr.cpp:623-628` `StoreLootItem` | Not called |
 | Group roll winner | `Group.cpp:1658-1662` `StoreNewItem` | Not called. Quest lines are rolled only when `follow_loot_rules` (`Group.cpp:1222-1224`, `Group.cpp:1375-1378`) |
 | Master loot give | `LootHandler.cpp:541-563` `StoreNewItem`. The index is `quest_items[slot - items.size()]`, not the personal quest view | Not called. `AllowedForPlayer` still applies at `LootHandler.cpp:545` |
 | Spell, skin, disenchant `Player::AutoStoreLoot` | `Player.cpp:13834` builds a fresh personal `Loot` and calls `StoreNewItem` | Not the corpse window |
+| Bot queued packet | Playerbots `HandleBotPackets` `opHandle->Call` at `PlayerbotMgr.cpp:319` | `CanPacketReceive` is not called |
 
 `OnPlayerLootItem` runs only after a successful `StoreLootItem` commit (`Player.cpp:13954`). `OnPlayerStoreNewItem` runs from `Player::StoreNewItem` after `StoreItem` (`PlayerStorage.cpp:2685`).
 
 ## Negative matrix — module-only hooks
 
-A hook is sufficient only when all of these hold: it can return a deny; it receives the resolved item; `StoreLootItem` calls it before `StoreNewItem`; loot display and fill do not use the same deny; it does not take a mutable shared `LootItem`; it cannot blank an entire `SMSG_LOOT_RESPONSE`; it is not limited to the socket autostore opcode. None of the hooks below pass.
+No listed hook is a call inside `StoreLootItem` that can refuse one resolved item, for one player, before `StoreNewItem`, without also hiding other loot or editing the shared `LootItem`. Separately, `CanPacketReceive` can already refuse one human socket slot and leave the loot window alone. H09, H10, a released turn, and `QuestRequired = 0` are permitted because this module returns true there. That is the current policy. It is not a missing function.
 
 | Hook | Signature | Why it is not that hook |
 | --- | --- | --- |
-| `ServerScript::CanPacketReceive` | `bool CanPacketReceive(WorldSession* session, WorldPacket const& packet)` | `ServerScript.h:75`, called at `WorldSession.cpp:461` before `opHandle->Call`. The packet is a slot byte, not a `LootItem`. `Player.cpp:13861` does not call it. Currency fill, rolls, and master give never enter it. Returning false does not rewrite `SMSG_LOOT_RESPONSE`. The current module already uses it and still permits the award rows above. |
+| `ServerScript::CanPacketReceive` | `bool CanPacketReceive(WorldSession* session, WorldPacket const& packet)` | `ServerScript.h:75`. Human socket path: `WorldSession.cpp:414` queue, then `WorldSession.cpp:461` before `opHandle->Call` at `WorldSession.cpp:464`, only in the in-world branch. It can reject one `CMSG_AUTOSTORE_LOOT_ITEM` slot and does not hide `SMSG_LOOT_RESPONSE`. It is not called from `Player.cpp:13861`. It is not called from Playerbots `HandleBotPackets` (`PlayerbotMgr.cpp:319`). Currency fill, rolls, and master give never enter it. The module returns true for H09, H10, a released turn, and normal `loot.items` slots. Closing those cases is an owner policy choice. |
 | `ServerScript::CanPacketSend` | `bool CanPacketSend(WorldSession* session, WorldPacket const& packet)` | `ServerScript.h:65`, `WorldSession.cpp:351-356`. A false return drops the whole const packet. Vetoeing `SMSG_LOOT_RESPONSE` hides gold and legitimate FFA rows with the quest row. |
 | `GlobalScript::OnAllowedForPlayerLootCheck` | `bool OnAllowedForPlayerLootCheck(Player const* player, ObjectGuid source)` | `GlobalScript.h:98`. `CALL_ENABLED_BOOLEAN_HOOKS` (`ScriptMgrMacros.h:76-80`) turns a true hook return into a false `ScriptMgr` result, and `LootItem::AllowedForPlayer` then returns false (`LootMgr.cpp:465-466`). The arguments are player and source, not the item. The same check builds quest views (`LootMgr.cpp:671`), FFA and conditional views, the loot window (`LootMgr.cpp:1004`), and `StoreLootItem` (`Player.cpp:13888`). A deny hides those valid item rows. Gold can remain (`LootMgr.cpp:894-897`). |
 | `GlobalScript::OnAllowedToLootContainerCheck` | `bool OnAllowedToLootContainerCheck(Player const* player, ObjectGuid source)` | `GlobalScript.h:101`, `Player.cpp:8373-8377`. A true hook return makes `SendLoot` send `LOOT_ERROR_DIDNT_KILL` and skip the loot response. The whole window, including valid loot, stays closed. It does not run inside `StoreLootItem`. |
@@ -114,7 +120,7 @@ A hook is sufficient only when all of these hold: it can return a deny; it recei
 - Add a second packet script, a player script, or a global loot check to `src/`.
 - Treat `FREE_FOR_ALL` loot method as `ITEM_FLAG_MULTI_DROP`.
 - Treat a personal MULTI_DROP store as the friend consuming the owner's only copy.
-- Choose personal copies, a named owner, or a different turn rule. Those remain owner decisions recorded on #109 and #111.
+- Choose personal copies, a named owner, or a different turn rule. The plain-English comparison is `docs/research/A04-QL-109-OWNER-POLICY-ABC.md`. Its one-line note is marked not chosen.
 
 ## Evidence labels for this branch
 
@@ -126,6 +132,8 @@ A hook is sufficient only when all of these hold: it can return a deny; it recei
 | Owner's reported corpse, exact item, and whether a copy moved | UNKNOWN |
 | In-game manual click, client autoloot, sparkle, and inventory | NOT TESTED |
 | Linked worldserver, Playerbots, Individual Progression | NOT TESTED |
-| A module-only hook that rejects one wrong human inside `StoreLootItem` without hiding valid loot | VERIFIED absent on this pin, by the matrix |
+| A script hook inside `StoreLootItem` that rejects one wrong human and leaves valid loot visible | VERIFIED absent on this pin |
+| Human socket `CanPacketReceive` can already reject one slot; H09/H10/released-turn are current permits | VERIFIED as source. Whether to close them is an owner policy choice, not chosen here |
+| Playerbots `HandleBotPackets` calls `opHandle->Call` and skips `CanPacketReceive` | VERIFIED at owner pin `e88cc4099e69f35126b28942a412ca702d20453b`, `PlayerbotMgr.cpp:308-320` |
 
 The Python tests re-read the module and this note. They do not re-clone Grimfeather. Re-reading the cited lines is the source check for a reviewer.

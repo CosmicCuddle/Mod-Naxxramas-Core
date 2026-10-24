@@ -23,6 +23,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GUARD_PATH = ROOT / "src" / "Systems" / "QuestLootProtection.cpp"
 DOC_PATH = ROOT / "docs" / "research" / "A04-QL-109-CS02-S2-AWARD-PROOF.md"
+POLICY_PATH = ROOT / "docs" / "research" / "A04-QL-109-OWNER-POLICY-ABC.md"
+CONCLUSION = (
+    "No hook inside `StoreLootItem`. For human socket pickups the existing "
+    "`CanPacketReceive` guard can reject a single slot, so closing "
+    "H09/H10/released-turn is an owner policy choice, not a missing hook. "
+    "Rolls, master loot and bot `HandleBotPackets` remain outside it."
+)
+POLICY_NOTE = (
+    "If the owner wants the friend's human click stopped without creating "
+    "extra items, A or C can use the existing single-slot click check, and "
+    "B cannot, because a personal copy changes the shared drop."
+)
 
 CORE_SHA = "8daffdabe9202c228e45d833c9a1d399597a15cd"
 MODULE_BLOB = "48729dc9fdd674eea0f4bb7bd1a47762558daf6f"
@@ -404,8 +416,8 @@ class Hook:
     socket_autostore_only: bool
 
     @property
-    def sufficient(self) -> bool:
-        """Exact pre-storage reject of one wrong human, without hiding valid loot."""
+    def inside_store_before_commit(self) -> bool:
+        """A deny of one resolved item inside StoreLootItem, leaving other loot visible."""
         return (
             self.boolean_deny
             and self.receives_resolved_item
@@ -413,7 +425,18 @@ class Hook:
             and not self.also_gates_visibility
             and not self.mutates_shared_lootitem
             and not self.blanket_smsg
-            and not self.socket_autostore_only
+        )
+
+    @property
+    def human_socket_single_slot(self) -> bool:
+        """Refuse one human autostore slot without hiding the loot window."""
+        return (
+            self.boolean_deny
+            and self.socket_autostore_only
+            and not self.also_gates_visibility
+            and not self.blanket_smsg
+            and not self.mutates_shared_lootitem
+            and not self.called_from_store_loot_item_before_commit
         )
 
 
@@ -1106,21 +1129,26 @@ class AwardPathTests(unittest.TestCase):
 
     def test_no_listed_hook_is_an_exact_pre_storage_reject(self) -> None:
         self.assertGreaterEqual(len(HOOKS), 14)
-        sufficient = [hook.name for hook in HOOKS if hook.sufficient]
-        self.assertEqual(sufficient, [])
+        inside = [hook.name for hook in HOOKS if hook.inside_store_before_commit]
+        self.assertEqual(inside, [])
+        socket = [hook.name for hook in HOOKS if hook.human_socket_single_slot]
+        self.assertEqual(socket, ["ServerScript::CanPacketReceive"])
         receive = hook_named("ServerScript::CanPacketReceive")
         self.assertTrue(receive.boolean_deny)
         self.assertTrue(receive.socket_autostore_only)
         self.assertFalse(receive.called_from_store_loot_item_before_commit)
-        self.assertFalse(receive.sufficient)
+        self.assertFalse(receive.inside_store_before_commit)
+        self.assertTrue(receive.human_socket_single_slot)
         allowed = hook_named("GlobalScript::OnAllowedForPlayerLootCheck")
         self.assertTrue(allowed.called_from_store_loot_item_before_commit)
         self.assertTrue(allowed.also_gates_visibility)
         self.assertFalse(allowed.receives_resolved_item)
-        self.assertFalse(allowed.sufficient)
+        self.assertFalse(allowed.inside_store_before_commit)
+        self.assertFalse(allowed.human_socket_single_slot)
         send = hook_named("ServerScript::CanPacketSend")
         self.assertTrue(send.blanket_smsg)
-        self.assertFalse(send.sufficient)
+        self.assertFalse(send.inside_store_before_commit)
+        self.assertFalse(send.human_socket_single_slot)
         fill = hook_named("PlayerScript::OnPlayerBeforeFillQuestLootItem")
         self.assertTrue(fill.mutates_shared_lootitem)
         self.assertFalse(fill.boolean_deny)
@@ -1137,7 +1165,9 @@ class AwardPathTests(unittest.TestCase):
         fill = hook_named("PlayerScript::OnPlayerBeforeFillQuestLootItem")
         self.assertTrue(send.blanket_smsg)
         self.assertTrue(fill.mutates_shared_lootitem)
-        self.assertNotIn(True, (send.sufficient, fill.sufficient))
+        self.assertFalse(send.human_socket_single_slot)
+        self.assertFalse(fill.human_socket_single_slot)
+        self.assertFalse(fill.inside_store_before_commit)
         # A deny of the whole response removes gold and an independent FFA row
         # together with the quest row. The model records that as hiding valid loot.
         hidden = ("gold", "ffa-row", "quest-row")
@@ -1159,14 +1189,15 @@ class AwardPathTests(unittest.TestCase):
             one_copy_quest(),
             gold=1,
         )))
-        self.assertFalse(allowed.sufficient)
+        self.assertFalse(allowed.inside_store_before_commit)
 
     def test_container_hook_hides_the_whole_window(self) -> None:
         hook = hook_named("GlobalScript::OnAllowedToLootContainerCheck")
         self.assertTrue(hook.boolean_deny)
         self.assertTrue(hook.also_gates_visibility)
         self.assertFalse(hook.called_from_store_loot_item_before_commit)
-        self.assertFalse(hook.sufficient)
+        self.assertFalse(hook.inside_store_before_commit)
+        self.assertFalse(hook.human_socket_single_slot)
 
     def test_module_source_permit_sites_and_no_store_hook(self) -> None:
         text = GUARD_PATH.read_text(encoding="utf-8")
@@ -1188,7 +1219,13 @@ class AwardPathTests(unittest.TestCase):
         doc = DOC_PATH.read_text(encoding="utf-8")
         self.assertIn(CORE_SHA, doc)
         self.assertIn(MODULE_BLOB, doc)
-        self.assertIn("No exact module-only pre-storage hook", doc)
+        self.assertIn(CONCLUSION, doc)
+        self.assertNotIn("only while `m_Socket` is set (`WorldSession.cpp:461", doc)
+        self.assertIn("WorldSession.cpp:414", doc)
+        self.assertIn("WorldSession.cpp:461", doc)
+        self.assertIn("PlayerbotMgr.cpp:319", doc)
+        self.assertIn("e88cc4099e69f35126b28942a412ca702d20453b", doc)
+        self.assertIn("HandleBotPackets", doc)
         self.assertIn("Player::StoreLootItem", doc)
         self.assertIn("Player.cpp:13861", doc)
         self.assertIn("H09", doc)
@@ -1203,6 +1240,30 @@ class AwardPathTests(unittest.TestCase):
         self.assertIn("LootMgr.cpp:1154", doc)
         self.assertIn("Player.cpp:13941", doc)
         self.assertIn("Opcodes.h:294", doc)
+
+    def test_owner_policy_note_is_not_a_choice(self) -> None:
+        text = POLICY_PATH.read_text(encoding="utf-8")
+        self.assertIn("## A — Keep one copy", text)
+        self.assertIn("## B — A real personal copy", text)
+        self.assertIn("## C — Name one owner", text)
+        self.assertIn("not chosen", text.lower())
+        self.assertIn(POLICY_NOTE, text)
+        for phrase in (
+            "Does the friend still take it?",
+            "Vanilla and the economy.",
+            "Ordinary quest drops.",
+            "Free-for-all and multi-drop",
+            "Gold and dice.",
+            "Proven in the source.",
+            "Unresolved:",
+        ):
+            self.assertGreaterEqual(text.count(phrase), 3, phrase)
+        self.assertIn("does not rewrite the shared item", text)
+        self.assertIn("without changing the shared drop", text)
+        self.assertNotIn("src/", text)
+        words = len(text.split())
+        self.assertLess(words, 1200)
+        self.assertGreater(words, 500)
 
 
 if __name__ == "__main__":
