@@ -102,13 +102,48 @@ class S4cErrorStoreTests(unittest.TestCase):
         self.assertEqual(len(self.records()), 2)
         self.assertIn("Total bursts: 2", self.error_index())
 
-    def test_same_identity_different_timestamp_cannot_overwrite(self):
+    def test_same_identity_new_wall_timestamp_is_benign_replay(self):
         event = sample()
         self.store.publish_error(event)
         previous = self.records()[0].read_bytes()
-        with self.assertRaises(FileExistsError):
-            self.store.publish_error(replace(event, observed_utc="2026-10-25T00:04:00Z"))
+        self.assertFalse(self.store.publish_error(
+            replace(event, observed_utc="2026-10-25T00:04:00Z")))
         self.assertEqual(self.records()[0].read_bytes(), previous)
+        self.assertEqual(len(self.records()), 1)
+
+    def test_abandoned_temp_hardlink_is_recovered_before_rebuild(self):
+        event = sample()
+        self.store.publish_error(event)
+        finalized = self.records()[0]
+        abandoned = self.root / (".f15-s2-" + "a" * 32)
+        os.link(finalized, abandoned)
+        self.assertEqual(finalized.stat().st_nlink, 2)
+        self.assertEqual(self.store.rebuild_errors(), (1, 0, 0, 1))
+        self.assertFalse(abandoned.exists())
+        self.assertEqual(finalized.stat().st_nlink, 1)
+        self.assertIn("Total bursts: 1", self.error_index())
+        self.assertFalse(self.store.publish_error(event))
+
+    def test_abandoned_temp_link_recovered_on_duplicate_publish(self):
+        event = sample()
+        self.store.publish_error(event)
+        first = self.records()[0].read_bytes()
+        abandoned = self.root / (".f15-s2-" + "b" * 32)
+        os.link(self.records()[0], abandoned)
+        self.assertFalse(self.store.publish_error(
+            replace(event, observed_utc="2026-10-25T00:08:00Z")))
+        self.assertFalse(abandoned.exists())
+        self.assertEqual(self.records()[0].read_bytes(), first)
+
+    def test_temp_symlink_never_followed_or_removed(self):
+        sentinel = Path(self.tmp.name) / "outside"
+        sentinel.write_text("do not touch", encoding="utf-8")
+        hostile = self.root / (".f15-s2-" + "c" * 32)
+        hostile.symlink_to(sentinel)
+        self.store.publish_error(sample())
+        self.assertTrue(hostile.is_symlink())
+        self.assertEqual(sentinel.read_text("utf-8"), "do not touch")
+        self.assertEqual(self.store.rebuild_errors(), (1, 0, 0, 1))
 
     def test_future_stamp_rejected_before_persisting(self):
         with self.assertRaisesRegex(ValueError, "future"):
