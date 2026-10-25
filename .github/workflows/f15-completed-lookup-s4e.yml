@@ -1,0 +1,53 @@
+name: F15 S4e offline completed restart lookup (NO HOST)
+
+on:
+  pull_request:
+    paths:
+      - "tools/f15/offline_completed_lookup.py"
+      - "tests/test_f15_completed_lookup_s4e.py"
+      - "docs/research/F15-S4E-OFFLINE-COMPLETED-LOOKUP.md"
+      - ".github/workflows/f15-completed-lookup-s4e.yml"
+      - "tools/f15/offline_store.py"
+      - "tools/f15/offline_restart.py"
+      - "tools/f15/offline_error_bursts.py"
+      - "tools/f15/offline_error_reports.py"
+      - "tools/f15/offline_restart_readiness.py"
+      - "tests/test_f15_restart_readiness_s4d.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact SHA
+        if: github.event_name == 'pull_request'
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Compile S4e source and test only
+        run: python3 -m py_compile tools/f15/offline_completed_lookup.py tests/test_f15_completed_lookup_s4e.py
+      - name: Test read-only S3 completion lookup
+        run: python3 -m unittest -v tests.test_f15_completed_lookup_s4e
+      - name: Preserve S4d synthetic readiness
+        run: python3 -m unittest -v tests.test_f15_restart_readiness_s4d
+      - name: Preserve S4c immutable error reports
+        run: python3 -m unittest -v tests.test_f15_error_reports_s4c
+      - name: Preserve S4b warning bursts
+        run: python3 -m unittest -v tests.test_f15_error_bursts_s4b
+      - name: Preserve S4 fixture actual child gate
+        run: python3 -m unittest -v tests.test_f15_exit_evidence_s4
+      - name: Preserve S3 immutable sidecars
+        run: python3 -m unittest -v tests.test_f15_restart_sidecar_s3
+      - name: Preserve S2 report storage
+        run: python3 -m unittest -v tests.test_f15_offline_store_s2
+      - name: Assert no live process observer
+        run: |
+          test ! -e tools/f15/live_supervisor.py
+          echo "PASS: isolated synthetic private-directory fixture; no host supervisor or real restart"
