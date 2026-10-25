@@ -86,15 +86,23 @@ class Incident:
         self.checked()
         if not self.verified_actual_death or not self.unexpected_death:
             return False
-        if self.planned_stop and self.signal in (None, "SIGTERM", "SIGHUP", "SIGINT"):
-            # An independently verified administrative stop signal is not
-            # a crash; a later SIGSEGV/SIGABRT/SIGKILL is a forced or fatal
-            # termination and remains visible pending policy review.
+        if self.planned_stop and self.signal in ("SIGTERM", "SIGHUP", "SIGINT"):
+            # A corroborated planned administrative stop by these ordinary
+            # signals is not an incident. A genuine fatal/forced signal can
+            # still be an incident during planned teardown.
             return False
         if self.signal:
             return True
         if self.exit_code == 0 or (self.service == "worldserver" and self.exit_code == 2):
             return False
+        if self.planned_stop and self.exit_code is None:
+            # Ambiguous wrapper/child status during planned shutdown is
+            # insufficient evidence of a fatal crash.
+            return False
+        # An independently verified unexpected actual-child exit 1/134/139
+        # during a planned stop must NOT silently disappear. High statuses
+        # can be shell signal encodings, or ordinary exit codes: only a
+        # trusted adapter can establish the actual signal.
         # A corroborated unexpected death without a usable status can
         # produce a minimal incident; do not guess signal/root cause.
         return self.exit_code is None or self.exit_code != 0
@@ -365,6 +373,9 @@ class IncidentStore:
             if exists:
                 prior = self._read_valid(name)
                 if prior is None or prior["incident_id"] != info["incident_id"]:
+                    # Even on a corrupt/no-clobber conflict, refresh the
+                    # derived history so the warning remains visible.
+                    self._rebuild_locked()
                     raise FileExistsError("final filename conflict/corruption")
                 self._rebuild_locked()
                 return False
