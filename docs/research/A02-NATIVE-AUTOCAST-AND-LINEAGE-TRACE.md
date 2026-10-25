@@ -39,10 +39,12 @@ There are two client packets. Neither has a script hook **after** the native han
 - **Across restarts: NOT unique.** `ObjectMgr::LoadPetNumber` seeds `_hiPetNumber` from `SELECT MAX(id) FROM character_pet` at startup (L8116–L8128). Abandoning a pet (`CMSG_PET_ABANDON`, `PROCESS_THREADUNSAFE`, `Opcodes.cpp` L505 → `HandlePetAbandon` L931) runs `RemovePet(..., PET_SAVE_AS_DELETED)` (`PetHandler.cpp` L948), which deletes the row. If the abandoned pet held the **highest** number and the server restarts before a higher one is saved, **the next tame reuses that number**.
 - **Consequence:** a client `db.pets[petNumber]` entry for the abandoned pet would then be applied to a different, newly tamed pet. Same-pet ON/OFF across relog and stable swaps is still keyed correctly, because those keep their row.
 
-### Suggested mitigations, for the protocol owners to choose
-1. **Add the entry.** Include the pet's creature `entry` (already in `character_pet.entry`) in the server HELLO, and key the addon as `db.pets[petNumber .. ":" .. entry]`. A reused number then also needs the same beast entry to collide.
-2. **Forget on abandon.** On abandon the server can tell the client to drop the old record. The module can see it before the handler via `CanPacketReceive(CMSG_PET_ABANDON)` (world thread at this pin), or by noticing the row's absence on the next login.
-3. **Optionally, a durable server-side lineage ID** in a module-owned table. That needs SQL and owner approval, so it is not proposed here.
+### Mitigation options, for the protocol owners to choose (corrected after CS01 review `6399613605`)
+1. **Adding the entry does not solve it.** Keying the addon as `petNumber .. ":" .. entry` only narrows the collision. After pet A is abandoned and the server restarts, a newly tamed pet B can get **the same number and the same creature entry**, because the entry is a species, not a birth identity. So it is not a durable identity.
+2. **Forgetting on abandon is not sufficient either.** The module can see an abandon before the handler (`CanPacketReceive(CMSG_PET_ABANDON)`, world thread at this pin). But a client that is offline or not synced at that moment keeps its old saved record.
+3. **What a reliable key needs.** Either a server-authored birth lineage ID that survives restarts, or a number generator proven never to reuse a value. That needs a module-owned table or column, SQL and owner approval. It must also survive the normal pet save path (`DELETE` by ID then `REPLACE`; see N-Core #8 `5d2b56e`). **Nothing is proposed or approved here.**
+
+A pre-handler mirror of the acceptance rule (section 1) is likewise a **design candidate, not proof** that the native handler accepted a particular ON/OFF. `HandlePetSetAction` has move-button and per-pet `CharmInfo` skips, and `Pet::ToggleAutocast` can do nothing when the state already matches or the spell entry is missing.
 
 ## Not verified
 3.3.5a client behaviour, the N-Core addon, a running server, `MapUpdate.Threads = 8`, and whether the owner's realm ever had its highest-numbered pet abandoned before a restart.
