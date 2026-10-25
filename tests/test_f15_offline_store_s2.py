@@ -196,6 +196,62 @@ class StoreTests(TestCase):
         self.assertLess(text.index("2026-10-25T01:30:00Z"),
                         text.index("2026-10-25T02:10:00Z"))
 
+    def test_ancestor_symlink_is_rejected_before_any_write(self):
+        alias = Path(self.temp.name) / "alias-parent"
+        alias.symlink_to(self.root.parent, target_is_directory=True)
+        with self.assertRaises(PermissionError):
+            IncidentStore(alias / "Crash Logs")
+        self.assertEqual(self.reports(), [])
+
+    def test_replaced_directory_path_does_not_redirect_writer(self):
+        moved = Path(self.temp.name) / "original-private-directory"
+        self.root.rename(moved)
+        self.root.mkdir(mode=0o700)
+        self.assertTrue(self.store.publish(event()))
+        self.assertEqual(len(list(moved.glob("*-crash-*.txt"))), 1)
+        self.assertEqual(len(self.reports()), 0)
+        self.assertFalse((self.root / "Crash-History.txt").exists())
+        self.assertIn("Total: 1", (moved / "Crash-History.txt").read_text())
+
+    def test_parent_swap_to_symlink_does_not_redirect_writer(self):
+        moved = Path(self.temp.name) / "old-private"
+        self.root.rename(moved)
+        hostile = Path(self.temp.name) / "new-target"
+        hostile.mkdir(mode=0o700)
+        self.root.symlink_to(hostile, target_is_directory=True)
+        self.assertTrue(self.store.publish(event()))
+        self.assertEqual(len(list(moved.glob("*-crash-*.txt"))), 1)
+        self.assertEqual(len(list(hostile.glob("*-crash-*.txt"))), 0)
+
+    def test_report_survives_rebuild_exception_and_recovers(self):
+        from unittest.mock import patch
+        with patch.object(self.store, "_rebuild_locked",
+                          side_effect=OSError("injected history failure")):
+            with self.assertRaisesRegex(OSError, "injected"):
+                self.store.publish(event())
+        self.assertEqual(len(self.reports()), 1)
+        self.assertEqual(IncidentStore(self.root).rebuild(), (1, 0))
+        self.assertIn("Total: 1", self.history())
+
+    def test_index_symlink_replaced_without_touching_its_target(self):
+        sentinel = Path(self.temp.name) / "unrelated.txt"
+        sentinel.write_text("DO NOT REPLACE", encoding="utf-8")
+        (self.root / "Crash-History.txt").symlink_to(sentinel)
+        self.assertTrue(self.store.publish(event()))
+        self.assertEqual(sentinel.read_text(), "DO NOT REPLACE")
+        self.assertFalse((self.root / "Crash-History.txt").is_symlink())
+        self.assertIn("Total: 1", self.history())
+
+    def test_report_corruption_never_counted_even_with_matching_filename(self):
+        self.assertTrue(self.store.publish(event()))
+        report = self.reports()[0]
+        content = report.read_bytes()
+        report.write_bytes(content.replace(b"Observed termination: exit 1",
+                                           b"Observed termination: exit 3"))
+        self.assertEqual(self.store.rebuild(), (0, 0))
+        self.assertIn("Total: 0", self.history())
+        self.assertEqual(len(self.reports()), 1)
+
     def test_actual_parallel_world_and_auth_writers(self):
         ctx = multiprocessing.get_context("fork")
         queue = ctx.Queue()
