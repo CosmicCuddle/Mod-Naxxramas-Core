@@ -50,6 +50,19 @@ class OwnedPipeFixture(unittest.TestCase):
         self.assertEqual(x.dropped_records, 95)
         self.assertFalse(x.timed_out)
 
+    def test_large_byte_flood_stops_at_total_budget(self):
+        x = capture_disposable("byte_flood", max_total_bytes=4096, max_records=3)
+        self.assertTrue(x.byte_limit_exceeded)
+        self.assertLessEqual(len(x.records), 3)
+        self.assertLessEqual(x.bytes_read, 4096 + 4096)
+        self.assertFalse(hasattr(x, "crash_verified"))
+
+    def test_invalid_byte_budget_refuses_to_spawn(self):
+        with patch("offline_owned_stderr_s4h.subprocess.Popen") as popen:
+            with self.assertRaises(ValueError):
+                capture_disposable("normal", max_total_bytes=0)
+            popen.assert_not_called()
+
     def test_split_writes_reassemble_one_line(self):
         x = capture_disposable("split")
         self.assertEqual(x.lines_seen, 1)
