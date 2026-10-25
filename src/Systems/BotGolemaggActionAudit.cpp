@@ -49,6 +49,59 @@ namespace
         bool lastInsideRetreatDistance = false;
     };
 
+    struct AuditConfig
+    {
+        bool enabled = false;
+        std::string allowedBot;
+    };
+
+    // Only called from the config hook below, on the world thread.
+    AuditConfig ReadAuditConfig()
+    {
+        AuditConfig loaded;
+        loaded.enabled = sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled", false);
+        loaded.allowedBot = sConfigMgr->GetOption<std::string>(
+            "NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName", "");
+        return loaded;
+    }
+
+    // Written only by the startup config load, which runs in
+    // World::SetInitialWorldSettings before MapMgr starts any map worker.
+    // Never written again, so map threads read it without a lock and never
+    // call ConfigMgr. Until it is written, the observer is OFF.
+    AuditConfig StartupAuditConfig;
+
+    // Takes the settings snapshot. World::LoadConfigSettings calls this hook
+    // on the world thread: at startup before any map worker exists, and for
+    // ".reload config" while no map worker runs. A reload keeps the startup
+    // values (restart-only) and warns if they changed.
+    class NaxxramasCoreGolemaggActionAuditConfig final : public WorldScript
+    {
+    public:
+        NaxxramasCoreGolemaggActionAuditConfig()
+            : WorldScript("NaxxramasCoreGolemaggActionAuditConfig", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })
+        {
+        }
+
+        void OnAfterConfigLoad(bool reload) override
+        {
+            AuditConfig const loaded = ReadAuditConfig();
+            if (!reload)
+            {
+                StartupAuditConfig = loaded;
+                return;
+            }
+
+            if (loaded.enabled != StartupAuditConfig.enabled ||
+                loaded.allowedBot != StartupAuditConfig.allowedBot)
+                LOG_WARN("module",
+                    "GolemaggActionAudit: settings changed by .reload config are ignored until "
+                    "Worldserver restarts; still Enabled={} AllowedBotName='{}'.",
+                    StartupAuditConfig.enabled, StartupAuditConfig.allowedBot);
+        }
+    };
+
     class NaxxramasCoreGolemaggActionAudit final : public PlayerScript
     {
     public:
@@ -60,17 +113,15 @@ namespace
 
         void OnPlayerUpdate(Player* player, uint32 diff) override
         {
-            // A constant and safe default. Config changes require a restart;
-            // no per-tick config queries on a disabled feature.
-            static bool const enabled = sConfigMgr->GetOption<bool>(
-                "NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled", false);
-            if (!enabled || !player)
+            // Startup snapshot only: no ConfigMgr access on a map thread.
+            // Config changes require a restart.
+            AuditConfig const& config = StartupAuditConfig;
+            if (!config.enabled || !player)
                 return;
 
             // SECOND independent opt-in: a single exact Altbot character
             // name is required even after Enabled has been explicitly set.
-            static std::string const allowedBot = sConfigMgr->GetOption<std::string>(
-                "NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName", "");
+            std::string const& allowedBot = config.allowedBot;
             if (!NaxxramasGolemaggActionAudit::IsAllowedBotName(player->GetName(), allowedBot))
                 return;
 
@@ -223,5 +274,6 @@ namespace
 
 void AddBotGolemaggActionAuditScripts()
 {
+    new NaxxramasCoreGolemaggActionAuditConfig();
     new NaxxramasCoreGolemaggActionAudit();
 }
