@@ -1,0 +1,60 @@
+name: "A04 Q6b roll-timing witnesses (research only)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tests/research/a04_roll_model.py'
+      - 'tests/research/a04_turn_model.py'
+      - 'src/Systems/QuestLootProtection.cpp'
+      - 'tests/research/test_cs03_a04_q6b_roll_timing.py'
+      - 'scripts/check_a04_roll_fingerprint.py'
+      - 'docs/research/A04-Q6B-ROLL-TIMING.md'
+      - '.github/workflows/a04-q6b-roll-timing.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-a04-q6b-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  witnesses-and-fingerprint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Roll-timing witnesses (must run every test, none skipped)
+        run: |
+          set -euo pipefail
+          python3 -I -B tests/research/test_cs03_a04_q6b_roll_timing.py -v 2>&1 | tee /tmp/q6b.txt
+          grep -qx "Ran 33 tests in [0-9.]*s" /tmp/q6b.txt
+          grep -qx "OK" /tmp/q6b.txt
+          ! grep -q "skipped" /tmp/q6b.txt
+      - name: Checkout pinned core (seven files only)
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+          sparse-checkout: |
+            src/server/game/Groups/Group.cpp
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Entities/Player/PlayerQuest.cpp
+            src/server/game/Entities/Player/PlayerStorage.cpp
+            src/server/game/Loot/LootMgr.cpp
+            src/server/game/Entities/Unit/Unit.cpp
+            src/server/game/Handlers/LootHandler.cpp
+          sparse-checkout-cone-mode: false
+      - name: Confirm pinned core
+        run: test "$(git -C acore rev-parse HEAD)" = "8daffdabe9202c228e45d833c9a1d399597a15cd"
+      - name: Loot function fingerprint (model must be re-reviewed on any change)
+        run: python3 -I -B scripts/check_a04_roll_fingerprint.py acore --print
