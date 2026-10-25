@@ -16,8 +16,8 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import stat
-import tempfile
 import uuid
 
 SCHEMA = "F15-S2-OFFLINE-1"
@@ -133,66 +133,111 @@ def report_bytes(info: dict) -> bytes:
 
 
 class IncidentStore:
-    """Immutable report publisher + rebuildable derived index, POSIX only."""
+    """Pinned-directory POSIX publisher; no supervisor, no production adapter.
+
+    Once opened, all data/lock/index operations use the original directory
+    descriptor, not a pathname re-resolved after an ancestor rename/symlink
+    swap. External hostile parent permissions still require deployment review.
+    """
 
     def __init__(self, directory: Path):
         self.root = Path(directory)
-        if not self.root.is_absolute():
-            raise ValueError("absolute directory required")
-        # Do not create directories or allow a symlinked output directory.
-        mode = self.root.lstat().st_mode
-        if not stat.S_ISDIR(mode) or mode & 0o077:
-            raise PermissionError("existing private non-symlink directory required")
+        self._fd = None
+        if not self.root.is_absolute() or ".." in self.root.parts:
+            raise ValueError("absolute normalized directory required")
 
-    def _dirfd(self) -> int:
-        return os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        fd = os.open("/", flags)
+        try:
+            for part in self.root.parts[1:]:
+                if part in ("", ".", ".."):
+                    raise ValueError("untrusted path component")
+                nextfd = os.open(part, flags, dir_fd=fd)
+                os.close(fd)
+                fd = nextfd
+            st = os.fstat(fd)
+            if not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o077:
+                raise PermissionError("existing private non-symlink leaf required")
+            self._fd = fd
+        except BaseException:
+            os.close(fd)
+            raise
+
+    def close(self):
+        fd, self._fd = self._fd, None
+        if fd is not None:
+            os.close(fd)
+
+    def __del__(self):
+        with contextlib.suppress(OSError):
+            self.close()
 
     @contextlib.contextmanager
     def _locked(self):
-        # Linux flock works across multiple independent writer processes.
         flags = os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW
-        fd = os.open(self.root / ".f15.offline.lock", flags, 0o600)
+        fd = os.open(".f15.offline.lock", flags, 0o600, dir_fd=self._fd)
         try:
             st = os.fstat(fd)
-            if not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077:
+            if not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077 or st.st_nlink != 1:
                 raise PermissionError("unsafe offline lock")
             fcntl.flock(fd, fcntl.LOCK_EX)
-            yield
+            try:
+                yield
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
 
     def _durable(self):
-        fd = self._dirfd()
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        os.fsync(self._fd)
 
-    def _temp(self, content: bytes) -> Path:
-        fd, name = tempfile.mkstemp(prefix=".f15-s2-", dir=self.root)
+    def _unlink(self, name: str):
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(name, dir_fd=self._fd)
+
+    def _temp(self, content: bytes) -> str:
+        # Avoid tempfile.mkstemp(path), which re-resolves the directory path.
+        # O_EXCL prevents collision and O_NOFOLLOW blocks pre-existing links.
+        name = None
+        fd = None
+        for _ in range(5):
+            name = ".f15-s2-" + secrets.token_hex(16)
+            try:
+                fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                             os.O_NOFOLLOW, 0o600, dir_fd=self._fd)
+                break
+            except FileExistsError:
+                continue
+        if fd is None:
+            raise FileExistsError("no unused temporary report name")
         try:
-            os.fchmod(fd, 0o600)
             with os.fdopen(fd, "wb") as file:
+                fd = None
                 file.write(content)
                 file.flush()
                 os.fsync(file.fileno())
         except BaseException:
-            with contextlib.suppress(OSError):
+            if fd is not None:
                 os.close(fd)
-            Path(name).unlink(missing_ok=True)
+            self._unlink(name)
             raise
-        return Path(name)
+        return name
 
-    def _read_valid(self, path: Path):
-        if not REPORT.fullmatch(path.name):
+    def _read_valid(self, name: str):
+        if not REPORT.fullmatch(name):
             return None
         try:
-            if path.is_symlink() or not stat.S_ISREG(path.lstat().st_mode):
+            # O_NONBLOCK prevents a hostile FIFO/device from blocking before
+            # fstat rejects non-regular files. Never follow a report symlink.
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                         dir_fd=self._fd)
+            with os.fdopen(fd, "rb") as file:
+                st = os.fstat(file.fileno())
+                if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_REPORT:
+                    return None
+                payload = file.read(MAX_REPORT + 1)
+            if len(payload) > MAX_REPORT:
                 return None
-            if path.stat().st_size > MAX_REPORT:
-                return None
-            payload = path.read_bytes()
             body, marker = payload.rsplit(b"Finalized SHA-256: ", 1)
             if marker != hashlib.sha256(body).hexdigest().encode("ascii") + b"\n":
                 return None
@@ -217,7 +262,7 @@ class IncidentStore:
             if info["incident_id"] != str(uuid.uuid5(NAMESPACE, identity)):
                 return None
             expected = self._filename(info)
-            if path.name != expected or payload != report_bytes(info):
+            if name != expected or payload != report_bytes(info):
                 return None
             return info
         except (OSError, ValueError, KeyError, StopIteration, UnicodeError, TypeError):
@@ -230,12 +275,12 @@ class IncidentStore:
 
     def _reports(self):
         items = {}
-        for path in self.root.iterdir():
-            if not REPORT.fullmatch(path.name):
+        for name in os.listdir(self._fd):
+            if not REPORT.fullmatch(name):
                 continue
-            info = self._read_valid(path)
+            info = self._read_valid(name)
             if info:
-                items[info["incident_id"]] = (path.name, info)
+                items[info["incident_id"]] = (name, info)
         return sorted(items.values(), key=lambda pair:
                       (pair[1]["end_utc"], pair[1]["incident_id"]))
 
@@ -257,10 +302,11 @@ class IncidentStore:
         temp = self._temp(("\n".join(lines) + "\n").encode("utf-8"))
         try:
             # History is derived; atomic REPLACE is appropriate here only.
-            os.replace(temp, self.root / "Crash-History.txt")
+            os.replace(temp, "Crash-History.txt",
+                       src_dir_fd=self._fd, dst_dir_fd=self._fd)
             self._durable()
         finally:
-            temp.unlink(missing_ok=True)
+            self._unlink(temp)
         return w, a
 
     def publish(self, incident: Incident) -> bool:
@@ -270,21 +316,26 @@ class IncidentStore:
         info = incident.metadata()
         name = self._filename(info)
         with self._locked():
-            final = self.root / name
-            if final.exists() or final.is_symlink():
-                prior = self._read_valid(final)
+            try:
+                os.stat(name, dir_fd=self._fd, follow_symlinks=False)
+                exists = True
+            except FileNotFoundError:
+                exists = False
+            if exists:
+                prior = self._read_valid(name)
                 if prior is None or prior["incident_id"] != info["incident_id"]:
                     raise FileExistsError("final filename conflict/corruption")
                 self._rebuild_locked()
                 return False
             temp = self._temp(report_bytes(info))
             try:
-                # Atomic no-clobber: link returns EEXIST if final already exists.
-                os.link(temp, final, follow_symlinks=False)
+                # Hard-link is atomic no-clobber (EEXIST), anchored under FD.
+                os.link(temp, name, src_dir_fd=self._fd,
+                        dst_dir_fd=self._fd, follow_symlinks=False)
                 self._durable()
             finally:
-                temp.unlink(missing_ok=True)
-            # Even if index write fails, finalized report survives and
-            # a future rebuild recovers it without counting a second crash.
+                self._unlink(temp)
+            # An index failure cannot erase the finalized report. The next
+            # successful rebuild recovers it without counting a second event.
             self._rebuild_locked()
             return True
