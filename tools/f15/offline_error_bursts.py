@@ -1,0 +1,227 @@
+"""F15 S4b OFFLINE model: bounded independent WARNING/ERROR log bursts.
+
+Synthetic-only. No tailing, file I/O, Linux supervisor, root paths, report
+publishing, network access, process launch, or incident/crash counter changes.
+
+A caller-set verified_stream boolean is NOT actual provenance. A future
+owner-approved adapter MUST derive process/stream/sequence independently.
+No raw log text is accepted or retained, to avoid private-data leakage.
+"""
+from __future__ import annotations
+
+from collections import deque
+from dataclasses import dataclass, field
+import re
+
+SAFE = re.compile(r"^[A-Za-z0-9_.-]{1,96}$")
+LEVELS = frozenset(("WARN", "ERROR"))
+STREAMS = frozenset(("stdout", "stderr", "world-log", "auth-log"))
+SERVICES = frozenset(("worldserver", "authserver"))
+SOURCE = "verified-stream-fixture"
+
+
+@dataclass(frozen=True)
+class LogEvidence:
+    service: str
+    instance: str
+    stream: str
+    level: str
+    code: str
+    seq: int
+    uptime_ms: int
+    source: str = "unverified-text"
+    verified_stream: bool = False
+
+    def checked(self) -> "LogEvidence":
+        if not isinstance(self.service, str) or self.service not in SERVICES:
+            raise ValueError("service must be worldserver/authserver")
+        if not isinstance(self.instance, str) or not SAFE.fullmatch(self.instance):
+            raise ValueError("unsafe process identity")
+        if not isinstance(self.stream, str) or self.stream not in STREAMS:
+            raise ValueError("unrecognized stream")
+        if not isinstance(self.level, str) or self.level not in LEVELS:
+            raise ValueError("not a warning or error")
+        if not isinstance(self.code, str) or not SAFE.fullmatch(self.code):
+            raise ValueError("unsafe bounded error category")
+        if type(self.seq) is not int or not 0 <= self.seq < (1 << 63):
+            raise ValueError("sequence must be a bounded nonnegative integer")
+        if type(self.uptime_ms) is not int or not 0 <= self.uptime_ms < (1 << 63):
+            raise ValueError("uptime must be bounded nonnegative integer")
+        if type(self.verified_stream) is not bool:
+            raise ValueError("verified_stream must be bool")
+        return self
+
+
+@dataclass(frozen=True)
+class BurstAlert:
+    service: str
+    instance: str
+    stream: str
+    level: str
+    code: str
+    threshold: int
+    window_ms: int
+    observed_uptime_ms: int
+
+    # This has NO crash report ID, status claim, underlying log text or
+    # restart result. A future warning report needs a separate safe sink.
+
+
+@dataclass(frozen=True)
+class Decision:
+    status: str
+    reason: str
+    alert: BurstAlert | None = None
+
+
+@dataclass
+class _Bucket:
+    timestamps: deque[int] = field(default_factory=deque)
+    emitted: bool = False
+    # Event-uptime cooldown prevents near-threshold steady error traffic
+    # from producing a new alert on every event after re-arm.
+    last_alert_uptime: int | None = None
+
+
+@dataclass(frozen=True)
+class InstanceExit:
+    """Synthetic lifetime notification; flags do NOT authenticate OS death."""
+    service: str
+    instance: str
+    source: str = "unverified-text"
+    verified_actual_exit: bool = False
+
+
+@dataclass(frozen=True)
+class CleanupDecision:
+    status: str
+    streams_released: int = 0
+    categories_released: int = 0
+
+
+class OfflineBurstTracker:
+    """In-memory deterministic model with explicit hard memory bounds.
+
+    A stream is keyed by (service, instance, stream) and sequence numbers must
+    strictly increase. No retry or replay after a reject mutates counters.
+    Per category, first reaching the threshold in one sliding window emits
+    one alert; a sliding-window cooldown prevents steady error floods.
+    The category rearms once the rolling event count falls below threshold,
+    but never sends a second alert inside the previous alert window.
+    An authenticated-in-fixture instance exit releases its stream/category memory;
+    this model never establishes actual OS provenance.
+    """
+
+    def __init__(self, *, threshold: int = 3, window_ms: int = 60_000,
+                 max_groups: int = 256, max_streams: int = 128):
+        if (any(type(x) is not int for x in
+                (threshold, window_ms, max_groups, max_streams)) or
+                not 2 <= threshold <= 32 or
+                not 1000 <= window_ms <= 86_400_000 or
+                not 1 <= max_groups <= 4096 or
+                not 1 <= max_streams <= 4096):
+            raise ValueError("unsafe tracker limits")
+        self.threshold = threshold
+        self.window_ms = window_ms
+        self.max_groups = max_groups
+        self.max_streams = max_streams
+        self._streams: dict[tuple[str, str, str], tuple[int, int]] = {}
+        self._groups: dict[tuple[str, str, str, str, str], _Bucket] = {}
+        # Bounded tombstones refuse queued old process samples after an
+        # authenticated-in-fixture instance exit. Adapters must also bind a
+        # truly unique process invocation; this is NOT kernel provenance.
+        self._retired = deque(maxlen=max(128, 4 * max_streams))
+        self._retired_set: set[tuple[str, str]] = set()
+
+    def observe(self, sample: LogEvidence) -> Decision:
+        if not isinstance(sample, LogEvidence):
+            return Decision("rejected", "invalid evidence type")
+        try:
+            sample.checked()
+        except ValueError as exc:
+            return Decision("rejected", str(exc))
+
+        if sample.source != SOURCE or not sample.verified_stream:
+            return Decision("unverified", "no authenticated log-stream provenance")
+
+        if (sample.service, sample.instance) in self._retired_set:
+            return Decision("rejected", "event from retired process incarnation")
+        stream_key = (sample.service, sample.instance, sample.stream)
+        previous = self._streams.get(stream_key)
+        if previous is not None and sample.seq <= previous[0]:
+            return Decision("rejected", "stale/replayed or duplicate log sequence")
+        if previous is not None and sample.uptime_ms < previous[1]:
+            return Decision("rejected", "process stream uptime moved backwards")
+
+        group_key = (*stream_key, sample.level, sample.code)
+        if stream_key not in self._streams and len(self._streams) >= self.max_streams:
+            return Decision("capacity", "maximum independent streams reached")
+        if group_key not in self._groups and len(self._groups) >= self.max_groups:
+            return Decision("capacity", "maximum independent categories reached")
+
+        # All checks complete: mutations begin here.
+        self._streams[stream_key] = (sample.seq, sample.uptime_ms)
+        bucket = self._groups.setdefault(group_key, _Bucket())
+        while bucket.timestamps and sample.uptime_ms - bucket.timestamps[0] > self.window_ms:
+            bucket.timestamps.popleft()
+        # A persistent low-rate trickle must not mask a later fast burst.
+        # Re-arm after the rolling count falls BELOW threshold, even if a
+        # background warning prevents the window from ever becoming empty.
+        if len(bucket.timestamps) < self.threshold:
+            bucket.emitted = False
+        bucket.timestamps.append(sample.uptime_ms)
+        while len(bucket.timestamps) > self.threshold:
+            bucket.timestamps.popleft()
+
+        # Hysteresis is necessary: at e.g. one error / 25 seconds, the
+        # rolling count toggles between 2 and 3. Re-arming alone would
+        # emit 238 alerts for 240 entries; enforce one per full window.
+        cooldown_over = (bucket.last_alert_uptime is None or
+                         sample.uptime_ms - bucket.last_alert_uptime >= self.window_ms)
+        if len(bucket.timestamps) == self.threshold and not bucket.emitted and cooldown_over:
+            bucket.emitted = True
+            bucket.last_alert_uptime = sample.uptime_ms
+            return Decision(
+                "alert",
+                "bounded synthetic warning/error burst; no OS or log attestation",
+                BurstAlert(sample.service, sample.instance, sample.stream,
+                           sample.level, sample.code, self.threshold,
+                           self.window_ms, sample.uptime_ms),
+            )
+        return Decision("ignored", "below threshold or burst already emitted")
+
+    def finish_instance(self, evidence: InstanceExit) -> CleanupDecision:
+        """Release bounded memory ONLY after a synthetic verified exit.
+
+        A future trusted adapter, not this caller flag, must independently
+        prove actual child death and drain or invalidate in-flight log events.
+        """
+        if not isinstance(evidence, InstanceExit):
+            return CleanupDecision("rejected")
+        if (not isinstance(evidence.service, str) or
+                evidence.service not in SERVICES or
+                not isinstance(evidence.instance, str) or
+                not SAFE.fullmatch(evidence.instance) or
+                type(evidence.verified_actual_exit) is not bool):
+            return CleanupDecision("rejected")
+        if (evidence.source != "verified-instance-exit-fixture" or
+                not evidence.verified_actual_exit):
+            return CleanupDecision("unverified")
+        key = (evidence.service, evidence.instance)
+        stream_keys = [x for x in self._streams if x[:2] == key]
+        group_keys = [x for x in self._groups if x[:2] == key]
+        if key in self._retired_set:
+            return CleanupDecision("duplicate")
+        for x in stream_keys:
+            del self._streams[x]
+        for x in group_keys:
+            del self._groups[x]
+        if len(self._retired) == self._retired.maxlen:
+            self._retired_set.remove(self._retired[0])
+        self._retired.append(key)
+        self._retired_set.add(key)
+        return CleanupDecision("released", len(stream_keys), len(group_keys))
+
+    def counts(self) -> tuple[int, int]:
+        """Active-instance metadata only; never crash/restart totals."""
+        return len(self._streams), len(self._groups)

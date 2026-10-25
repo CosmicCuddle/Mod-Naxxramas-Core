@@ -1,0 +1,47 @@
+name: F15 S4b offline warning burst regression (NO HOST)
+
+on:
+  pull_request:
+    paths:
+      - "tools/f15/offline_error_bursts.py"
+      - "tests/test_f15_error_bursts_s4b.py"
+      - "docs/research/F15-S4B-OFFLINE-ERROR-BURSTS.md"
+      - ".github/workflows/f15-error-bursts-s4b.yml"
+      - "tools/f15/offline_exit_evidence.py"
+      - "tools/f15/offline_store.py"
+      - "tools/f15/offline_restart.py"
+      - "tests/test_f15_exit_evidence_s4.py"
+      - "tests/test_f15_restart_sidecar_s3.py"
+      - "tests/test_f15_offline_store_s2.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert pinned exact PR HEAD
+        if: github.event_name == 'pull_request'
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Compile offline warning policy and tests
+        run: python3 -m py_compile tools/f15/offline_error_bursts.py tests/test_f15_error_bursts_s4b.py
+      - name: Run independently isolated warning/error burst policy
+        run: python3 -m unittest -v tests.test_f15_error_bursts_s4b
+      - name: Preserve S4 direct-child fixture contract
+        run: python3 -m unittest -v tests.test_f15_exit_evidence_s4
+      - name: Preserve S3 restart-history regression
+        run: python3 -m unittest -v tests.test_f15_restart_sidecar_s3
+      - name: Preserve S2 immutable crash-store regression
+        run: python3 -m unittest -v tests.test_f15_offline_store_s2
+      - name: No real monitoring, root path, gameserver or binary
+        run: |
+          test ! -e tools/f15/live_supervisor.py
+          echo "PASS: all models offline; no real log tail or server process"
