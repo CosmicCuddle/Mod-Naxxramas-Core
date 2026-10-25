@@ -117,13 +117,17 @@ class RestartSidecarStore(IncidentStore):
                 TypeError, UnicodeError):
             return None
 
-    def _sidecars(self, valid_ids):
+    def _sidecars(self, valid_incidents):
         attached, invalid = {}, []
         for name in os.listdir(self._fd):
             if not SIDECAR_PATTERN.fullmatch(name):
                 continue
             info = self._read_sidecar(name)
-            if info is None or info["incident_id"] not in valid_ids:
+            if (info is None or info["incident_id"] not in valid_incidents or
+                    info["observed_utc"] < valid_incidents[info["incident_id"]]["end_utc"]):
+                # A reported restart before the incident ended cannot be
+                # projected as the latest outcome, even if the sidecar bytes
+                # themselves have a valid hash.
                 invalid.append(name)
             else:
                 attached.setdefault(info["incident_id"], []).append(info)
@@ -133,8 +137,8 @@ class RestartSidecarStore(IncidentStore):
 
     def _rebuild_locked(self):
         reports, bad_reports = self._reports()
-        valid_ids = {info["incident_id"] for _, info in reports}
-        sidecars, bad_sidecars = self._sidecars(valid_ids)
+        valid_incidents = {info["incident_id"]: info for _, info in reports}
+        sidecars, bad_sidecars = self._sidecars(valid_incidents)
         world = sum(info["service"] == "worldserver" for _, info in reports)
         auth = len(reports) - world
         lines = ["COSMIC CORE - CRASH HISTORY", "Schema: " + SCHEMA,
@@ -144,9 +148,20 @@ class RestartSidecarStore(IncidentStore):
                  f"Unverified or orphan restart sidecars: {len(bad_sidecars)}", ""]
         for name, info in reports:
             attempts = sidecars.get(info["incident_id"], [])
-            state = ("Not verified" if not attempts
-                     else attempts[-1]["outcome"] + " (attempt " +
-                     attempts[-1]["attempt"] + ")")
+            if not attempts:
+                state = "Not verified"
+            else:
+                # Equal-second observation times cannot establish ordering
+                # of distinct restart attempts. Never choose "succeeded"
+                # merely by sorting UUID text as a tie-breaker.
+                latest_utc = attempts[-1]["observed_utc"]
+                tied = [x for x in attempts if x["observed_utc"] == latest_utc]
+                if len(tied) > 1:
+                    state = ("Ambiguous (" + str(len(tied)) +
+                             " attempts observed at " + latest_utc +
+                             "; sequence not verified)")
+                else:
+                    state = attempts[-1]["outcome"] + " (attempt " + attempts[-1]["attempt"] + ")"
             lines.append(f"{info['end_utc']} | {info['service']} | "
                          f"{info['incident_id']} | {name} | "
                          f"{info['termination']} | restart: {state}")
@@ -174,9 +189,16 @@ class RestartSidecarStore(IncidentStore):
         name = observation.filename()
         with self._locked():
             valid, _ = self._reports()
-            if observation.incident_id not in {info["incident_id"] for _, info in valid}:
+            originals = {info["incident_id"]: info for _, info in valid}
+            original = originals.get(observation.incident_id)
+            if original is None:
                 # Never claim a restart for an absent/corrupt crash report.
                 raise ValueError("original finalized incident does not exist")
+            if observation.observed_utc < original["end_utc"]:
+                # The S3 synthetic caller must supply a chronology that does
+                # not predate the recorded death. Adapter clock skew and
+                # event-source provenance require later explicit review.
+                raise ValueError("restart observation predates incident death")
             try:
                 os.stat(name, dir_fd=self._fd, follow_symlinks=False)
                 exists = True
