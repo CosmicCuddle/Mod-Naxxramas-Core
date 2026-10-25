@@ -6,6 +6,7 @@ on:
       - 'tests/test_a04_human_friend_observation_s1.py'
       - 'tests/test_a04_stock_visibility_award_s1.py'
       - 'tests/test_a04_item_award_triage_s1.py'
+      - 'tests/test_a04_module_hook_inventory_s1.py'
       - 'tests/test_a04_personal_ffa_slot_s1.py'
       - 'tests/test_a04_sql_preflight_contract_s1.py'
       - 'tests/test_a04_sql_source_mapping_s1.py'
@@ -14,6 +15,7 @@ on:
       - 'docs/research/A04-PER-VIEWER-FFA-AND-PLAYERBOT-PACKET-SOURCE-TRACE.md'
       - 'docs/research/A04-READ-ONLY-ITEM-LOOT-PREFLIGHT.md'
       - 'docs/research/A04-ITEM-AWARD-TRIAGE-S1.md'
+      - 'docs/research/A04-MODULE-HOOK-INVENTORY-S1.md'
       - 'docs/research/A04-HUMAN-TO-HUMAN-S2-FUNCTIONAL-GATE.md'
       - 'src/Systems/QuestLootProtection.cpp'
       - '.github/workflows/a04-human-friend-observation-s1.yml'
@@ -42,6 +44,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_a04_stock_visibility_award_s1.py' -v
       - name: Synthetic quest-item award evidence triage (not gameplay)
         run: python3 -m unittest discover -s tests -p 'test_a04_item_award_triage_s1.py' -v
+      - name: Static module hook inventory (not full server or gameplay)
+        run: python3 -m unittest discover -s tests -p 'test_a04_module_hook_inventory_s1.py' -v
       - name: Synthetic personal FFA per-viewer membership (not gameplay)
         run: python3 -m unittest discover -s tests -p 'test_a04_personal_ffa_slot_s1.py' -v
       - name: Static SELECT-only public item/loot schema preflight
@@ -53,6 +57,7 @@ jobs:
           test -f tests/test_a04_human_friend_observation_s1.py
           test -f tests/test_a04_stock_visibility_award_s1.py
           test -f tests/test_a04_item_award_triage_s1.py
+          test -f tests/test_a04_module_hook_inventory_s1.py
           test -f tests/test_a04_personal_ffa_slot_s1.py
           test -f tests/test_a04_sql_preflight_contract_s1.py
           test -f tests/test_a04_sql_source_mapping_s1.py
