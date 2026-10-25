@@ -5,6 +5,7 @@ on:
     paths:
       - "tools/f15/offline_error_bursts.py"
       - "tests/test_f15_error_bursts_s4b.py"
+      - "docs/research/F15-S4B-OFFLINE-ERROR-BURSTS.md"
       - ".github/workflows/f15-error-bursts-s4b.yml"
       - "tools/f15/offline_exit_evidence.py"
       - "tools/f15/offline_store.py"
