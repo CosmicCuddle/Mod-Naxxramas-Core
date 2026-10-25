@@ -82,6 +82,106 @@ class GolemaggReachGuardConfig(unittest.TestCase):
         self.assertIn('NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""', CONFIG)
 
 
+class GolemaggReachGuardLookupOrder(unittest.TestCase):
+    """Issue #27 6389420093: name gate before the Playerbots manager lookup."""
+
+    def test_name_gate_runs_before_manager_lookup(self):
+        update = method_body(CODE, "void OnPlayerUpdate(Player* player")
+        gate = update.index("IsGuardedBotName(config, player->GetName())")
+        lookup = update.index("PlayerbotsMgr::instance().GetPlayerbotAI(player)")
+        self.assertLess(gate, lookup)
+        self.assertEqual(update.count("GetPlayerbotAI("), 1)
+        self.assertEqual(update.count("IsGuardedBotName("), 1)
+        self.assertIn("LookupAfterNameGate(", update)
+        self.assertLess(update.index("LookupAfterNameGate("), lookup)
+
+    def test_lookup_only_inside_the_gate_helper(self):
+        self.assertEqual(CODE.count("GetPlayerbotAI("), 1)
+        helper = POLICY_CODE[POLICY_CODE.index("auto LookupAfterNameGate("):]
+        helper = helper[:helper.index("return lookup();")]
+        self.assertIn("if (!nameAllowed)", helper)
+        self.assertIn("return nullptr;", helper)
+
+    def test_live_registration_skips_lookup(self):
+        # #133 6397882131: no manager lookup while the listener is alive.
+        update = method_body(CODE, "void OnPlayerUpdate(Player* player")
+        gate = update.index("bool const nameAllowed = IsGuardedBotName(config, player->GetName());")
+        record = update.index("CustomData.GetDefault<GuardRegistrationData>(GUARD_RECORD_KEY)")
+        live = update.index("if (data && HasLiveRegistration(data->record))")
+        lookup = update.index("PlayerbotsMgr::instance().GetPlayerbotAI(player)")
+        self.assertLess(gate, record)
+        self.assertLess(record, live)
+        self.assertLess(live, lookup)
+        self.assertIn("nameAllowed\n                ? player->CustomData", update)
+        self.assertEqual(update.count("CustomData.GetDefault<"), 1)
+        helper = method_body(POLICY_CODE, "bool HasLiveRegistration(")
+        self.assertIn("record.alive->load()", helper)
+        self.assertIn("!record.engines.empty()", helper)
+
+    def test_cheap_checks_still_first(self):
+        update = method_body(CODE, "void OnPlayerUpdate(Player* player")
+        first = update.index("if (!config.enabled || !player || player->GetMapId() != MOLTEN_CORE_MAP")
+        self.assertLess(first, update.index("IsGuardedBotName("))
+
+    def test_rest_of_eligibility_unchanged(self):
+        update = method_body(CODE, "void OnPlayerUpdate(Player* player")
+        for needle in ("!ai->IsAltBot()", "PlayerbotAI::IsTank(player)", "!PlayerbotAI::IsDps(player)",
+                       "!PlayerbotAI::IsMelee(player)", "ai->GetState() != BOT_STATE_COMBAT"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, update)
+
+
+class GolemaggReachGuardStartupConfig(unittest.TestCase):
+    """#133 6396641760: no ConfigMgr read from map threads; restart-only."""
+
+    def test_config_manager_only_in_reader(self):
+        reader = method_body(CODE, "GuardConfig ReadGuardConfig()")
+        self.assertEqual(reader.count("sConfigMgr->"), 3)
+        self.assertEqual(CODE.count("sConfigMgr->"), 3)
+
+    def test_reader_only_called_from_config_hook(self):
+        self.assertEqual(CODE.count("ReadGuardConfig()"), 2)  # definition + one call
+        hook = method_body(CODE, "void OnAfterConfigLoad(bool reload)")
+        self.assertIn(
+            "ApplyStartupOnlyConfig(StartupGuardConfig, ReadGuardConfig(), reload, SameGuardConfig)",
+            hook,
+        )
+
+    def test_no_lazy_function_local_config(self):
+        self.assertNotIn("static GuardConfig", CODE)
+        getter = method_body(CODE, "GuardConfig const& GetGuardConfig()")
+        self.assertNotIn("static", getter)
+        self.assertNotIn("sConfigMgr", getter)
+
+    def test_snapshot_never_assigned_outside_helper(self):
+        self.assertNotRegex(CODE, r"StartupGuardConfig\s*=[^=]")
+        self.assertIn("GuardConfig StartupGuardConfig;", CODE)
+
+    def test_map_thread_paths_do_not_touch_config_manager(self):
+        for signature in ("void OnPlayerUpdate(Player* player", "bool Before(Action* action",
+                          "ReachMeleeContext BuildContext(Action* action)", "void LogDeny()"):
+            with self.subTest(signature=signature):
+                body = method_body(CODE, signature)
+                self.assertNotIn("sConfigMgr", body)
+                self.assertNotIn("ReadGuardConfig", body)
+
+    def test_world_script_registered_for_after_config_load(self):
+        self.assertIn(
+            'WorldScript("NaxxramasCoreGolemaggReachGuardConfig", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })',
+            CODE,
+        )
+        loader = method_body(CODE, "void AddBotGolemaggReachGuardScripts()")
+        self.assertEqual(loader.count("new NaxxramasCoreGolemaggReachGuardConfig();"), 1)
+        self.assertEqual(loader.count("new NaxxramasCoreGolemaggReachGuard();"), 1)
+
+    def test_policy_reload_keeps_startup_values(self):
+        helper = method_body(POLICY_CODE, "bool ApplyStartupOnlyConfig(")
+        self.assertIn("if (!reload)", helper)
+        self.assertIn("snapshot = loaded;", helper)
+        self.assertEqual(helper.count("snapshot ="), 1)
+        self.assertIn("return !equal(snapshot, loaded);", helper)
+
+
 class GolemaggReachGuardRegistration(unittest.TestCase):
     def test_loader_registers_once(self):
         self.assertEqual(LOADER.count("void AddBotGolemaggReachGuardScripts();"), 1)

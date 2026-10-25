@@ -162,8 +162,107 @@ namespace
     }
 }
 
+namespace
+{
+    // Issue #27 6389420093: the Playerbots manager lookup must not run for a
+    // character the single-name gate rejects (empty or other name).
+    void TestNoLookupBeforeNameGate()
+    {
+        struct FakeAI {};
+        FakeAI bot;
+        int lookups = 0;
+        auto lookup = [&]() -> FakeAI* { ++lookups; return &bot; };
+
+        // Empty AllowedBotName means nobody: never a lookup.
+        for (char const* name : { "Grau", "grau", "Anyone", "" })
+            assert(LookupAfterNameGate(
+                NaxxramasGolemaggActionAudit::IsAllowedBotName(name, ""), lookup) == nullptr);
+        assert(lookups == 0);
+
+        // A different character with a configured name: no lookup.
+        assert(LookupAfterNameGate(
+            NaxxramasGolemaggActionAudit::IsAllowedBotName("Thrall", "Grau"), lookup) == nullptr);
+        assert(lookups == 0);
+
+        // The one named bot (case-insensitive, as the observer): exactly one
+        // lookup, and the eligibility checks that follow see the same AI.
+        assert(LookupAfterNameGate(
+            NaxxramasGolemaggActionAudit::IsAllowedBotName("grau", "Grau"), lookup) == &bot);
+        assert(lookups == 1);
+    }
+
+    // #133 6397882131: the named bot looks the AI up only until its listener
+    // is registered, and again after Playerbots deletes that listener.
+    void TestLiveRegistrationSkipsLookup()
+    {
+        RegistrationRecord<FakeAI, FakeEngine> record;
+        FakeAI ai{ 1 };
+        FakeEngine combat{ 10 };
+        int lookups = 0;
+        auto tick = [&]()
+        {
+            if (HasLiveRegistration(record))
+                return;
+            ++lookups;
+            NeedsRegistration(record, &ai, &combat);
+        };
+
+        assert(!HasLiveRegistration(record));
+        for (int i = 0; i < 1000; ++i)
+            tick();
+        assert(lookups == 1);
+        assert(HasLiveRegistration(record));
+
+        // Listener deleted with its engine and AI: the next tick looks up again.
+        record.alive->store(false);
+        assert(!HasLiveRegistration(record));
+        for (int i = 0; i < 1000; ++i)
+            tick();
+        assert(lookups == 2);
+
+        // A record with a token but no engine yet is not "live".
+        RegistrationRecord<FakeAI, FakeEngine> partial;
+        partial.ai = &ai;
+        partial.alive = std::make_shared<std::atomic<bool>>(true);
+        assert(!HasLiveRegistration(partial));
+    }
+
+    void TestStartupOnlyConfig()
+    {
+        struct Cfg { bool enabled; bool debug; char const* name; };
+        auto same = [](Cfg const& a, Cfg const& b)
+        {
+            return a.enabled == b.enabled && a.debug == b.debug &&
+                std::string(a.name) == std::string(b.name);
+        };
+
+        // Startup load sets the snapshot.
+        Cfg snapshot{ false, false, "" };
+        assert(!ApplyStartupOnlyConfig(snapshot, Cfg{ false, true, "Grau" }, false, same));
+        assert(!snapshot.enabled && snapshot.debug && std::string(snapshot.name) == "Grau");
+
+        // A reload with the same values: nothing to warn about, nothing changes.
+        assert(!ApplyStartupOnlyConfig(snapshot, Cfg{ false, true, "Grau" }, true, same));
+        assert(!snapshot.enabled && snapshot.debug && std::string(snapshot.name) == "Grau");
+
+        // A reload that tries to enable the guard or change the name: the
+        // caller is told to warn, and the snapshot stays as loaded at startup.
+        assert(ApplyStartupOnlyConfig(snapshot, Cfg{ true, true, "Grau" }, true, same));
+        assert(ApplyStartupOnlyConfig(snapshot, Cfg{ false, true, "Thrall" }, true, same));
+        assert(!snapshot.enabled && std::string(snapshot.name) == "Grau");
+
+        // Likewise a reload cannot switch a running guard off; that also needs a restart.
+        Cfg on{ true, false, "Grau" };
+        assert(ApplyStartupOnlyConfig(on, Cfg{ false, false, "Grau" }, true, same));
+        assert(on.enabled);
+    }
+}
+
 int main()
 {
+    TestStartupOnlyConfig();
+    TestLiveRegistrationSkipsLookup();
+    TestNoLookupBeforeNameGate();
     TestPolicy();
     TestBotNameGate();
     TestRegistration();

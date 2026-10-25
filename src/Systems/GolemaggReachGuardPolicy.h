@@ -58,6 +58,35 @@ namespace NaxxramasGolemaggReachGuard
                c.magmaSplashStacks >= MAGMA_SPLASH_BACK_OFF_STACKS;
     }
 
+    // Calls `lookup` (the Playerbots manager lookup, an unlocked shared map
+    // read) only when every check that needs no Playerbots state has passed,
+    // including the single exact-name gate. Otherwise returns a null result
+    // without calling it, so an unmatched or empty AllowedBotName never adds
+    // a manager lookup.
+    template <typename Lookup>
+    auto LookupAfterNameGate(bool nameAllowed, Lookup&& lookup) -> decltype(lookup())
+    {
+        if (!nameAllowed)
+            return nullptr;
+        return lookup();
+    }
+
+    // Restart-only settings. The startup load (reload == false) sets the
+    // snapshot; a later ".reload config" never changes it, so the guard can
+    // never be switched on while map threads read the snapshot. Returns true
+    // when a reload carried different values, so the caller can warn that
+    // they need a Worldserver restart.
+    template <typename Config, typename Equal>
+    bool ApplyStartupOnlyConfig(Config& snapshot, Config const& loaded, bool reload, Equal&& equal)
+    {
+        if (!reload)
+        {
+            snapshot = loaded;
+            return false;
+        }
+        return !equal(snapshot, loaded);
+    }
+
     // Shared liveness flag between a registered listener and the per-Player
     // record. Playerbots deletes listeners together with their engine, and
     // the listener destructor clears the flag.
@@ -95,6 +124,17 @@ namespace NaxxramasGolemaggReachGuard
 
         record.engines.push_back(engine);
         return true;
+    }
+
+    // True while a listener registered from this record has not been
+    // deleted. Playerbots deletes listeners only together with their engine,
+    // and the engine only together with the AI that owns it, so a live token
+    // means the registered AI still exists. The caller then skips the
+    // Playerbots manager lookup (an unlocked shared map read) entirely.
+    template <typename AI, typename EngineT>
+    bool HasLiveRegistration(RegistrationRecord<AI, EngineT> const& record)
+    {
+        return record.ai && !record.engines.empty() && record.alive && record.alive->load();
     }
 }
 

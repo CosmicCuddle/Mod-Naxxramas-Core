@@ -65,7 +65,7 @@ NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug = 0
   - logs one line when a bot's listener is registered;
   - logs at most one line per bot every 5 seconds when the guard refuses `reach melee`, including the bot's stack count and remaining duration.
 
-Settings are read once at startup, so changes need a Worldserver restart.
+Settings are read once at startup, so changes need a Worldserver restart. A `.reload config` does **not** change them, including turning the guard on or off. If the reloaded values differ, the guard logs one `GolemaggMeleeGuard: settings changed by .reload config are ignored until Worldserver restarts` warning showing the values still in force. See "Settings snapshot" below.
 
 ## Lifecycle
 
@@ -73,8 +73,80 @@ Settings are read once at startup, so changes need a Worldserver restart.
 - **When:** registration only happens while the bot is in Molten Core, in combat, with Playerbots in its combat state (`GetState() == BOT_STATE_COMBAT`).
 - **Ownership:** the listener belongs to the engine. Playerbots deletes it together with the bot's AI. The module never deletes or removes it.
 - **Duplicates:** a per-Player record holds the AI object, the engines already registered, and a liveness flag that the listener clears when it is deleted. The record is never erased, which is what prevents duplicate listeners.
-- **AI replacement:** Playerbots can replace a live player's AI object. A changed AI or a cleared flag starts a fresh record, and the new combat engine is registered once.
+- **AI replacement:** at Playerbots `d750b4b` a live Altbot's AI is not replaced (see "AI lifetime and happens-before"). If a later Playerbots revision does, a changed AI or a cleared flag still starts a fresh record, and the new combat engine is registered once.
 - **One combat engine per AI:** at Playerbots `d750b4b`/`e88cc409`, the `PlayerbotAI` constructor creates exactly one combat engine, and it is never reassigned (`PlayerbotAI.cpp` L160–163). `ChangeEngine` and `Reset` only switch between the existing engines. So in practice the record holds at most one engine per AI, and repeated pulls, wipes, map changes and combat exits register it once. That is verified for these revisions only; a Playerbots update that rebuilds engines would need this re-checked.
+
+## Lookup order and threads (Issue #27 6389420093)
+
+Source-only, at core `8daffda` and Playerbots `d750b4b`. **NOT TESTED** under load.
+
+- **Name gate before the Playerbots lookup.** `OnPlayerUpdate` first returns for `Enabled = 0`, any map other than 409, or out of combat. It then checks the single exact `AllowedBotName` **before** `PlayerbotsMgr::GetPlayerbotAI`, which reads an unlocked shared map (`_playerbotsAIMap`). The ordering lives in `LookupAfterNameGate` in the policy header, and the native tests count lookups:
+  - with an empty name, or for any other character, the guard makes **no** manager lookup;
+  - for the one named bot it makes exactly one per tick.
+- **The residual for the named bot is the same read Playerbots already makes.** Playerbots' own `OnPlayerAfterUpdate` calls `GetPlayerbotAI(player)` for every player on every update, on the same map worker (`Playerbots.cpp` L248-L255). Since #133 6397882131, the named bot also skips the lookup while its listener is alive (`HasLiveRegistration`). The guard therefore reads the map only until the listener is registered, and again after Playerbots deletes it, not on every tick. It is not proven race-free; it is no new kind of access.
+- **Hook order.** `Player::Update` calls `OnPlayerUpdate` (`PlayerUpdates.cpp` L314) before `OnPlayerAfterUpdate` (L431), where Playerbots runs `UpdateAI`. Registration therefore happens on the player's own update thread, before that tick's engine run, so it never overlaps the engine's listener loop.
+- **Listener lifetime.** The engine owns and deletes the listener together with the AI. The listener only clears an atomic liveness token in its destructor, and the module never deletes, removes or caches a `PlayerbotAI*` across ticks: the per-Player record keeps an address for comparison only. See the next section for where Playerbots destroys an AI.
+
+## AI lifetime and happens-before (#133 6397882131)
+
+Source-only, at Playerbots `d750b4b`, core `8daffda` and IP `dd96f2b`. **NOT TESTED** under load or with 8 map threads. Only the guarded case matters here: an **Altbot** (`IsAltBot()`), whose single name is in `AllowedBotName`.
+
+**Where that bot's AI is created.**
+- `PlayerbotHolder::OnBotLogin` → `AddPlayerbotData(bot, true)` (`PlayerbotMgr.cpp` L506–L514). It returns early when the bot is already logged in, so a live Altbot's AI is not replaced.
+- Bot logins are processed by `PlayerbotHolder::UpdatePendingLogins` from the Playerbots world script's `OnUpdate` (`Playerbots.cpp` L545–L550). Core calls that through `OnWorldUpdate` (`World.cpp` L1355), on the world thread after `MapMgr::Update` has waited for its map workers (`MapMgr.cpp` L280).
+- The SelfBot path (`AddPlayerbotData(master, true)`, `PlayerbotMgr.cpp` L1100–L1117) applies to a real player, not an Altbot.
+
+**Where it is destroyed.** `~PlayerbotAI` deletes its engines, and with them our listener, then erases the map entry (`PlayerbotAI.cpp` L235–L247). It is reached through these paths:
+
+| Path | Thread |
+|---|---|
+| Master logout → `LogoutAllBots` (`PlayerbotMgr.cpp` L323–L350) | world thread (session logout) |
+| `.playerbots bot remove` / `logout` command (L764) | world thread (chat command) |
+| Whispered `logout` → `HandleCommand` → `LogoutPlayerBot` (`PlayerbotAI.cpp` L1137–L1168), called from the chat hooks | world thread for a real master's `CMSG_MESSAGECHAT`, which is `PROCESS_THREADUNSAFE` |
+| Login of the same character → `PlayerbotsSecureLogin` `CanPacketReceive(CMSG_PLAYER_LOGIN)` | world thread (login-screen session) |
+| Self-logout when the bot's session `IsLoggingOut()` (`PlayerbotAI.cpp` L578–L612) | **the bot's own map worker**, inside `UpdateAI`, **before** `DoNextAction` (L623) |
+| `HireAction` → `RandomPlayerbotMgr::Remove` (`HireAction.cpp` L58) | n/a: returns early unless `IsRandomBot` (L18), so never for an Altbot |
+
+**Why the listener never uses a destroyed AI.**
+1. `Before()` is only called from `Engine::ListenAndExecute` (`Engine.cpp` L600). That runs inside `DoNextAction` of the AI that owns the engine, so that AI is alive for the whole call.
+2. The world-thread deletions run while no map worker runs. The map workers' next tasks are scheduled after that, so the deletion happens-before any later engine run.
+3. The self-logout runs on the same worker, earlier in the same `UpdateAI`, before the engine runs. It also deletes the `Player`, so `OnPlayerUpdate` (and its per-Player record) never runs for it again.
+4. Registration happens in `OnPlayerUpdate` on the bot's own map worker, before that tick's `UpdateAI` (hook order above). The `PlayerbotAI*` is used only within that call.
+
+**What stays open (upstream, not created by the guard).**
+- The self-logout erases `_playerbotsAIMap` on one map worker while other workers may be inside Playerbots' own `GetPlayerbotAI` find for any player. That is an unsynchronised `std::unordered_map` erase vs. find, present with the guard OFF.
+- The guard's only extra find is for the one named bot, and only until its listener is registered or after it has been destroyed (`HasLiveRegistration`).
+- **NOT PROVEN:** whether bot-generated chat on a map worker can reach `HandleCommand("logout")` there; nothing at this pin was found that does.
+- A real fix would be upstream: locking the map, or deferring self-logout to the world thread through `PlayerbotWorldThreadProcessor`.
+
+**Staged test to run later (owner-approved only).** 8 map threads, the named bot plus unrelated bots, covering:
+- a rapid master logout during a Golemagg pull;
+- a whispered `logout` to the named bot mid-pull;
+- relogging the same character while the bot is online;
+- map transfer in and out of Molten Core;
+- rollback with `Enabled = 0` and a restart.
+
+## Settings snapshot (#133 6396641760)
+
+Source-only, at core `8daffda`, Playerbots `d750b4b` and IP `dd96f2b`. **NOT TESTED** under load.
+
+- **No `ConfigMgr` read from a map thread.**
+  - Before this change, `GetGuardConfig()` built a function-local static on its first call. That first call was the first `OnPlayerUpdate` on a map worker, even with the guard OFF.
+  - `ConfigMgr::GetValueDefault` reads `_configOptions` without `_configLock`. With an environment override, it can also insert into that map (`Config.cpp` L538/L548 and L603/L613; `GetOption` forwards there at L650–L658).
+  - Now `sConfigMgr` appears only in `ReadGuardConfig()`, which only the `WorldScript::OnAfterConfigLoad` hook calls. Map-thread code (`OnPlayerUpdate` and the listener) reads only the snapshot.
+- **When the snapshot is written.**
+  - `NaxxramasCoreGolemaggReachGuardConfig` is constructed in `sScriptMgr->Initialize()` (`Main.cpp` L282).
+  - `World::SetInitialWorldSettings` then calls `LoadConfigSettings()` (`World.cpp` L323), which calls `OnAfterConfigLoad(false)` (L302).
+  - That is before `sMapMgr->Initialize()` (L941), so no map worker exists yet. Starting those threads later orders the write before every map-thread read.
+  - Until the hook runs, the snapshot is the default (OFF).
+- **`.reload config` cannot switch the guard.**
+  - The only reload caller at these pins is `HandleReloadConfigCommand` (`cs_reload.cpp` L354). Playerbots and IP never call `LoadConfigSettings` or `ConfigMgr::Reload`.
+  - From the game client the command arrives as `CMSG_MESSAGECHAT`, which is `PROCESS_THREADUNSAFE` (`Opcodes.cpp` L280) and runs in `World::UpdateSessions` (`World.cpp` L1227).
+  - From the console or SOAP it runs in `ProcessCliCommands` (L1350).
+  - Both run on the world thread outside `MapMgr::Update`, which waits for its map workers (`MapMgr.cpp` L280). The hook's own reads therefore do not overlap a map worker.
+  - On reload, `ApplyStartupOnlyConfig` keeps the startup snapshot unchanged and only reports whether the new values differ. Nothing is written while map threads may read it, and the guard cannot be hot-enabled.
+- **Listener setup comes later.** Bots' AIs and listeners only exist after world start. Registration happens in `OnPlayerUpdate` on a map worker, long after the snapshot was written. The listener's `Before()` and debug logging read the same immutable snapshot.
+- **Unchanged residual.** The named bot's `PlayerbotsMgr::GetPlayerbotAI` read and Playerbots' AI lifetime are as described in "Lookup order and threads". They are **not proven** race-free.
 
 ## Tests
 
@@ -82,12 +154,15 @@ Settings are read once at startup, so changes need a Worldserver restart.
   - every deny and allow condition, including the 19/20 stack and 10% health boundaries;
   - the single-name gate;
   - registration bookkeeping: first registration, repeat ticks, engine switch, deleted listener, replaced AI.
+  - startup-only settings: a `.reload config` never changes the snapshot (no hot enable or disable) and reports changed values.
+  - live registration: the named bot makes one lookup until its listener is registered, none while it is alive, and one more after it is deleted.
 - **`tests/test_golemagg_reach_guard.py`** — source contract:
   - default-OFF keys;
   - `Before()` as the only deny path, `AllowExecution()` never denying;
   - no listener removal or deletion;
   - only `reach melee` named;
   - loader registration;
+  - `sConfigMgr` read only in the `OnAfterConfigLoad` world hook, never from `OnPlayerUpdate` or the listener;
   - no SQL;
   - P5 observer unchanged.
 - **`.github/workflows/golemagg-reach-guard.yml`:**

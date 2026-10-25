@@ -51,21 +51,33 @@ namespace
         return NaxxramasGolemaggActionAudit::IsAllowedBotName(name, config.allowedBotName);
     }
 
-    // Read once; config changes need a Worldserver restart.
+    bool SameGuardConfig(GuardConfig const& a, GuardConfig const& b)
+    {
+        return a.enabled == b.enabled && a.debug == b.debug && a.allowedBotName == b.allowedBotName;
+    }
+
+    // Only called from the config hook below, on the world thread.
+    GuardConfig ReadGuardConfig()
+    {
+        GuardConfig loaded;
+        loaded.enabled = sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled", false);
+        loaded.debug = sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug", false);
+        loaded.allowedBotName = sConfigMgr->GetOption<std::string>(
+            "NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName", "");
+        return loaded;
+    }
+
+    // Written only by the startup config load, which runs in
+    // World::SetInitialWorldSettings before MapMgr starts any map worker.
+    // Never written again, so map threads read it without a lock and never
+    // call ConfigMgr. Until it is written, the guard is OFF.
+    GuardConfig StartupGuardConfig;
+
     GuardConfig const& GetGuardConfig()
     {
-        static GuardConfig const config = []
-        {
-            GuardConfig loaded;
-            loaded.enabled = sConfigMgr->GetOption<bool>(
-                "NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled", false);
-            loaded.debug = sConfigMgr->GetOption<bool>(
-                "NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug", false);
-            loaded.allowedBotName = sConfigMgr->GetOption<std::string>(
-                "NaxxramasCore.Playerbots.GolemaggMeleeGuard.AllowedBotName", "");
-            return loaded;
-        }();
-        return config;
+        return StartupGuardConfig;
     }
 
     // Older Playerbots revisions (for example 037c014) have no public
@@ -192,6 +204,30 @@ namespace
         uint32 _lastLogMs = 0;
     };
 
+    // Takes the settings snapshot. World::LoadConfigSettings calls this hook
+    // on the world thread: at startup before any map worker exists, and for
+    // ".reload config" from World::UpdateSessions or ProcessCliCommands,
+    // neither of which overlaps MapMgr::Update's map workers. A reload keeps
+    // the startup values (restart-only) and warns if they changed.
+    class NaxxramasCoreGolemaggReachGuardConfig final : public WorldScript
+    {
+    public:
+        NaxxramasCoreGolemaggReachGuardConfig()
+            : WorldScript("NaxxramasCoreGolemaggReachGuardConfig", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })
+        {
+        }
+
+        void OnAfterConfigLoad(bool reload) override
+        {
+            if (ApplyStartupOnlyConfig(StartupGuardConfig, ReadGuardConfig(), reload, SameGuardConfig))
+                LOG_WARN("module",
+                    "GolemaggMeleeGuard: settings changed by .reload config are ignored until "
+                    "Worldserver restarts; still Enabled={} AllowedBotName='{}' Debug={}.",
+                    StartupGuardConfig.enabled, StartupGuardConfig.allowedBotName,
+                    StartupGuardConfig.debug);
+        }
+    };
+
     struct GuardRegistrationData final : DataMap::Base
     {
         RegistrationRecord<PlayerbotAI, Engine> record;
@@ -215,11 +251,30 @@ namespace
                 !player->IsInCombat())
                 return;
 
-            PlayerbotAI* ai = PlayerbotsMgr::instance().GetPlayerbotAI(player);
+            // The single exact-name gate runs before the Playerbots manager
+            // lookup, which reads an unlocked shared map. With an empty or
+            // non-matching AllowedBotName the guard performs no lookup and
+            // creates no per-Player record.
+            bool const nameAllowed = IsGuardedBotName(config, player->GetName());
+
+            // Never erased: keeping the record for the Player's lifetime is
+            // what prevents a second listener on the same engine.
+            GuardRegistrationData* data = nameAllowed
+                ? player->CustomData.GetDefault<GuardRegistrationData>(GUARD_RECORD_KEY)
+                : nullptr;
+
+            // While this bot's listener is alive its AI still exists, so the
+            // named bot also skips the lookup. It is looked up only until the
+            // listener is registered, and again after Playerbots deletes it.
+            if (data && HasLiveRegistration(data->record))
+                return;
+
+            PlayerbotAI* ai = LookupAfterNameGate(
+                nameAllowed,
+                [player] { return PlayerbotsMgr::instance().GetPlayerbotAI(player); });
             if (!ai || !ai->IsAltBot() ||
                 PlayerbotAI::IsTank(player) || !PlayerbotAI::IsDps(player) ||
-                !PlayerbotAI::IsMelee(player) ||
-                !IsGuardedBotName(config, player->GetName()))
+                !PlayerbotAI::IsMelee(player))
                 return;
 
             // Only the combat engine needs the listener.
@@ -237,10 +292,6 @@ namespace
                 return;
             }
 
-            // Never erased: keeping the record for the Player's lifetime is
-            // what prevents a second listener on the same engine.
-            GuardRegistrationData* data =
-                player->CustomData.GetDefault<GuardRegistrationData>(GUARD_RECORD_KEY);
             if (!NeedsRegistration(data->record, ai, engine))
                 return;
 
@@ -257,5 +308,6 @@ namespace
 
 void AddBotGolemaggReachGuardScripts()
 {
+    new NaxxramasCoreGolemaggReachGuardConfig();
     new NaxxramasCoreGolemaggReachGuard();
 }
