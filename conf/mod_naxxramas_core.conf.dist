@@ -392,3 +392,18 @@ NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0
 # Default: "" (no bots are sampled)
 NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
 
+#####################################
+# Atiesh — Portal to Karazhan, Vanilla arrival (F13)
+#####################################
+
+# REVIEW-ONLY prototype. While a character is in the Vanilla stage of
+# Individual Progression, using the Atiesh "Portal to Karazhan" (GO 181146)
+# takes them to just outside Karazhan's main gate (the live
+# areatrigger_teleport 4436 exit point) instead of into the raid.
+# Later eras, GMs, IP disabled and every other object keep stock behaviour.
+# The portal's party rule is unchanged. If the exit point is missing or
+# invalid, or the teleport is refused, nothing happens (never the inside
+# teleport). A bot's Playerbots "teleport" command casts the spell
+# directly and is not affected.
+# Default: 0 (disabled; stock portal)
+NaxxramasCore.Atiesh.VanillaOutdoorArrival.Enabled = 0

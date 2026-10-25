@@ -49,6 +49,7 @@ void AddBattlemasterQueueProgressionScripts();
 void AddNaxxramasEasternPlaguelandsTowerLockScripts();
 void AddQuestLootProtectionScripts();
 void AddBotGolemaggActionAuditScripts();
+void AddAtieshKarazhanPortalScripts();
 
 void Addmod_naxxramas_coreScripts()
 {
@@ -96,4 +97,5 @@ void Addmod_naxxramas_coreScripts()
     AddNaxxramasEasternPlaguelandsTowerLockScripts();
     AddQuestLootProtectionScripts();
     AddBotGolemaggActionAuditScripts();
+    AddAtieshKarazhanPortalScripts();
 }
