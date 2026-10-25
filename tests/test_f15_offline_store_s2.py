@@ -342,6 +342,73 @@ class StoreTests(TestCase):
         finally:
             duplicate.chmod(0o700)
 
+    def test_verified_abnormal_exit_during_planned_shutdown_is_preserved(self):
+        # A shutdown/restart intention cannot suppress an independently
+        # verified abnormal child exit. 128+N is ambiguous wrapper evidence;
+        # the source adapter must establish real child status separately.
+        for code in (1, 134, 137, 139):
+            with self.subTest(code=code):
+                self.assertTrue(self.store.publish(
+                    event(invocation=f"planned-failed-{code}", pid=1600+code,
+                          planned_stop=True, exit_code=code)))
+        self.assertEqual(len(self.reports()), 4)
+        self.assertIn("Total: 4", self.history())
+
+    def test_wrapper_encoded_high_exit_is_not_guessed_as_signal(self):
+        self.assertTrue(self.store.publish(
+            event(invocation="ambiguous-139", planned_stop=True, exit_code=139)))
+        report = self.reports()[0].read_text("utf-8")
+        self.assertIn("Observed termination: exit 139", report)
+        self.assertNotIn("Observed termination: SIGSEGV", report)
+        self.assertIn("Crash cause: Unknown", report)
+
+    def test_planned_exit_without_status_is_held_not_counted(self):
+        self.assertFalse(self.store.publish(
+            event(planned_stop=True, exit_code=None, signal=None)))
+        self.assertEqual(self.reports(), [])
+
+    def test_corrupt_conflict_restores_history_warning_without_overwrite(self):
+        item = event()
+        self.store.publish(item)
+        report = self.reports()[0]
+        report.write_bytes(report.read_bytes() + b"ADDED OWNER NOTES\n")
+        (self.root / "Crash-History.txt").unlink()
+        with self.assertRaises(FileExistsError):
+            self.store.publish(item)
+        self.assertIn("Unverified or modified report files: 1", self.history())
+        self.assertIn("Unverified report: " + report.name, self.history())
+        self.assertEqual(len(self.reports()), 1)
+        self.assertTrue(report.read_bytes().endswith(b"ADDED OWNER NOTES\n"))
+
+    def test_foreign_and_writable_intermediate_ancestors_rejected(self):
+        from unittest.mock import patch
+        ancestor = Path(self.temp.name) / "middle"
+        ancestor.mkdir(mode=0o700)
+        child = ancestor / "private"
+        child.mkdir(mode=0o700)
+        actual = os.fstat
+        info = ancestor.stat()
+        other_uid = 1001 if os.geteuid() != 1001 else 1002
+        scenarios = (
+            ("foreign_0755", 0o755, other_uid),
+            ("same_user_0775", 0o775, os.geteuid()),
+            ("foreign_sticky_1777", 0o1777, other_uid),
+        )
+        for label, perms, uid in scenarios:
+            def modified(fd, perms=perms, uid=uid):
+                result = actual(fd)
+                if result.st_ino == info.st_ino and result.st_dev == info.st_dev:
+                    parts = list(result)
+                    parts[0] = (result.st_mode & ~0o7777) | perms
+                    parts[4] = uid
+                    return os.stat_result(parts)
+                return result
+            with self.subTest(label=label), patch(
+                "offline_store.os.fstat", side_effect=modified
+            ):
+                with self.assertRaises(PermissionError):
+                    IncidentStore(child)
+
     def test_actual_parallel_world_and_auth_writers(self):
         ctx = multiprocessing.get_context("fork")
         queue = ctx.Queue()
