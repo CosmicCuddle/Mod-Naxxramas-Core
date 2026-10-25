@@ -7,6 +7,7 @@ The S3 subclass must be used by all writers/readers in a future integration:
 legacy S2 index rebuild does not project sidecar statuses.
 """
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import hashlib
 import json
@@ -19,6 +20,14 @@ from offline_store import IncidentStore, NAMESPACE, SCHEMA, MAX_REPORT, utc, saf
 SIDECAR_SCHEMA = "F15-S3-OFFLINE-RESTART-1"
 SIDECAR_PATTERN = re.compile(r"^restart-([0-9a-f-]{36})-([0-9a-f-]{36})\.txt$")
 SIDECAR_LIMIT = 4096
+MAX_FUTURE_CLOCK_SKEW = timedelta(minutes=5)
+
+
+def impossible_future(stamp):
+    """Wall-clock sanity check only; NOT real-event provenance validation."""
+    when = datetime.strptime(utc(stamp), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    return when > datetime.now(timezone.utc) + MAX_FUTURE_CLOCK_SKEW
+
 
 
 @dataclass(frozen=True)
@@ -124,7 +133,8 @@ class RestartSidecarStore(IncidentStore):
                 continue
             info = self._read_sidecar(name)
             if (info is None or info["incident_id"] not in valid_incidents or
-                    info["observed_utc"] < valid_incidents[info["incident_id"]]["end_utc"]):
+                    info["observed_utc"] < valid_incidents[info["incident_id"]]["end_utc"] or
+                    impossible_future(info["observed_utc"])):
                 # A reported restart before the incident ended cannot be
                 # projected as the latest outcome, even if the sidecar bytes
                 # themselves have a valid hash.
@@ -186,6 +196,10 @@ class RestartSidecarStore(IncidentStore):
         observation.checked()
         if not observation.verified:
             return False
+        if impossible_future(observation.observed_utc):
+            # Impossible future timestamps must not win latest-outcome
+            # projection indefinitely. Keep a bounded adapter clock skew.
+            raise ValueError("restart observation is implausibly in the future")
         name = observation.filename()
         with self._locked():
             valid, _ = self._reports()
