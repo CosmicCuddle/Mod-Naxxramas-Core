@@ -1,0 +1,52 @@
+name: "A02 PAK CS03 negative witnesses (research only)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tests/research/test_cs03_a02_pak_negatives.py'
+      - 'docs/research/A02-PAK-CS03-NEGATIVES.md'
+      - '.github/workflows/a02-pak-cs03-negatives.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-a02-pak-cs03-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  negatives-against-frozen-135:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      FROZEN_135: 50f0500eb7b1f682d34cf6fcd0542556cf8363a1
+      MODEL_PATH: tests/research/test_a02_pak_d1_protocol_v2.py
+      MODEL_BLOB: 544040fe7c1d8d30c0a9dc17fa8c607f4a0c2b25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Unpack Grok's frozen #135 files (read-only, not modified)
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$FROZEN_135"
+          test "$(git rev-parse "$FROZEN_135:$MODEL_PATH")" = "$MODEL_BLOB"
+          # The model resolves ROOT = parents[2] of its own path, so it must
+          # sit at tests/research/ inside a copy of the frozen tree.
+          mkdir -p /tmp/frozen135
+          git archive "$FROZEN_135" tests/research docs/research src/Systems conf | tar -x -C /tmp/frozen135
+          test "$(git hash-object "/tmp/frozen135/$MODEL_PATH")" = "$MODEL_BLOB"
+      - name: Grok's own model suite still passes unchanged
+        run: (cd /tmp/frozen135 && python3 -I "$MODEL_PATH")
+      - name: CS03 negative witnesses (8 GAP/REF tests, never silently skipped)
+        run: |
+          set -euo pipefail
+          PAK_MODEL="/tmp/frozen135/$MODEL_PATH" python3 -I tests/research/test_cs03_a02_pak_negatives.py -v 2>&1 | tee /tmp/cs03_pak.txt
+          grep -qx "Ran 8 tests in [0-9.]*s" /tmp/cs03_pak.txt
+          grep -qx "OK" /tmp/cs03_pak.txt
+          ! grep -q "skipped" /tmp/cs03_pak.txt
