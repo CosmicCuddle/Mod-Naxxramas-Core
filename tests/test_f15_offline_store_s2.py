@@ -91,8 +91,12 @@ class StoreTests(TestCase):
         self.assertFalse(self.store.publish(event(exit_code=2, planned_stop=False)))
         self.assertEqual(len(self.reports()), 0)
 
-    def test_planned_termination_without_fatal_signal_not_counted(self):
-        self.assertFalse(self.store.publish(event(planned_stop=True)))
+    def test_planned_termination_without_abnormal_evidence_not_counted(self):
+        # Planned intent alone does not make a verified abnormal exit 1 clean.
+        self.assertFalse(self.store.publish(
+            event(planned_stop=True, exit_code=0, unexpected_death=False)))
+        self.assertFalse(self.store.publish(
+            event(planned_stop=True, exit_code=None, signal=None)))
         self.assertEqual(self.reports(), [])
 
     def test_verified_teardown_signal_after_restart_intent_is_counted(self):
