@@ -45,6 +45,17 @@ class StockWhenOff(unittest.TestCase):
         self.assertLess(off, hook.index("IsVanillaProgression"))
         self.assertLess(off, hook.index("WorldPacket copy(packet);"))
 
+    def test_no_ip_header_stays_stock_before_era_helper(self):
+        # CS01 #145 6398790496: the era helper's no-header fallback reads
+        # ConfigMgr on this map thread, so the module must return first.
+        hook = body(CODE, "bool CanPacketReceive(WorldSession* session, WorldPacket const& packet)")
+        check = hook.index("if (!observer.ipHeaderAvailable)")
+        self.assertLess(check, hook.index("NaxxramasIpEra::IsVanillaProgression(player)"))
+        self.assertEqual(hook[check:].split("\n", 2)[1].strip(), "return true;")
+        self.assertIn("constexpr bool IP_HEADER_AVAILABLE = NAXXRAMAS_IP_ERA_HAS_IP_HEADER != 0;", CODE)
+        rule = body(POLICY_CODE, "inline bool InterceptWho(")
+        self.assertIn("!o.ipHeaderAvailable", rule)
+
     def test_rules_decide_before_any_reply(self):
         hook = body(CODE, "bool CanPacketReceive(WorldSession* session, WorldPacket const& packet)")
         self.assertLess(hook.index("if (!InterceptWho(observer))"), hook.index("SendPacket"))

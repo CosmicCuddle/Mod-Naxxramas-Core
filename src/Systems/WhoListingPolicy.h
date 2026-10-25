@@ -27,14 +27,18 @@ namespace NaxxramasWhoListing
     {
         bool hideTbcRaces = false;     // NaxxramasCore.ExpansionRaceVisibility.HideTbcRaces
         bool gmBypass = true;          // NaxxramasCore.ExpansionRaceVisibility.GMBypass
+        // Individual Progression's header is exported to this module. Without
+        // it the era helper's fallback reads ConfigMgr on the map thread, so
+        // the module stays stock (CS01 #145 6398790496).
+        bool ipHeaderAvailable = false;
         bool observerIsVanilla = false;
         bool observerAboveSecPlayer = false;
     };
 
     inline bool InterceptWho(ObserverContext const& o)
     {
-        if (!o.hideTbcRaces || !o.observerIsVanilla)
-            return false;                          // R1, R2
+        if (!o.hideTbcRaces || !o.ipHeaderAvailable || !o.observerIsVanilla)
+            return false;                          // R1, R0 (no IP header), R2
         return !(o.gmBypass && o.observerAboveSecPlayer); // R3
     }
 

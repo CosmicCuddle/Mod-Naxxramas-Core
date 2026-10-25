@@ -50,6 +50,9 @@ namespace
         return loaded;
     }
 
+    // NAXXRAMAS_IP_ERA_HAS_IP_HEADER comes from IndividualProgressionEra.h.
+    constexpr bool IP_HEADER_AVAILABLE = NAXXRAMAS_IP_ERA_HAS_IP_HEADER != 0;
+
     // Written only by the startup config load, before any map worker exists
     // (World::SetInitialWorldSettings), and never again. CMSG_WHO runs on a
     // map thread, which only reads this. Until it is written, the feature is OFF.
@@ -71,6 +74,10 @@ namespace
             if (!reload)
             {
                 StartupWhoListingConfig = loaded;
+                if (loaded.hideTbcRaces && !IP_HEADER_AVAILABLE)
+                    LOG_WARN("module",
+                        "WhoListing: HideTbcRaces = 1, but Individual Progression's header is not "
+                        "available to this module; /who stays stock.");
                 return;
             }
 
@@ -140,6 +147,13 @@ namespace
             ObserverContext observer;
             observer.hideTbcRaces = config.hideTbcRaces;
             observer.gmBypass = config.gmBypass;
+
+            // Without IP's exported header, IsVanillaProgression would fall
+            // back to ConfigMgr reads on this map thread: stay stock instead.
+            observer.ipHeaderAvailable = IP_HEADER_AVAILABLE;
+            if (!observer.ipHeaderAvailable)
+                return true;                                   // R0: stock
+
             observer.observerIsVanilla = NaxxramasIpEra::IsVanillaProgression(player);
             observer.observerAboveSecPlayer = session->GetSecurity() > SEC_PLAYER;
             if (!InterceptWho(observer))

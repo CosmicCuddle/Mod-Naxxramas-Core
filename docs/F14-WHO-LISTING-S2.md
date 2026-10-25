@@ -17,6 +17,7 @@ Pins: Grimfeather core `8daffda`, Individual Progression `dd96f2b`, Playerbots `
 | Rule | When | Result |
 | --- | --- | --- |
 | R1 | `HideTbcRaces = 0` | stock handler |
+| R0 | IP's header is not available to this module | stock handler (no `ConfigMgr` read on the map thread) |
 | R2 | the observer is not Vanilla-stage | stock handler |
 | R3 | `GMBypass = 1` and the observer's account security is above `SEC_PLAYER` | stock handler |
 | R4 | the row is the observer's own character | kept (provisional owner choice O1) |
@@ -45,7 +46,7 @@ There is no `/who` script hook, so the module answers `CMSG_WHO` itself from `Se
 
 - **Thread.** `CMSG_WHO` is `PROCESS_THREADSAFE` (`Opcodes.cpp` L229), so `CanPacketReceive` runs on the observer's map thread, as the stock handler does (`WorldSession.cpp` L441–L464). It reads only the observer's own `Player` and session plus the who-cache, which the world thread rebuilds before map workers start (`World.cpp` L1166–L1170, L1254). There are no remote player lookups, no Playerbots calls and no shared writes.
 - **Settings.** They are read once at startup by a `WorldScript::OnAfterConfigLoad(false)` hook, before any map worker exists, as on #133. `.reload config` does not change them and logs a warning if they differ. The packet path never calls `ConfigMgr`.
-- **IP stage helper.** At the pins, IP's header is on the module include path, so `IsVanillaProgression` uses `sIndividualProgression->hasPassedProgression`. On an install **without** IP's header, its fallback reads `ConfigMgr` on this map thread. That is the same pre-existing residual as on #127, and it is not used at the pins.
+- **IP stage helper (R0, CS01 #145 `6398790496`).** At the pins, IP's header is on the module include path, so `IsVanillaProgression` uses `sIndividualProgression->hasPassedProgression`. On an install **without** IP's exported header, the helper's fallback would read `ConfigMgr` on this map thread. So F14 checks `NAXXRAMAS_IP_ERA_HAS_IP_HEADER` first and **stays stock** (returns `true`) without calling the helper, and the startup hook logs one warning if `HideTbcRaces = 1` in that case. **Enabling `/who` hiding therefore requires IP's header to be exported to this module.** The shared #127 helper itself is unchanged.
 
 ## Interaction with other packet hooks
 

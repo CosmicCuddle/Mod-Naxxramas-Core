@@ -421,11 +421,21 @@ namespace
     void TestRules()
     {
         ObserverContext o;
+        o.ipHeaderAvailable = true;
         Check(!InterceptWho(o), "R1 OFF is stock");
         o.hideTbcRaces = true;
         Check(!InterceptWho(o), "R2 non-Vanilla observer is stock");
         o.observerIsVanilla = true;
         Check(InterceptWho(o), "Vanilla player observer is intercepted");
+
+        // R0 (CS01 #145): without IP's exported header the module stays stock,
+        // whatever the other inputs say, so no ConfigMgr fallback runs.
+        ObserverContext noHeader = o;
+        noHeader.ipHeaderAvailable = false;
+        Check(!InterceptWho(noHeader), "R0 no IP header is stock");
+        noHeader.gmBypass = false;
+        noHeader.observerAboveSecPlayer = true;
+        Check(!InterceptWho(noHeader), "R0 no IP header is stock for GMs too");
         o.observerAboveSecPlayer = true;
         Check(!InterceptWho(o), "R3 GM with bypass is stock");
         o.gmBypass = false;
