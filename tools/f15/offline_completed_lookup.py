@@ -102,12 +102,17 @@ class OfflineCompletedRestartLookup:
             if st.st_nlink == 2:
                 self._reap_matching_owned_temp_locked(st)
                 # A removed temp must leave the SAME pinned final inode.
-                current = os.stat(filename, dir_fd=self.store._fd,
-                                  follow_symlinks=False)
+                try:
+                    current = os.stat(filename, dir_fd=self.store._fd,
+                                      follow_symlinks=False)
+                except OSError as exc:
+                    raise ValueError("immutable filename unavailable") from exc
                 if (current.st_dev, current.st_ino) != (st.st_dev, st.st_ino):
                     raise ValueError("immutable filename changed")
                 st = os.fstat(fd)
-            if st.st_nlink != 1:
+            if (not stat.S_ISREG(st.st_mode) or
+                    st.st_uid != os.geteuid() or st.st_mode & 0o177 or
+                    st.st_nlink != 1):
                 raise ValueError("untrusted owner, mode or link count")
         finally:
             os.close(fd)
