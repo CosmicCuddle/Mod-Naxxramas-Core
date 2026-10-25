@@ -308,12 +308,14 @@ class ObjectiveCounters(unittest.TestCase):
 
 
 class OwnerObservationMatrix(unittest.TestCase):
-    """#109: map both owner observations to native group-loot paths.
+    """#109: candidate native paths for both owner observations.
 
-    One-copy quest-bucket drop (QuestRequired=1, no MULTI_DROP, no flag
-    0x4), group loot with nothing over threshold, module guard ON as the
-    owner reports. All REF: these are stock + module behaviour, not bugs,
-    unless the friend was NOT eligible (last tests).
+    One shared, one-copy quest-bucket drop (QuestRequired=1, no MULTI_DROP,
+    no flag 0x4), group loot with nothing over threshold, two humans in
+    reward range, loot-bearing kills. The guard is configured ON in these
+    fixtures because #109 reports it enabled; the owner's EFFECTIVE setting
+    and binary are UNVERIFIED (the conf default is 0). These are
+    hypotheses that reproduce the symptoms, not proof that no bug exists.
     """
 
     def setUp(self):
@@ -324,7 +326,20 @@ class OwnerObservationMatrix(unittest.TestCase):
         return Corpse(quest_drop(follow=False), self.turns.on_kill())
 
     def test_ref_turns_alternate_between_the_two_humans(self):
+        # Only for loot-bearing kills with both humans in reward range.
         self.assertEqual([self.turns.on_kill() for _ in range(4)], ["A", "B", "A", "B"])
+
+    def test_ref_empty_loot_kill_does_not_advance_the_turn(self):
+        self.assertEqual(self.turns.on_kill(), "A")
+        self.assertEqual(self.turns.on_kill(has_loot=False), "B")   # B's turn, no loot
+        self.assertEqual(self.turns.on_kill(), "B")                 # still B's turn
+
+    def test_ref_out_of_range_member_is_skipped(self):
+        self.assertEqual([self.turns.on_kill(in_range={"A"}) for _ in range(3)],
+                         ["A", "A", "A"])
+        # Back in range: the in-range current looter keeps this kill
+        # (ifneed), and the turn moves to B only after it.
+        self.assertEqual([self.turns.on_kill(), self.turns.on_kill()], ["A", "B"])
 
     def test_ref_obs1_sparkle_then_denied_on_owners_turn(self):
         corpse = self.corpse()                              # owner's turn
@@ -334,7 +349,7 @@ class OwnerObservationMatrix(unittest.TestCase):
         self.assertEqual(try_pickup(True, self.friend, corpse, self.owner), "denied by module")
         self.assertEqual(try_pickup(True, self.owner, corpse, self.owner), "stored")
 
-    def test_ref_obs2_friend_takes_the_copy_on_friends_own_turn(self):
+    def test_ref_obs2_friend_takes_the_shared_copy_on_friends_own_turn(self):
         self.turns.on_kill()                                 # kill 1 was the owner's
         corpse = self.corpse()                               # kill 2: friend's turn
         self.assertEqual(corpse.round_robin_player, "B")
@@ -351,6 +366,8 @@ class OwnerObservationMatrix(unittest.TestCase):
         self.assertEqual(try_pickup(True, self.friend, corpse, self.owner), "stored")
 
     def test_ref_module_off_friend_takes_it_even_on_owners_turn(self):
+        # Guard-OFF falsifier: the guard defaults to 0 in the conf, and the
+        # owner's effective setting is UNVERIFIED.
         corpse = self.corpse()
         corpse.open_for(self.owner)
         self.assertEqual(try_pickup(False, self.friend, corpse, self.owner), "stored")

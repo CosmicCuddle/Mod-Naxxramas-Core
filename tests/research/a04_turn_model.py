@@ -22,19 +22,33 @@ from a04_roll_model import store_loot_item
 
 @dataclass
 class GroupTurns:
-    """Group::UpdateLooterGuid for a group whose members are all in range."""
+    """Group::UpdateLooterGuid plus its two calls in Unit::Kill.
+
+    Not "rotates every kill": the turn advances only after a kill whose
+    corpse has loot, and only to members within loot reward range.
+    """
     order: list                       # member slot order (guids)
     looter: str = ""
 
-    def on_kill(self):
-        # Unit.cpp L13654: UpdateLooterGuid(creature, true) keeps an
-        # in-range looter; with no looter yet it picks the first member.
-        if not self.looter:
-            self.looter = self.order[0]
-        owner = self.looter
-        # L13701: after the loot is filled the turn advances for next kill.
-        i = self.order.index(self.looter)
-        self.looter = self.order[(i + 1) % len(self.order)]
+    def _update(self, in_range, ifneed):
+        # Group.cpp L2081+: keep an in-range looter when ifneed; otherwise
+        # the next in-range member after the current one, wrapping (the
+        # current looter itself is the last candidate); none -> empty.
+        if self.looter in self.order:
+            if ifneed and self.looter in in_range:
+                return
+            start = self.order.index(self.looter) + 1
+        else:
+            start = len(self.order)
+        candidates = self.order[start:] + self.order[:start]
+        self.looter = next((g for g in candidates if g in in_range), "")
+
+    def on_kill(self, in_range=None, has_loot=True):
+        in_range = set(self.order if in_range is None else in_range)
+        self._update(in_range, ifneed=True)          # Unit.cpp L13654
+        owner = self.looter                          # FillLoot owner
+        if has_loot:                                 # L13700: only if !loot.empty()
+            self._update(in_range, ifneed=False)     # L13701
         return owner
 
 

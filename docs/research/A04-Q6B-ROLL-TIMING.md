@@ -50,18 +50,23 @@ Five tests cover the cases the first version could not express:
 ## The owner's two #109 observations, matched to native paths
 
 `tests/research/a04_turn_model.py` adds a transcription of group loot turns, turn release and the module's existing guard (`QuestLootProtection.cpp` on main, blob `48729dc`, pinned by a test):
-- `Unit::Kill` → `Group::UpdateLooterGuid`: the loot turn **rotates every kill** among members in range (every method except Free-for-All).
+- `Unit::Kill` → `Group::UpdateLooterGuid` decide the loot turn (every method except Free-for-All):
+  - at the kill, an in-range current looter **keeps** the turn (L13654, `ifneed`);
+  - after the loot is filled, the turn advances to the next member **in reward range**, and **only if the corpse has loot** (L13700–L13701).
+  - So two in-range humans killing loot-bearing creatures alternate turns. An empty-loot kill does not advance the turn, and an out-of-range member is skipped. Both cases have negative fixtures.
 - `Loot::FillLoot` L569: `roundRobinPlayer` is set to that kill's loot owner.
 - `DoLootRelease` L459–L461: the turn ends when that owner closes the loot window.
 - `Player::isAllowedToLoot` decides the corpse sparkle.
 
-The setting is a **one-copy** quest drop (`QuestRequired=1`, no `MULTI_DROP`, no flag 0x4) under group loot, with the guard ON as reported:
+The setting is **one shared**, one-copy quest drop (`QuestRequired=1`, no `MULTI_DROP`, no flag 0x4) under group loot, with both humans in reward range.
+
+**Guard status is UNVERIFIED.** `NaxxramasCore.QuestLootProtection.Enabled` defaults to `0` in the conf. #109 reports it enabled, but the owner's effective setting and binary have not been inspected. The fixtures set the guard ON to test observation 1, and a guard-OFF falsifier is kept. These rows are **hypotheses that reproduce the symptoms**, not proof that no bug exists.
 
 | Owner observation | Native path that produces it | Bug? |
 |---|---|---|
 | **1. The friend sees the corpse sparkle, tries, and is denied** | On the **owner's** turn the friend has their own quest slot (sparkle via `hasItemFor`), and the module refuses the pickup (`LOOT_ERROR_LOCKED`) | No: the guard working as designed |
-| **2a. The friend successfully takes "the owner's" quest item** | On the **friend's own turn** (every other kill), the friend is the turn owner and takes the single shared copy | No: stock one-copy group loot |
-| **2b. The same, after the owner looked** | The owner opened the corpse and **closed** it without taking the item, which ends the turn; the module fails open and the friend takes it | No: stock release, and the guard fails open by design |
+| **2a. The friend successfully takes the one shared quest drop** | On the **friend's own turn** (alternating loot-bearing kills, both in range), the friend holds the turn and takes the single shared copy | No: stock one-copy group loot |
+| **2b. The same, after the owner looked** | The **turn owner** opened the corpse and **closed** it without taking the item, which ends the turn (only the turn owner's own release does this); the module fails open and the friend takes it | No: stock release, and the guard fails open by design |
 | 2c. The friend lacks the quest or has already met the objective | No quest slot at all, so neither sparkle nor pickup from the quest item | Would be a bug if it happened; the model shows it **cannot** on these paths |
 
 So **both reports are reproduced by stock rules plus the guard, provided the friend also had the quest and still needed the item.** An invalid award needs one of the other mechanisms in this document:
@@ -78,7 +83,7 @@ So **both reports are reproduced by stock rules plus the guard, provided the fri
 
 If the owner wants each eligible human to get their **own** copy, that is a loot **policy** change (personal or `MULTI_DROP`-style quest loot), not a bug fix, and it needs an explicit owner decision.
 
-## Results (31 tests: 8 GAP, 23 REF)
+## Results (33 tests: 8 GAP, 25 REF)
 
 GAP means a stock path that gives an item to a player the native rule would refuse at award time, or strands a copy. REF means legitimate stock behaviour that any later change must keep.
 
