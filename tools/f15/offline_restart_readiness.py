@@ -171,9 +171,12 @@ class OfflineRestartReadiness:
         # Once a completed record is evicted, in-memory deduplication is
         # insufficient. Refuse fresh attempts unless a durable lookup can
         # distinguish new keys from old finalized keys.
-        if self._ever_evicted:
-            if self._finished_lookup is None:
-                return Decision("unverified", "durable completed-attempt lookup required")
+        if self._finished_lookup is None and self._ever_evicted:
+            return Decision("unverified", "durable completed-attempt lookup required")
+        # When a trusted-in-fixture completed lookup is available, consult
+        # it EVERY time: a newly instantiated collector starts with empty
+        # in-memory history even if S3 already contains final sidecars.
+        if self._finished_lookup is not None:
             try:
                 previous = self._finished_lookup(key)
             except Exception:
