@@ -1,0 +1,45 @@
+name: F15 S4 offline exit evidence admission (NO HOST)
+
+on:
+  pull_request:
+    paths:
+      - "tools/f15/offline_exit_evidence.py"
+      - "tools/f15/offline_store.py"
+      - "tests/test_f15_exit_evidence_s4.py"
+      - "tests/test_f15_offline_store_s2.py"
+      - ".github/workflows/f15-exit-evidence-s4.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-exit-evidence:
+    name: synthetic-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout selected PR exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Assert exact PR head checkout
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+
+      - name: Validate Python compilation
+        run: python3 -m py_compile tools/f15/offline_exit_evidence.py tests/test_f15_exit_evidence_s4.py
+
+      - name: Verify source admission cases
+        run: python3 -m unittest -v tests.test_f15_exit_evidence_s4
+
+      - name: Preserve inherited S2 policy tests
+        run: python3 -m unittest -v tests.test_f15_offline_store_s2
+
+      - name: No runtime adapter, service control, artifact or deployment
+        run: |
+          test ! -e tools/f15/live_supervisor.py
+          echo "PASS: isolated synthetic Python tests; Worldserver/Authserver were not started"
