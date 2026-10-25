@@ -334,7 +334,7 @@ class OwnerObservationMatrix(unittest.TestCase):
         self.assertEqual(self.turns.on_kill(has_loot=False), "B")   # B's turn, no loot
         self.assertEqual(self.turns.on_kill(), "B")                 # still B's turn
 
-    def test_ref_out_of_range_member_is_skipped(self):
+    def test_ref_out_of_range_member_gets_no_turn(self):
         self.assertEqual([self.turns.on_kill(in_range={"A"}) for _ in range(3)],
                          ["A", "A", "A"])
         # Back in range: the in-range current looter keeps this kill
