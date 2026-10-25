@@ -22,7 +22,7 @@ It follows CS03's scrutiny of #150 ([6399573014](https://github.com/CosmicCuddle
 | `LootItem::AllowedForPlayer` | `LootMgr.cpp` L417–L470 | eligibility |
 | `Loot::LootItemInSlot`, `LootView` | `LootMgr.cpp` L821–L880, L1033–L1037, L1130–L1149 | quest slots and visibility |
 
-- **Drift gate.** `scripts/check_a04_roll_fingerprint.py` hashes all 14 functions at the pin. A one-character change fails it, which forces this model to be re-reviewed.
+- **Drift gate.** `scripts/check_a04_roll_fingerprint.py` hashes all 20 functions at the pin. A one-character change fails it, which forces this model to be re-reviewed.
 - **Simplifications:** one loot source; one slot per roll; injected roll numbers instead of `urand`; no conditions, faction, recipe or disable rules (none of which change during a roll); no packets or achievements.
 
 ## Objective counters, not inventory (revision after CS01 review `6400615303`)
@@ -47,7 +47,38 @@ Five tests cover the cases the first version could not express:
 - turn-in is modelled as leaving the quest log;
 - `CountRollVote` provenance (map, packet and session state) beyond the vote itself.
 
-## Results (23 tests: 8 GAP, 15 REF)
+## The owner's two #109 observations, matched to native paths
+
+`tests/research/a04_turn_model.py` adds a transcription of group loot turns, turn release and the module's existing guard (`QuestLootProtection.cpp` on main, blob `48729dc`, pinned by a test):
+- `Unit::Kill` → `Group::UpdateLooterGuid`: the loot turn **rotates every kill** among members in range (every method except Free-for-All).
+- `Loot::FillLoot` L569: `roundRobinPlayer` is set to that kill's loot owner.
+- `DoLootRelease` L459–L461: the turn ends when that owner closes the loot window.
+- `Player::isAllowedToLoot` decides the corpse sparkle.
+
+The setting is a **one-copy** quest drop (`QuestRequired=1`, no `MULTI_DROP`, no flag 0x4) under group loot, with the guard ON as reported:
+
+| Owner observation | Native path that produces it | Bug? |
+|---|---|---|
+| **1. The friend sees the corpse sparkle, tries, and is denied** | On the **owner's** turn the friend has their own quest slot (sparkle via `hasItemFor`), and the module refuses the pickup (`LOOT_ERROR_LOCKED`) | No: the guard working as designed |
+| **2a. The friend successfully takes "the owner's" quest item** | On the **friend's own turn** (every other kill), the friend is the turn owner and takes the single shared copy | No: stock one-copy group loot |
+| **2b. The same, after the owner looked** | The owner opened the corpse and **closed** it without taking the item, which ends the turn; the module fails open and the friend takes it | No: stock release, and the guard fails open by design |
+| 2c. The friend lacks the quest or has already met the objective | No quest slot at all, so neither sparkle nor pickup from the quest item | Would be a bug if it happened; the model shows it **cannot** on these paths |
+
+So **both reports are reproduced by stock rules plus the guard, provided the friend also had the quest and still needed the item.** An invalid award needs one of the other mechanisms in this document:
+- Q6b, Q6 or mail (the drop must roll: flag 0x4);
+- Q13 or Q15 (a modified client);
+- a `QuestRequired=0` row, which is an ordinary item to the core.
+
+**One owner sample decides between these** (no new test run needed):
+- Was the friend on the quest, and still short of the item, at the time?
+- Whose loot turn was it? The client prints the looter.
+- Did the owner open and close that corpse first?
+- The item's `Flags` (`MULTI_DROP`) and `flagsCustom` (0x4).
+- The loot row's `QuestRequired`.
+
+If the owner wants each eligible human to get their **own** copy, that is a loot **policy** change (personal or `MULTI_DROP`-style quest loot), not a bug fix, and it needs an explicit owner decision.
+
+## Results (31 tests: 8 GAP, 23 REF)
 
 GAP means a stock path that gives an item to a player the native rule would refuse at award time, or strands a copy. REF means legitimate stock behaviour that any later change must keep.
 

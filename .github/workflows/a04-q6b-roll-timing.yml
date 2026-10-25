@@ -5,6 +5,8 @@ on:
     types: [opened, reopened, synchronize]
     paths:
       - 'tests/research/a04_roll_model.py'
+      - 'tests/research/a04_turn_model.py'
+      - 'src/Systems/QuestLootProtection.cpp'
       - 'tests/research/test_cs03_a04_q6b_roll_timing.py'
       - 'scripts/check_a04_roll_fingerprint.py'
       - 'docs/research/A04-Q6B-ROLL-TIMING.md'
@@ -33,10 +35,10 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I -B tests/research/test_cs03_a04_q6b_roll_timing.py -v 2>&1 | tee /tmp/q6b.txt
-          grep -qx "Ran 23 tests in [0-9.]*s" /tmp/q6b.txt
+          grep -qx "Ran 31 tests in [0-9.]*s" /tmp/q6b.txt
           grep -qx "OK" /tmp/q6b.txt
           ! grep -q "skipped" /tmp/q6b.txt
-      - name: Checkout pinned core (five files only)
+      - name: Checkout pinned core (seven files only)
         uses: actions/checkout@v4
         with:
           repository: Grimfeather/azerothcore-wotlk
@@ -49,6 +51,8 @@ jobs:
             src/server/game/Entities/Player/PlayerQuest.cpp
             src/server/game/Entities/Player/PlayerStorage.cpp
             src/server/game/Loot/LootMgr.cpp
+            src/server/game/Entities/Unit/Unit.cpp
+            src/server/game/Handlers/LootHandler.cpp
           sparse-checkout-cone-mode: false
       - name: Confirm pinned core
         run: test "$(git -C acore rev-parse HEAD)" = "8daffdabe9202c228e45d833c9a1d399597a15cd"

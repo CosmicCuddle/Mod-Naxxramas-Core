@@ -45,6 +45,18 @@ FUNCTIONS = [
      "bool LootItem::AllowedForPlayer(Player const* player, ObjectGuid source) const"),
     ("Loot/LootMgr.cpp",
      "LootItem* Loot::LootItemInSlot(uint32 lootSlot, Player* player, QuestItem * *qitem, QuestItem * *ffaitem, QuestItem * *conditem)"),
+    ("Entities/Unit/Unit.cpp",
+     "void Unit::Kill(Unit* killer, Unit* victim, bool durabilityLoss, WeaponAttackType attackType, SpellInfo const* /*spellProto*/, Spell const* /*spell*/ /*= nullptr*/)"),
+    ("Groups/Group.cpp",
+     "void Group::UpdateLooterGuid(WorldObject* pLootedObject, bool ifneed)"),
+    ("Handlers/LootHandler.cpp",
+     "void WorldSession::DoLootRelease(ObjectGuid lguid)"),
+    ("Entities/Player/PlayerStorage.cpp",
+     "bool Player::isAllowedToLoot(Creature const* creature)"),
+    ("Loot/LootMgr.cpp",
+     "bool Loot::FillLoot(uint32 lootId, LootStore const& store, Player* lootOwner, bool personal, bool noEmptyError, uint16 lootMode /*= LOOT_MODE_DEFAULT*/, WorldObject* lootSource /*= nullptr*/)"),
+    ("Loot/LootMgr.cpp",
+     "bool Loot::hasItemFor(Player* player) const"),
 ]
 
 EXPECTED = {
@@ -74,6 +86,18 @@ EXPECTED = {
         "04c724c86106028e306307a20f20be7a05b553476ae1c19c54369ad211119d65",
     "LootItem::AllowedForPlayer":
         "b3bd819cb45686c4d5d290eb4ed86dbf3a503bdf94e8945b6fd66e704360393f",
+    "Unit::Kill":
+        "f3228ec085df41da4503eac1285d30c0543f1b4e7dc22fe5803653b05353ad8d",
+    "Group::UpdateLooterGuid":
+        "0d2e6d48cfe6d2f10863e8ab77d9dc0a298dcfd60b83fa1e5233b35d61688f11",
+    "WorldSession::DoLootRelease":
+        "84a88f4e7003dcdbb55f492eb0cbdd94a9c5fccbd7c43380d2814834c76634c3",
+    "Player::isAllowedToLoot":
+        "6ed1e446fc3a84596797065596f19696834b8773bb9ae0b8192d4e1a04697bba",
+    "Loot::FillLoot":
+        "a2973bacb4df8f5e8e9ebbee8e7e3a7f0289ac22f140e67468fe0bc04f96e1fc",
+    "Loot::hasItemFor":
+        "61628e40928af2ef4c1e0ac7a11c878278d28c0284825848f7c84a79532714f5",
     "Loot::LootItemInSlot":
         "8d13186ea0d3721b3f54aa7e3d4783e480d383c99bee37cdc7b04b210286fc51",
 }

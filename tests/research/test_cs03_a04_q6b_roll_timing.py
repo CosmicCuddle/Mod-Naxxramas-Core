@@ -6,11 +6,13 @@ REF tests show legitimate stock behaviour that any later change must keep.
 Nothing here proves the owner's report; that still needs one anonymized
 sample (item flags, quest, source, both humans' eligibility, bag or mail).
 """
+import hashlib
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from a04_turn_model import Corpse, GroupTurns, try_pickup  # noqa: E402
 from a04_roll_model import (  # noqa: E402
     DISENCHANT, GREED, MAIL_DISABLED, MAIL_EVERYWHERE, MAIL_LFG_ONLY, NEED,
     NOT_EMITED_YET, PASS, SLOT_ALLOW_LOOT, SLOT_HIDDEN, SLOT_OWNER,
@@ -303,6 +305,77 @@ class ObjectiveCounters(unittest.TestCase):
         self.assertTrue(a.quests[0].incomplete)
         self.assertEqual((a.item_count(ITEM), b.item_count(ITEM)), (2, 0))
         self.assertEqual(a.quests[0].counts[ITEM], 1)       # counter capped at required
+
+
+class OwnerObservationMatrix(unittest.TestCase):
+    """#109: map both owner observations to native group-loot paths.
+
+    One-copy quest-bucket drop (QuestRequired=1, no MULTI_DROP, no flag
+    0x4), group loot with nothing over threshold, module guard ON as the
+    owner reports. All REF: these are stock + module behaviour, not bugs,
+    unless the friend was NOT eligible (last tests).
+    """
+
+    def setUp(self):
+        self.owner, self.friend = humans()
+        self.turns = GroupTurns(["A", "B"])
+
+    def corpse(self):
+        return Corpse(quest_drop(follow=False), self.turns.on_kill())
+
+    def test_ref_turns_alternate_between_the_two_humans(self):
+        self.assertEqual([self.turns.on_kill() for _ in range(4)], ["A", "B", "A", "B"])
+
+    def test_ref_obs1_sparkle_then_denied_on_owners_turn(self):
+        corpse = self.corpse()                              # owner's turn
+        corpse.open_for(self.owner)
+        corpse.open_for(self.friend)
+        self.assertTrue(corpse.sparkles_for(self.friend))    # friend has an own quest slot
+        self.assertEqual(try_pickup(True, self.friend, corpse, self.owner), "denied by module")
+        self.assertEqual(try_pickup(True, self.owner, corpse, self.owner), "stored")
+
+    def test_ref_obs2_friend_takes_the_copy_on_friends_own_turn(self):
+        self.turns.on_kill()                                 # kill 1 was the owner's
+        corpse = self.corpse()                               # kill 2: friend's turn
+        self.assertEqual(corpse.round_robin_player, "B")
+        corpse.open_for(self.owner)
+        self.assertEqual(try_pickup(True, self.friend, corpse, self.owner), "stored")
+        self.assertEqual(try_pickup(True, self.owner, corpse, self.owner), "refused by core")
+        self.assertEqual(self.owner.item_count(ITEM), 0)
+
+    def test_ref_obs2_friend_takes_it_after_owner_closes_the_window(self):
+        corpse = self.corpse()
+        corpse.open_for(self.owner)
+        corpse.release(self.owner)                           # owner closes without taking it
+        self.assertEqual(corpse.round_robin_player, "")
+        self.assertEqual(try_pickup(True, self.friend, corpse, self.owner), "stored")
+
+    def test_ref_module_off_friend_takes_it_even_on_owners_turn(self):
+        corpse = self.corpse()
+        corpse.open_for(self.owner)
+        self.assertEqual(try_pickup(False, self.friend, corpse, self.owner), "stored")
+
+    def test_ref_ineligible_friend_never_gets_a_slot_or_the_item(self):
+        self.friend.quests.clear()                           # friend lacks the quest
+        corpse = self.corpse()
+        corpse.open_for(self.owner)
+        corpse.release(self.owner)
+        corpse.open_for(self.friend)
+        self.assertFalse(corpse.has_item_for(self.friend))
+        self.assertEqual(try_pickup(True, self.friend, corpse, self.owner), "no slot")
+
+    def test_ref_friend_who_already_finished_the_objective_gets_no_slot(self):
+        self.friend.store_new_item(ITEM, 1)                  # counter met
+        self.turns.on_kill()
+        corpse = self.corpse()                               # even on friend's turn
+        self.assertEqual(try_pickup(True, self.friend, corpse, self.owner), "no slot")
+
+    def test_ref_module_guard_transcribed_from_main_blob_48729dc(self):
+        # a04_turn_model.module_permits copies this exact file; any change
+        # to it must re-review the transcription.
+        source = Path(__file__).resolve().parents[2] / "src/Systems/QuestLootProtection.cpp"
+        self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
+                         "2618b2541372be6855ca8d0e721f971bf2c98d3b1b0d53431409cf174b1862c2")
 
 
 if __name__ == "__main__":
