@@ -11,6 +11,7 @@
 #include "Chat.h"
 #include "Config.h"
 #include "Group.h"
+#include "Log.h"
 #include "Map.h"
 #include "MapMgr.h"
 #include "ObjectMgr.h"
@@ -30,23 +31,42 @@ namespace NaxxramasScarletExits
 {
     using namespace NaxxramasScarletExitPolicy;
 
-    bool Enabled()
+    struct ExitsConfig
     {
-        return sConfigMgr->GetOption<bool>(
+        bool enabled = false;
+        bool useDoorTargets = true;
+        bool routeDungeonFinderExits = false;
+    };
+
+    // Only called from the config hook below, on the world thread.
+    ExitsConfig ReadConfig()
+    {
+        ExitsConfig loaded;
+        loaded.enabled = sConfigMgr->GetOption<bool>(
             "NaxxramasCore.ScarletExits.Enabled", false);
-    }
-
-    bool UseDoorTargets()
-    {
-        return sConfigMgr->GetOption<bool>(
+        loaded.useDoorTargets = sConfigMgr->GetOption<bool>(
             "NaxxramasCore.ScarletExits.UseVanillaDoorTargets", true);
+        loaded.routeDungeonFinderExits = sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.ScarletExits.RouteDungeonFinderExits", false);
+        return loaded;
     }
 
-    bool RouteDungeonFinderExits()
+    bool SameConfig(ExitsConfig const& a, ExitsConfig const& b)
     {
-        return sConfigMgr->GetOption<bool>(
-            "NaxxramasCore.ScarletExits.RouteDungeonFinderExits", false);
+        return a.enabled == b.enabled && a.useDoorTargets == b.useDoorTargets &&
+            a.routeDungeonFinderExits == b.routeDungeonFinderExits;
     }
+
+    // Written only by the startup config load, which runs in
+    // World::SetInitialWorldSettings before MapMgr starts any map worker,
+    // and never again. CMSG_AREATRIGGER can be handled on a map thread, so
+    // the packet path only reads this snapshot and never calls ConfigMgr
+    // (same fix as #133 / #144). Until it is written, the feature is OFF.
+    ExitsConfig StartupConfig;
+
+    bool Enabled() { return StartupConfig.enabled; }
+    bool UseDoorTargets() { return StartupConfig.useDoorTargets; }
+    bool RouteDungeonFinderExits() { return StartupConfig.routeDungeonFinderExits; }
 
     TriggerShape ShapeOf(uint32 triggerId)
     {
@@ -151,6 +171,35 @@ namespace NaxxramasScarletExits
     }
 }
 
+// Takes the settings snapshot on the world thread: at startup before any map
+// worker exists, and for ".reload config" while no map worker runs. A reload
+// keeps the startup values (restart-only) and warns if they changed.
+class NaxxramasScarletExitsConfig : public WorldScript
+{
+public:
+    NaxxramasScarletExitsConfig()
+        : WorldScript("NaxxramasScarletExitsConfig", { WORLDHOOK_ON_AFTER_CONFIG_LOAD }) { }
+
+    void OnAfterConfigLoad(bool reload) override
+    {
+        using namespace NaxxramasScarletExits;
+        ExitsConfig const loaded = ReadConfig();
+        if (!reload)
+        {
+            StartupConfig = loaded;
+            return;
+        }
+
+        if (!SameConfig(loaded, StartupConfig))
+            LOG_WARN("module",
+                "ScarletExits: settings changed by .reload config are ignored until "
+                "Worldserver restarts; still Enabled={} UseVanillaDoorTargets={} "
+                "RouteDungeonFinderExits={}.",
+                StartupConfig.enabled, StartupConfig.useDoorTargets,
+                StartupConfig.routeDungeonFinderExits);
+    }
+};
+
 class NaxxramasScarletExitsScript : public ServerScript
 {
 public:
@@ -180,5 +229,6 @@ public:
 
 void AddScarletMonasteryExitScripts()
 {
+    new NaxxramasScarletExitsConfig();
     new NaxxramasScarletExitsScript();
 }

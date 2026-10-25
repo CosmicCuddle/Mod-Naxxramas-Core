@@ -52,6 +52,34 @@ class ConfigAndLoader(unittest.TestCase):
         self.assertEqual(LOADER.count("    AddScarletMonasteryExitScripts();"), 1)
 
 
+class StartupOnlyConfig(unittest.TestCase):
+    """Same fix as #133 / #144: no ConfigMgr read on the packet path."""
+
+    def test_config_manager_only_in_reader(self):
+        reader = function_body(CPP, "ExitsConfig ReadConfig()")
+        self.assertEqual(reader.count("sConfigMgr->"), 3)
+        self.assertEqual(CPP.count("sConfigMgr->"), 3)
+        self.assertEqual(CPP.count("ReadConfig()"), 2)  # definition + the hook
+
+    def test_snapshot_written_once_at_startup(self):
+        hook = function_body(CPP, "void OnAfterConfigLoad(bool reload) override")
+        self.assertIn("ExitsConfig const loaded = ReadConfig();", hook)
+        self.assertIn("if (!reload)", hook)
+        self.assertEqual(len(re.findall(r"StartupConfig\s*=[^=]", CPP)), 1)
+        self.assertIn('WorldScript("NaxxramasScarletExitsConfig", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })', CPP)
+
+    def test_packet_path_reads_snapshot_only(self):
+        for name in ("bool Enabled()", "bool UseDoorTargets()", "bool RouteDungeonFinderExits()"):
+            with self.subTest(name=name):
+                self.assertNotIn("sConfigMgr", function_body(CPP, name))
+        self.assertNotIn("sConfigMgr", function_body(CPP, "bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override"))
+
+    def test_both_scripts_registered_once(self):
+        add = function_body(CPP, "void AddScarletMonasteryExitScripts()")
+        self.assertEqual(add.count("new NaxxramasScarletExitsConfig();"), 1)
+        self.assertEqual(add.count("new NaxxramasScarletExitsScript();"), 1)
+
+
 class PacketHook(unittest.TestCase):
     BODY = function_body(CPP, "bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override")
 
