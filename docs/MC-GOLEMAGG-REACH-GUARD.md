@@ -65,7 +65,7 @@ NaxxramasCore.Playerbots.GolemaggMeleeGuard.Debug = 0
   - logs one line when a bot's listener is registered;
   - logs at most one line per bot every 5 seconds when the guard refuses `reach melee`, including the bot's stack count and remaining duration.
 
-Settings are read once at startup, so changes need a Worldserver restart.
+Settings are read once at startup, so changes need a Worldserver restart. A `.reload config` does **not** change them, including turning the guard on or off. If the reloaded values differ, the guard logs one `GolemaggMeleeGuard: settings changed by .reload config are ignored until Worldserver restarts` warning showing the values still in force. See "Settings snapshot" below.
 
 ## Lifecycle
 
@@ -87,18 +87,42 @@ Source-only, at core `8daffda` and Playerbots `d750b4b`. **NOT TESTED** under lo
 - **Hook order.** `Player::Update` calls `OnPlayerUpdate` (`PlayerUpdates.cpp` L314) before `OnPlayerAfterUpdate` (L431), where Playerbots runs `UpdateAI`. Registration therefore happens on the player's own update thread, before that tick's engine run, so it never overlaps the engine's listener loop.
 - **Listener lifetime.** The engine owns and deletes the listener together with the AI. The listener only clears an atomic liveness token in its destructor, and the module never deletes, removes or caches a `PlayerbotAI*` across ticks: the per-Player record keeps an address for comparison only. Where Playerbots destroys an AI (logout or AI replacement) relative to other map workers is upstream behaviour and is **not proven** here.
 
+## Settings snapshot (#133 6396641760)
+
+Source-only, at core `8daffda`, Playerbots `d750b4b` and IP `dd96f2b`. **NOT TESTED** under load.
+
+- **No `ConfigMgr` read from a map thread.**
+  - Before this change, `GetGuardConfig()` built a function-local static on its first call. That first call was the first `OnPlayerUpdate` on a map worker, even with the guard OFF.
+  - `ConfigMgr::GetValueDefault` reads `_configOptions` without `_configLock`. With an environment override, it can also insert into that map (`Config.cpp` L538/L548 and L603/L613; `GetOption` forwards there at L650–L658).
+  - Now `sConfigMgr` appears only in `ReadGuardConfig()`, which only the `WorldScript::OnAfterConfigLoad` hook calls. Map-thread code (`OnPlayerUpdate` and the listener) reads only the snapshot.
+- **When the snapshot is written.**
+  - `NaxxramasCoreGolemaggReachGuardConfig` is constructed in `sScriptMgr->Initialize()` (`Main.cpp` L282).
+  - `World::SetInitialWorldSettings` then calls `LoadConfigSettings()` (`World.cpp` L323), which calls `OnAfterConfigLoad(false)` (L302).
+  - That is before `sMapMgr->Initialize()` (L941), so no map worker exists yet. Starting those threads later orders the write before every map-thread read.
+  - Until the hook runs, the snapshot is the default (OFF).
+- **`.reload config` cannot switch the guard.**
+  - The only reload caller at these pins is `HandleReloadConfigCommand` (`cs_reload.cpp` L354). Playerbots and IP never call `LoadConfigSettings` or `ConfigMgr::Reload`.
+  - From the game client the command arrives as `CMSG_MESSAGECHAT`, which is `PROCESS_THREADUNSAFE` (`Opcodes.cpp` L280) and runs in `World::UpdateSessions` (`World.cpp` L1227).
+  - From the console or SOAP it runs in `ProcessCliCommands` (L1350).
+  - Both run on the world thread outside `MapMgr::Update`, which waits for its map workers (`MapMgr.cpp` L280). The hook's own reads therefore do not overlap a map worker.
+  - On reload, `ApplyStartupOnlyConfig` keeps the startup snapshot unchanged and only reports whether the new values differ. Nothing is written while map threads may read it, and the guard cannot be hot-enabled.
+- **Listener setup comes later.** Bots' AIs and listeners only exist after world start. Registration happens in `OnPlayerUpdate` on a map worker, long after the snapshot was written. The listener's `Before()` and debug logging read the same immutable snapshot.
+- **Unchanged residual.** The named bot's `PlayerbotsMgr::GetPlayerbotAI` read and Playerbots' AI lifetime are as described in "Lookup order and threads". They are **not proven** race-free.
+
 ## Tests
 
 - **`tests/golemagg_reach_guard_policy.cpp`** — standalone C++ tests:
   - every deny and allow condition, including the 19/20 stack and 10% health boundaries;
   - the single-name gate;
   - registration bookkeeping: first registration, repeat ticks, engine switch, deleted listener, replaced AI.
+  - startup-only settings: a `.reload config` never changes the snapshot (no hot enable or disable) and reports changed values.
 - **`tests/test_golemagg_reach_guard.py`** — source contract:
   - default-OFF keys;
   - `Before()` as the only deny path, `AllowExecution()` never denying;
   - no listener removal or deletion;
   - only `reach melee` named;
   - loader registration;
+  - `sConfigMgr` read only in the `OnAfterConfigLoad` world hook, never from `OnPlayerUpdate` or the listener;
   - no SQL;
   - P5 observer unchanged.
 - **`.github/workflows/golemagg-reach-guard.yml`:**

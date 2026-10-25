@@ -71,6 +71,22 @@ namespace NaxxramasGolemaggReachGuard
         return lookup();
     }
 
+    // Restart-only settings. The startup load (reload == false) sets the
+    // snapshot; a later ".reload config" never changes it, so the guard can
+    // never be switched on while map threads read the snapshot. Returns true
+    // when a reload carried different values, so the caller can warn that
+    // they need a Worldserver restart.
+    template <typename Config, typename Equal>
+    bool ApplyStartupOnlyConfig(Config& snapshot, Config const& loaded, bool reload, Equal&& equal)
+    {
+        if (!reload)
+        {
+            snapshot = loaded;
+            return false;
+        }
+        return !equal(snapshot, loaded);
+    }
+
     // Shared liveness flag between a registered listener and the per-Player
     // record. Playerbots deletes listeners together with their engine, and
     // the listener destructor clears the flag.

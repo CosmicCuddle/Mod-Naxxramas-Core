@@ -190,10 +190,41 @@ namespace
             NaxxramasGolemaggActionAudit::IsAllowedBotName("grau", "Grau"), lookup) == &bot);
         assert(lookups == 1);
     }
+
+    void TestStartupOnlyConfig()
+    {
+        struct Cfg { bool enabled; bool debug; char const* name; };
+        auto same = [](Cfg const& a, Cfg const& b)
+        {
+            return a.enabled == b.enabled && a.debug == b.debug &&
+                std::string(a.name) == std::string(b.name);
+        };
+
+        // Startup load sets the snapshot.
+        Cfg snapshot{ false, false, "" };
+        assert(!ApplyStartupOnlyConfig(snapshot, Cfg{ false, true, "Grau" }, false, same));
+        assert(!snapshot.enabled && snapshot.debug && std::string(snapshot.name) == "Grau");
+
+        // A reload with the same values: nothing to warn about, nothing changes.
+        assert(!ApplyStartupOnlyConfig(snapshot, Cfg{ false, true, "Grau" }, true, same));
+        assert(!snapshot.enabled && snapshot.debug && std::string(snapshot.name) == "Grau");
+
+        // A reload that tries to enable the guard or change the name: the
+        // caller is told to warn, and the snapshot stays as loaded at startup.
+        assert(ApplyStartupOnlyConfig(snapshot, Cfg{ true, true, "Grau" }, true, same));
+        assert(ApplyStartupOnlyConfig(snapshot, Cfg{ false, true, "Thrall" }, true, same));
+        assert(!snapshot.enabled && std::string(snapshot.name) == "Grau");
+
+        // Likewise a reload cannot switch a running guard off; that also needs a restart.
+        Cfg on{ true, false, "Grau" };
+        assert(ApplyStartupOnlyConfig(on, Cfg{ false, false, "Grau" }, true, same));
+        assert(on.enabled);
+    }
 }
 
 int main()
 {
+    TestStartupOnlyConfig();
     TestNoLookupBeforeNameGate();
     TestPolicy();
     TestBotNameGate();

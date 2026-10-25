@@ -115,6 +115,57 @@ class GolemaggReachGuardLookupOrder(unittest.TestCase):
                 self.assertIn(needle, update)
 
 
+class GolemaggReachGuardStartupConfig(unittest.TestCase):
+    """#133 6396641760: no ConfigMgr read from map threads; restart-only."""
+
+    def test_config_manager_only_in_reader(self):
+        reader = method_body(CODE, "GuardConfig ReadGuardConfig()")
+        self.assertEqual(reader.count("sConfigMgr->"), 3)
+        self.assertEqual(CODE.count("sConfigMgr->"), 3)
+
+    def test_reader_only_called_from_config_hook(self):
+        self.assertEqual(CODE.count("ReadGuardConfig()"), 2)  # definition + one call
+        hook = method_body(CODE, "void OnAfterConfigLoad(bool reload)")
+        self.assertIn(
+            "ApplyStartupOnlyConfig(StartupGuardConfig, ReadGuardConfig(), reload, SameGuardConfig)",
+            hook,
+        )
+
+    def test_no_lazy_function_local_config(self):
+        self.assertNotIn("static GuardConfig", CODE)
+        getter = method_body(CODE, "GuardConfig const& GetGuardConfig()")
+        self.assertNotIn("static", getter)
+        self.assertNotIn("sConfigMgr", getter)
+
+    def test_snapshot_never_assigned_outside_helper(self):
+        self.assertNotRegex(CODE, r"StartupGuardConfig\s*=[^=]")
+        self.assertIn("GuardConfig StartupGuardConfig;", CODE)
+
+    def test_map_thread_paths_do_not_touch_config_manager(self):
+        for signature in ("void OnPlayerUpdate(Player* player", "bool Before(Action* action",
+                          "ReachMeleeContext BuildContext(Action* action)", "void LogDeny()"):
+            with self.subTest(signature=signature):
+                body = method_body(CODE, signature)
+                self.assertNotIn("sConfigMgr", body)
+                self.assertNotIn("ReadGuardConfig", body)
+
+    def test_world_script_registered_for_after_config_load(self):
+        self.assertIn(
+            'WorldScript("NaxxramasCoreGolemaggReachGuardConfig", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })',
+            CODE,
+        )
+        loader = method_body(CODE, "void AddBotGolemaggReachGuardScripts()")
+        self.assertEqual(loader.count("new NaxxramasCoreGolemaggReachGuardConfig();"), 1)
+        self.assertEqual(loader.count("new NaxxramasCoreGolemaggReachGuard();"), 1)
+
+    def test_policy_reload_keeps_startup_values(self):
+        helper = method_body(POLICY_CODE, "bool ApplyStartupOnlyConfig(")
+        self.assertIn("if (!reload)", helper)
+        self.assertIn("snapshot = loaded;", helper)
+        self.assertEqual(helper.count("snapshot ="), 1)
+        self.assertIn("return !equal(snapshot, loaded);", helper)
+
+
 class GolemaggReachGuardRegistration(unittest.TestCase):
     def test_loader_registers_once(self):
         self.assertEqual(LOADER.count("void AddBotGolemaggReachGuardScripts();"), 1)
