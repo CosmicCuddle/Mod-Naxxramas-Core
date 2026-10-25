@@ -39,6 +39,9 @@ jobs:
       - name: Preserve inherited S2 policy tests
         run: python3 -m unittest -v tests.test_f15_offline_store_s2
 
+      - name: Preserve stacked S3 restart-history regression tests
+        run: python3 -m unittest -v tests.test_f15_restart_sidecar_s3
+
       - name: No runtime adapter, service control, artifact or deployment
         run: |
           test ! -e tools/f15/live_supervisor.py
