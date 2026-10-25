@@ -80,6 +80,22 @@ class _Bucket:
     emitted: bool = False
 
 
+@dataclass(frozen=True)
+class InstanceExit:
+    """Synthetic lifetime notification; flags do NOT authenticate OS death."""
+    service: str
+    instance: str
+    source: str = "unverified-text"
+    verified_actual_exit: bool = False
+
+
+@dataclass(frozen=True)
+class CleanupDecision:
+    status: str
+    streams_released: int = 0
+    categories_released: int = 0
+
+
 class OfflineBurstTracker:
     """In-memory deterministic model with explicit hard memory bounds.
 
@@ -105,6 +121,11 @@ class OfflineBurstTracker:
         self.max_streams = max_streams
         self._streams: dict[tuple[str, str, str], tuple[int, int]] = {}
         self._groups: dict[tuple[str, str, str, str, str], _Bucket] = {}
+        # Bounded tombstones refuse queued old process samples after an
+        # authenticated-in-fixture instance exit. Adapters must also bind a
+        # truly unique process invocation; this is NOT kernel provenance.
+        self._retired = deque(maxlen=max(128, 4 * max_streams))
+        self._retired_set: set[tuple[str, str]] = set()
 
     def observe(self, sample: LogEvidence) -> Decision:
         if not isinstance(sample, LogEvidence):
@@ -117,6 +138,8 @@ class OfflineBurstTracker:
         if sample.source != SOURCE or not sample.verified_stream:
             return Decision("unverified", "no authenticated log-stream provenance")
 
+        if (sample.service, sample.instance) in self._retired_set:
+            return Decision("rejected", "event from retired process incarnation")
         stream_key = (sample.service, sample.instance, sample.stream)
         previous = self._streams.get(stream_key)
         if previous is not None and sample.seq <= previous[0]:
@@ -135,7 +158,10 @@ class OfflineBurstTracker:
         bucket = self._groups.setdefault(group_key, _Bucket())
         while bucket.timestamps and sample.uptime_ms - bucket.timestamps[0] > self.window_ms:
             bucket.timestamps.popleft()
-        if not bucket.timestamps:
+        # A persistent low-rate trickle must not mask a later fast burst.
+        # Re-arm after the rolling count falls BELOW threshold, even if a
+        # background warning prevents the window from ever becoming empty.
+        if len(bucket.timestamps) < self.threshold:
             bucket.emitted = False
         bucket.timestamps.append(sample.uptime_ms)
         while len(bucket.timestamps) > self.threshold:
@@ -152,6 +178,38 @@ class OfflineBurstTracker:
             )
         return Decision("ignored", "below threshold or burst already emitted")
 
+    def finish_instance(self, evidence: InstanceExit) -> CleanupDecision:
+        """Release bounded memory ONLY after a synthetic verified exit.
+
+        A future trusted adapter, not this caller flag, must independently
+        prove actual child death and drain or invalidate in-flight log events.
+        """
+        if not isinstance(evidence, InstanceExit):
+            return CleanupDecision("rejected")
+        if (not isinstance(evidence.service, str) or
+                evidence.service not in SERVICES or
+                not isinstance(evidence.instance, str) or
+                not SAFE.fullmatch(evidence.instance) or
+                type(evidence.verified_actual_exit) is not bool):
+            return CleanupDecision("rejected")
+        if (evidence.source != "verified-instance-exit-fixture" or
+                not evidence.verified_actual_exit):
+            return CleanupDecision("unverified")
+        key = (evidence.service, evidence.instance)
+        stream_keys = [x for x in self._streams if x[:2] == key]
+        group_keys = [x for x in self._groups if x[:2] == key]
+        if key in self._retired_set:
+            return CleanupDecision("duplicate")
+        for x in stream_keys:
+            del self._streams[x]
+        for x in group_keys:
+            del self._groups[x]
+        if len(self._retired) == self._retired.maxlen:
+            self._retired_set.remove(self._retired[0])
+        self._retired.append(key)
+        self._retired_set.add(key)
+        return CleanupDecision("released", len(stream_keys), len(group_keys))
+
     def counts(self) -> tuple[int, int]:
-        """Metadata only; not crash/restart totals."""
+        """Active-instance metadata only; never crash/restart totals."""
         return len(self._streams), len(self._groups)
