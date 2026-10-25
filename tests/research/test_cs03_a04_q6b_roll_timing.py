@@ -277,6 +277,19 @@ class ObjectiveCounters(unittest.TestCase):
         self.assertEqual(a.quests[0].counts[ITEM], 1)
         self.assertFalse(quest_drop().allowed_for_player(a))
 
+    def test_ref_loaded_counter_not_bags_decides_after_login(self):
+        # A counter saved as met, with the copy no longer in the bags (for
+        # example removed while offline), keeps the item ineligible after
+        # login; a saved counter of 0 keeps it eligible even if a copy is
+        # held. Eligibility follows the stored counter, not inventory.
+        met = Player("A")
+        met.load_quest(Quest({ITEM: 1, OTHER: 1}, counts={ITEM: 1, OTHER: 0}))
+        self.assertEqual(met.item_count(ITEM), 0)
+        self.assertFalse(quest_drop().allowed_for_player(met))
+        lagging = Player("B", inventory={ITEM: 1})
+        lagging.load_quest(Quest({ITEM: 1, OTHER: 1}, counts={ITEM: 0, OTHER: 0}))
+        self.assertTrue(quest_drop().allowed_for_player(lagging))
+
     def test_gap_q6b_surplus_also_while_multi_objective_quest_incomplete(self):
         # The gap does not need the whole quest to finish: once A's ITEM
         # objective is met, a second same-pull win is still stored for A.

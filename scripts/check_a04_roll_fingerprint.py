@@ -39,6 +39,8 @@ FUNCTIONS = [
      "void Player::ItemRemovedQuestCheck(uint32 entry, uint32 count)"),
     ("Entities/Player/PlayerQuest.cpp",
      "bool Player::HasQuestForItem(uint32 itemid, uint32 excludeQuestId /* 0 */, bool turnIn /* false */, bool* showInLoot /*= nullptr*/) const"),
+    ("Entities/Player/PlayerStorage.cpp",
+     "void Player::_LoadQuestStatus(PreparedQueryResult result)"),
     ("Loot/LootMgr.cpp",
      "bool LootItem::AllowedForPlayer(Player const* player, ObjectGuid source) const"),
     ("Loot/LootMgr.cpp",
@@ -68,6 +70,8 @@ EXPECTED = {
         "53c2076d20dc77f89a01aa93138ead6275b21bd5e10658fdd0da4ad5d0586008",
     "Player::HasQuestForItem":
         "b8a183cec8a357dc8b1e30add82ad9b9921dd4cd4d1567ea6ce1f1b96554f1ad",
+    "Player::_LoadQuestStatus":
+        "04c724c86106028e306307a20f20be7a05b553476ae1c19c54369ad211119d65",
     "LootItem::AllowedForPlayer":
         "b3bd819cb45686c4d5d290eb4ed86dbf3a503bdf94e8945b6fd66e704360393f",
     "Loot::LootItemInSlot":

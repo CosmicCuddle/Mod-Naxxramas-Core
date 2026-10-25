@@ -116,6 +116,13 @@ class Player:
         self.quests.append(quest)
         self.adjust_quest_req_item_count(quest)
 
+    def load_quest(self, quest):
+        # Player::_LoadQuestStatus (PlayerStorage.cpp ~L6453): the counter
+        # is read from character_queststatus as stored, with NO re-adjust to
+        # current inventory (AdjustQuestReqItemCount runs only in AddQuest,
+        # PlayerQuest.cpp L552). After login the two can differ.
+        self.quests.append(quest)
+
     def has_quest_for_item(self, entry):
         # PlayerQuest.cpp L2338-L2385, as called by AllowedForPlayer (no
         # showInLoot, no turnIn): an INCOMPLETE quest whose objective

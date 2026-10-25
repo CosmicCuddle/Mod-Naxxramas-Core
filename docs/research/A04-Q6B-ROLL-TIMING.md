@@ -22,7 +22,7 @@ It follows CS03's scrutiny of #150 ([6399573014](https://github.com/CosmicCuddle
 | `LootItem::AllowedForPlayer` | `LootMgr.cpp` L417–L470 | eligibility |
 | `Loot::LootItemInSlot`, `LootView` | `LootMgr.cpp` L821–L880, L1033–L1037, L1130–L1149 | quest slots and visibility |
 
-- **Drift gate.** `scripts/check_a04_roll_fingerprint.py` hashes all 13 functions at the pin. A one-character change fails it, which forces this model to be re-reviewed.
+- **Drift gate.** `scripts/check_a04_roll_fingerprint.py` hashes all 14 functions at the pin. A one-character change fails it, which forces this model to be re-reviewed.
 - **Simplifications:** one loot source; one slot per roll; injected roll numbers instead of `urand`; no conditions, faction, recipe or disable rules (none of which change during a roll); no packets or achievements.
 
 ## Objective counters, not inventory (revision after CS01 review `6400615303`)
@@ -32,10 +32,13 @@ It follows CS03's scrutiny of #150 ([6399573014](https://github.com/CosmicCuddle
 - **On receipt**, `ItemAddedQuestCheck` raises it only while the quest is `INCOMPLETE`, capped at the required count. The quest becomes complete when every objective is met.
 - **On removal**, `ItemRemovedQuestCheck` re-reads a met counter from inventory, reduces it, and marks the quest `INCOMPLETE` again.
 
-Four tests cover the cases the first version could not express:
+**Login is the case where the two differ.** `_LoadQuestStatus` loads the counter as stored, with no re-adjust to current inventory. So after a login, the counter, not the bags, decides eligibility.
+
+Five tests cover the cases the first version could not express:
 - a multi-objective quest stays `INCOMPLETE` while one item's objective is already met (that item is no longer eligible);
 - destroying the item reopens eligibility;
 - items held before accepting count at accept;
+- after login, a loaded counter differs from the bags and still decides eligibility;
 - the same-pull surplus gap also happens while a multi-objective quest is still incomplete.
 
 **Still simplified:**
@@ -44,7 +47,7 @@ Four tests cover the cases the first version could not express:
 - turn-in is modelled as leaving the quest log;
 - `CountRollVote` provenance (map, packet and session state) beyond the vote itself.
 
-## Results (22 tests: 8 GAP, 14 REF)
+## Results (23 tests: 8 GAP, 15 REF)
 
 GAP means a stock path that gives an item to a player the native rule would refuse at award time, or strands a copy. REF means legitimate stock behaviour that any later change must keep.
 
