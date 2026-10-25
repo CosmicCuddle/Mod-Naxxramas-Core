@@ -74,3 +74,17 @@
 6. Update #48 and #28 and include a concise progress table in response.
 
 **Do not turn any unchecked owner/runtime item to checked based solely on Python tests or a Worldserver link.**
+
+
+## F. Part 24 live checkpoint — 25 Oct 2026 (additive, supersedes old status snapshots)
+
+- [x] CS01 read both Part24 transition documents, refreshed exact PR heads and current Actions. No merge/install/owner-server changes.
+- [x] **F15 #149 NEW ISOLATED DRAFT** current `ac8558af26bf980baf68c9fafe59b534df955c3a`, stacked on untouched #147 `91eb8fc`, adds narrowly locked/private same-inode S2/S3 abandoned-temp recovery and 8 synthetic regression test methods. This is an **authored fix awaiting proof**, not a passed or operational system.
+- [ ] **F15 #149** inspect latest exact-head hosted workflow and obtain Claude independent CONDITIONAL/PASS verdict after hostile-alias, crashed-writer and replay review. F15 real Linux crash + error reporter, authenticated process/death/ready, least-privilege root broker, GDB/wrapper, backup/rollout S4–S7 all remain unfinished and owner-gated.
+- [x] **F12 #125** `2294a147` documentation-only over code `e6d6b09`: CS01 [source review](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/125#issuecomment-6399331923) accepted only the startup-snapshot ConfigMgr change. **No current-head hosted link or physical gameplay PASS**.
+- [x] **F13 #127** `31f312b5` documentation-only over code `b472618`: CS01 [source review](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/127#issuecomment-6399332335) accepted only startup snapshot and no missing-IP map-thread fallback. **No current-head hosted link or exterior-Karazhan gameplay PASS**.
+- [ ] F12/F13 current exact-head pinned Worldserver builds and old physical Scarlet (not LFG) / Atiesh outside Karazhan S5/S6 tests.
+- [ ] **#144 Golemagg** dedicated pinned link still in progress when checked (3 of 4 workflow runs were success); **#145 F14** dedicated link pending (7 success, one in progress, eight pending among 16 run objects) and needs deliberately reconciled newer F13 parent before integration. No owner runtime proof.
+- [x] **CS03 Claude assigned PRIMARY #149 review + four ranked SAFE BACKUPS** in [queue #143](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143#issuecomment-6399369451). Complete a checkpoint and advance unblocked backup instead of idling in an active session. Grok #135 frozen while owner-reported on break.
+- [x] Additive [master #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28#issuecomment-6399370192) and [coordination #48](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6399369826) checkpoints posted. No historical item removed.
+- [ ] **FIRST FIVE-FIX PLAYABLE GATE STILL UNMET:** P0/B10 exactly 120 seconds, human A02 real pet ON/OFF, A04 real human-human quest-loot stock correction, F12 original physical Scarlet portals, F13 Atiesh exterior Karazhan, all in ONE pinned/restorable independently verified and explicitly owner-approved build. A02/A04 functional blockers remain. No owner server changes made.
