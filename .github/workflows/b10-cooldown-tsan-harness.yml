@@ -1,0 +1,97 @@
+name: "B10 #120 production cooldown TSAN harness (test-only)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'scripts/extract_b10_cooldown_harness.py'
+      - 'tests/b10_cooldown_tsan_driver.cpp'
+      - 'tests/test_b10_cooldown_harness.py'
+      - 'docs/B10-COOLDOWN-TSAN-HARNESS.md'
+      - '.github/workflows/b10-cooldown-tsan-harness.yml'
+      - 'src/Systems/BotRaidConsumables.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-b10-cooldown-tsan-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  REVIEWED_120: 599d1cbb211e6f108a2a6ff9fec78242ffe7a37c
+
+jobs:
+  production-text-tsan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Test-only child of exact #120; runtime untouched
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$REVIEWED_120" HEAD
+          git diff --quiet "$REVIEWED_120" HEAD -- src conf
+          allowed='scripts/extract_b10_cooldown_harness.py
+          tests/b10_cooldown_tsan_driver.cpp
+          tests/test_b10_cooldown_harness.py
+          docs/B10-COOLDOWN-TSAN-HARNESS.md
+          .github/workflows/b10-cooldown-tsan-harness.yml'
+          git diff --name-only "$REVIEWED_120" HEAD | while read -r path; do
+            printf '%s\n' "$allowed" | sed 's/^ *//' | grep -Fxq "$path" \
+              || { echo "unexpected changed path: $path"; exit 1; }
+          done
+          echo "Only the five test-only paths differ from #120 $REVIEWED_120."
+      - name: Harness contract (digest, verbatim text, mutation refusal)
+        run: |
+          set -euo pipefail
+          python3 -I -B tests/test_b10_cooldown_harness.py -v 2>&1 | tee /tmp/contract.txt
+          grep -qx "Ran 6 tests in [0-9.]*s" /tmp/contract.txt
+          grep -qx "OK" /tmp/contract.txt
+      - name: Extract production text
+        run: |
+          set -euo pipefail
+          python3 -I -B scripts/extract_b10_cooldown_harness.py \
+            src/Systems/BotRaidConsumables.cpp tests/b10_cooldown_tsan_driver.cpp /tmp/prod.cpp
+          python3 -I -B scripts/extract_b10_cooldown_harness.py \
+            src/Systems/BotRaidConsumables.cpp tests/b10_cooldown_tsan_driver.cpp /tmp/neg.cpp --unlocked
+      - name: Native C++17 and C++20 (semantics + 8-thread run)
+        run: |
+          set -euo pipefail
+          for std in c++17 c++20; do
+            g++ -std=$std -Wall -Wextra -Werror -pedantic -pthread /tmp/prod.cpp -o /tmp/prod_$std
+            /tmp/prod_$std
+          done
+      - name: ThreadSanitizer, production text (must be clean)
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -g -O1 -fsanitize=thread -pthread /tmp/prod.cpp -o /tmp/prod_tsan
+          TSAN_OPTIONS=halt_on_error=1 /tmp/prod_tsan
+      - name: ThreadSanitizer negative control, locks removed (must report a race)
+        run: |
+          set -uo pipefail
+          g++ -std=c++17 -g -O1 -fsanitize=thread -pthread /tmp/neg.cpp -o /tmp/neg_tsan
+          # bash -e is GitHub's default; disable it so the expected failure
+          # is captured and inspected instead of aborting the step.
+          set +e
+          TSAN_OPTIONS=halt_on_error=1 /tmp/neg_tsan > /tmp/neg.txt 2>&1
+          status=$?
+          set -e
+          head -n 40 /tmp/neg.txt || true
+          echo "negative control exit status: $status"
+          test "$status" -ne 0
+          grep -q "WARNING: ThreadSanitizer: data race" /tmp/neg.txt
+          grep -Eq "#[0-9]+ (GetConsumableCooldownRemaining|StartConsumableCooldown|ResetConsumableCooldownForGroup) " /tmp/neg.txt
+          echo "PASS: TSAN flagged a race inside the extracted production functions once the locks were removed."
+      - name: Scope of proof
+        run: |
+          echo 'Proves the locking of #120 ConsumableCooldownUntil under 8 threads, on the production text.'
+          echo 'Does NOT prove group-membership concurrency, Player::CustomData affinity or a running Worldserver.'
+          echo 'No runtime, config, SQL, DBC, Playerbots or host change.'
