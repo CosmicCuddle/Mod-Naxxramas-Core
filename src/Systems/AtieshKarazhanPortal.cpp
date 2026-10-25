@@ -12,6 +12,7 @@
 #include "Config.h"
 #include "GameObject.h"
 #include "Group.h"
+#include "Log.h"
 #include "MapMgr.h"
 #include "ObjectMgr.h"
 #include "Player.h"
@@ -24,11 +25,25 @@ namespace NaxxramasAtieshPortal
 {
     using namespace NaxxramasAtieshPortalPolicy;
 
-    bool Enabled()
+    // Only called from the config hook below, on the world thread.
+    bool ReadEnabled()
     {
         return sConfigMgr->GetOption<bool>(
             "NaxxramasCore.Atiesh.VanillaOutdoorArrival.Enabled", false);
     }
+
+    // Written only by the startup config load, which runs before MapMgr
+    // starts any map worker, and never again. The gossip hook runs on a map
+    // thread, so it reads only this snapshot and never calls ConfigMgr
+    // (same fix as #133 / #144). Until it is written, the feature is OFF.
+    bool StartupEnabled = false;
+
+    bool Enabled() { return StartupEnabled; }
+
+    // NAXXRAMAS_IP_ERA_HAS_IP_HEADER comes from IndividualProgressionEra.h.
+    // Without IP's exported header the era helper's fallback would read
+    // ConfigMgr on this map thread, so the portal stays stock instead.
+    constexpr bool IP_HEADER_AVAILABLE = NAXXRAMAS_IP_ERA_HAS_IP_HEADER != 0;
 
     Facts Gather(Player* player, GameObject* go, AreaTriggerTeleport const*& row)
     {
@@ -50,7 +65,10 @@ namespace NaxxramasAtieshPortal
 
         f.Enabled = Enabled();
         f.GameMaster = player->IsGameMaster();
-        f.VanillaStage = NaxxramasIpEra::IsVanillaProgression(player);
+        // Only ask IP when the feature is on and its header is available;
+        // otherwise VanillaStage stays false and Decide keeps the stock path.
+        f.VanillaStage = f.Enabled && IP_HEADER_AVAILABLE &&
+            NaxxramasIpEra::IsVanillaProgression(player);
 
         f.PartyOnly = info->spellcaster.partyOnly != 0;
         ObjectGuid const owner = go->GetOwnerGUID();
@@ -76,6 +94,36 @@ namespace NaxxramasAtieshPortal
                 "The portal flickers but cannot open outside Karazhan.");
     }
 }
+
+// Takes the settings snapshot on the world thread: at startup before any map
+// worker exists, and for ".reload config" while no map worker runs. A reload
+// keeps the startup value (restart-only) and warns if it changed.
+class NaxxramasAtieshPortalConfig : public WorldScript
+{
+public:
+    NaxxramasAtieshPortalConfig()
+        : WorldScript("NaxxramasAtieshPortalConfig", { WORLDHOOK_ON_AFTER_CONFIG_LOAD }) { }
+
+    void OnAfterConfigLoad(bool reload) override
+    {
+        using namespace NaxxramasAtieshPortal;
+        bool const loaded = ReadEnabled();
+        if (!reload)
+        {
+            StartupEnabled = loaded;
+            if (loaded && !IP_HEADER_AVAILABLE)
+                LOG_WARN("module",
+                    "AtieshPortal: VanillaOutdoorArrival.Enabled = 1, but Individual Progression's "
+                    "header is not available to this module; the portal stays stock.");
+            return;
+        }
+
+        if (loaded != StartupEnabled)
+            LOG_WARN("module",
+                "AtieshPortal: settings changed by .reload config are ignored until "
+                "Worldserver restarts; still VanillaOutdoorArrival.Enabled={}.", StartupEnabled);
+    }
+};
 
 class NaxxramasAtieshPortalScript : public AllGameObjectScript
 {
@@ -122,5 +170,6 @@ public:
 
 void AddAtieshKarazhanPortalScripts()
 {
+    new NaxxramasAtieshPortalConfig();
     new NaxxramasAtieshPortalScript();
 }

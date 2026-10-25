@@ -83,6 +83,36 @@ class Hook(unittest.TestCase):
         self.assertNotRegex(code, r"-1111\d|2001\.6|\b532\b")
 
 
+class StartupOnlyConfig(unittest.TestCase):
+    """Same fix as #133 / #144: no ConfigMgr read from the gossip hook."""
+
+    def test_config_manager_only_in_reader(self):
+        self.assertEqual(CPP.count("sConfigMgr->"), 1)
+        self.assertIn("sConfigMgr->", function_body(CPP, "bool ReadEnabled()"))
+        self.assertEqual(CPP.count("ReadEnabled()"), 2)  # definition + the hook
+
+    def test_snapshot_written_once_at_startup(self):
+        hook = function_body(CPP, "void OnAfterConfigLoad(bool reload) override")
+        self.assertIn("bool const loaded = ReadEnabled();", hook)
+        self.assertIn("if (!reload)", hook)
+        # One declaration (default OFF) and one write, in the startup branch.
+        self.assertEqual(CPP.count("bool StartupEnabled = false;"), 1)
+        self.assertEqual(len(re.findall(r"StartupEnabled\s*=[^=]", CPP)), 2)
+        self.assertEqual(CPP.count("StartupEnabled = loaded;"), 1)
+        self.assertIn('WorldScript("NaxxramasAtieshPortalConfig", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })', CPP)
+        self.assertNotIn("sConfigMgr", function_body(CPP, "bool Enabled()"))
+
+    def test_era_helper_only_with_feature_on_and_ip_header(self):
+        body = function_body(CPP, "Facts Gather(Player* player, GameObject* go, AreaTriggerTeleport const*& row)")
+        self.assertIn("f.VanillaStage = f.Enabled && IP_HEADER_AVAILABLE &&", body)
+        self.assertIn("constexpr bool IP_HEADER_AVAILABLE = NAXXRAMAS_IP_ERA_HAS_IP_HEADER != 0;", CPP)
+
+    def test_both_scripts_registered_once(self):
+        add = function_body(CPP, "void AddAtieshKarazhanPortalScripts()")
+        self.assertEqual(add.count("new NaxxramasAtieshPortalConfig();"), 1)
+        self.assertEqual(add.count("new NaxxramasAtieshPortalScript();"), 1)
+
+
 class Gathering(unittest.TestCase):
     BODY = function_body(CPP, "Facts Gather(Player* player, GameObject* go, AreaTriggerTeleport const*& row)")
 
