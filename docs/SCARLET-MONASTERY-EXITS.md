@@ -75,6 +75,10 @@ and a 90° facing. That is not a proved defect, so the module leaves the
 entrances alone. The owner's live rows and in-game geometry are **NOT
 VERIFIED**.
 
+## Settings are read once at startup
+
+The three `NaxxramasCore.ScarletExits.*` options are read once, by a `WorldScript::OnAfterConfigLoad(false)` hook at server start, before any map thread runs. `CMSG_AREATRIGGER` is handled on map threads, and they only read that snapshot; they never call `ConfigMgr` (the same fix as #133 / #144). **`.reload config` does not change them**: it logs one `ScarletExits: settings changed by .reload config are ignored until Worldserver restarts` warning. Change them by editing the conf and restarting.
+
 ## Known differences and limits
 
 - **Dungeon Finder exits** (only with the optional
