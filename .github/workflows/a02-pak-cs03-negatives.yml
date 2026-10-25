@@ -1,0 +1,47 @@
+name: "A02 PAK CS03 negative witnesses (research only)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tests/research/test_cs03_a02_pak_negatives.py'
+      - 'docs/research/A02-PAK-CS03-NEGATIVES.md'
+      - '.github/workflows/a02-pak-cs03-negatives.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-a02-pak-cs03-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  negatives-against-frozen-135:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      FROZEN_135: 50f0500eb7b1f682d34cf6fcd0542556cf8363a1
+      MODEL_PATH: tests/research/test_a02_pak_d1_protocol_v2.py
+      MODEL_BLOB: 544040fe7c1d8d30c0a9dc17fa8c607f4a0c2b25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Read Grok's frozen #135 model (read-only, not modified)
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$FROZEN_135"
+          test "$(git rev-parse "$FROZEN_135:$MODEL_PATH")" = "$MODEL_BLOB"
+          git show "$FROZEN_135:$MODEL_PATH" > /tmp/pak_model_50f0500.py
+      - name: Grok's own model suite still passes unchanged
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/frozen135/tests/research /tmp/frozen135/docs/research /tmp/frozen135/src/Systems /tmp/frozen135/conf
+          git archive "$FROZEN_135" tests/research docs/research src/Systems conf | tar -x -C /tmp/frozen135
+          (cd /tmp/frozen135 && python3 -I tests/research/test_a02_pak_d1_protocol_v2.py)
+      - name: CS03 negative witnesses (8 GAP/REF tests)
+        run: PAK_MODEL=/tmp/pak_model_50f0500.py python3 -I tests/research/test_cs03_a02_pak_negatives.py -v
