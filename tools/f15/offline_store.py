@@ -75,8 +75,9 @@ class Incident:
             raise ValueError("unverified event flags")
         if self.exit_code is not None and (type(self.exit_code) is not int or self.exit_code < 0 or self.exit_code > 255):
             raise ValueError("invalid exit code")
-        if self.signal is not None and self.signal not in ("SIGSEGV", "SIGABRT", "SIGKILL", "SIGBUS", "SIGILL", "SIGFPE"):
-            raise ValueError("unsupported signal classification")
+        if self.signal is not None and (not isinstance(self.signal, str) or
+                not re.fullmatch(r"SIG[A-Z0-9]{1,10}", self.signal)):
+            raise ValueError("invalid signal evidence")
         if self.signal is not None and self.exit_code is not None:
             raise ValueError("actual process death needs one independent termination kind")
         return self
@@ -89,7 +90,7 @@ class Incident:
             return False
         if self.signal:
             return True
-        if self.exit_code in (0, 2):
+        if self.exit_code == 0 or (self.service == "worldserver" and self.exit_code == 2):
             return False
         # A corroborated unexpected death without a usable status can
         # produce a minimal incident; do not guess signal/root cause.
@@ -150,6 +151,7 @@ class IncidentStore:
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         fd = os.open("/", flags)
         try:
+            self._validate_ancestor(os.fstat(fd))
             for part in self.root.parts[1:]:
                 if part in ("", ".", ".."):
                     raise ValueError("untrusted path component")
@@ -159,15 +161,32 @@ class IncidentStore:
                     if exc.errno in (errno.ELOOP, errno.ENOTDIR):
                         raise PermissionError("unsafe ancestor symlink/non-directory") from exc
                     raise
+                try:
+                    st = os.fstat(nextfd)
+                    if part != self.root.parts[-1]:
+                        self._validate_ancestor(st)
+                except BaseException:
+                    os.close(nextfd)
+                    raise
                 os.close(fd)
                 fd = nextfd
             st = os.fstat(fd)
-            if not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o077:
-                raise PermissionError("existing private non-symlink leaf required")
+            if (not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o077 or
+                    st.st_uid != os.geteuid()):
+                raise PermissionError("existing private directory must be owned by writer")
             self._fd = fd
         except BaseException:
             os.close(fd)
             raise
+
+    @staticmethod
+    def _validate_ancestor(st):
+        if not stat.S_ISDIR(st.st_mode):
+            raise PermissionError("non-directory ancestor")
+        # /tmp-style root-owned sticky directories permit safely created
+        # private children. Other group/world-writable parents are rejected.
+        if st.st_mode & 0o022 and not (st.st_mode & stat.S_ISVTX and st.st_uid == 0):
+            raise PermissionError("writable untrusted ancestor")
 
     def close(self):
         fd, self._fd = self._fd, None
@@ -281,30 +300,41 @@ class IncidentStore:
 
     def _reports(self):
         items = {}
+        invalid = []
         for name in os.listdir(self._fd):
             if not REPORT.fullmatch(name):
                 continue
             info = self._read_valid(name)
             if info:
                 items[info["incident_id"]] = (name, info)
-        return sorted(items.values(), key=lambda pair:
-                      (pair[1]["end_utc"], pair[1]["incident_id"]))
+            else:
+                invalid.append(name)
+        valid = sorted(items.values(), key=lambda pair:
+                       (pair[1]["end_utc"], pair[1]["incident_id"]))
+        return valid, sorted(invalid)
 
     def rebuild(self) -> tuple[int, int]:
         with self._locked():
             return self._rebuild_locked()
 
     def _rebuild_locked(self):
-        reports = self._reports()
+        reports, invalid = self._reports()
         w = sum(info["service"] == "worldserver" for _, info in reports)
         a = sum(info["service"] == "authserver" for _, info in reports)
         lines = ["COSMIC CORE - CRASH HISTORY", "Schema: " + SCHEMA,
                  f"Worldserver: {w}", f"Authserver: {a}",
-                 f"Total: {len(reports)}", ""]
+                 f"Total: {len(reports)}",
+                 f"Unverified or modified report files: {len(invalid)}", ""]
         for filename, info in reports:
             lines.append(f"{info['end_utc']} | {info['service']} | "
                          f"{info['incident_id']} | {filename} | "
                          f"{info['termination']} | restart: Not verified")
+        if invalid:
+            lines.append("")
+            lines.append("WARNING: some named reports are invalid or modified; verified totals exclude them.")
+            lines.append("Do not edit immutable reports; future operator notes belong in separately reviewed sidecars.")
+            for filename in invalid:
+                lines.append("Unverified report: " + filename)
         temp = self._temp(("\n".join(lines) + "\n").encode("utf-8"))
         try:
             # History is derived; atomic REPLACE is appropriate here only.
