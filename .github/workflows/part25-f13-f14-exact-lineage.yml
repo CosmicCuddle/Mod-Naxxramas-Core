@@ -1,0 +1,41 @@
+name: "Part25 F13 + F14 exact-source ancestry (research)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'src/Systems/AtieshKarazhanPortal.cpp'
+      - 'src/Systems/WhoListing.cpp'
+      - 'src/Systems/WhoListingPolicy.h'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/test_f13_f14_exact_lineage.py'
+      - 'docs/research/PART25-F13-F14-EXACT-HEAD-RECONCILIATION.md'
+      - '.github/workflows/part25-f13-f14-exact-lineage.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-f13-f14-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Require exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Assert exact original F14 files and latest verified F13 core feature files
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 -I -B tests/test_f13_f14_exact_lineage.py -v 2>&1 | tee /tmp/naxx_f13_f14_lineage.txt
+          grep -Eq '^Ran 4 tests in [0-9.]+s$' /tmp/naxx_f13_f14_lineage.txt
+          grep -qx 'OK' /tmp/naxx_f13_f14_lineage.txt
+          ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/naxx_f13_f14_lineage.txt
+      - name: Explicit scope
+        run: |
+          echo "F13+F14 isolated source ancestry only."
+          echo "No real Worldserver launched or installed; not combined five-fix acceptance."
