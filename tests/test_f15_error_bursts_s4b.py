@@ -204,6 +204,53 @@ class BurstModelTests(unittest.TestCase):
                   for i in range(1, 4)]
         self.assertIn("alert", sudden)
 
+    def test_steady_near_threshold_errors_have_strict_alert_cooldown(self):
+        # Claude's second review identified 238 floods in 240 events at
+        # 21/25/30-second intervals with 3 events per 60 seconds.
+        for interval in (21_000, 25_000, 30_000):
+            with self.subTest(interval=interval):
+                tracker = OfflineBurstTracker()
+                alert_times = []
+                for seq in range(1, 241):
+                    at = (seq - 1) * interval
+                    d = tracker.observe(evidence(seq, at))
+                    if d.status == "alert":
+                        alert_times.append(at)
+                self.assertGreater(len(alert_times), 1)
+                self.assertTrue(all(y - x >= 60_000
+                                    for x, y in zip(alert_times, alert_times[1:])))
+                # A long steady error trickle must never become an alert
+                # storm, even though sliding-window re-arm toggles often.
+                self.assertLess(len(alert_times), 120)
+                self.assertEqual(tracker.counts(), (1, 1))
+
+    def test_rearm_without_cooldown_does_not_repeat_alert(self):
+        tracker = OfflineBurstTracker()
+        times = (0, 21_000, 42_000, 63_000, 84_000, 105_000)
+        statuses = [tracker.observe(evidence(i + 1, time)).status
+                    for i, time in enumerate(times)]
+        self.assertEqual(statuses,
+                         ["ignored", "ignored", "alert",
+                          "ignored", "ignored", "alert"])
+
+    def test_second_alert_allowed_after_true_burst_recovery(self):
+        tracker = OfflineBurstTracker()
+        timings = (0, 1000, 2000, 100_000, 101_000, 102_000)
+        statuses = [tracker.observe(evidence(i + 1, time)).status
+                    for i, time in enumerate(timings)]
+        self.assertEqual(statuses,
+                         ["ignored", "ignored", "alert",
+                          "ignored", "ignored", "alert"])
+
+    def test_cooldown_is_per_category_not_global(self):
+        tracker = OfflineBurstTracker()
+        outputs = []
+        for i in range(1, 4):
+            outputs.append(tracker.observe(evidence(i, i * 100, code="A")).status)
+        for i in range(4, 7):
+            outputs.append(tracker.observe(evidence(i, i * 100, code="B")).status)
+        self.assertEqual(outputs, ["ignored", "ignored", "alert"] * 2)
+
     def test_authenticated_fixture_exit_reclaims_memory_over_200_restarts(self):
         tracker = OfflineBurstTracker(max_streams=3, max_groups=3)
         for i in range(200):
