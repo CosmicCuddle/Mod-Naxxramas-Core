@@ -252,6 +252,96 @@ class StoreTests(TestCase):
         self.assertIn("Total: 0", self.history())
         self.assertEqual(len(self.reports()), 1)
 
+    def test_unusual_real_fatal_signals_are_preserved(self):
+        # A real death cannot disappear because a signal was not named in
+        # the first six-signal prototype allowlist.
+        for number, name in enumerate(("SIGTERM", "SIGXFSZ", "SIGXCPU",
+                                       "SIGSYS", "SIGTRAP", "SIGQUIT",
+                                       "SIGPIPE", "SIGHUP")):
+            item = event(invocation="signal-" + name, pid=600 + number,
+                         signal=name, exit_code=None)
+            self.assertTrue(self.store.publish(item))
+        self.assertEqual(len(self.reports()), 8)
+        self.assertIn("Total: 8", self.history())
+
+    def test_signal_evidence_still_rejects_unsafe_text(self):
+        for bad in ("SIGTERM\nsecret", "SIG" + "Z"*100, "term", "../SIG"):
+            with self.subTest(value=bad), self.assertRaises(ValueError):
+                self.store.publish(event(signal=bad, exit_code=None))
+
+    def test_authserver_code_two_is_not_worldserver_restart(self):
+        self.assertTrue(self.store.publish(event(service="authserver",
+                                                  invocation="auth-exit2",
+                                                  exit_code=2)))
+        self.assertIn("Authserver: 1", self.history())
+        self.assertFalse(self.store.publish(event(invocation="world-exit2",
+                                                  exit_code=2)))
+        self.assertEqual(len(self.reports()), 1)
+
+    def test_verified_planned_SIGTERM_is_not_a_crash(self):
+        self.assertFalse(self.store.publish(event(signal="SIGTERM",
+                                                  exit_code=None, planned_stop=True)))
+        self.assertFalse(self.store.publish(event(signal="SIGHUP",
+                                                  exit_code=None, planned_stop=True)))
+        self.assertEqual(self.reports(), [])
+
+    def test_corrupted_report_is_visible_as_unverified_warning(self):
+        self.store.publish(event())
+        report = self.reports()[0]
+        report.write_bytes(report.read_bytes() + b"Owner note\n")
+        self.assertEqual(self.store.rebuild(), (0, 0))
+        history = self.history()
+        self.assertIn("Total: 0", history)
+        self.assertIn("Unverified or modified report files: 1", history)
+        self.assertIn("Unverified report: " + report.name, history)
+        self.assertIn("Do not edit immutable reports", history)
+        with self.assertRaises(FileExistsError):
+            self.store.publish(event())
+        self.assertIn("Unverified or modified report files: 1", self.history())
+
+    def test_no_unverified_warning_when_all_reports_valid(self):
+        self.store.publish(event())
+        self.assertIn("Unverified or modified report files: 0", self.history())
+        self.assertNotIn("WARNING: some named reports", self.history())
+
+    def test_writable_ancestor_without_root_sticky_policy_is_rejected(self):
+        parent = Path(self.temp.name)
+        original = parent.stat().st_mode & 0o7777
+        parent.chmod(0o777)
+        try:
+            with self.assertRaises(PermissionError):
+                IncidentStore(self.root)
+        finally:
+            parent.chmod(original)
+
+    def test_leaf_owned_by_other_uid_cannot_be_opened(self):
+        import stat
+        from unittest.mock import patch
+        real_fstat = os.fstat
+        target = self.root.stat()
+        def altered(fd):
+            old = real_fstat(fd)
+            if old.st_ino == target.st_ino and old.st_dev == target.st_dev:
+                vals = list(old)
+                vals[4] = old.st_uid + 1000
+                return os.stat_result(vals)
+            return old
+        with patch("offline_store.os.fstat", side_effect=altered):
+            with self.assertRaises(PermissionError):
+                IncidentStore(self.root)
+
+    def test_same_name_as_parent_does_not_skip_security_check(self):
+        duplicate = Path(self.temp.name) / "same"
+        duplicate.mkdir(mode=0o700)
+        leaf = duplicate / "same"
+        leaf.mkdir(mode=0o700)
+        duplicate.chmod(0o777)
+        try:
+            with self.assertRaises(PermissionError):
+                IncidentStore(leaf)
+        finally:
+            duplicate.chmod(0o700)
+
     def test_actual_parallel_world_and_auth_writers(self):
         ctx = multiprocessing.get_context("fork")
         queue = ctx.Queue()
