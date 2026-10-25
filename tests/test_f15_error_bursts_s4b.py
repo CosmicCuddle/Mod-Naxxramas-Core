@@ -151,6 +151,12 @@ class BurstModelTests(unittest.TestCase):
         self.assertEqual(self.push(1, 100, stream="/var/log").status, "rejected")
         self.assertEqual(self.push(1, 100, service="custom-app").status, "rejected")
 
+    def test_unhashable_malformed_evidence_rejected_safely(self):
+        self.assertEqual(self.push(1, 100, service=[]).status, "rejected")
+        self.assertEqual(self.push(1, 100, stream=[]).status, "rejected")
+        self.assertEqual(self.push(1, 100, level=[]).status, "rejected")
+        self.assertEqual(self.model.counts(), (0, 0))
+
     def test_bad_sequence_timestamp_and_boolean_rejected(self):
         self.assertEqual(self.push(-1, 0).status, "rejected")
         self.assertEqual(self.push(1, -1).status, "rejected")
