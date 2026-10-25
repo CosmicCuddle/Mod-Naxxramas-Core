@@ -31,17 +31,17 @@ jobs:
           persist-credentials: false
       - name: Confirm exact head
         run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
-      - name: Read Grok's frozen #135 model (read-only, not modified)
+      - name: Unpack Grok's frozen #135 files (read-only, not modified)
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "$FROZEN_135"
           test "$(git rev-parse "$FROZEN_135:$MODEL_PATH")" = "$MODEL_BLOB"
-          git show "$FROZEN_135:$MODEL_PATH" > /tmp/pak_model_50f0500.py
-      - name: Grok's own model suite still passes unchanged
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/frozen135/tests/research /tmp/frozen135/docs/research /tmp/frozen135/src/Systems /tmp/frozen135/conf
+          # The model resolves ROOT = parents[2] of its own path, so it must
+          # sit at tests/research/ inside a copy of the frozen tree.
+          mkdir -p /tmp/frozen135
           git archive "$FROZEN_135" tests/research docs/research src/Systems conf | tar -x -C /tmp/frozen135
-          (cd /tmp/frozen135 && python3 -I tests/research/test_a02_pak_d1_protocol_v2.py)
+          test "$(git hash-object "/tmp/frozen135/$MODEL_PATH")" = "$MODEL_BLOB"
+      - name: Grok's own model suite still passes unchanged
+        run: (cd /tmp/frozen135 && python3 -I "$MODEL_PATH")
       - name: CS03 negative witnesses (8 GAP/REF tests)
-        run: PAK_MODEL=/tmp/pak_model_50f0500.py python3 -I tests/research/test_cs03_a02_pak_negatives.py -v
+        run: PAK_MODEL="/tmp/frozen135/$MODEL_PATH" python3 -I tests/research/test_cs03_a02_pak_negatives.py -v
