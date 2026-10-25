@@ -1,0 +1,55 @@
+name: F15 S4d offline restart readiness (NO HOST)
+
+on:
+  pull_request:
+    paths:
+      - "tools/f15/offline_restart_readiness.py"
+      - "tests/test_f15_restart_readiness_s4d.py"
+      - "docs/research/F15-S4D-OFFLINE-RESTART-READINESS.md"
+      - ".github/workflows/f15-restart-readiness-s4d.yml"
+      - "tools/f15/offline_store.py"
+      - "tools/f15/offline_restart.py"
+      - "tools/f15/offline_exit_evidence.py"
+      - "tools/f15/offline_error_bursts.py"
+      - "tools/f15/offline_error_reports.py"
+      - "tests/test_f15_offline_store_s2.py"
+      - "tests/test_f15_restart_sidecar_s3.py"
+      - "tests/test_f15_exit_evidence_s4.py"
+      - "tests/test_f15_error_bursts_s4b.py"
+      - "tests/test_f15_error_reports_s4c.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Require exact PR head
+        if: github.event_name == 'pull_request'
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Compile offline restart-readiness files
+        run: python3 -m py_compile tools/f15/offline_restart_readiness.py tests/test_f15_restart_readiness_s4d.py
+      - name: Verify replacement identity and independent readiness policy
+        run: python3 -m unittest -v tests.test_f15_restart_readiness_s4d
+      - name: Preserve S4c immutable offline errors
+        run: python3 -m unittest -v tests.test_f15_error_reports_s4c
+      - name: Preserve S4b warning burst regression
+        run: python3 -m unittest -v tests.test_f15_error_bursts_s4b
+      - name: Preserve S4 actual-child source admission
+        run: python3 -m unittest -v tests.test_f15_exit_evidence_s4
+      - name: Preserve S3 restart outcomes
+        run: python3 -m unittest -v tests.test_f15_restart_sidecar_s3
+      - name: Preserve S2 immutable crash incidents
+        run: python3 -m unittest -v tests.test_f15_offline_store_s2
+      - name: Assert no live launcher or process observer
+        run: |
+          test ! -e tools/f15/live_supervisor.py
+          echo "PASS: offline readiness fixtures only; NO owner host or server process"
