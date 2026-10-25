@@ -33,13 +33,13 @@ class LogEvidence:
     verified_stream: bool = False
 
     def checked(self) -> "LogEvidence":
-        if self.service not in SERVICES:
+        if not isinstance(self.service, str) or self.service not in SERVICES:
             raise ValueError("service must be worldserver/authserver")
         if not isinstance(self.instance, str) or not SAFE.fullmatch(self.instance):
             raise ValueError("unsafe process identity")
-        if self.stream not in STREAMS:
+        if not isinstance(self.stream, str) or self.stream not in STREAMS:
             raise ValueError("unrecognized stream")
-        if self.level not in LEVELS:
+        if not isinstance(self.level, str) or self.level not in LEVELS:
             raise ValueError("not a warning or error")
         if not isinstance(self.code, str) or not SAFE.fullmatch(self.code):
             raise ValueError("unsafe bounded error category")
