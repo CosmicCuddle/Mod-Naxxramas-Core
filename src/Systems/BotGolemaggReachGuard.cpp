@@ -253,12 +253,24 @@ namespace
 
             // The single exact-name gate runs before the Playerbots manager
             // lookup, which reads an unlocked shared map. With an empty or
-            // non-matching AllowedBotName the guard performs no lookup at all.
-            // For the one named bot this adds one lookup per tick, the same
-            // read Playerbots' own OnPlayerAfterUpdate makes for every player
-            // on this thread (Playerbots.cpp, d750b4b).
+            // non-matching AllowedBotName the guard performs no lookup and
+            // creates no per-Player record.
+            bool const nameAllowed = IsGuardedBotName(config, player->GetName());
+
+            // Never erased: keeping the record for the Player's lifetime is
+            // what prevents a second listener on the same engine.
+            GuardRegistrationData* data = nameAllowed
+                ? player->CustomData.GetDefault<GuardRegistrationData>(GUARD_RECORD_KEY)
+                : nullptr;
+
+            // While this bot's listener is alive its AI still exists, so the
+            // named bot also skips the lookup. It is looked up only until the
+            // listener is registered, and again after Playerbots deletes it.
+            if (data && HasLiveRegistration(data->record))
+                return;
+
             PlayerbotAI* ai = LookupAfterNameGate(
-                IsGuardedBotName(config, player->GetName()),
+                nameAllowed,
                 [player] { return PlayerbotsMgr::instance().GetPlayerbotAI(player); });
             if (!ai || !ai->IsAltBot() ||
                 PlayerbotAI::IsTank(player) || !PlayerbotAI::IsDps(player) ||
@@ -280,10 +292,6 @@ namespace
                 return;
             }
 
-            // Never erased: keeping the record for the Player's lifetime is
-            // what prevents a second listener on the same engine.
-            GuardRegistrationData* data =
-                player->CustomData.GetDefault<GuardRegistrationData>(GUARD_RECORD_KEY);
             if (!NeedsRegistration(data->record, ai, engine))
                 return;
 

@@ -102,6 +102,22 @@ class GolemaggReachGuardLookupOrder(unittest.TestCase):
         self.assertIn("if (!nameAllowed)", helper)
         self.assertIn("return nullptr;", helper)
 
+    def test_live_registration_skips_lookup(self):
+        # #133 6397882131: no manager lookup while the listener is alive.
+        update = method_body(CODE, "void OnPlayerUpdate(Player* player")
+        gate = update.index("bool const nameAllowed = IsGuardedBotName(config, player->GetName());")
+        record = update.index("CustomData.GetDefault<GuardRegistrationData>(GUARD_RECORD_KEY)")
+        live = update.index("if (data && HasLiveRegistration(data->record))")
+        lookup = update.index("PlayerbotsMgr::instance().GetPlayerbotAI(player)")
+        self.assertLess(gate, record)
+        self.assertLess(record, live)
+        self.assertLess(live, lookup)
+        self.assertIn("nameAllowed\n                ? player->CustomData", update)
+        self.assertEqual(update.count("CustomData.GetDefault<"), 1)
+        helper = method_body(POLICY_CODE, "bool HasLiveRegistration(")
+        self.assertIn("record.alive->load()", helper)
+        self.assertIn("!record.engines.empty()", helper)
+
     def test_cheap_checks_still_first(self):
         update = method_body(CODE, "void OnPlayerUpdate(Player* player")
         first = update.index("if (!config.enabled || !player || player->GetMapId() != MOLTEN_CORE_MAP")

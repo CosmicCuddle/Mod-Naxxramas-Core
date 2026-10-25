@@ -191,6 +191,42 @@ namespace
         assert(lookups == 1);
     }
 
+    // #133 6397882131: the named bot looks the AI up only until its listener
+    // is registered, and again after Playerbots deletes that listener.
+    void TestLiveRegistrationSkipsLookup()
+    {
+        RegistrationRecord<FakeAI, FakeEngine> record;
+        FakeAI ai{ 1 };
+        FakeEngine combat{ 10 };
+        int lookups = 0;
+        auto tick = [&]()
+        {
+            if (HasLiveRegistration(record))
+                return;
+            ++lookups;
+            NeedsRegistration(record, &ai, &combat);
+        };
+
+        assert(!HasLiveRegistration(record));
+        for (int i = 0; i < 1000; ++i)
+            tick();
+        assert(lookups == 1);
+        assert(HasLiveRegistration(record));
+
+        // Listener deleted with its engine and AI: the next tick looks up again.
+        record.alive->store(false);
+        assert(!HasLiveRegistration(record));
+        for (int i = 0; i < 1000; ++i)
+            tick();
+        assert(lookups == 2);
+
+        // A record with a token but no engine yet is not "live".
+        RegistrationRecord<FakeAI, FakeEngine> partial;
+        partial.ai = &ai;
+        partial.alive = std::make_shared<std::atomic<bool>>(true);
+        assert(!HasLiveRegistration(partial));
+    }
+
     void TestStartupOnlyConfig()
     {
         struct Cfg { bool enabled; bool debug; char const* name; };
@@ -225,6 +261,7 @@ namespace
 int main()
 {
     TestStartupOnlyConfig();
+    TestLiveRegistrationSkipsLookup();
     TestNoLookupBeforeNameGate();
     TestPolicy();
     TestBotNameGate();

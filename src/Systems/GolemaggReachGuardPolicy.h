@@ -125,6 +125,17 @@ namespace NaxxramasGolemaggReachGuard
         record.engines.push_back(engine);
         return true;
     }
+
+    // True while a listener registered from this record has not been
+    // deleted. Playerbots deletes listeners only together with their engine,
+    // and the engine only together with the AI that owns it, so a live token
+    // means the registered AI still exists. The caller then skips the
+    // Playerbots manager lookup (an unlocked shared map read) entirely.
+    template <typename AI, typename EngineT>
+    bool HasLiveRegistration(RegistrationRecord<AI, EngineT> const& record)
+    {
+        return record.ai && !record.engines.empty() && record.alive && record.alive->load();
+    }
 }
 
 #endif // NAXXRAMAS_CORE_GOLEMAGG_REACH_GUARD_POLICY_H
