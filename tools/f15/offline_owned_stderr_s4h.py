@@ -16,7 +16,7 @@ import time
 
 ALLOWED_MODES = frozenset({
     "normal", "forged_crash", "exit139", "bad_utf8", "oversize",
-    "flood", "split", "info", "empty", "unterminated",
+    "flood", "byte_flood", "split", "info", "empty", "unterminated",
 })
 
 
@@ -39,6 +39,7 @@ class Capture:
     bytes_read: int
     timed_out: bool
     records: tuple[ErrorLine, ...]
+    byte_limit_exceeded: bool = False
     provenance: str = "parent-created-stderr-pipe-from-disposable-python-child"
 
 
@@ -97,14 +98,16 @@ class _BoundedFramer:
 
 
 def capture_disposable(mode: str, *, max_line_bytes: int = 256,
-                       max_records: int = 8, timeout_seconds: float = 3.0) -> Capture:
+                       max_records: int = 8, max_total_bytes: int = 65536,
+                       timeout_seconds: float = 3.0) -> Capture:
     """Start ONLY this module as a Python child; read its parent-created stderr pipe.
 
     A pipe identifies the parent's chosen endpoint, NOT the human source of
     text nor a trusted crash. Descendants could inherit it in other programs.
     """
-    if mode not in ALLOWED_MODES or not (0.5 <= timeout_seconds <= 15.0):
-        raise ValueError("only fixed disposable fixture modes are allowed")
+    if (mode not in ALLOWED_MODES or not (0.5 <= timeout_seconds <= 15.0)
+            or not (4096 <= max_total_bytes <= 1048576)):
+        raise ValueError("only fixed disposable modes and bounded byte quotas are allowed")
     framer = _BoundedFramer(max_line_bytes, max_records)
     script = str(Path(__file__).resolve())
     cmd = [sys.executable, "-I", script, "--fixture", mode]
@@ -114,6 +117,8 @@ def capture_disposable(mode: str, *, max_line_bytes: int = 256,
                              stderr=subprocess.PIPE, close_fds=True)
     assert child.stderr is not None
     bytes_read = 0
+    bytes_framed = 0
+    byte_limit_exceeded = False
     timed_out = False
     eof = False
     deadline = time.monotonic() + timeout_seconds
@@ -134,7 +139,17 @@ def capture_disposable(mode: str, *, max_line_bytes: int = 256,
                 data = os.read(child.stderr.fileno(), 4096)
                 if data:
                     bytes_read += len(data)
-                    framer.feed(data)
+                    remaining = max_total_bytes - bytes_framed
+                    framer.feed(data[:remaining])
+                    bytes_framed += min(len(data), remaining)
+                    if len(data) > remaining:
+                        # Stop processing a hostile endless stderr stream.
+                        # Truncation is explicitly reported; it is NOT a
+                        # health, service-crash or trusted-source verdict.
+                        byte_limit_exceeded = True
+                        if child.poll() is None:
+                            child.kill()  # only this disposable Python child
+                        eof = True
                 else:
                     eof = True
                     break
@@ -148,7 +163,7 @@ def capture_disposable(mode: str, *, max_line_bytes: int = 256,
         child.stderr.close()
     return Capture(child.pid, code, framer.lines_seen, framer.ignored_lines,
                    framer.dropped_records, framer.clipped_lines, bytes_read,
-                   timed_out, tuple(framer.records))
+                   timed_out, tuple(framer.records), byte_limit_exceeded)
 
 
 def _fixture(mode: str) -> None:
@@ -167,6 +182,9 @@ def _fixture(mode: str) -> None:
     elif mode == "flood":
         for i in range(100):
             os.write(2, ("WARN synthetic %03d\n" % i).encode("ascii"))
+    elif mode == "byte_flood":
+        for _ in range(2000):
+            os.write(2, b"ERROR " + b"x" * 1024 + b"\n")
     elif mode == "split":
         os.write(2, b"ERR")
         time.sleep(0.02)
