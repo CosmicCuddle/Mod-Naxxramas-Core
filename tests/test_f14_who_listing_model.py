@@ -352,12 +352,16 @@ class NoteContract(unittest.TestCase):
         for token in ("R1", "R2", "R3", "R4", "R5", "O1", "O2", "O3", "O4", "O5", "O6"):
             self.assertRegex(self.note, r"\*\*%s\b" % token)
 
-    def test_proposed_keys_are_not_in_conf_or_code(self):
+    def test_keys_added_in_s2_with_proposed_defaults(self):
+        # S1 proposed these keys; S2 (CS01 #128 6398544565) adds them with
+        # the same defaults, and only the F14 script reads them.
         self.assertIn("NaxxramasCore.ExpansionRaceVisibility.HideTbcRaces = 0", self.note)
-        self.assertNotIn("ExpansionRaceVisibility", self.conf)
-        for path in list((ROOT / "src").rglob("*.cpp")) + list((ROOT / "src").rglob("*.h")):
-            with self.subTest(path=path.name):
-                self.assertNotIn("ExpansionRaceVisibility", path.read_text(encoding="utf-8"))
+        for line in ("NaxxramasCore.ExpansionRaceVisibility.HideTbcRaces = 0",
+                     "NaxxramasCore.ExpansionRaceVisibility.GMBypass = 1"):
+            self.assertEqual(self.conf.splitlines().count(line), 1, line)
+        readers = [path.name for path in list((ROOT / "src").rglob("*.cpp")) + list((ROOT / "src").rglob("*.h"))
+                   if "\"NaxxramasCore.ExpansionRaceVisibility." in path.read_text(encoding="utf-8")]
+        self.assertEqual(readers, ["WhoListing.cpp"])
 
     def test_no_playerbots_scope_key(self):
         keys = re.findall(r"NaxxramasCore\.ExpansionRaceVisibility\.\w+", self.note)

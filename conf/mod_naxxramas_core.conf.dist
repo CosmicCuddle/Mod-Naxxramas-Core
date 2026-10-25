@@ -407,3 +407,23 @@ NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
 # directly and is not affected.
 # Default: 0 (disabled; stock portal)
 NaxxramasCore.Atiesh.VanillaOutdoorArrival.Enabled = 0
+
+#####################################
+# Blood Elf and Draenei in /who for Vanilla-stage players (F14)
+#####################################
+
+# REVIEW-ONLY prototype. While a character is in the Vanilla stage of
+# Individual Progression, /who leaves Blood Elf and Draenei characters
+# (human players, Random Bots and Altbots alike) out of the list and out of
+# both counts. The searching character's own row is always kept. Later
+# eras, IP disabled and (with GMBypass = 1) GM accounts see the stock list.
+# Only /who: the friends list, guild roster, channels and the world itself
+# are not changed. Settings are read once at startup; .reload config does
+# not change them.
+# Default: 0 (disabled; stock /who)
+NaxxramasCore.ExpansionRaceVisibility.HideTbcRaces = 0
+
+# When HideTbcRaces = 1: accounts above player security see the stock list.
+# Has no effect while HideTbcRaces = 0.
+# Default: 1
+NaxxramasCore.ExpansionRaceVisibility.GMBypass = 1

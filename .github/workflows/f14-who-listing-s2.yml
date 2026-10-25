@@ -1,0 +1,137 @@
+name: "F14 S2 /who listing prototype (default OFF)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/WhoListing.cpp'
+      - 'src/Systems/WhoListingPolicy.h'
+      - 'src/Systems/IndividualProgressionEra.h'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/who_listing_policy.cpp'
+      - 'tests/test_f14_who_listing_s2.py'
+      - 'tests/test_f14_who_listing_model.py'
+      - 'scripts/check_f14_who_handler_fingerprint.py'
+      - 'docs/F14-WHO-LISTING-S2.md'
+      - '.github/workflows/f14-who-listing-s2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-f14-who-s2-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-native-fingerprint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Source contract and S1 model
+        run: |
+          python3 -m unittest tests/test_f14_who_listing_s2.py -v
+          python3 -m unittest tests/test_f14_who_listing_model.py -v
+      - name: Native wire-byte tests (C++17, C++20)
+        run: |
+          set -euo pipefail
+          for std in c++17 c++20; do
+            g++ -std=$std -Wall -Wextra -Werror -pedantic \
+              -Isrc/Systems tests/who_listing_policy.cpp -o /tmp/who_$std
+            /tmp/who_$std
+          done
+      - name: Checkout pinned core (two files only)
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+          sparse-checkout: |
+            src/server/game/Handlers/MiscHandler.cpp
+            src/server/game/Server/Protocol/Opcodes.cpp
+          sparse-checkout-cone-mode: false
+      - name: Confirm pinned core
+        run: test "$(git -C acore rev-parse HEAD)" = "8daffdabe9202c228e45d833c9a1d399597a15cd"
+      - name: /who handler fingerprint (mirror must be re-reviewed on any change)
+        run: python3 scripts/check_f14_who_handler_fingerprint.py acore --print
+
+  pinned-worldserver-link:
+    needs: source-native-fingerprint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout exact Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+      - name: Checkout pinned Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/Mod-Naxxramas-Core
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Enforce exact snapshot SHAs and flag OFF
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          grep -Fqx 'NaxxramasCore.ExpansionRaceVisibility.HideTbcRaces = 0' \
+            acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+      - name: Install compiler dependencies on disposable runner
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure full pinned Worldserver and all modules
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile the new translation unit first
+        run: |
+          ninja -C acore-build \
+            modules/CMakeFiles/modules.dir/mod-naxxramas-core/src/Systems/WhoListing.cpp.o
+      - name: Build and link full Worldserver without launching
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify the script is in the linked executable
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          test -s "$binary" && test -x "$binary"
+          nm -C --defined-only "$binary" > /tmp/naxx_f14_symbols.txt
+          grep -Eq " T AddWhoListingScripts\(\)$" /tmp/naxx_f14_symbols.txt
+          grep -Fq "NaxxramasCoreWhoListing::CanPacketReceive(WorldSession*, WorldPacket const&)" /tmp/naxx_f14_symbols.txt
+          echo "PASS linked: AddWhoListingScripts + CanPacketReceive"
+          echo "S4 build/link only. Not an in-game or client result."
