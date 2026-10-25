@@ -330,7 +330,16 @@ class IncidentStore:
         with self._locked():
             return self._rebuild_locked()
 
+    def _reject_legacy_restart_projection(self):
+        """Never let an S2-only writer silently discard an S3 restart index."""
+        if any(name.startswith("restart-") and name.endswith(".txt")
+               for name in os.listdir(self._fd)):
+            raise RuntimeError(
+                "restart sidecars present: legacy S2 index would erase restart "
+                "statuses; use RestartSidecarStore and rebuild with S3")
+
     def _rebuild_locked(self):
+        self._reject_legacy_restart_projection()
         reports, invalid = self._reports()
         w = sum(info["service"] == "worldserver" for _, info in reports)
         a = sum(info["service"] == "authserver" for _, info in reports)
@@ -365,6 +374,10 @@ class IncidentStore:
         info = incident.metadata()
         name = self._filename(info)
         with self._locked():
+            if type(self)._rebuild_locked is IncidentStore._rebuild_locked:
+                # Reject BEFORE persisting a new crash with the S2-only
+                # writer. S3's overridden index builder retains projection.
+                self._reject_legacy_restart_projection()
             try:
                 os.stat(name, dir_fd=self._fd, follow_symlinks=False)
                 exists = True
