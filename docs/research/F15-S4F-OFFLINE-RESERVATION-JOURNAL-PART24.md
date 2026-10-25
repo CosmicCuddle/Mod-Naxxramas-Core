@@ -1,0 +1,34 @@
+# F15 S4f — synthetic, no-clobber restart-attempt reservation (Part 24)
+
+**DRAFT / OFFLINE TESTS ONLY. NEVER MERGE, INSTALL, RUN AGAINST THE OWNER HOST OR INFER A VALID RESTART.**
+
+This isolated source/test spike supplements the F15 [operational requirements contract #151](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/151). It explores one missing dependency in S4e: a completed-lookup returning `None` is a read-only snapshot, not an exclusive right for a new process to restart a daemon. Two controllers could both see `None` and both attempt replacement without a durable, serialized reservation. **This S4f code does not invoke a controller, waiter, service, restart, GDB or log adapter.**
+
+## Exactly what was developed
+
+- `tools/f15/offline_attempt_journal_s4f.py`: explicitly restricted to an existing, directly under-system-tempdir, `f15-s4f-synthetic-*` directory owned by the current test UID and exactly mode 0700. Directory opened `O_NOFOLLOW` and anchored by FD. A named 0600 one-link lock FD serializes participating processes with `fcntl.flock`.
+- `begin(service, incident, attempt)`: validates two allowed **synthetic** service names, canonical UUID shape and a restricted attempt token; hashes a canonical key to make private filenames. Under the lock it reads strictly 0600 owned one-link regular files with `O_NOFOLLOW`, canonical JSON and a size ceiling. A clean absent record creates `*.pending` exclusively with `O_EXCL`, fsyncs file + directory, then returns `reserved`. A recorded pending attempt returns `pending` on a new process and can **never silently retry**. A complete entry returns `completed:<outcome>`. Corruption, hostile links or an orphan `done` entry fail closed rather than resetting state.
+- `complete_synthetic(..., result)`: **caller-asserted fixture only**; writes terminal `succeeded` / `failed` / `unverified` to another immutable exclusive record after a pending reservation. Identical replay returns `already`, conflicting terminal evidence fails closed. There is **no real readiness authentication** or event producer.
+- `tests/test_f15_offline_attempt_journal_s4f.py`: eleven local tests cover competing five processes (exactly one `reserved`), duplicate pending, reopening after simulated controller interruption, independent services/attempts, exact completion replay vs conflicts, unreserved completion rejection, invalid token/path rejection, symlink/corrupt/public-mode/hardlink fail-closed paths and an orphan terminal file.
+- `.github/workflows/f15-s4f-offline-attempt-reservation.yml`: dedicated draft-only hosted Python suite, no host secrets or services.
+
+**Local evidence:** CS01 ran `python -m unittest discover -s tests -v` on the corresponding isolated two-file spike on Linux using Python 3.13: **11 tests passed, 0 failures** including five `spawn`-started test contenders. This is **local source-model evidence**; GitHub current-head CI and independent CS03/CS02 review are still required. It is **not** a native C++ Worldserver build or actual AzerothCore runtime execution.
+
+## Limitations, future source gates, and refusal conditions
+
+1. **Not integrated with S2/S3/S4b/S4d/S4e.** Hashing service + incident + attempt does not yet bind a trusted deceased child incarnation, producer, boot or host, real process generation, deadlines, callback/lease holder, or verified restarted child.
+2. **No operating-system attestation.** The caller may submit `"succeeded"` arbitrarily; this would be **unacceptable in production**. The full model must take only independently authenticated old-child exit, new-child identity, readiness and trusted clock evidence.
+3. **No recovery authorization from pending.** A leftover `pending` blocks retries forever in this proof-of-safety model. Actual recovery requires a carefully reviewed owner-authorized orphan-attempt reconciliation protocol; it must not just delete pending, expire on an untrusted clock or treat process restart as evidence that no daemon remains alive.
+4. **No hostile same-UID process protection.** `flock` only coordinates cooperating writers; a malicious process with equivalent filesystem rights could race, rename or forge. Production must separate producer/broker privileges, bind source identities and prevent unauthorized filesystem mutation.
+5. **No transactional S3 sidecar composition.** `pending` and `done` are two independent immutable files, not one atomic WAL/sidecar protocol and not a drop-in for the existing S2/S3 report/history writers. Crash windows between metadata, fsyncs, real action and terminal record still need a complete fail-closed state machine.
+6. **Filesystem assumptions are Linux/POSIX.** The demo requires `O_DIRECTORY`, `O_NOFOLLOW`, `flock`, working directory fsync and hardlink controls. It never writes in `/root`; its strict test-prefix check is not a security boundary for general production reuse.
+7. **No automatic crash OR error logging.** Event capture, GDB wrapper ambiguity, bounded error logs, secure root-output broker, service readiness and operator-approved restore/rollout remain outside this source spike. F15 remains HIGH PRIORITY and NOT OPERATIONAL.
+
+## Review gates
+
+- Verify exact GitHub CI head and inspect logs: all 11 tests genuinely executed, no skipped cases. Independently check five-process barrier and file tamper cases, with Linux non-root and fault-injection concerns.
+- Add next adversarial cases on a **separate draft** for power loss before/after pending fsync, multiple lock instances, filesystem rename and interleaved complete, forged writer, unknown-state reconciliation and binding to S2 canonical incident/child lineage. Do not convert this synthetic API into an actual service adapter without an authenticated source contract.
+- Keep the first playable gameplay build as **five functional fixes together**, separate from F15's operational milestone: GFPP **120 seconds**, human A02 pet ON/OFF, native-normal human-human A04 quest loot, **physical** Scarlet F12, exterior Karazhan Atiesh F13.
+- No owner host, root, SQL, DBC, config, Playerbots, addon or server modifications; no main merges or live testing. Explicit owner permission, restorable backups and rollback are mandatory before actual staged S4–S7.
+
+[Master #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28) · [Coordination #48](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48) · [Claude Queue #143](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143)
