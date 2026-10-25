@@ -1,0 +1,100 @@
+name: S1 first combined loader/config collision model (review-only)
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_first_combined_loader_preflight_s1.py'
+      - 'docs/research/FIRST-COMBINED-LOADER-PREFLIGHT-S1.md'
+      - '.github/workflows/first-combined-loader-preflight-s1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact source head
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+      - name: Run synthetic union, missing/duplicate registration and config witnesses
+        run: python3 -m unittest discover -s tests -p 'test_first_combined_loader_preflight_s1.py' -v
+      - name: Positive witness - complete synthetic union passes in both modes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import importlib.util
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+
+          test = Path("tests/test_first_combined_loader_preflight_s1.py").resolve()
+          spec = importlib.util.spec_from_file_location("preflight_s1", test)
+          mod = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          with tempfile.TemporaryDirectory(prefix="s1-union-") as temp:
+              root = Path(temp)
+              for path in ("tests", "src/Systems", "conf"):
+                  (root / path).mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(test, root / "tests" / test.name)
+              original = mod.LOADER.read_text(encoding="utf-8")
+              (root / "src" / "NaxxramasCore_loader.cpp").write_text(
+                  mod.simulated_loader(mod.strip_draft_loader_extras(original)),
+                  encoding="utf-8")
+              (root / "conf" / "mod_naxxramas_core.conf.dist").write_text(
+                  mod.simulated_config(mod.CONFIG.read_text(encoding="utf-8")),
+                  encoding="utf-8")
+              for path, symbol in mod.IMPLEMENTATIONS:
+                  file = root / path
+                  file.parent.mkdir(parents=True, exist_ok=True)
+                  file.write_text("void %s()\n{\n}\n" % symbol, encoding="utf-8")
+              (root / "src" / "Systems" / "BotRaidConsumables.cpp").write_text(
+                  "NaxxramasOneShotTimer Timer{120 * IN_MILLISECONDS};\n",
+                  encoding="utf-8")
+              # The actual --check-tree positive result must not be a stubbed
+              # exit code: it executes the same source gate as the future union.
+              subprocess.run([sys.executable, str(root / "tests" / test.name),
+                              "--check-tree"], cwd=root, check=True)
+              # Regress Claude and Grok's exact defect: unittest must also
+              # pass when the checked-out loader already includes all extras.
+              subprocess.run([sys.executable, "-m", "unittest", "discover",
+                              "-s", "tests", "-p", test.name, "-v"],
+                             cwd=root, check=True)
+          PY
+      - name: Prove real-tree gate rejects this unintegrated draft
+        shell: bash
+        run: |
+          # A nonzero exit must mean the EXPECTED missing registrations and
+          # default-off flags, not a crash or a failed Python import.
+          set +e
+          python3 tests/test_first_combined_loader_preflight_s1.py --check-tree > /tmp/first-combined-gate.txt 2>&1
+          code=$?
+          set -e
+          cat /tmp/first-combined-gate.txt
+          test "$code" -eq 1
+          grep -F "BLOCKED: AddBotGolemaggReachGuardScripts:" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: AddScarletMonasteryExitScripts:" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: AddAtieshKarazhanPortalScripts:" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: AddHunterPetAutocastScripts:" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: NaxxramasCore.HunterPetAutocast.AddonOptIn: expected one default 0" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: src/Systems/BotGolemaggReachGuard.cpp: missing implementation" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: src/Systems/ScarletMonasteryExits.cpp: missing implementation" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: src/Systems/AtieshKarazhanPortal.cpp: missing implementation" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: src/Systems/HunterPetAutocast.cpp: missing implementation" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: BotRaidConsumables.cpp: expected one 120-second GFPP one-shot" /tmp/first-combined-gate.txt
+          grep -F "Not a combined candidate. NO deployment or test build authorised." /tmp/first-combined-gate.txt
+      - name: Explicitly no actual integration, binary or upload
+        run: |
+          test -f docs/research/FIRST-COMBINED-LOADER-PREFLIGHT-S1.md
+          test -f tests/test_first_combined_loader_preflight_s1.py
+          echo "S1 models only. Actual --check-tree intentionally blocked here."
