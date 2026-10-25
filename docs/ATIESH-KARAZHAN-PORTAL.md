@@ -52,6 +52,12 @@ Rules:
   Random bots take the group leader's stage when they join; Altbots keep
   their own, so a mixed-era group can split.
 
+## Settings and Individual Progression header
+
+- **Read once at startup.** `NaxxramasCore.Atiesh.VanillaOutdoorArrival.Enabled` is read by a `WorldScript::OnAfterConfigLoad(false)` hook at server start. The gossip hook (a map thread) only reads that snapshot, never `ConfigMgr` (the same fix as #133 / #144). **`.reload config` does not change it**; it logs a warning. Edit the conf and restart.
+- **IP header required.** The Vanilla-stage check uses Individual Progression's own `hasPassedProgression`, which needs IP's header to be visible to this module at build time (it is at the CI pins). Without it, the shared helper's fallback would read `ConfigMgr` on the map thread. So the portal **stays stock** and the startup log shows `AtieshPortal: VanillaOutdoorArrival.Enabled = 1, but Individual Progression's header is not available to this module; the portal stays stock.`
+- With the feature OFF, a portal click does no IP lookup at all.
+
 ## Known limits
 
 - **Playerbots `teleport` command:** it casts 28147 directly
