@@ -1,0 +1,47 @@
+name: F15 S4g owned-child kernel wait witness (NO HOST)
+
+on:
+  push:
+    branches:
+      - cs01/f15-s4g-kernel-owned-child-exit-offline-part24
+  pull_request:
+    paths:
+      - tools/f15/offline_kernel_wait_s4g.py
+      - tests/test_f15_offline_kernel_wait_s4g.py
+      - .github/workflows/f15-s4g-kernel-wait-fixture.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fixture-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact fixture source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Run ONLY synthetic Python owned-child tests; no server process
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 --version
+          PYTHONPATH=tools/f15 python3 -W error -m unittest discover \
+            -s tests -p 'test_f15_offline_kernel_wait_s4g.py' -v 2>&1 | tee s4g-test-output.txt
+          grep -Eq '^Ran 10 tests in ' s4g-test-output.txt
+          grep -Fxq 'OK' s4g-test-output.txt
+          if grep -Eq '(^FAILED|^OK \(skipped|skipped=)' s4g-test-output.txt; then
+            echo 'Unexpected failure or skipped tests'
+            exit 1
+          fi
+      - name: Clarify nonproduction scope
+        run: |
+          echo 'Fixture launches only isolated Python children, not Worldserver or Authserver.'
+          echo 'Kernel waitpid is genuine for fixture children only; no GDB, restart, root, owner host or reports.'
