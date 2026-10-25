@@ -39,7 +39,7 @@ P0_BLOBS = {
     "src/Class/Warrior/WarriorRendFlurryBots.cpp": "1ab8e540f890c54a339565df796bb70b6c717fbb",
 }
 P0_CONF_BLOB = "f8bd75fc96a68c28dcfa7ae157215616c2988eba"
-P0_CONF_BYTES = 19381
+P0_CONF_BYTES = 19389
 P0_LOADER_BLOB = "d0da207a2dcaeea1f55109051ae1b2a2a14677db"
 ADDED = (
     "AddScarletMonasteryExitScripts",
