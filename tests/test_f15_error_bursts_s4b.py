@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "f15"))
-from offline_error_bursts import LogEvidence, OfflineBurstTracker
+from offline_error_bursts import InstanceExit, LogEvidence, OfflineBurstTracker
 
 
 def evidence(seq=1, ms=1000, **changes):
@@ -190,6 +190,81 @@ class BurstModelTests(unittest.TestCase):
         t = OfflineBurstTracker(threshold=2, window_ms=1000)
         self.assertEqual(t.observe(evidence(1, 100)).status, "ignored")
         self.assertEqual(t.observe(evidence(2, 1100)).status, "alert")
+
+
+    def test_slow_trickle_rearms_before_subsequent_real_burst(self):
+        # Peer-review negative: an isolated error every 50 seconds never
+        # empties a 60-second window; it MUST NOT permanently suppress alerts.
+        initial = [self.push(i, (i - 1) * 1000).status for i in range(1, 4)]
+        self.assertEqual(initial, ["ignored", "ignored", "alert"])
+        low_rate = [self.push(i + 3, i * 50_000).status
+                    for i in range(1, 201)]
+        self.assertNotIn("alert", low_rate)
+        sudden = [self.push(i + 203, 10_000_000 + i * 100).status
+                  for i in range(1, 4)]
+        self.assertIn("alert", sudden)
+
+    def test_authenticated_fixture_exit_reclaims_memory_over_200_restarts(self):
+        tracker = OfflineBurstTracker(max_streams=3, max_groups=3)
+        for i in range(200):
+            instance = "boot-" + str(i)
+            for stream in ("stdout", "stderr", "world-log"):
+                decision = tracker.observe(
+                    evidence(1, 100, instance=instance, stream=stream))
+                self.assertEqual(decision.status, "ignored")
+            cleanup = tracker.finish_instance(
+                InstanceExit("worldserver", instance,
+                             "verified-instance-exit-fixture", True))
+            self.assertEqual(cleanup.status, "released")
+            self.assertEqual((cleanup.streams_released,
+                              cleanup.categories_released), (3, 3))
+            self.assertEqual(tracker.counts(), (0, 0))
+        self.assertEqual(tracker.observe(
+            evidence(1, 100, instance="boot-new")).status, "ignored")
+
+    def test_unverified_or_malformed_exit_cannot_free_capacity(self):
+        tracker = OfflineBurstTracker(max_streams=1, max_groups=1)
+        tracker.observe(evidence(1, 100, instance="A"))
+        for fixture in (InstanceExit("worldserver", "A"),
+                        InstanceExit("worldserver", "A",
+                                     "verified-instance-exit-fixture", False),
+                        InstanceExit("worldserver", "../A",
+                                     "verified-instance-exit-fixture", True),
+                        InstanceExit("worldserver", "A",
+                                     "verified-instance-exit-fixture", 1)):
+            self.assertNotEqual(tracker.finish_instance(fixture).status, "released")
+        self.assertEqual(tracker.counts(), (1, 1))
+        self.assertEqual(tracker.observe(
+            evidence(1, 100, instance="B")).status, "capacity")
+        self.assertEqual(tracker.finish_instance(
+            InstanceExit("worldserver", "A",
+                         "verified-instance-exit-fixture", True)).status, "released")
+        self.assertEqual(tracker.observe(
+            evidence(1, 100, instance="B")).status, "ignored")
+
+    def test_retired_instance_replay_rejected_and_duplicate_cleanup_inert(self):
+        tracker = OfflineBurstTracker()
+        tracker.observe(evidence(1, 100, instance="A"))
+        ended = InstanceExit("worldserver", "A",
+                             "verified-instance-exit-fixture", True)
+        self.assertEqual(tracker.finish_instance(ended).status, "released")
+        self.assertEqual(tracker.finish_instance(ended).status, "duplicate")
+        self.assertEqual(tracker.observe(
+            evidence(2, 200, instance="A")).status, "rejected")
+        self.assertEqual(tracker.counts(), (0, 0))
+
+    def test_instance_cleanup_never_frees_another_service(self):
+        tracker = OfflineBurstTracker()
+        tracker.observe(evidence(1, 100, instance="same", service="worldserver"))
+        tracker.observe(evidence(1, 100, instance="same", service="authserver"))
+        ended = tracker.finish_instance(
+            InstanceExit("worldserver", "same",
+                         "verified-instance-exit-fixture", True))
+        self.assertEqual((ended.streams_released, ended.categories_released), (1, 1))
+        self.assertEqual(tracker.counts(), (1, 1))
+        self.assertEqual(tracker.observe(
+            evidence(2, 200, instance="same", service="authserver")).status,
+            "ignored")
 
     def test_invalid_config_is_rejected(self):
         for kwargs in ({"threshold": 1}, {"window_ms": 0}, {"max_groups": 0},
