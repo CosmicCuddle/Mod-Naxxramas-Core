@@ -1,6 +1,6 @@
 # A04 — This module's loot hook inventory (S1 static; DO NOT MERGE)
 
-**Scope: only this module.** This is an exact-source static inventory, not an entire server audit, a diagnosis of the owner's human-friend pickup, or a functional quest-loot fix. We searched all **38 C++/header sources under `src/`** on protected `main` `80e9de1c39a6dc995188a80c31a5e785d0f2a6f9`, as inherited by CS01-owned draft #122 (before this test was added). This inventory is **not the entire server**: AzerothCore, other installed modules, Playerbots, Individual Progression, live runtime hooks, SQL/DBC data and owner's local Playerbots changes were not enumerated.
+**Scope: only this module.** This is an exact-source static inventory, **not a fix**, not an entire server audit, not a diagnosis of the owner's human-friend pickup, and not a functional quest-loot correction. We searched all **38 C++/header sources under `src/`** on protected `main` `80e9de1c39a6dc995188a80c31a5e785d0f2a6f9`, as inherited by CS01-owned draft #122 (before this test was added). This inventory is **not the entire server**: AzerothCore, other installed modules, Playerbots, Individual Progression, live runtime hooks, SQL/DBC data and owner's local Playerbots changes were not enumerated.
 
 ## Exact source results
 
