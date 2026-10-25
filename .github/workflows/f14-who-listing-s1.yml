@@ -1,0 +1,47 @@
+name: "F14 S1 /who listing model (docs/test only)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'docs/research/F14-WHO-LISTING-S1.md'
+      - 'tests/test_f14_who_listing_model.py'
+      - 'scripts/check_f14_who_handler_fingerprint.py'
+      - '.github/workflows/f14-who-listing-s1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-f14-who-s1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  model-and-fingerprint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Model and note contract
+        run: python3 -m unittest tests/test_f14_who_listing_model.py -v
+      - name: Checkout pinned core (two files only)
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+          sparse-checkout: |
+            src/server/game/Handlers/MiscHandler.cpp
+            src/server/game/Server/Protocol/Opcodes.cpp
+          sparse-checkout-cone-mode: false
+      - name: Confirm pinned core
+        run: test "$(git -C acore rev-parse HEAD)" = "8daffdabe9202c228e45d833c9a1d399597a15cd"
+      - name: /who handler fingerprint
+        run: python3 scripts/check_f14_who_handler_fingerprint.py acore --print
