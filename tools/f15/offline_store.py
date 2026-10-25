@@ -86,7 +86,10 @@ class Incident:
         self.checked()
         if not self.verified_actual_death or not self.unexpected_death:
             return False
-        if self.planned_stop and self.signal is None:
+        if self.planned_stop and self.signal in (None, "SIGTERM", "SIGHUP", "SIGINT"):
+            # An independently verified administrative stop signal is not
+            # a crash; a later SIGSEGV/SIGABRT/SIGKILL is a forced or fatal
+            # termination and remains visible pending policy review.
             return False
         if self.signal:
             return True
@@ -152,7 +155,7 @@ class IncidentStore:
         fd = os.open("/", flags)
         try:
             self._validate_ancestor(os.fstat(fd))
-            for part in self.root.parts[1:]:
+            for pos, part in enumerate(self.root.parts[1:]):
                 if part in ("", ".", ".."):
                     raise ValueError("untrusted path component")
                 try:
@@ -163,7 +166,7 @@ class IncidentStore:
                     raise
                 try:
                     st = os.fstat(nextfd)
-                    if part != self.root.parts[-1]:
+                    if pos < len(self.root.parts) - 2:
                         self._validate_ancestor(st)
                 except BaseException:
                     os.close(nextfd)
@@ -185,6 +188,8 @@ class IncidentStore:
             raise PermissionError("non-directory ancestor")
         # /tmp-style root-owned sticky directories permit safely created
         # private children. Other group/world-writable parents are rejected.
+        if st.st_uid not in (0, os.geteuid()):
+            raise PermissionError("ancestor owned by another account")
         if st.st_mode & 0o022 and not (st.st_mode & stat.S_ISVTX and st.st_uid == 0):
             raise PermissionError("writable untrusted ancestor")
 
