@@ -67,9 +67,15 @@ class OfflineCompletedRestartLookup:
             self._safe_private_file(original_name)
 
             try:
-                os.stat(filename, dir_fd=self.store._fd, follow_symlinks=False)
+                first = os.stat(filename, dir_fd=self.store._fd,
+                                follow_symlinks=False)
             except FileNotFoundError:
                 return None
+            # Reject a symlink, FIFO, directory or device before parsing a
+            # sidecar: the established public error contract says "unsafe".
+            # This check never follows the final name or mutates storage.
+            if not stat.S_ISREG(first.st_mode):
+                raise ValueError("unsafe or unreadable immutable record")
             # Verify content BEFORE any orphan cleanup; refuse to alter a
             # malformed, attacker-supplied or orphaned final record.
             info = self.store._read_sidecar(filename)
