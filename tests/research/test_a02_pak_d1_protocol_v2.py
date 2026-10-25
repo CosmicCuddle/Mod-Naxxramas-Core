@@ -15,6 +15,7 @@ exists to replace.
 from __future__ import annotations
 
 import atexit
+import os
 import re
 import unittest
 from pathlib import Path
@@ -352,10 +353,12 @@ class Pet:
         self.family = family
         self.owner = owner
         self.spells = dict(spells)
+        # Server stamp for this summon. Not id(self) and not a wire field.
+        self.incarnation: int | None = None
 
 
 def make_wolf(number: int, bite: bool = True, cower: bool | None = True,
-              claw: int | None = None) -> Pet:
+              claw: int | None = None, owner: int = 1) -> Pet:
     spells = {GROWL: True}
     if bite is not None:
         spells[17259] = bite
@@ -363,7 +366,7 @@ def make_wolf(number: int, bite: bool = True, cower: bool | None = True,
         spells[COWER] = cower
     if claw is not None:
         spells[claw] = True
-    return Pet(number, "Fluffy", "Wolf", spells)
+    return Pet(number, "Fluffy", "Wolf", spells, owner)
 
 
 class Rate:
@@ -451,15 +454,55 @@ class V1Store:
         return slot.published
 
 
+HELLO_QUEUE_CAP = 1
+
+
+class WorldAtomic:
+    """Stand-in for std::atomic release-store / acquire-load.
+
+    The Python model is single-threaded. Map-side paths may only load().
+    The world thread is the only store() caller. This does not prove the
+    C++ memory order; it keeps the two sides from sharing a bare write.
+    """
+
+    def __init__(self, value: int) -> None:
+        self._value = value
+
+    def store(self, value: int) -> None:
+        self._value = value
+
+    def load(self) -> int:
+        return self._value
+
+
+class CoreStable:
+    """Authoritative owner stable. The receiver reads it and never inserts into it."""
+
+    def __init__(self) -> None:
+        self.members: set[int] = set()
+        self.current: int | None = None
+
+
 class Active:
     def __init__(self, pet_number: int, token: str, gen: int, epoch: int, hello: str,
-                 instance_id: int):
+                 incarnation: int):
         self.pet_number = pet_number
         self.token = token
         self.gen = gen
         self.epoch = epoch
         self.hello = hello
-        self.instance_id = instance_id
+        self.incarnation = incarnation
+
+
+class QueuedHello:
+    def __init__(self, text: str, epoch: int, token: str, gen: int, pet_number: int,
+                 incarnation: int):
+        self.text = text
+        self.epoch = epoch
+        self.token = token
+        self.gen = gen
+        self.pet_number = pet_number
+        self.incarnation = incarnation
 
 
 class Snapshot:
@@ -475,14 +518,14 @@ class V2Player:
         self.epoch = 0
         self.logged_in = False
         self.next_gen = 0
-        self.token_n = 0
+        self.summon_counter = 0
         self.active: Active | None = None
         self.inbox: list[Parsed] = []
         self.assembler = Assembler()
         self.snapshots: dict[int, Snapshot] = {}
         self.rate = Rate()
         self.outbound: list[str] = []
-        self.stable: set[int] = set()
+        self.pending: QueuedHello | None = None
         self.tombstones: set[int] = set()
 
 
@@ -491,52 +534,126 @@ class V2Store:
 
     selfbot_off starts closed. Harness opens it with a startup proof of level 0.
     A reload cannot open a closed proof. The warning is once per process.
+    Entropy failure stays closed: no hello and no apply. Tokens are random per
+    summon and are not a restarted counter. The boot epoch is random per process.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, entropy_fails: bool = False, entropy=None) -> None:
         self.enabled = True
         self.players: dict[int, V2Player] = {}
+        self.core_stables: dict[int, CoreStable] = {}
         self.last_sender = 0
         self.last_target = ""
         self.transport_sends = 0
+        self.last_sent: str | None = None
         self.selfbot_off = False
         self.selfbot_warnings = 0
         self._selfbot_warned = False
+        self.effective_level = WorldAtomic(-1)
+        self._entropy = entropy or os.urandom
+        self.entropy_ok = False
+        self.boot_nonce = b""
+        self.boot_epoch: int | None = None
+        self.entropy_error: str | None = None
+        self._mint_process_entropy(entropy_fails)
+
+    def _mint_process_entropy(self, entropy_fails: bool) -> None:
+        try:
+            if entropy_fails:
+                raise OSError("entropy unavailable")
+            nonce = self._entropy(8)
+            epoch_raw = self._entropy(4)
+            if len(nonce) != 8 or len(epoch_raw) != 4:
+                raise OSError("short entropy")
+            epoch = int.from_bytes(epoch_raw, "big") % MAX_SEQ + 1
+            if epoch < 1 or epoch > MAX_SEQ:
+                raise OSError("epoch out of range")
+            self.boot_nonce = bytes(nonce)
+            self.boot_epoch = epoch
+            self.entropy_ok = True
+        except Exception as exc:
+            self.entropy_ok = False
+            self.boot_nonce = b""
+            self.boot_epoch = None
+            self.entropy_error = type(exc).__name__
+
+    def _level_is_off(self, level: int | None, *, readable: bool,
+                      playerbots_enabled: bool) -> bool:
+        return (
+            readable is True
+            and playerbots_enabled is not False
+            and type(level) is int
+            and level == 0
+        )
 
     def load_selfbot(self, level: int | None, *, readable: bool = True,
                      playerbots_enabled: bool = True, reload: bool = False) -> None:
-        """Config-load proof. level None is a missing key. readable False is a bad token.
+        """World-thread config sample. level None is a missing key.
 
-        playerbots_enabled False is Playerbots.Enabled explicit false, which skips
-        the SelfBotLevel assignment. Only integer 0 with that flag not false is off.
+        readable False is a bad token. playerbots_enabled False is
+        Playerbots.Enabled explicit false, which skips the SelfBotLevel
+        assignment. Only integer 0 with that flag not false is off.
+        reload=True never opens a closed latch. Any other sample closes it.
+        Map workers do not call this.
         """
-        proven = bool(readable) and playerbots_enabled is not False and level == 0
-        if reload:
-            if not proven:
-                self.selfbot_off = False
-        else:
+        proven = self._level_is_off(
+            level, readable=readable, playerbots_enabled=playerbots_enabled
+        )
+        self.effective_level.store(0 if proven else -1)
+        if not reload:
             self.selfbot_off = proven
-        if not self.selfbot_off and not self._selfbot_warned:
-            self._selfbot_warned = True
-            self.selfbot_warnings += 1
+        elif not proven:
+            self.selfbot_off = False
+        if not self.selfbot_off:
+            self._drop_outbound()
+            if not self._selfbot_warned:
+                self._selfbot_warned = True
+                self.selfbot_warnings += 1
+
+    def note_playerbots_reload(self, level: int | None, *, readable: bool = True,
+                               playerbots_enabled: bool = True) -> None:
+        """Playerbots Initialize() path. It does not call OnAfterConfigLoad.
+
+        Re-samples the effective level on the world thread. Never opens a
+        closed latch. A value other than integer 0 closes the gate.
+        """
+        self.load_selfbot(
+            level, readable=readable, playerbots_enabled=playerbots_enabled, reload=True
+        )
+
+    def apply_allowed(self) -> bool:
+        """Map-side acquire load. Missing, unreadable, and non-zero stay closed."""
+        return bool(self.selfbot_off) and self.effective_level.load() == 0 and self.entropy_ok
+
+    def _drop_outbound(self) -> None:
+        for player in self.players.values():
+            player.outbound.clear()
+            player.pending = None
 
     def player(self, guid: int) -> V2Player:
         return self.players.setdefault(guid, V2Player())
 
+    def core_note_current(self, guid: int, pet: Pet | None) -> None:
+        """Simulated core PetStable update. observe() must not call this."""
+        stable = self.core_stables.setdefault(guid, CoreStable())
+        if pet is None or pet.number is None or pet.number == 0:
+            stable.current = None
+            return
+        stable.members.add(pet.number)
+        stable.current = pet.number
+
     def login(self, guid: int) -> None:
         player = self.player(guid)
-        if player.epoch >= MAX_SEQ:
-            player.logged_in = True
-            player.active = None
-            player.inbox.clear()
-            player.assembler = Assembler()
-            player.epoch = MAX_SEQ
-            return
-        player.epoch += 1
         player.logged_in = True
         player.active = None
         player.inbox.clear()
         player.assembler = Assembler()
+        player.outbound.clear()
+        player.pending = None
+        if not self.entropy_ok or self.boot_epoch is None:
+            player.epoch = 0
+            return
+        player.epoch = self.boot_epoch
 
     def logout(self, guid: int) -> None:
         player = self.player(guid)
@@ -544,55 +661,143 @@ class V2Store:
         player.active = None
         player.inbox.clear()
         player.assembler = Assembler()
+        player.outbound.clear()
+        player.pending = None
 
     def retire_number(self, guid: int, number: int) -> None:
-        """The owner's stable no longer has this number. Later reuse does not write."""
+        """Core removed this number. Later reuse in this process does not write."""
         player = self.player(guid)
         player.tombstones.add(number)
-        player.stable.discard(number)
+        stable = self.core_stables.setdefault(guid, CoreStable())
+        stable.members.discard(number)
+        if stable.current == number:
+            stable.current = None
         player.snapshots.pop(number, None)
         if player.active and player.active.pet_number == number:
             player.active = None
             player.assembler = Assembler()
+            player.outbound.clear()
+            player.pending = None
+
+    def _clear_active(self, player: V2Player) -> None:
+        player.active = None
+        player.assembler = Assembler()
+        player.outbound.clear()
+        player.pending = None
 
     def observe(self, guid: int, pet: Pet | None) -> None:
         player = self.player(guid)
-        if not player.logged_in or player.epoch == 0 or player.epoch >= MAX_SEQ and player.next_gen >= MAX_SEQ:
+        if not self.entropy_ok or not player.logged_in or player.epoch == 0:
             return
         if pet is None or pet.owner != guid or pet.number is None or pet.number == 0:
-            player.active = None
-            player.assembler = Assembler()
+            self._clear_active(player)
             return
         number = pet.number
-        if number in player.tombstones:
-            player.active = None
-            player.assembler = Assembler()
+        stable = self.core_stables.get(guid)
+        in_stable = (
+            stable is not None
+            and stable.current == number
+            and number in stable.members
+        )
+        if number in player.tombstones or not in_stable:
+            self._clear_active(player)
             return
-        player.stable.add(number)
-        instance_id = id(pet)
         if (
             player.active
             and player.active.pet_number == number
             and player.active.epoch == player.epoch
-            and player.active.instance_id == instance_id
+            and pet.incarnation is not None
+            and player.active.incarnation == pet.incarnation
         ):
             return
-        self.issue(player, number, instance_id)
+        self.issue(player, pet, new_summon=True)
 
-    def issue(self, player: V2Player, pet_number: int, instance_id: int) -> None:
-        if player.next_gen >= MAX_SEQ:
-            player.active = None
-            player.assembler = Assembler()
+    def mint_token(self) -> str | None:
+        if not self.entropy_ok or len(self.boot_nonce) != 8:
+            self.entropy_ok = False
+            return None
+        try:
+            raw = self._entropy(8)
+            if len(raw) != 8:
+                raise OSError("short entropy")
+            mixed = bytes(left ^ right for left, right in zip(raw, self.boot_nonce))
+            token = mixed.hex()
+            if _TOKEN.match(token) is None:
+                raise OSError("token shape")
+            return token
+        except Exception as exc:
+            self.entropy_ok = False
+            self.entropy_error = type(exc).__name__
+            return None
+
+    def issue(self, player: V2Player, pet: Pet, *, new_summon: bool) -> None:
+        if (
+            not self.entropy_ok
+            or player.epoch == 0
+            or player.next_gen >= MAX_SEQ
+            or pet.number is None
+        ):
+            self._clear_active(player)
+            return
+        token = self.mint_token()
+        if token is None:
+            self._clear_active(player)
             return
         player.next_gen += 1
-        player.token_n += 1
-        token = f"{player.token_n:016x}"
-        hello = f"v2|hello|{player.epoch}|{token}|{player.next_gen}|{pet_number}"
-        player.outbound.append(hello)
+        if new_summon or pet.incarnation is None:
+            if player.summon_counter >= MAX_SEQ:
+                self._clear_active(player)
+                return
+            player.summon_counter += 1
+            pet.incarnation = player.summon_counter
+        hello = f"v2|hello|{player.epoch}|{token}|{player.next_gen}|{pet.number}"
+        pending = QueuedHello(
+            hello, player.epoch, token, player.next_gen, pet.number, pet.incarnation or 0
+        )
+        # One slot. A new hello replaces an unsent one. Summons do not pile up.
+        player.outbound = [hello]
+        player.pending = pending
+        assert len(player.outbound) <= HELLO_QUEUE_CAP
         player.active = Active(
-            pet_number, token, player.next_gen, player.epoch, hello, instance_id
+            pet.number, token, player.next_gen, player.epoch, hello, pet.incarnation or 0
         )
         player.assembler = Assembler()
+
+    def _hello_current(self, guid: int, player: V2Player, pending: QueuedHello) -> bool:
+        if not self.apply_allowed() or not player.logged_in:
+            return False
+        active = player.active
+        stable = self.core_stables.get(guid)
+        if active is None or stable is None:
+            return False
+        if pending.pet_number in player.tombstones:
+            return False
+        if stable.current != pending.pet_number or pending.pet_number not in stable.members:
+            return False
+        return (
+            pending.epoch == player.epoch
+            and pending.epoch == active.epoch
+            and pending.token == active.token
+            and pending.gen == active.gen
+            and pending.incarnation == active.incarnation
+            and pending.pet_number == active.pet_number
+        )
+
+    def send_outbound(self, guid: int) -> str:
+        """World-thread send-time recheck. This model does not call Whisper."""
+        player = self.players.get(guid)
+        if player is None or player.pending is None:
+            return "Empty"
+        pending = player.pending
+        if not self._hello_current(guid, player, pending):
+            player.outbound.clear()
+            player.pending = None
+            return "Dropped"
+        self.last_sent = pending.text
+        self.transport_sends += 1
+        player.outbound.clear()
+        player.pending = None
+        return "Sent"
 
     def world_accept(self, guid: int, raw: str, now_ms: int, target: str,
                      is_hunter: bool = True, has_client: bool = True) -> str:
@@ -609,8 +814,10 @@ class V2Store:
             return "NotOurs"
         if not is_hunter:
             return "IgnoredNotHunter"
-        if not self.selfbot_off:
+        if not self.selfbot_off or self.effective_level.load() != 0:
             return "SelfBotBlocked"
+        if not self.entropy_ok:
+            return "EntropyClosed"
         player = self.player(guid)
         if not player.logged_in:
             return "NotInWorld"
@@ -625,8 +832,12 @@ class V2Store:
 
     def drain(self, guid: int, pet: Pet | None) -> None:
         player = self.player(guid)
+        if not self.apply_allowed():
+            player.inbox.clear()
+            return
         batch = player.inbox
         player.inbox = []
+        stable = self.core_stables.get(guid)
         for parsed in batch:
             active = player.active
             if (
@@ -635,8 +846,11 @@ class V2Store:
                 or pet.number is None
                 or pet.number == 0
                 or active is None
+                or stable is None
                 or pet.number in player.tombstones
-                or pet.number not in player.stable
+                or pet.number not in stable.members
+                or stable.current != pet.number
+                or pet.incarnation != active.incarnation
             ):
                 continue
             if (
@@ -649,7 +863,7 @@ class V2Store:
             if parsed.kind == "ClearV2":
                 player.snapshots.pop(pet.number, None)
                 player.assembler = Assembler()
-                self.issue(player, pet.number, id(pet))
+                self.issue(player, pet, new_summon=False)
                 continue
             result = player.assembler.accept_chunk(parsed)
             if result == "Published" and player.assembler.published is not None and player.active:
@@ -661,12 +875,17 @@ class V2Store:
                 )
 
     def choices_for(self, guid: int, pet: Pet | None) -> dict[int, bool] | None:
+        if not self.apply_allowed():
+            return None
         if pet is None or pet.number == 0:
             return None
         player = self.players.get(guid)
         if player is None or not player.logged_in or player.active is None:
             return None
-        if player.active.pet_number != pet.number:
+        if player.active.pet_number != pet.number or pet.incarnation != player.active.incarnation:
+            return None
+        stable = self.core_stables.get(guid)
+        if stable is None or stable.current != pet.number or pet.number not in stable.members:
             return None
         snap = player.snapshots.get(pet.number)
         if snap is None or snap.epoch != player.epoch or snap.gen != player.active.gen:
@@ -684,21 +903,28 @@ class V2Store:
 
 
 class Harness:
-    def __init__(self, kind: str):
+    def __init__(self, kind: str, *, entropy_fails: bool = False, guid: int = 1):
         self.kind = kind
-        self.store: V1Store | V2Store = V1Store() if kind == "v1" else V2Store()
+        self.store: V1Store | V2Store = (
+            V1Store() if kind == "v1" else V2Store(entropy_fails=entropy_fails)
+        )
         self.store.enabled = True
         if kind == "v2":
             self.store.load_selfbot(0)
-        self.guid = 1
+        self.guid = guid
         self.pet: Pet | None = None
         self.now = 0
         self.store.login(self.guid)
 
-    def summon(self, pet: Pet | None) -> None:
+    def summon(self, pet: Pet | None, *, in_core_stable: bool = True) -> None:
         self.pet = pet
-        if self.kind == "v2":
-            self.store.observe(self.guid, pet)
+        if self.kind != "v2":
+            return
+        store = self.store
+        assert isinstance(store, V2Store)
+        if in_core_stable:
+            store.core_note_current(self.guid, pet)
+        store.observe(self.guid, pet)
 
     def identity(self) -> tuple[int, str, int] | None:
         player = self.store.players[self.guid]  # type: ignore[attr-defined]
@@ -1218,6 +1444,14 @@ class PakD1(unittest.TestCase):
         self.assertIn("owner stated in chat to CS02, relayed on #48 6395196578", proposal)
         self.assertIn("6395269291", proposal)
         self.assertIn("db.pets[petNumber]", proposal)
+        self.assertIn("not a durable", proposal)
+        self.assertIn("PAK-RESTART-01", proposal)
+        self.assertIn("PAK-STABLE-MEMBER-01", proposal)
+        self.assertIn("PAK-HELLO-STALE-01", proposal)
+        self.assertIn("GetRandomBytes", proposal)
+        self.assertIn("Hybrid H", proposal)
+        self.assertIn("not selected", proposal)
+        self.assertIn("per-summon", proposal)
         self.assertIn("ChatHandler.cpp:292", proposal)
         self.assertIn("checkHunterPetSpells", proposal)
         self.assertIn("Playerbots `d750b4b` was read and not modified", proposal)
@@ -1430,15 +1664,16 @@ class PakD1(unittest.TestCase):
                 and (kind == "v1" or harness.store.record(1, 202) is None or True)
             )
             if kind == "v2":
-                self.assertIsNone(harness.store.record(1, 202))
+                self.assertIsNone(harness.store.choices_for(1, pet_b))
                 self.assertEqual(harness.store.record(1, 101), {BITE[0]: False})
+                self.assertEqual(pet_b.spells, b_after)
         self.check(
             "PAK-ID-07",
             restored["v1"],
             restored["v2"],
             False,
             True,
-            "pet-number save restores A OFF after a fresh token; B is not written; v1 name key does not",
+            "same-process pet-number resend restores A OFF on a fresh token; B is not written; not a durable key",
         )
 
     def _no_write(self, mutate) -> dict[str, bool]:
@@ -1559,6 +1794,341 @@ class PakD1(unittest.TestCase):
             )
         self.check("PAK-ID-07-CLEAR", held["v1"], held["v2"], False, True,
                    "clear of A removes only A's record and writes neither spellbook")
+
+    def test_pak_restart_01_fresh_process_rejects_the_old_packet(self) -> None:
+        """Two process models, same owner and pet. No logout on the first."""
+        first = Harness("v2", guid=7)
+        pet = make_wolf(17259, bite=True, owner=7)
+        first.summon(pet)
+        old = first.chunk(1, "17259=0")
+        first.send(old)
+        first.tick()
+        self.assertFalse(bite(pet))
+        first_token = first.identity()
+        assert first_token is not None
+
+        second = Harness("v2", guid=7)
+        resumed = make_wolf(17259, bite=True, owner=7)
+        second.summon(resumed)
+        second_token = second.identity()
+        assert second_token is not None
+        self.assertNotEqual(second_token[1], first_token[1])
+        self.assertNotEqual(second.store.boot_epoch, first.store.boot_epoch)
+        self.assertNotEqual(second.store.boot_nonce, first.store.boot_nonce)
+        self.assertEqual(second.send(old), "Queued")
+        second.tick()
+        fresh_rejected = bite(resumed) is True and second.store.record(7, 17259) is None
+        second.send(second.chunk(1, "17259=0"))
+        second.tick()
+        self.assertFalse(bite(resumed))
+
+        legacy = Harness("v1", guid=7)
+        legacy_pet = make_wolf(17259, bite=True, owner=7)
+        legacy.summon(legacy_pet)
+        legacy_old = legacy.chunk(1, "17259=0")
+        legacy.send(legacy_old)
+        legacy.tick()
+        restarted = Harness("v1", guid=7)
+        restarted_pet = make_wolf(17259, bite=True, owner=7)
+        restarted.summon(restarted_pet)
+        restarted.send(legacy_old)
+        restarted.tick()
+        v1_safe = bite(restarted_pet) is True
+        self.check(
+            "PAK-RESTART-01",
+            v1_safe,
+            fresh_rejected,
+            False,
+            True,
+            "a completed pre-restart packet does not apply on a fresh process; v1 accepts it",
+        )
+
+    def test_pak_restart_entropy_failure_is_closed(self) -> None:
+        closed = Harness("v2", entropy_fails=True)
+        pet = make_wolf(101, bite=True)
+        closed.summon(pet)
+        self.assertFalse(closed.store.entropy_ok)
+        self.assertIsNone(closed.identity())
+        self.assertEqual(closed.store.players[1].outbound, [])
+        self.assertEqual(closed.store.boot_epoch, None)
+        status = closed.send(f"{PREFIX}v2|1|aaaaaaaaaaaaaaaa|1|1|1/1|17259=0")
+        self.assertEqual(status, "EntropyClosed")
+        closed.tick()
+        entropy_held = bite(pet) is True and closed.store.record(1, 101) is None
+
+        class ShortEntropy:
+            def __call__(self, size: int) -> bytes:
+                return b"\x01" * max(0, size - 1)
+
+        short = V2Store(entropy=ShortEntropy())
+        short.load_selfbot(0)
+        short.login(1)
+        self.assertFalse(short.entropy_ok)
+        short.core_note_current(1, pet)
+        short.observe(1, pet)
+        self.assertIsNone(short.players[1].active)
+        self.assertEqual(short.players[1].outbound, [])
+
+        open_v1 = Harness("v1")
+        v1_pet = make_wolf(101, bite=True)
+        open_v1.summon(v1_pet)
+        open_v1.send(open_v1.chunk(1, "17259=0"))
+        open_v1.tick()
+        self.check(
+            "PAK-RESTART-ENTROPY",
+            bite(v1_pet) is True,
+            entropy_held and short.players[1].active is None,
+            False,
+            True,
+            "entropy failure mints no token and applies nothing; there is no counter fallback",
+        )
+
+    def test_pak_stable_member_01_missing_number_does_not_self_insert(self) -> None:
+        held: dict[str, bool] = {}
+        for kind in ("v1", "v2"):
+            harness = Harness(kind)
+            pet = make_wolf(101, bite=True)
+            harness.summon(pet)
+            raw = harness.chunk(1, "17259=0")
+            if kind == "v2":
+                stable = harness.store.core_stables[1]
+                stable.members.clear()
+                stable.current = None
+                self.assertNotIn(101, stable.members)
+            harness.send(raw)
+            harness.tick()
+            if kind == "v2":
+                self.assertNotIn(101, harness.store.core_stables[1].members)
+                self.assertIsNone(harness.store.core_stables[1].current)
+                unseen = make_wolf(303, bite=True)
+                before = dict(unseen.spells)
+                harness.store.observe(1, unseen)
+                self.assertNotIn(303, harness.store.core_stables[1].members)
+                self.assertIsNone(unseen.incarnation)
+                self.assertEqual(unseen.spells, before)
+            held[kind] = bite(pet) is True
+        self.check(
+            "PAK-STABLE-MEMBER-01",
+            held["v1"],
+            held["v2"],
+            False,
+            True,
+            "a pet number missing from the core stable does not write and is not inserted by observe",
+        )
+
+    def test_pak_hello_stale_01_send_time_drops_stale_hello(self) -> None:
+        capped = Harness("v2")
+        for _ in range(50):
+            capped.summon(make_wolf(101, bite=True))
+        self.assertEqual(len(capped.store.players[1].outbound), HELLO_QUEUE_CAP)
+        self.assertEqual(capped.store.players[1].summon_counter, 50)
+
+        swapped = Harness("v2")
+        pet_a = make_wolf(101, bite=True)
+        pet_b = make_wolf(202, bite=True)
+        swapped.summon(pet_a)
+        stale = swapped.store.players[1].pending
+        assert stale is not None
+        swapped.summon(pet_b)
+        player = swapped.store.players[1]
+        player.outbound = [stale.text]
+        player.pending = stale
+        self.assertEqual(swapped.store.send_outbound(1), "Dropped")
+        self.assertEqual(swapped.store.transport_sends, 0)
+        self.assertIsNone(swapped.store.last_sent)
+        self.assertEqual(
+            client_bind_hello(stale.pet_number, pet_b.number, stale.epoch, None),
+            "drop",
+        )
+        swap_held = bite(pet_b) is True and pet_b.spells[COWER] is True
+
+        logged_out = Harness("v2")
+        logged_out.summon(make_wolf(101, bite=True))
+        pending = logged_out.store.players[1].pending
+        assert pending is not None
+        logged_out.store.logout(1)
+        self.assertEqual(logged_out.store.players[1].outbound, [])
+        logged_out.store.players[1].outbound = [pending.text]
+        logged_out.store.players[1].pending = pending
+        self.assertEqual(logged_out.store.send_outbound(1), "Dropped")
+
+        gated = Harness("v2")
+        gated.summon(make_wolf(101, bite=True))
+        held_hello = gated.store.players[1].pending
+        assert held_hello is not None
+        gated.store.note_playerbots_reload(2)
+        gated.store.players[1].outbound = [held_hello.text]
+        gated.store.players[1].pending = held_hello
+        self.assertEqual(gated.store.send_outbound(1), "Dropped")
+
+        legacy = Harness("v1")
+        legacy_a = make_wolf(101, bite=True)
+        legacy_b = make_wolf(202, bite=True)
+        legacy.summon(legacy_a)
+        delayed = legacy.chunk(1, "17259=0")
+        legacy.summon(legacy_b)
+        legacy.send(delayed)
+        legacy.tick()
+        v1_safe = bite(legacy_b) is True
+        v2_safe = swap_held and logged_out.store.last_sent is None and gated.store.last_sent is None
+        self.check(
+            "PAK-HELLO-STALE-01",
+            v1_safe,
+            v2_safe,
+            False,
+            True,
+            "send-time recheck drops A's hello after a swap, logout, or SelfBot close; the queue stays at one",
+        )
+
+    def test_pak_summon_01_incarnation_is_not_the_pointer(self) -> None:
+        results: dict[str, bool] = {}
+        for kind in ("v1", "v2"):
+            harness = Harness(kind)
+            first = make_wolf(101, bite=True)
+            harness.summon(first)
+            old = harness.identity() if kind == "v2" else None
+            second = make_wolf(101, bite=True)
+            harness.summon(second)
+            if kind == "v2":
+                assert old is not None
+                self.assertNotEqual(second.incarnation, None)
+                self.assertNotEqual(second.incarnation, first.incarnation)
+                self.assertNotEqual(harness.identity(), old)
+                self.assertNotEqual(harness.identity()[1], f"{id(second) & ((1 << 64) - 1):016x}")
+                harness.send(harness.chunk(1, "17259=0", ident=old))
+                harness.tick()
+                kept = harness.identity()
+                harness.tick()
+                self.assertEqual(harness.identity(), kept)
+                self.assertEqual(second.incarnation, harness.store.players[1].summon_counter)
+                results[kind] = bite(second) is True
+            else:
+                harness.send(harness.chunk(1, "17259=0"))
+                harness.tick()
+                results[kind] = bite(second) is True
+        self.check(
+            "PAK-SUMMON-01",
+            results["v1"],
+            results["v2"],
+            False,
+            True,
+            "a new summon gets a new incarnation and token; the pointer is not the token; the old packet does not write",
+        )
+
+    def test_pak_self_apply_rechecks_playerbots_reload(self) -> None:
+        def closed_after_queue(level: int | None, **kwargs: bool) -> bool:
+            harness = Harness("v2")
+            pet = make_wolf(101, bite=True)
+            harness.summon(pet)
+            harness.send(harness.chunk(1, "17259=0"))
+            harness.tick()
+            self.assertFalse(bite(pet))
+            pet.spells[17259] = True
+            harness.store.note_playerbots_reload(level, **kwargs)
+            harness.send(harness.chunk(2, "17259=0"))
+            harness.tick()
+            return bite(pet) is True and harness.store.choices_for(1, pet) is None
+
+        reloaded = closed_after_queue(2)
+        missing = closed_after_queue(None)
+        unreadable = closed_after_queue(0, readable=False)
+        legacy = Harness("v1")
+        legacy_pet = make_wolf(101, bite=True)
+        legacy.summon(legacy_pet)
+        legacy.send(legacy.chunk(1, "17259=0"))
+        legacy.tick()
+        self.check(
+            "PAK-SELF-APPLY",
+            bite(legacy_pet) is True,
+            reloaded and missing and unreadable,
+            False,
+            True,
+            "apply re-checks SelfBotLevel; 2, missing, and unreadable apply nothing after a Playerbots reload",
+        )
+
+    def test_pak_id_quarantine_pet_number_is_not_durable_across_restart(self) -> None:
+        binder = ClientBinder()
+        first = Harness("v2", guid=7)
+        pet = make_wolf(101, bite=True, owner=7)
+        first.summon(pet)
+        epoch = first.identity()[0]  # type: ignore[index]
+        self.assertTrue(binder.note_choice(epoch, 101, "17259=0"))
+        old = first.chunk(1, "17259=0")
+        first.send(old)
+        first.tick()
+        self.assertFalse(bite(pet))
+
+        second = Harness("v2", guid=7)
+        resumed = make_wolf(101, bite=True, owner=7)
+        second.summon(resumed)
+        new_epoch = second.identity()[0]  # type: ignore[index]
+        self.assertEqual(binder.on_epoch(new_epoch), "quarantine")
+        self.assertIsNone(binder.auto_payload(101))
+        second.send(old)
+        second.tick()
+        quarantined = bite(resumed) is True and 101 in binder.quarantine
+
+        legacy = Harness("v1")
+        legacy_pet = make_wolf(101, bite=True)
+        legacy.summon(legacy_pet)
+        legacy.send(legacy.chunk(1, binder.rows_saved_for_v1()))
+        legacy.tick()
+        self.check(
+            "PAK-ID-QUARANTINE",
+            bite(legacy_pet) is True,
+            quarantined,
+            False,
+            True,
+            "a new boot epoch quarantines db.pets[petNumber]; the old packet does not restore; v1 name key still writes",
+        )
+
+
+class ClientBinder:
+    """Future addon rule. Not the frozen PetAutocastKeeper.
+
+    Same-process epoch may remember an explicit choice. A different boot
+    epoch quarantines those rows. The token is never the key.
+    """
+
+    def __init__(self) -> None:
+        self.epoch: int | None = None
+        self.rows: dict[int, str] = {}
+        self.quarantine: dict[int, str] = {}
+
+    def note_choice(self, epoch: int, pet_number: int, pairs: str) -> bool:
+        if self.epoch is None:
+            self.epoch = epoch
+        if epoch != self.epoch:
+            return False
+        self.rows[pet_number] = pairs
+        return True
+
+    def on_epoch(self, epoch: int) -> str:
+        if self.epoch is not None and epoch != self.epoch:
+            self.quarantine.update(self.rows)
+            self.rows.clear()
+            self.epoch = epoch
+            return "quarantine"
+        self.epoch = epoch
+        return "same"
+
+    def auto_payload(self, pet_number: int) -> str | None:
+        if pet_number in self.quarantine and pet_number not in self.rows:
+            return None
+        return self.rows.get(pet_number)
+
+    def rows_saved_for_v1(self) -> str:
+        return "17259=0"
+
+
+def client_bind_hello(hello_pet: int, current_pet: int | None, hello_epoch: int,
+                      saved_epoch: int | None) -> str:
+    """Lua-side rule for a hello that arrives while another pet is current."""
+    if current_pet is None or hello_pet != current_pet:
+        return "drop"
+    if saved_epoch is not None and hello_epoch != saved_epoch:
+        return "quarantine"
+    return "bind"
 
 
 if __name__ == "__main__":

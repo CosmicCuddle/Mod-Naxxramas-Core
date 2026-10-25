@@ -2,7 +2,9 @@
 
 **Status:** candidate only. Not approved, not canonical, not a replacement for `docs/A02-ADDON-PROTOCOL.md`. Both config keys stay 0. This file is not permission to enable them, send a packet, merge, release, tag, or run a gameplay trial. In-game behaviour is **NOT TESTED**. No worldserver was started. No database was opened. The live `playerbots.conf` was not opened. Playerbots `d750b4b` was read and not modified.
 
-**Author:** CosmicScript02. Peer review requested from CosmicScript01 and from the Module Editor who owns draft PR #134.
+**Author:** CosmicScript02 (module side). Peer review requested from CosmicScript01 and from the Module Editor who owns draft PR #134.
+
+This revision is additive on `50f0500`. It follows CS01's narrowed list in #48 comment 6399700473 and the identity correction in 6399593330. Where an earlier draft treated `db.pets[petNumber]` as a durable save key, this text does not. PetNumber is the current stable binding. It is not a durable lifetime id. Hybrid H is not selected. No SQL is added.
 
 **Parent commit:** `2ab30306c884d3af1c92bb5ad7042648b90fd162` (draft #134 head reviewed by CS01 in comment 6390392020). This branch does not push to `cursor/a02-s2c-addon-optin-193f`.
 
@@ -69,14 +71,17 @@ The native plan already toggles spell 1742 when the pet has it and skips it when
 - `Pet::GetLoadPetInfo` (`Pet.cpp:171`) matches a non-zero `petnumber` against `CurrentPet` (line 176), each `StabledPets` slot (line 180), and each `UnslottedPets` entry (line 184).
 - `Pet::LoadPetFromDB` (`Pet.cpp:216`) loads that `PetInfo` and `GetCharmInfo()->SetPetNumber(petInfo->PetNumber, ...)` at line 295 for a hunter pet.
 - `Pet::FillPetInfo` writes `m_charmInfo->GetPetNumber()` back (`Pet.cpp:2466-2468`).
-- `Pet::CreateBaseAtTamed` assigns `sObjectMgr->GeneratePetNumber()` (`Pet.cpp:1018`). The generator body was not re-audited in this pass. Uniqueness of the counter is **NOT TESTED** here. The stable lookup by the stored number is **VERIFIED** at the lines above.
-- `Player::GetPetStable()` is public (`Player.h:1226`). `Player::GetPet()` is public (`Player.h:1230`).
+- `Pet::CreateBaseAtTamed` assigns `sObjectMgr->GeneratePetNumber()` (`Pet.cpp:1018`).
+- `LoadPetNumber` sets `_hiPetNumber` from `SELECT MAX(id) FROM character_pet`, plus one (`ObjectMgr.cpp:8117-8129`). `GeneratePetNumber` returns `++_hiPetNumber` under `_hiPetNumberMutex` (`ObjectMgr.cpp:8163-8167`). **VERIFIED** this pass at Grimfeather `8daffda`. Within one process the counter only increases, so a number is not reissued before a restart. After a restart the counter is seeded again from `MAX(id)`. If the rows that held the highest ids are gone, a later tame can be given a number an older pet used. That is normal allocator behavior, not only an out-of-band edit.
+- `Player::GetPetStable()` returns `PetStable*` (`Player.h:1226`). `GetPet()` is public (`Player.h:1230`). `PetStable::CurrentPet` is `Optional<PetInfo>` (`PetDefines.h:235`). `PetInfo::PetNumber` defaults to 0 (`PetDefines.h:220`).
 
-Name and family are not this key. Runtime creature GUID changes across resummon. The saved pet number is the identity the proposal binds.
+Name and family are not this key. Runtime creature GUID changes across resummon. `Pet*` and `id(pet)` are not this key. The hello carries the current stable pet number so the client can tell two same-name pets apart during this process. That number is not a durable lifetime id. `db.pets[petNumber]` is not a durable contract. The ephemeral token is not a SavedVariables key either.
+
+Within one process, while `GetPetStable()->CurrentPet->PetNumber` is still that pet, the addon may resend an explicit choice on the new token after relog. PAK-ID-07 models that same-process resend. Across a new boot epoch those rows are quarantined and must not auto-apply. Permanent lineage is **BLOCKED**. Hybrid H (a module-owned `creation_id` table) is a preferred investigation candidate and is not selected. No table, SQL, or core patch is in this revision. The delete, abandon, `DELETE BY_ID`+`REPLACE` save, and Playerbots bulk-delete paths were not re-read line by line in this pass; the restart reseed above is enough to refuse PetNumber as a durable key. Those other paths stay **UNRESOLVED** as fresh citations.
 
 **VERIFIED limitation of a receive-time stamp:** if the world thread, or the map thread at the moment a fragment is parsed, writes "whatever `GetPetNumber()` is right now" onto a fragment that was built for A, a fragment that arrives after the swap is stamped with B. v2 does not do that. The fragment must carry the token that was issued for A, and the map thread must reject it when A's generation is no longer active.
 
-`PetNumber == 0` is never a writable identity. No pet, or a pet that is not `owner->GetPet()`, is never a write target.
+`PetNumber == 0` is never a writable identity. No pet, a pet that is not `owner->GetPet()`, a null `GetPetStable()`, an empty `CurrentPet`, or a `CurrentPet` number that differs from the pet being updated is never a write target. The receiver does not insert an observed number into the stable. PAK-STABLE-MEMBER-01 covers a current pet whose number is absent from that stable, without a tombstone call.
 
 ## Server to addon transport
 
@@ -181,22 +186,44 @@ A later config load (`OnAfterConfigLoad(true)`): a value that is not that proof 
 
 ### Gate
 
-A write needs both of these. Otherwise nothing is written.
+A write needs all of these. Otherwise nothing is written.
 
 1. `NaxxramasCore.HunterPetAutocast.AddonOptIn` is on. It stays default `0` (`conf/mod_naxxramas_core.conf.dist:419`). While it is off the chat hook returns before `Accept`, as it does now.
 2. The cached proof above is open.
+3. At apply time the map worker still loads that atomic and the value is still integer `0`. Missing, unreadable, and any other value fail closed, including a snapshot published earlier in the process. `RestoreHumanChain` stays default `0`.
+
+`World::Update` runs `UpdateSessions` at `World.cpp:1227` and `sMapMgr->Update` at `:1254`. `OnWorldUpdate` is at `:1355`, after the map update, so a refresh there does not cover the same tick. **VERIFIED** this pass. The world thread stores the atomic (release) from `GetOption` on `OnAfterConfigLoad` and again on the chat-accept path, both inside session update, before map workers run. Map workers only load the atomic (acquire). They do not call `GetOption`. `MapUpdate.Threads` is stated as 8; the pinned default is 1; the live value is **UNKNOWN**.
+
+Playerbots `reload` (`PlayerbotMgr.cpp:1075-1079`) and `rndbot reload` (`RandomPlayerbotMgr.cpp:2532-2535`) call `Initialize()` and do not call `OnAfterConfigLoad`. `Initialize` reads `sConfigMgr` at `PlayerbotAIConfig.cpp:759`. The module does not read the plain `uint32` at `PlayerbotAIConfig.h:414`. It re-reads `sConfigMgr`, which is the same store `Initialize` reads, and the map thread re-checks the atomic when it applies. A published set stops applying as soon as that sample is not integer `0`. A sample of `0` still does not open a closed latch. A Playerbots build that writes `SelfBotLevel` without updating `sConfigMgr` is **UNRESOLVED** (owner tree `e88cc409` plus two local edits was not read). The positive human gate stays **UNRESOLVED**. Level `0` is a necessary closed-by-default precondition, not a proof that the player is human.
 
 The addon message does not create the proof. It is the human signal only while the proof is already open. `RestoreHumanChain` stays default `0` (`conf/mod_naxxramas_core.conf.dist:411`). Both flags off means no restore.
 
 Playerbots and Altbots stay unaffected. `AddPlayerBot` constructs the session with a null socket (`PlayerbotMgr.cpp:158-160`). `WorldSession::Update` pops client packets only while `m_Socket` is set (`WorldSession.cpp:414`). The hook runs from `CMSG_MESSAGECHAT` (`Opcodes.cpp:280`, `ChatHandler.cpp:364`). A search of the pinned Playerbots tree finds no call to that handler. A headless session does not deliver `NXCPAK`. A forced headless accept returns without a write.
 
-An active SelfBot stays unaffected because the proof is closed whenever the startup value is not `0`. No per-player AI read is added. `_playerbotsAIMap` stays unread.
+An active SelfBot stays unaffected because the proof is closed whenever the effective value is not integer `0`, at startup and again at apply. No per-player AI read is added. `_playerbotsAIMap` stays unread.
 
 The #130 note already rejected a per-player distinction: the unlocked AI map, `!IsHeadless`, account lists, `playerBots`, and a login latch. This decision does not reopen them. No Playerbots, core, or Individual Progression file was edited.
 
 ## Candidate wire
 
-Prefix `NXCPAK`, one TAB, then the payload. The payload has no TAB and no spaces. Decimal fields have no leading zero. The token is exactly 16 lowercase hex digits (`[0-9a-f]{16}`), minted by the module, opaque, and new on each summon and each login. It is not the persistence key. Epoch, generation, and seq are decimal integers from 1 to 999999999. `<pet>` is the server-derived stable pet number, decimal, from 1 to 4294967295, with no leading zero. It appears only on the hello.
+Prefix `NXCPAK`, one TAB, then the payload. The payload has no TAB and no spaces. Decimal fields have no leading zero. The token is exactly 16 lowercase hex digits (`[0-9a-f]{16}`). It is not the persistence key. Epoch, generation, and seq are decimal integers from 1 to 999999999. `<pet>` is the server-derived current stable pet number, decimal, from 1 to 4294967295, with no leading zero. It appears only on the hello.
+
+### PAK-RESTART-01 token and epoch
+
+The token is minted per summon from process entropy. It is not a counter that restarts at `0000000000000001`. Epoch is one random integer in `1..999999999`, drawn once per process, kept across logins in that process, and different after a restart. Generation is the per-player issue counter. A separate per-summon counter, the incarnation, is stored on the server as a pet stamp (the stand-in for `CustomData`). It is not a wire field, not `Pet*`, and not `id(pet)`. Login does not roll the epoch. Logout clears the active token, and the next summon mints a new token, a new generation, and a new incarnation, so a pre-logout packet still fails inside the same process.
+
+At process start the candidate reads 8 bytes and then 4 bytes from a generator that can fail. Each summon reads 8 more bytes and mixes them with the process nonce. Failure, a short read, or an exception closes the process: no hello, no enqueue, no apply. There is no counter, timestamp, or zero fallback. PAK-RESTART-01 is two fresh process models, the same owner and pet, no logout on the first: the old complete packet does not apply. PAK-RESTART-ENTROPY is the closed path.
+
+**VERIFIED** at `CryptoRandom.cpp:22-26` on Grimfeather `8daffda`: `Acore::Crypto::GetRandomBytes` calls `RAND_bytes` and then `ASSERT(result == 1)`. An assert aborts the process. It is not a fail-closed A02 refusal, and this candidate does not use that helper as the recovery path. The Python model uses `os.urandom` and treats `OSError` or a short buffer as closed. The C++ shape is to call `RAND_bytes` and treat any result other than 1 as closed. Whether a module may call `RAND_bytes` without a core or link change is **UNRESOLVED**. A generator that returns success with stuck bytes is **UNRESOLVED**; a success result is assumed to mean independent uniform bytes.
+
+Collision assumptions, not a proof:
+
+- A previous process's packet matches the new process's active token with probability 2^-64 per mint, if those bytes are uniform and independent. Rejection does not depend on the epoch.
+- The boot epoch is about 30 bits. The client quarantines saved rows when the hello epoch changes. The chance the next boot repeats the previous epoch is 1/999999999. That residual is **UNRESOLVED** as a durable quarantine. It is not lineage.
+
+### PAK-HELLO-STALE-01 queue
+
+The outbound hello queue holds one hello per player. A new hello replaces the unsent one. Fifty summons leave one queued hello. Logout clears it. The world-thread send step, which this branch does not wire to `Whisper`, rechecks before send: the player is logged in, entropy is open, the SelfBot atomic is integer `0`, and the queued epoch, token, generation, per-summon incarnation, and pet number still match the active generation and `GetPetStable()->CurrentPet`. Any miss drops the hello and increments no send. A hello queued for pet A is dropped after a swap to B and after logout. The future addon drops a hello whose pet number is not the current pet, so it does not write B's bar from A's hello (`UNIT_PET` / current pet, not a stale hello). The frozen addon has no `CHAT_MSG_ADDON` handler. That client rule is modelled in Python only. In-game Lua is **UNRESOLVED**.
 
 Outbound hello, composed on the map worker into a queue, sent only by a future world-thread step that this branch does not implement:
 
@@ -216,7 +243,7 @@ Client clear, scoped to that same generation:
 v2|<epoch>|<token>|<gen>|clear
 ```
 
-The map worker applies a fragment only when those three fence fields match the active generation and the pet now being updated is `owner->GetPet()`, its `GetPetNumber()` equals the number stored on that generation, and that number is still in this owner's stable. A client-supplied number is not a field and is not read. `0` is not written into a hello. A number removed from this owner's stable is not a write target afterwards, including if a later pet object carries that number again. `GeneratePetNumber` is `++_hiPetNumber` under `_hiPetNumberMutex` (`ObjectMgr.cpp:8163-8166`). `LoadPetNumber` sets the counter from `MAX(id)+1` (`ObjectMgr.cpp:8117-8125`). The generator does not recycle. Reuse would be an out-of-band database edit. The candidate still refuses a tombstoned number. `MSG_LIST_STABLED_PETS` already sends `PetNumber` to the owning client (`NPCHandler.cpp:380`, `:391`, `:405`). This branch does not send the hello, so it does not widen that audience.
+The map worker applies a fragment only when epoch, token, and generation match the active generation, the pet's per-summon incarnation matches, the pet is `owner->GetPet()`, and `GetPetNumber()` equals both the number stored on that generation and `GetPetStable()->CurrentPet->PetNumber`. The model reads a core stable the observer does not fill. A client-supplied number is not a field and is not read. `0` is not written into a hello. A number removed from this owner's stable is not a write target afterwards. A number that was never in the stable is not a write target either. Within one process the generator does not go backwards (`ObjectMgr.cpp:8163-8167`). Across a restart it can reissue a deleted high id (`ObjectMgr.cpp:8117-8129`). The candidate still refuses a number tombstoned in this process. It does not pretend that tombstone survives the restart. `MSG_LIST_STABLED_PETS` already sends `PetNumber` to the owning client (`NPCHandler.cpp:380`, `:391`, `:405`). This branch does not send the hello, so it does not widen that audience. The `NPCHandler` stable-slot update was not re-read in this pass and stays **UNRESOLVED** as a fresh line citation; the counter reseed does not depend on it.
 
 `<seq>` is 1..999999999. `<n>` and `<total>` are 1..8, and `<n> <= <total>`. `<pairs>` is empty or a comma-separated list of `<spellId>=<0|1>` with no trailing comma. `<spellId>` is 1..4294967295 with no leading zero. At most 64 pairs in one chunk and 64 pairs in one completed sequence. A duplicate spell id in a chunk, or the same spell id in two chunks of one sequence, is malformed. Version `v2` only. Any other version, including `v1`, is not applied.
 
@@ -258,16 +285,16 @@ Rate limit, same as v1: 8 `NXCPAK` messages per player per 10000 ms. A further m
 
 Per player GUID, all under the existing store mutex except the pet read and the autocast toggles, which stay on the map worker after the snapshot pointer is copied.
 
-- **Login (`OnPlayerLogin`).** Epoch increments by one. Active token is cleared. Inbox and partial are dropped. Tracking for the new epoch starts empty. Snapshots from the previous epoch are not applied. Seq tracking from the previous epoch is not reused.
-- **Logout (`OnPlayerLogout`).** Active token, inbox, and partial are dropped. The player is logged out, so a late call does not publish. Previous-epoch snapshots stay inert.
-- **Map worker observes the current pet.** This runs at the start of the pet's `OnWorldObjectUpdate`, before the inbox is drained. Read `CharmInfo::GetPetNumber()` only here, and only for the pet currently being updated, and only when `owner->GetPet() == pet`, the owner is an in-world hunter, and the pet is a hunter pet that is not loading. If there is no such pet, the number is missing or `0`, or that number was removed from this owner's stable, retire any active generation and publish nothing. Do not compose a hello. Mint a new token and generation when this pet object is not the object that holds the active generation, including a resummon that keeps the same pet number, and when the pet number itself changes. The same pet object, updated again on a later tick, keeps its generation. Retire drops that generation's partial and leaves its snapshot stored but ineligible for apply. Compose `v2|hello|<epoch>|<token>|<gen>|<pet>` into the outbound queue. The pet field is the number just read. Do not call `Whisper` here.
-- **World thread accepts a chat string.** If the session has no client socket, return. The core does not deliver that packet. If `AddonOptIn` is false, return before any parse. If the cached SelfBot proof is closed, return with no enqueue and no write. The one warning was logged at the config load that closed the proof, not on this message. If the sender is missing, the type is not `CHAT_MSG_WHISPER`, or the language is not `LANG_ADDON`, return. If `msg.length()` is above 255, the core already returned. Parse. Non-`NXCPAK` returns without a rate count. Non-hunter returns without a rate count and without a write. An inbound hello is malformed and is not a pet-number claim. Otherwise count the rate limit, then enqueue a v2 fragment, or mark `v1` as `RejectedLegacy` with no enqueue. Do not call `GetPet`, `GetPetStable`, or `GetPetNumber` on the world thread. Do not call `GetOption` on a map worker. The SelfBot proof was copied at config load.
-- **Map worker drains the inbox** after Individual Progression's event slot (step 2 above), still inside `OnWorldObjectUpdate`. A fragment carries no pet number. It is eligible only when its epoch, token, and generation equal the active generation, the pet being updated is owned by the sender and is `owner->GetPet()`, and `GetPetNumber()` equals the number stored on that generation and still present in that owner's stable. Otherwise it is rejected and nothing is written, including when the seq was used before, the token is stale, the number is missing, `0`, deleted, or reused, or the pet belongs to someone else.
+- **Login (`OnPlayerLogin`).** The player's epoch becomes the process boot epoch, or 0 when entropy is closed. Active token, inbox, partial, and the pending hello are dropped. Login does not increment a counter and does not mint a token by itself. A pre-logout token is no longer active. Snapshots from a previous process are not in this process.
+- **Logout (`OnPlayerLogout`).** Active token, inbox, partial, and the pending hello are dropped. A later send of that hello fails the logged-in check. Previous snapshots stay stored and are not applied while the player is logged out.
+- **Map worker observes the current pet.** This runs at the start of the pet's `OnWorldObjectUpdate`, before the inbox is drained. Read `CharmInfo::GetPetNumber()` only here, and only when `owner->GetPet() == pet`, the owner is an in-world hunter, and the pet is a hunter pet that is not loading. Compare that number to `GetPetStable()->CurrentPet`. Do not add the observed number to the stable. If entropy is closed, there is no such pet, the number is missing or `0`, the stable does not currently contain it, or this process tombstoned it, retire the active generation and do not compose a hello. Mint a new token, generation, and per-summon incarnation when the pet does not already carry this process's incarnation stamp. The same stamped pet on a later tick keeps them. The stamp is not a pointer. Retire drops that generation's partial. Compose one `v2|hello|<epoch>|<token>|<gen>|<pet>` into the one-slot outbound queue, replacing any unsent hello. Do not call `Whisper` here.
+- **World thread accepts a chat string.** If the session has no client socket, return. The core does not deliver that packet. If `AddonOptIn` is false, return before any parse. Re-sample `Playerbots.SelfBotLevel` from `sConfigMgr` on this thread and store the atomic. If the proof is closed, return with no enqueue and no write. The one warning was logged at the sample that closed the proof, not on every message. If entropy is closed, return `EntropyClosed` with no enqueue. If the sender is missing, the type is not `CHAT_MSG_WHISPER`, or the language is not `LANG_ADDON`, return. If `msg.length()` is above 255, the core already returned. Parse. Non-`NXCPAK` returns without a rate count. Non-hunter returns without a rate count and without a write. An inbound hello is malformed and is not a pet-number claim. Otherwise count the rate limit, then enqueue a v2 fragment, or mark `v1` as `RejectedLegacy` with no enqueue. Do not call `GetPet`, `GetPetStable`, or `GetPetNumber` on the world thread. Do not call `GetOption` on a map worker.
+- **Map worker drains the inbox** after Individual Progression's event slot (step 2 above), still inside `OnWorldObjectUpdate`. If the SelfBot atomic is not integer `0`, or entropy is closed, drop the inbox and write nothing. A fragment carries no pet number. It is eligible only when its epoch, token, and generation equal the active generation, the pet's incarnation stamp matches, the pet is `owner->GetPet()`, and `GetPetNumber()` equals `CurrentPet->PetNumber`. Otherwise it is rejected and nothing is written, including when the seq was used before, the token is from a previous process, the number is missing from the stable, `0`, deleted, or the pet belongs to someone else.
 - **Complete sequence.** Publish one immutable record keyed by `(player GUID, pet number)` for this epoch and generation: the merged pairs, normalized by the same `GetFirstSpellInChain` rule as v1 (first id of a chain, later rank matches). A spell that is not autocastable, or whose chain id is 0, is dropped from the record and does not fail the rest. Two pairs that normalize to one chain: the later pair in chunk order wins. Publishing replaces that pet's record only. Other pet numbers are left as they are.
 - **Clear.** In the same critical section: if the echoed generation is the active one and the pet number matches, delete that pet's record, drop partials for that generation, retire the generation, and mint the next generation (new token, new hello queued) for the same pet number. A second pet's record is not deleted. A replay of the retired generation does not publish, even if it repeats the old seq or repeats `clear`. A `v1|clear` does not enter this path.
-- **Apply.** Copy the immutable record under the mutex. Toggle only spells that are already on the post-event book, present, autocastable, and listed under that chain. Do not insert a spell. Do not call `learnSpell`. Unlisted spells stay as they are. Empty pair list publishes a record with no choices, so this pet stops receiving restores and other pets are untouched. A same-id book at the same generation still skips `DecideChains`, as the current receiver does, once this candidate is implemented. This proposal does not change that fast path's source.
+- **Apply.** Load the SelfBot atomic again. If it is not integer `0`, copy nothing and toggle nothing, including a record published earlier in the process (PAK-SELF-APPLY). Otherwise copy the immutable record under the mutex. Toggle only spells that are already on the post-event book, present, autocastable, and listed under that chain. Do not insert a spell. Do not call `learnSpell`. Unlisted spells stay as they are. Empty pair list publishes a record with no choices, so this pet stops receiving restores and other pets are untouched. A same-id book at the same generation still skips `DecideChains`, as the current receiver does, once this candidate is implemented. This proposal does not change that fast path's source.
 
-Resummon of A keeps A's pet number (`LoadPetFromDB` / `SetPetNumber`) and receives a new generation and a new token. The hello repeats that same pet number. Fragments from the previous token are rejected and do not write. The addon, once it can hear the hello, loads `db.pets` by that number and may send a new sequence on the new token. The server applies that new sequence only to the owned current pet with that number. Silence does not restore. A name or family key is not used. A's choices do not publish onto B.
+Resummon of A keeps A's pet number for this process (`LoadPetFromDB` / `SetPetNumber`) and receives a new generation, a new per-summon incarnation, and a new token. The hello repeats that same pet number and the same boot epoch. Fragments from the previous token are rejected and do not write. The addon may resend an explicit choice for that current number on the new token. It does not key the save by the token. It does not auto-send a `db.pets[petNumber]` row after the boot epoch changes. Silence does not restore. A name or family key is not used. A's choices do not publish onto B.
 
 ## Migration for the staged addon v1
 
@@ -278,11 +305,11 @@ The staged addon at zip `4d4e0484…` speaks only `v1|<seq>|<n>/<total>|<pairs>`
 | Now | #134 v1 draft, both flags 0 | Frozen v1, relay is the addon's own saved variable | None while the flags are 0 |
 | This candidate, if Module Editor implements it later | Parse v2. `v1` is `RejectedLegacy` | Unchanged v1 | None. v1 cannot satisfy a token check. Flags still default 0 |
 | Transport check | Still default 0 until the owner allows one character to receive a hello | Addon Creator, not this branch | Still none until Lua observation is recorded |
-| Addon v2 | One accepted text copied into `docs/A02-ADDON-PROTOCOL.md` | Key `db.pets` by the hello's stable pet number; echo epoch, token, and generation only; measure the longer hello | Only after the flags are turned on by an explicit later decision |
+| Addon v2 | One accepted text copied into `docs/A02-ADDON-PROTOCOL.md` | Echo epoch, token, and generation only. Same boot epoch may resend an explicit choice for the current stable number. A new boot epoch quarantines `db.pets[petNumber]`. Never key by the token. Durable id is BLOCKED | Only after the flags are turned on by an explicit later decision |
 
 v1 and v2 are not mixed on one publish. A v1 payload must not complete a v2 partial, must not clear a v2 record, and must not reset epoch or generation. The addon's seq wrap (`NextSeq` returns 1 and `RelayDecide` prefixes `v1|clear`) is a v1 behaviour. Against a v2 receiver that wrap is two rejected legacy messages.
 
-Same-name collision is the frozen addon's `PetKey`. This branch does not edit that addon. The addon contract for a later v2, documented here and not implemented in the zip, is `db.pets[petNumber]` where `petNumber` is the decimal field from a hello the client verifiably received. The ephemeral token is not that key. A name or family fallback is not that key. Two wolves named Fluffy with pet numbers 101 and 202 are two save rows. The server still ignores any number the client might try to add to a data or clear payload.
+Same-name collision is the frozen addon's `PetKey`. This branch does not edit that addon. The earlier `db.pets[petNumber]` contract is withdrawn as a durable key. `petNumber` in the hello is the server's current stable binding, and the ephemeral token is not that key. A name or family fallback is not that key. Within one boot epoch, two wolves named Fluffy with pet numbers 101 and 202 are two current bindings, and an explicit resend uses the number from the hello just received. After the boot epoch changes, both rows are quarantined (PAK-ID-QUARANTINE). The server still ignores any number the client might try to add to a data or clear payload. The server cannot see SavedVariables, so the quarantine is a client rule. It is not implemented in the frozen zip.
 
 Cower documentation on the addon (`README.md`: "The server never toggles Cower (1742)") disagrees with parent `2ab3030`, which toggles 1742 when the pet has it. v2 keeps that rule: present means the explicit bit is applied; absent means no toggle and no learn. The README/HANDOVER update waits on the addon owner and on a pinned wire.
 
@@ -320,6 +347,13 @@ The Python file models v1 from the parent receiver and models this candidate. Th
 | PAK-SPELL-05 | Unlisted Growl and a non-autocastable id are not written | Holds | Holds |
 | PAK-AUTH-01 | The whisper target name is not the store key; another player's pet is not written | Holds | Holds |
 | PAK-V1-LEGACY | A v1 data or `v1|clear` does not publish, clear, or reset a v2 generation | v1 implements those strings | v2 rejects them |
+| PAK-RESTART-01 | A complete packet from a previous process does not apply on a fresh process with the same owner and pet | v1 accepts the replay | Holds. New token and boot epoch |
+| PAK-RESTART-ENTROPY | Entropy failure mints no token and applies nothing | v1 still writes | Holds. No counter fallback |
+| PAK-STABLE-MEMBER-01 | A current pet number missing from the core stable does not write, and `observe` does not insert it | v1 writes | Holds |
+| PAK-HELLO-STALE-01 | Send-time recheck drops pet A's hello after a swap to B, logout, or a closed SelfBot gate. The queue cap is 1 | v1 delayed packet writes B | Holds |
+| PAK-SUMMON-01 | A new summon gets a new per-summon incarnation and token. The pointer is not the token. The old packet does not write | v1 writes the resummon | Holds |
+| PAK-SELF-APPLY | After a Playerbots-style reload to 2, missing, or unreadable, apply writes nothing | v1 writes | Holds |
+| PAK-ID-QUARANTINE | A new boot epoch quarantines `db.pets[petNumber]`. The old packet does not restore | v1 name key writes | Holds |
 | PAK-BUDGET | 256-byte `NXCPAK` string is not delivered; 255 is delivered; the wire block above fits | Holds | Holds |
 | PAK-FLAG | Source defaults are 0; a disabled v2 store does not apply | Source default off | Holds |
 | PAK-SELF-ENABLED | `SelfBotLevel` 1, 2, or 3 plus a valid message does not write. 1 is the distributed default | v1 writes | Holds |
@@ -358,6 +392,28 @@ Lua, against the frozen addon, covers `PetKey` same-name collision, `v1|clear` w
 | Live `AddonChannel` | **UNKNOWN** |
 | In-game summon, stable, relog, bar, fallback button | **NOT TESTED** |
 | Per-player AI map as a human proof | Not reopened. Still the #130 rejection |
+| `GetRandomBytes` asserts on failure | **VERIFIED** `CryptoRandom.cpp:22-26`. Not used as the A02 recovery path |
+| Module link to `RAND_bytes` | **UNRESOLVED** |
+| Stuck generator that still returns success | **UNRESOLVED**. Assumed uniform on success |
+| Boot-epoch collision as a quarantine | **UNRESOLVED**. About 1/999999999 against the previous boot. Not lineage |
+| `OnWorldUpdate` as the SelfBot refresh point | **REJECTED** for the same tick. It is `World.cpp:1355`, after `MapMgr::Update` at `:1254` |
+| Positive human classification | **UNRESOLVED**. `SelfBotLevel == 0` is necessary and not sufficient |
+| Owner Playerbots `e88cc409` plus two local edits | **UNRESOLVED**. Not read |
+| Hybrid H, creation-id column, never-reuse allocator | H is not selected. The other two need a core patch. No SQL here |
+| In-game hello delivery and Lua quarantine | **UNRESOLVED** / **NOT TESTED** |
+
+## Hybrid H, not selected
+
+CS01's review of the module-owned identity table (issue #48 comments 6399692347 and 6399828949) is accepted as research, not as a build. H stays a preferred investigation candidate. It is not selected. This revision does not add a table.
+
+| Falsifier | PetNumber-only save | Hybrid H | Creation-id column | Never-reuse allocator |
+| --- | --- | --- | --- | --- |
+| Delete the high ids, restart, tame again | Can restore the old prefs onto the new pet. Refused here by quarantining on the boot epoch. Residual epoch collision is **UNRESOLVED** | Startup sweep can drop a stale row only if it finishes before the number is reissued. Hook order against every login is **UNRESOLVED** | New column value, so the old prefs do not match. Needs a core patch | The number is not reissued. Needs a core patch and a durable high-water write |
+| Ordinary save `DELETE BY_ID` then `REPLACE` | Not a deletion. **UNRESOLVED** as a fresh line read this pass | Must not rotate the id on that save. Not implemented | Core write. Not in this branch | Not in this branch |
+| Backup restore with the same owner, number, and entry | Undetectable | Stale `creation_id` can match the wrong lifetime. **UNRESOLVED** | Only if the column is restored with the row. **UNRESOLVED** | A rolled-back high-water mark can reissue. **UNRESOLVED** |
+| Tame Beast: `CurrentPet` filled, then `AddToMap`, then `SetMinion` and `SavePetToDB` | Apply is later, in `OnWorldObjectUpdate`, and requires `GetPet()` and `CurrentPet` together | Requiring `GetPet()==pet` inside `OnPetAddToWorld` can reject a legitimate tame. Two-phase bind is **UNRESOLVED**. No synchronous map-worker SQL | Not in this branch | Not in this branch |
+
+The tame order is CS01's source correction, not re-traced line by line in this pass, so the two-phase flow stays **UNRESOLVED**. No second observation point is implemented. If none is proven later, H fails closed and does not hello.
 
 ## Open decisions for Michael
 
@@ -366,7 +422,7 @@ The SelfBot choice is recorded above. These remain:
 1. Whether any later build may send one `LANG_ADDON` whisper to the authenticated client so an addon can echo a token. Lua delivery is **UNKNOWN** until that trial exists. This branch does not send it.
 2. Live `AddonChannel` and live `MapUpdate.Threads`, when an operator is ready to read them. Not read here. Live `Playerbots.SelfBotLevel` was not read here either. The startup read is the proof, once it is implemented.
 3. Whether a process restart is the required way to open the gate after `Playerbots.SelfBotLevel` changes. This candidate says yes, because a `.reload config` to `0` does not by itself update `sPlayerbotAIConfig.SelfBotLevel`.
-4. Whether the Addon Creator should key saves by a server token after the wire is accepted. The frozen addon is unchanged.
+4. Durable pet identity remains **BLOCKED**. The addon must not key saves by the ephemeral token. It also must not treat `db.pets[petNumber]` as a durable key across deletion and restart. Hybrid H is not selected. A creation-id column and a never-reuse allocator both need a core change and a separate owner decision. The frozen addon is unchanged.
 5. When, if ever, Module Editor replaces the #134 protocol text with an accepted v2. CS01 still has to agree that text. Not in this branch.
 
 ## Recorded run
@@ -377,12 +433,12 @@ Offline only. Not an in-game result. Parent `2ab30306c884d3af1c92bb5ad7042648b90
 python3 tests/research/test_a02_pak_d1_protocol_v2.py
 ```
 
-Result on this revision: 29 unittest methods, OK, exit 0. Printed witnesses: 37. v1 safety FAIL 20, v1 safety PASS 17, v2 safety FAIL 0, v2 safety PASS 37. `SOURCE_ANCHORS proposal+header+cpp OK` is an extra unittest check, not one of the 37. Isolation witnesses still assume a startup proof that `Playerbots.SelfBotLevel` is 0. The new v2 passes are PAK-ID-07 (A OFF restored from the pet-number save, B unwritten), PAK-ID-07-MISSING, PAK-ID-07-ZERO, PAK-ID-07-DELETED, PAK-ID-07-REUSED, PAK-ID-07-STALE, PAK-ID-07-CLEAR (no spell write), and the SelfBot gate witnesses PAK-SELF-ENABLED, PAK-SELF-UNREADABLE, PAK-SELF-MISSING, PAK-SELF-MODULE, PAK-SELF-OFF, PAK-SELF-RELOAD, and PAK-SELF-NOCLIENT.
+Result on this revision: 36 unittest methods, OK, exit 0. Printed witnesses: 44. v1 safety FAIL 27, v1 safety PASS 17, v2 safety FAIL 0, v2 safety PASS 44. `SOURCE_ANCHORS proposal+header+cpp OK` is an extra unittest check, not one of the 44. Isolation witnesses still assume a startup proof that `Playerbots.SelfBotLevel` is 0, and PAK-SELF-APPLY then closes that proof. The witnesses added in this revision are PAK-RESTART-01, PAK-RESTART-ENTROPY, PAK-STABLE-MEMBER-01, PAK-HELLO-STALE-01, PAK-SUMMON-01, PAK-SELF-APPLY, and PAK-ID-QUARANTINE. PAK-ID-07 still restores A inside one process; it is not a cross-restart durable key.
 
 ```text
 lua5.1 tests/research/test_a02_pak_d1_addon_contract.lua <PetAutocastKeeper directory at zip sha256 4d4e04843e6274b4ede20a03429c3c6f05f2b579f8536d48d59710ec9dc7e007>
 ```
 
-**NOT RUN** on this revision. The zip is not in this repository, and `lua5.1` is not installed here. The Lua file was not changed. It still checks the frozen addon, which keys by `PetKey` and does not know a pet number. The `db.pets[petNumber]` contract is documentation for a later addon. It is not a patch to that zip.
+**NOT RUN** on this revision. `lua5.1` is Lua 5.1.5 here, and the script starts, but the PetAutocastKeeper directory for zip sha256 `4d4e04843e6274b4ede20a03429c3c6f05f2b579f8536d48d59710ec9dc7e007` is not in this checkout. The Lua file was not changed. It still checks the frozen addon, which keys by `PetKey` and does not know a pet number. Quarantine of `db.pets[petNumber]` is documentation and a Python client model for a later addon. It is not a patch to that zip.
 
 Still **NOT TESTED**: in-game summon, stable, relog, bar, fallback button, 3.3.5a Lua delivery of a server addon whisper, live `AddonChannel`, live `MapUpdate.Threads`, live `playerbots.conf`, DBC autocast and spell-chain rows, `learnSpell`'s autocast bit, and any C++ implementation of this candidate. Both module flags stay 0.
