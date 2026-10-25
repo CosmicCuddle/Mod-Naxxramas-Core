@@ -1,0 +1,38 @@
+name: F15 offline incident persistence (synthetic, no host access)
+on:
+  pull_request:
+    paths:
+      - 'tools/f15/offline_store.py'
+      - 'tests/test_f15_offline_store_s2.py'
+      - 'docs/research/F15-S2-OFFLINE-STORE.md'
+      - '.github/workflows/f15-offline-store-s2.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact pull-request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact checked-out head
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+      - name: Prohibit live-service adapters and external dependencies
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          source=Path('tools/f15/offline_store.py').read_text()
+          for forbidden in ('subprocess.', 'socket.', 'requests.', '/root/cosmic_core', 'systemctl', 'journalctl'):
+              assert forbidden not in source, forbidden
+          print("S2 offline core only: no supervisor, external service or root path")
+          PY
+      - name: Run 23 deterministic and multiprocess synthetic cases
+        run: python3 -m unittest discover -s tests -p 'test_f15_offline_store_s2.py' -v
+      - name: No artifacts or live monitoring
+        run: echo 'Runs only in disposable runner temporary directories. No deployments or uploads.'
