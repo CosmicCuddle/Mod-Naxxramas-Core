@@ -5,7 +5,7 @@
 ## What exists
 
 - `tools/f15/offline_store.py`: Python 3 POSIX-only immutable crash report persistence core. Accepts **caller-supplied verified actual-child death records**; cannot discover or verify deaths itself.
-- `tests/test_f15_offline_store_s2.py`: 23 synthetic tests in a private temporary directory, including real multi-process file locking and same-event duplicates. No actual Worldserver/Authserver runs.
+- `tests/test_f15_offline_store_s2.py`: 29 synthetic tests in a private temporary directory, including real multi-process file locking and same-event duplicates. No actual Worldserver/Authserver runs.
 - `.github/workflows/f15-offline-store-s2.yml`: exact-head pinned Actions test, no artifacts, host adapters, service edits, root path, DB, AzerothCore, core/PB/IP or module C++ changes.
 
 The storage design follows the reviewed F15 S1 architecture from [draft #106](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/106), exact `50dc668cb3054c23af0889e6512f61f4be919a4c` (CS02 and CS03 S1 source PASS).
@@ -21,13 +21,21 @@ The storage design follows the reviewed F15 S1 architecture from [draft #106](ht
 5. Recovery: `Crash-History.txt` is a **derived** atomic `os.replace` index of finalized, SHA256-validated, filename- and identity-validated individual reports; a bad/incomplete file is excluded. Final report remains if index write is interrupted.
 6. Keeps worldserver/authserver counts separate and histories sorted by UTC, handling repeated wall-clock hours around UK daylight-saving changes.
 
+## Additional S2 filesystem safeguards
+
+- Open the absolute directory one component at a time using `O_DIRECTORY|O_NOFOLLOW`, keeping a pinned descriptor for the private output leaf.
+- Use directory-relative report, index and lock operations. Later symlink swaps and renames of the original path cannot redirect an already-opened store's writes.
+- Reject symlinked ancestor components, report-file symlinks, unsafe lock metadata, corrupt report hashes and conflicting filenames.
+- New synthetic cases exercise ancestor symlinks, renamed/replaced original directories, hostile history-index symlinks, simulated index failure after final report publication, and tampering of report content.
+- **Security limitation:** the prototype is not a privileged adapter or proof against every attacker who can control mounts, ancestor ownership, path traversal during initial open, or trusted evidence records.
+
 ## Deliberately NOT implemented — stop gates
 
 - **No actual supervisor adapter** (AzerothCore `starter`, GDB, systemd, tmux, custom wrapper, PM2) or current server monitoring. Actual launcher, GDB flag, permissions and restart policy remain UNKNOWN. Never derive process signal from wrapper status; pinned GDB-enabled starter can mask exits to zero.
-- **No approved privileged /root broker**. Private leaf directory verification is a preliminary check only; parent-chain symlink/permissions and TOCTOU race handling need security review before elevated deployment.
+- **No approved privileged /root broker**. Pinned directory-FD traversal rejects symlinked ancestors and anchors report operations, but parent ownership/permissions, traversal races, mount changes and broker hardening still require review before elevated deployment.
 - **No restart/status sidecar**, attachments, redaction of arbitrary logs, error-burst watcher, time-zone-local presentation or actual process reaping. The initial report always says restart is unverified; those features require further S2 stages.
 - **No real-server stop/crash/restart**, simulated service installation, database reads/writes, root access, shell execution, CI upload, merge or feature activation. This code MUST NOT be pointed at the owner's live path until separate S5–S7 authorization and review.
-- Linux-only `fcntl` and hard-link atomicity require local supported filesystem semantics; NFS/remote filesystem portability not proven. Untrusted directory path handling is not production hardened.
+- Linux-only `fcntl`, pinned directory-FD operations and hard-link atomicity require supported local filesystem semantics; NFS/remote filesystem portability not proven. Untrusted path, privileged operation and mount behavior are not production hardened.
 
 ## Exact offline test
 
