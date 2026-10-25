@@ -5,7 +5,7 @@
 ## What exists
 
 - `tools/f15/offline_store.py`: Python 3 POSIX-only immutable crash report persistence core. Accepts **caller-supplied verified actual-child death records**; cannot discover or verify deaths itself.
-- `tests/test_f15_offline_store_s2.py`: 38 synthetic tests in a private temporary directory, including real multi-process file locking and same-event duplicates. No actual Worldserver/Authserver runs.
+- `tests/test_f15_offline_store_s2.py`: 43 synthetic tests in a private temporary directory, including real multi-process file locking and same-event duplicates. No actual Worldserver/Authserver runs.
 - `.github/workflows/f15-offline-store-s2.yml`: exact-head pinned Actions test, no artifacts, host adapters, service edits, root path, DB, AzerothCore, core/PB/IP or module C++ changes.
 
 The storage design follows the reviewed F15 S1 architecture from [draft #106](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/106), exact `50dc668cb3054c23af0889e6512f61f4be919a4c` (CS02 and CS03 S1 source PASS).
@@ -34,6 +34,14 @@ The storage design follows the reviewed F15 S1 architecture from [draft #106](ht
 Claude independently reviewed the 29-case head and returned **CONDITIONAL, three should-fix items**: previously unlisted fatal signals, silent disappearance of tampered report entries from counts, and missing owner validation for the final directory. The latest revision addresses those items and also narrows the Worldserver-only meaning of exit code 2.
 
 `Crash-History.txt` now distinguishes **verified incidents** from **unverified or modified files**. Invalid files remain on disk and are listed by name with a warning, but are NOT included in trusted totals. If the sole authoritative file was edited, the true historical contents are unrecoverable from its modified bytes alone: do not misrepresent verified totals as all real deaths. Keep human notes separate. Restart outcomes, error-burst reporting, actual supervisor events, privileged broker and safe cleanup of stale temp files remain open.
+
+## Follow-up to Claude's second independent review (conditional)
+
+At the previous 38-case head, Claude confirmed the three earlier primary issues were fixed, but found that `planned_stop=True` silently suppressed **independently verified abnormal actual-child exit statuses** such as 1, 134, 137 or 139. The corrected rule suppresses only verified normal termination and confirmed planned Worldserver restart, plus normal administrative SIGTERM/SIGHUP/SIGINT and an unknown-status planned exit. A verified unexpected nonzero actual-child death can still be recorded during shutdown; it is not automatically labelled an operating-system signal merely because a shell reported `128+N`.
+
+A second correction rebuilds the derived `Crash-History.txt` with an explicit modified/unverified report warning before raising a no-clobber conflict. The original damaged incident is **never overwritten**. Five additional negative tests cover these rules and three hostile intermediate-ancestor ownership/permission variations.
+
+The store still relies on the future **trusted real-child adapter** to prove that `verified_actual_death` and `unexpected_death` are genuine. A bare wrapper code, particularly with GDB enabled, is **not enough**. No production adapter or installation is authorized. SIGKILL during a shutdown timeout remains deliberately classified as an independently verified forced termination pending actual supervisor-specific policy.
 
 ## Deliberately NOT implemented — stop gates
 
