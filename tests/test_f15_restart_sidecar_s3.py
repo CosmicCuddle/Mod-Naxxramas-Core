@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "f15"))
-from offline_store import Incident
+from offline_store import Incident, IncidentStore
 from offline_restart import RestartObservation, RestartSidecarStore
 
 
@@ -59,6 +59,52 @@ class S3Tests(unittest.TestCase):
         self.assertIn("Total: 1", self.history())
         self.assertEqual(len(list(self.root.glob("*-crash-*.txt"))), 1)
         self.assertEqual(len(self.sidecars()), 1)
+
+    def test_legacy_s2_rebuild_cannot_erase_s3_restart_projection(self):
+        self.store.publish_restart(restart(self.item))
+        previous = self.history()
+        old_writer = IncidentStore(self.root)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "legacy S2 index"):
+                old_writer.rebuild()
+        finally:
+            old_writer.close()
+        self.assertEqual(self.history(), previous)
+        self.assertIn("restart: succeeded (attempt try-1)", self.history())
+
+    def test_legacy_s2_publish_rejected_before_mutating_s3_directory(self):
+        self.store.publish_restart(restart(self.item))
+        old_writer = IncidentStore(self.root)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "legacy S2 index"):
+                old_writer.publish(crash("authserver", "unexpected-auth"))
+        finally:
+            old_writer.close()
+        self.assertIn("Worldserver: 1", self.history())
+        self.assertIn("Authserver: 0", self.history())
+        self.assertEqual(len(list(self.root.glob("*-crash-*.txt"))), 1)
+        self.assertIn("restart: succeeded", self.history())
+
+    def test_future_dated_restart_is_refused_without_sidecar(self):
+        with self.assertRaisesRegex(ValueError, "future"):
+            self.store.publish_restart(
+                restart(self.item, attempt="bad-clock",
+                        time="2099-01-01T00:00:00Z"))
+        self.assertEqual(len(self.sidecars()), 0)
+        self.assertIn("restart: Not verified", self.history())
+
+    def test_correctly_hashed_future_sidecar_cannot_hide_later_failure(self):
+        from offline_restart import sidecar_bytes
+        self.store.publish_restart(restart(
+            self.item, attempt="real", outcome="failed",
+            time="2026-10-25T00:05:00Z"))
+        forged = restart(self.item, attempt="bad-clock", outcome="succeeded",
+                         time="2099-01-01T00:00:00Z")
+        (self.root / forged.filename()).write_bytes(sidecar_bytes(forged.info()))
+        self.assertEqual(self.store.rebuild(), (1, 0))
+        self.assertIn("Unverified or orphan restart sidecars: 1", self.history())
+        self.assertIn("restart: failed (attempt real)", self.history())
+        self.assertNotIn("restart: succeeded (attempt bad-clock)", self.history())
 
     def test_world_and_auth_remain_separate_and_correct(self):
         auth = crash("authserver", "auth-run")
