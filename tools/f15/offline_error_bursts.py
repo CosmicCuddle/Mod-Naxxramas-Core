@@ -103,7 +103,9 @@ class OfflineBurstTracker:
     strictly increase. No retry or replay after a reject mutates counters.
     Per category, first reaching the threshold in one sliding window emits
     one alert; sustained same-window noise never produces alert floods.
-    An interval with no events in the last window rearms the category.
+    The category rearms once the rolling event count falls below threshold.
+    An authenticated-in-fixture instance exit releases its stream/category memory;
+    this model never establishes actual OS provenance.
     """
 
     def __init__(self, *, threshold: int = 3, window_ms: int = 60_000,
