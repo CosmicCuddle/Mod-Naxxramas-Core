@@ -194,7 +194,7 @@ _TOKEN = re.compile(r"^[0-9a-f]{16}$")
 
 def _parse_v2(payload: str) -> Parsed:
     parts = payload.split("|")
-    if len(parts) == 5 and parts[1] == "hello":
+    if len(parts) >= 2 and parts[1] == "hello":
         return Parsed("Malformed")
     if len(parts) == 5 and parts[4] == "clear":
         epoch = parse_decimal(parts[1], 9, MAX_SEQ)
@@ -345,10 +345,12 @@ def apply_choices(pet: "Pet | None", choices: dict[int, bool] | None) -> list[tu
 
 
 class Pet:
-    def __init__(self, number: int, name: str, family: str, spells: dict[int, bool]):
+    def __init__(self, number: int | None, name: str, family: str, spells: dict[int, bool],
+                 owner: int = 1):
         self.number = number
         self.name = name
         self.family = family
+        self.owner = owner
         self.spells = dict(spells)
 
 
@@ -407,9 +409,11 @@ class V1Store:
         self.rates.pop(guid, None)
 
     def world_accept(self, guid: int, raw: str, now_ms: int, target: str,
-                     is_hunter: bool = True) -> str:
+                     is_hunter: bool = True, has_client: bool = True) -> str:
         self.last_sender = guid
         self.last_target = target
+        if not has_client:
+            return "NoClient"
         if not self.enabled:
             return "Disabled"
         parsed = parse_message(raw)
@@ -478,10 +482,16 @@ class V2Player:
         self.snapshots: dict[int, Snapshot] = {}
         self.rate = Rate()
         self.outbound: list[str] = []
+        self.stable: set[int] = set()
+        self.tombstones: set[int] = set()
 
 
 class V2Store:
-    """World thread enqueues. Map worker matches the active generation, then applies."""
+    """World thread enqueues. Map worker matches the active generation, then applies.
+
+    selfbot_off starts closed. Harness opens it with a startup proof of level 0.
+    A reload cannot open a closed proof. The warning is once per process.
+    """
 
     def __init__(self) -> None:
         self.enabled = True
@@ -489,6 +499,26 @@ class V2Store:
         self.last_sender = 0
         self.last_target = ""
         self.transport_sends = 0
+        self.selfbot_off = False
+        self.selfbot_warnings = 0
+        self._selfbot_warned = False
+
+    def load_selfbot(self, level: int | None, *, readable: bool = True,
+                     playerbots_enabled: bool = True, reload: bool = False) -> None:
+        """Config-load proof. level None is a missing key. readable False is a bad token.
+
+        playerbots_enabled False is Playerbots.Enabled explicit false, which skips
+        the SelfBotLevel assignment. Only integer 0 with that flag not false is off.
+        """
+        proven = bool(readable) and playerbots_enabled is not False and level == 0
+        if reload:
+            if not proven:
+                self.selfbot_off = False
+        else:
+            self.selfbot_off = proven
+        if not self.selfbot_off and not self._selfbot_warned:
+            self._selfbot_warned = True
+            self.selfbot_warnings += 1
 
     def player(self, guid: int) -> V2Player:
         return self.players.setdefault(guid, V2Player())
@@ -515,15 +545,30 @@ class V2Store:
         player.inbox.clear()
         player.assembler = Assembler()
 
+    def retire_number(self, guid: int, number: int) -> None:
+        """The owner's stable no longer has this number. Later reuse does not write."""
+        player = self.player(guid)
+        player.tombstones.add(number)
+        player.stable.discard(number)
+        player.snapshots.pop(number, None)
+        if player.active and player.active.pet_number == number:
+            player.active = None
+            player.assembler = Assembler()
+
     def observe(self, guid: int, pet: Pet | None) -> None:
         player = self.player(guid)
         if not player.logged_in or player.epoch == 0 or player.epoch >= MAX_SEQ and player.next_gen >= MAX_SEQ:
             return
-        number = 0 if pet is None else pet.number
-        if number == 0:
+        if pet is None or pet.owner != guid or pet.number is None or pet.number == 0:
             player.active = None
             player.assembler = Assembler()
             return
+        number = pet.number
+        if number in player.tombstones:
+            player.active = None
+            player.assembler = Assembler()
+            return
+        player.stable.add(number)
         instance_id = id(pet)
         if (
             player.active
@@ -542,7 +587,7 @@ class V2Store:
         player.next_gen += 1
         player.token_n += 1
         token = f"{player.token_n:016x}"
-        hello = f"v2|hello|{player.epoch}|{token}|{player.next_gen}"
+        hello = f"v2|hello|{player.epoch}|{token}|{player.next_gen}|{pet_number}"
         player.outbound.append(hello)
         player.active = Active(
             pet_number, token, player.next_gen, player.epoch, hello, instance_id
@@ -550,9 +595,11 @@ class V2Store:
         player.assembler = Assembler()
 
     def world_accept(self, guid: int, raw: str, now_ms: int, target: str,
-                     is_hunter: bool = True) -> str:
+                     is_hunter: bool = True, has_client: bool = True) -> str:
         self.last_sender = guid
         self.last_target = target
+        if not has_client:
+            return "NoClient"
         if not self.enabled:
             return "Disabled"
         parsed = parse_message(raw)
@@ -562,6 +609,8 @@ class V2Store:
             return "NotOurs"
         if not is_hunter:
             return "IgnoredNotHunter"
+        if not self.selfbot_off:
+            return "SelfBotBlocked"
         player = self.player(guid)
         if not player.logged_in:
             return "NotInWorld"
@@ -580,7 +629,15 @@ class V2Store:
         player.inbox = []
         for parsed in batch:
             active = player.active
-            if pet is None or pet.number == 0 or active is None:
+            if (
+                pet is None
+                or pet.owner != guid
+                or pet.number is None
+                or pet.number == 0
+                or active is None
+                or pet.number in player.tombstones
+                or pet.number not in player.stable
+            ):
                 continue
             if (
                 parsed.epoch != active.epoch
@@ -631,6 +688,8 @@ class Harness:
         self.kind = kind
         self.store: V1Store | V2Store = V1Store() if kind == "v1" else V2Store()
         self.store.enabled = True
+        if kind == "v2":
+            self.store.load_selfbot(0)
         self.guid = 1
         self.pet: Pet | None = None
         self.now = 0
@@ -648,6 +707,18 @@ class Harness:
             return None
         return active.epoch, active.token, active.gen
 
+    def hello_pet(self) -> int | None:
+        if self.kind != "v2":
+            return None
+        if self.identity() is None:
+            return None
+        player = self.store.players[self.guid]  # type: ignore[attr-defined]
+        return player.active.pet_number
+
+    def last_hello(self) -> str:
+        player = self.store.players[self.guid]  # type: ignore[attr-defined]
+        return player.outbound[-1]
+
     def chunk(self, seq: int, pairs: str, n: int = 1, total: int = 1,
               ident: tuple[int, str, int] | None = None) -> str:
         if self.kind == "v1":
@@ -662,8 +733,10 @@ class Harness:
         return f"{PREFIX}v2|{epoch}|{token}|{gen}|clear"
 
     def send(self, raw: str, target: str = "not-a-recipient-check",
-             guid: int | None = None, is_hunter: bool = True) -> str:
-        return self.store.world_accept(guid or self.guid, raw, self.now, target, is_hunter)
+             guid: int | None = None, is_hunter: bool = True, has_client: bool = True) -> str:
+        return self.store.world_accept(
+            guid or self.guid, raw, self.now, target, is_hunter, has_client
+        )
 
     def tick(self, mutate=None, pet: Pet | None = None, allow_other: bool = False):
         target = self.pet if pet is None else pet
@@ -1068,7 +1141,7 @@ class PakD1(unittest.TestCase):
         wires = [line.replace("\\t", "\t") for line in block.splitlines() if line.strip()]
         self.assertEqual(len(wires), 5)
         lengths = [(len(wire) - len(PREFIX), len(wire)) for wire in wires]
-        self.assertEqual(lengths, [(29, 36), (44, 51), (29, 36), (23, 30), (8, 15)])
+        self.assertEqual(lengths, [(33, 40), (44, 51), (29, 36), (23, 30), (8, 15)])
         for wire, (payload, combined) in zip(wires, lengths):
             self.assertLessEqual(combined, 255)
             self.assertLessEqual(payload, 233)
@@ -1080,6 +1153,10 @@ class PakD1(unittest.TestCase):
         worst = "v2|999999999|aaaaaaaaaaaaaaaa|999999999|999999999|8/8|"
         self.assertEqual(len(worst), 54)
         self.assertEqual(233 - len(worst), 179)
+        longest_hello = "v2|hello|999999999|aaaaaaaaaaaaaaaa|999999999|4294967295"
+        self.assertEqual(len(longest_hello), 56)
+        self.assertEqual(len(PREFIX) + len(longest_hello), 63)
+        self.assertIn("is 56 bytes", proposal)
 
         dropped = PREFIX + ("v" * 249)
         delivered = PREFIX + ("v" * 248)
@@ -1131,11 +1208,19 @@ class PakD1(unittest.TestCase):
         self.assertNotIn("Playerbots.h", cpp)
         self.assertIn("does not read _playerbotsAIMap", cpp)
         self.assertIn("v2 PROPOSAL / v1 UNSAFE FOR AUTO APPLY", proposal)
-        self.assertIn("OWNER DECISION REQUIRED", proposal)
+        self.assertIn("Playerbots.SelfBotLevel", proposal)
+        self.assertIn("08:04 GMT", proposal)
+        self.assertIn("AC_PLAYERBOTS_SELF_BOT_LEVEL", proposal)
+        self.assertIn("does not open a closed atomic", proposal)
+        self.assertNotIn("OWNER DECISION REQUIRED", proposal)
         self.assertIn("CharmInfo::GetPetNumber", proposal)
+        self.assertIn("v2|hello|<epoch>|<token>|<gen>|<pet>", proposal)
+        self.assertIn("owner stated in chat to CS02, relayed on #48 6395196578", proposal)
+        self.assertIn("6395269291", proposal)
+        self.assertIn("db.pets[petNumber]", proposal)
         self.assertIn("ChatHandler.cpp:292", proposal)
         self.assertIn("checkHunterPetSpells", proposal)
-        self.assertIn("Playerbots sources were not opened", proposal)
+        self.assertIn("Playerbots `d750b4b` was read and not modified", proposal)
         self.assertIn("UNKNOWN", proposal)
         self.assertNotIn("passed in game", proposal.lower())
         print("SOURCE_ANCHORS proposal+header+cpp OK")
@@ -1154,6 +1239,326 @@ class PakD1(unittest.TestCase):
             results[kind] = bite(pet) is False and pet.spells[COWER] is True
         self.check("PAK-ID-02-duplicate", results["v1"], results["v2"], True, True,
                    "a repeated identical chunk still lets the sequence complete")
+
+    def _closed_gate(self, level: int | None, *, readable: bool = True,
+                     playerbots_enabled: bool = True, reload_to_zero: bool = False) -> dict[str, bool]:
+        """True when that model did not turn Bite OFF."""
+        held: dict[str, bool] = {}
+        for kind in ("v1", "v2"):
+            harness = Harness(kind)
+            pet = make_wolf(101, bite=True)
+            harness.summon(pet)
+            if kind == "v2":
+                if reload_to_zero:
+                    harness.store.load_selfbot(1)
+                    harness.store.load_selfbot(0, reload=True)
+                    self.assertFalse(harness.store.selfbot_off)
+                    self.assertEqual(harness.store.selfbot_warnings, 1)
+                else:
+                    harness.store.load_selfbot(
+                        level, readable=readable, playerbots_enabled=playerbots_enabled
+                    )
+                    self.assertFalse(harness.store.selfbot_off)
+                    self.assertEqual(harness.store.selfbot_warnings, 1)
+                    harness.store.load_selfbot(
+                        level, readable=readable, playerbots_enabled=playerbots_enabled,
+                        reload=True,
+                    )
+                    self.assertEqual(harness.store.selfbot_warnings, 1)
+                self.assertEqual(harness.send(harness.chunk(1, "17259=0")), "SelfBotBlocked")
+            else:
+                self.assertNotEqual(harness.send(harness.chunk(1, "17259=0")), "SelfBotBlocked")
+            harness.tick()
+            held[kind] = bite(pet) is True
+        return held
+
+    def test_pak_self_enabled_denies_a_valid_message(self) -> None:
+        held = None
+        for level in (1, 2, 3):
+            held = self._closed_gate(level)
+            self.assertFalse(held["v1"])
+            self.assertTrue(held["v2"])
+        assert held is not None
+        self.check(
+            "PAK-SELF-ENABLED",
+            held["v1"],
+            held["v2"],
+            False,
+            True,
+            "SelfBotLevel 1, 2, and 3 deny a valid message; 1 is the dist default",
+        )
+
+    def test_pak_self_unreadable_and_missing_deny(self) -> None:
+        bad = self._closed_gate(0, readable=False)
+        missing = self._closed_gate(None)
+        self.check(
+            "PAK-SELF-UNREADABLE",
+            bad["v1"],
+            bad["v2"],
+            False,
+            True,
+            "a bad SelfBot token denies the write and warns once",
+        )
+        self.check(
+            "PAK-SELF-MISSING",
+            missing["v1"],
+            missing["v2"],
+            False,
+            True,
+            "a missing SelfBot key denies the write",
+        )
+
+    def test_pak_self_enabled_false_denies_even_when_level_is_zero(self) -> None:
+        held = self._closed_gate(0, playerbots_enabled=False)
+        self.check(
+            "PAK-SELF-MODULE",
+            held["v1"],
+            held["v2"],
+            False,
+            True,
+            "Playerbots.Enabled false skips the SelfBotLevel assignment, so file 0 is not proof",
+        )
+
+    def test_pak_self_off_allows_a_valid_v2_message(self) -> None:
+        wrote: dict[str, bool] = {}
+        for kind in ("v1", "v2"):
+            harness = Harness(kind)
+            pet = make_wolf(101, bite=True)
+            harness.summon(pet)
+            if kind == "v2":
+                harness.store.load_selfbot(0)
+                self.assertTrue(harness.store.selfbot_off)
+                self.assertEqual(harness.store.selfbot_warnings, 0)
+            status = harness.send(harness.chunk(1, "17259=0"))
+            harness.tick()
+            if kind == "v2":
+                self.assertEqual(status, "Queued")
+            wrote[kind] = bite(pet) is False
+        self.check(
+            "PAK-SELF-OFF",
+            wrote["v1"],
+            wrote["v2"],
+            True,
+            True,
+            "startup SelfBotLevel 0 applies one valid message from a connected client",
+        )
+
+    def test_pak_self_reload_to_zero_does_not_open(self) -> None:
+        held = self._closed_gate(1, reload_to_zero=True)
+        self.check(
+            "PAK-SELF-RELOAD",
+            held["v1"],
+            held["v2"],
+            False,
+            True,
+            "a reload from 1 to 0 does not open a gate that started closed",
+        )
+
+    def test_pak_self_no_client_is_not_delivered(self) -> None:
+        held: dict[str, bool] = {}
+        for kind in ("v1", "v2"):
+            harness = Harness(kind)
+            pet = make_wolf(101, bite=True)
+            harness.summon(pet)
+            raw = harness.chunk(1, "17259=0") if kind == "v1" else harness.chunk(1, "17259=0")
+            self.assertEqual(harness.send(raw, has_client=False), "NoClient")
+            harness.tick()
+            held[kind] = bite(pet) is True and harness.store.record(harness.guid, pet.number) is None
+        self.check(
+            "PAK-SELF-NOCLIENT",
+            held["v1"],
+            held["v2"],
+            True,
+            True,
+            "a sender with no client does not deliver NXCPAK; headless bots cannot write",
+        )
+
+    def test_pak_id_07_pet_number_restores_a_after_relog(self) -> None:
+        """Client saves are keyed by hello pet number. v1 still uses the shared name."""
+        restored: dict[str, bool] = {}
+        for kind in ("v1", "v2"):
+            harness = Harness(kind)
+            saves: dict[object, str] = {}
+            pet_a = make_wolf(101, bite=True)
+            pet_b = make_wolf(202, bite=True)
+            harness.summon(pet_a)
+            if kind == "v2":
+                self.assertEqual(harness.hello_pet(), 101)
+                self.assertTrue(harness.last_hello().endswith("|101"))
+                self.assertNotIn("|101|", harness.chunk(1, "17259=0"))
+                saves[101] = "17259=0"
+            else:
+                saves["name:Fluffy"] = "17259=0"
+            key_a = 101 if kind == "v2" else "name:Fluffy"
+            harness.send(harness.chunk(1, saves[key_a]))
+            harness.tick()
+            self.assertFalse(bite(pet_a))
+
+            harness.summon(pet_b)
+            if kind == "v2":
+                self.assertEqual(harness.hello_pet(), 202)
+                saves[202] = "17259=1"
+                self.assertNotEqual(101, 202)
+            else:
+                saves["name:Fluffy"] = "17259=1"
+            key_b = 202 if kind == "v2" else "name:Fluffy"
+            harness.send(harness.chunk(2, saves[key_b]))
+            harness.tick()
+            self.assertTrue(bite(pet_b))
+            b_after = dict(pet_b.spells)
+
+            harness.summon(pet_a)
+            looked_up = saves[harness.hello_pet() if kind == "v2" else "name:Fluffy"]
+            harness.send(harness.chunk(1, looked_up))
+            harness.tick()
+
+            fresh = make_wolf(101, bite=True)
+            old_token = harness.identity() if kind == "v2" else None
+            harness.relog()
+            harness.summon(fresh)
+            if kind == "v2":
+                self.assertEqual(harness.hello_pet(), 101)
+                self.assertNotEqual(harness.identity(), old_token)
+                self.assertTrue(harness.last_hello().endswith("|101"))
+            looked_up = saves[harness.hello_pet() if kind == "v2" else "name:Fluffy"]
+            harness.send(harness.chunk(1, looked_up))
+            harness.tick()
+            restored[kind] = (
+                bite(fresh) is False
+                and bite(pet_b) is True
+                and pet_b.spells == b_after
+                and (kind == "v1" or harness.store.record(1, 202) is None or True)
+            )
+            if kind == "v2":
+                self.assertIsNone(harness.store.record(1, 202))
+                self.assertEqual(harness.store.record(1, 101), {BITE[0]: False})
+        self.check(
+            "PAK-ID-07",
+            restored["v1"],
+            restored["v2"],
+            False,
+            True,
+            "pet-number save restores A OFF after a fresh token; B is not written; v1 name key does not",
+        )
+
+    def _no_write(self, mutate) -> dict[str, bool]:
+        held: dict[str, bool] = {}
+        for kind in ("v1", "v2"):
+            harness = Harness(kind)
+            pet = make_wolf(101, bite=True)
+            before = dict(pet.spells)
+            mutate(harness, pet, kind)
+            harness.tick()
+            held[kind] = pet.spells == before
+        return held
+
+    def test_pak_id_07_missing_and_zero_do_not_write(self) -> None:
+        def missing(harness: Harness, pet: Pet, kind: str) -> None:
+            pet.number = None
+            harness.summon(pet)
+            if kind == "v2":
+                self.assertIsNone(harness.identity())
+                harness.send(f"{PREFIX}v2|1|aaaaaaaaaaaaaaaa|1|1|1/1|17259=0")
+            else:
+                harness.send(harness.chunk(1, "17259=0"))
+
+        def zero(harness: Harness, pet: Pet, kind: str) -> None:
+            pet.number = 0
+            harness.summon(pet)
+            if kind == "v2":
+                self.assertIsNone(harness.identity())
+                harness.send(f"{PREFIX}v2|1|aaaaaaaaaaaaaaaa|1|1|1/1|17259=0")
+            else:
+                harness.send(harness.chunk(1, "17259=0"))
+
+        missed = self._no_write(missing)
+        zeros = self._no_write(zero)
+        self.check("PAK-ID-07-MISSING", missed["v1"], missed["v2"], False, True,
+                   "a missing pet number does not write")
+        self.check("PAK-ID-07-ZERO", zeros["v1"], zeros["v2"], False, True,
+                   "pet number 0 does not write")
+
+    def test_pak_id_07_deleted_and_reused_do_not_write(self) -> None:
+        deleted: dict[str, bool] = {}
+        reused: dict[str, bool] = {}
+        for kind in ("v1", "v2"):
+            harness = Harness(kind)
+            pet = make_wolf(101, bite=True)
+            harness.summon(pet)
+            harness.send(harness.chunk(1, "17259=0"))
+            harness.tick()
+            self.assertFalse(bite(pet))
+            if kind == "v2":
+                harness.store.retire_number(harness.guid, 101)
+            gone = make_wolf(101, bite=True)
+            harness.summon(gone)
+            if kind == "v2":
+                self.assertIsNone(harness.identity())
+                harness.send(f"{PREFIX}v2|1|bbbbbbbbbbbbbbbb|1|1|1/1|17259=0")
+            else:
+                harness.send(harness.chunk(2, "17259=0"))
+            harness.tick()
+            deleted[kind] = bite(gone) is True and gone.spells[17259] is True
+
+            again = make_wolf(101, bite=True)
+            harness.summon(again)
+            if kind == "v2":
+                self.assertIsNone(harness.hello_pet())
+                harness.send(f"{PREFIX}v2|1|cccccccccccccccc|1|2|1/1|17259=0")
+            else:
+                harness.send(harness.chunk(3, "17259=0"))
+            harness.tick()
+            reused[kind] = bite(again) is True
+        self.check("PAK-ID-07-DELETED", deleted["v1"], deleted["v2"], False, True,
+                   "a deleted pet number does not write")
+        self.check("PAK-ID-07-REUSED", reused["v1"], reused["v2"], False, True,
+                   "a reused pet number does not write")
+
+    def test_pak_id_07_stale_token_does_not_write(self) -> None:
+        held: dict[str, bool] = {}
+        for kind in ("v1", "v2"):
+            harness = Harness(kind)
+            first = make_wolf(101, bite=True)
+            harness.summon(first)
+            old = harness.identity() if kind == "v2" else None
+            harness.send(harness.chunk(1, "17259=1"))
+            harness.tick()
+            resumed = make_wolf(101, bite=True)
+            harness.summon(resumed)
+            harness.send(harness.chunk(2, "17259=0", ident=old))
+            harness.tick()
+            held[kind] = bite(resumed) is True
+        self.check("PAK-ID-07-STALE", held["v1"], held["v2"], False, True,
+                   "a chunk from the previous token does not write")
+
+    def test_pak_id_07_clear_does_not_write_the_other_pet(self) -> None:
+        held: dict[str, bool] = {}
+        for kind in ("v1", "v2"):
+            harness = Harness(kind)
+            pet_a = make_wolf(101, bite=True)
+            pet_b = make_wolf(202, bite=True)
+            harness.summon(pet_a)
+            harness.send(harness.chunk(1, "17259=0"))
+            harness.tick()
+            harness.summon(pet_b)
+            harness.send(harness.chunk(2, "17259=1"))
+            harness.tick()
+            b_spells = dict(pet_b.spells)
+            harness.summon(pet_a)
+            a_spells = dict(pet_a.spells)
+            harness.send(harness.clear())
+            harness.tick()
+            b_record = harness.store.record(harness.guid, 202)
+            a_record = harness.store.record(harness.guid, 101)
+            held[kind] = (
+                pet_a.spells == a_spells
+                and pet_b.spells == b_spells
+                and b_record is not None
+                and b_record.get(BITE[0]) is True
+                and a_record is None
+            )
+        self.check("PAK-ID-07-CLEAR", held["v1"], held["v2"], False, True,
+                   "clear of A removes only A's record and writes neither spellbook")
 
 
 if __name__ == "__main__":
