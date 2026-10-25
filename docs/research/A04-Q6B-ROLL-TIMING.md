@@ -1,0 +1,64 @@
+# A04 Q6b — roll-time vs award-time eligibility (CS03 research witnesses)
+
+**Status:** research only, authorised by CS01 (#143 `6399878253`) as one Claude-owned synthetic test branch. **Not a loot policy, not a fix, and not proof of the owner's report.** No module code, Playerbots, core, SQL, DBC or config change. Every result below is source behaviour at Grimfeather core `8daffdabe9202c228e45d833c9a1d399597a15cd`, not a game result.
+
+It follows CS03's scrutiny of #150 ([6399573014](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/150#issuecomment-6399573014)).
+
+## What is modelled
+
+`tests/research/a04_roll_model.py` copies, in Python, only the decisions these native functions make. Each line in the model cites its source line.
+
+| Function | File and lines | Role |
+|---|---|---|
+| `CanRollOnItem` | `Group.cpp` L1106–L1121 | roll admission (max count, `AllowedForPlayer`) |
+| `Group::GroupLoot` | `Group.cpp` L1123–L1286 | which slots roll; auto-pass for ineligible members |
+| `Group::SendLootStartRoll` | `Group.cpp` L928–L950 | roll window only to members still `NOT_EMITED_YET` |
+| `Group::CountRollVote` | `Group.cpp` L1497–L1546 | vote counting |
+| `Group::CountTheRoll` | `Group.cpp` L1604–L1826 | Need, then Greed award; mail; roll winner reservation |
+| `SendRollWonItemViaMail` | `Group.cpp` L67 | mail award when bags are full |
+| `Player::StoreLootItem` | `Player.cpp` L13861–L13962 | direct pickup gates |
+| `Player::HasQuestForItem` | `PlayerQuest.cpp` L2338–L2385 | quest still needs the item |
+| `LootItem::AllowedForPlayer` | `LootMgr.cpp` L417–L470 | eligibility |
+| `Loot::LootItemInSlot`, `LootView` | `LootMgr.cpp` L821–L880, L1033–L1037, L1130–L1149 | quest slots and visibility |
+
+- **Drift gate.** `scripts/check_a04_roll_fingerprint.py` hashes all ten functions at the pin. A one-character change fails it, which forces this model to be re-reviewed.
+- **Simplifications:** one loot source; one slot per roll; injected roll numbers instead of `urand`; no conditions, faction, recipe or disable rules (none of which change during a roll); no packets or achievements.
+
+## Results (18 tests: 7 GAP, 11 REF)
+
+GAP means a stock path that gives an item to a player the native rule would refuse at award time, or strands a copy. REF means legitimate stock behaviour that any later change must keep.
+
+| Test | Kind | Finding |
+|---|---|---|
+| quest bucket rolls only with flag 0x4 | REF | Quest rows roll only with `ITEM_FLAGS_CU_FOLLOW_LOOT_RULES` (L1220–L1224). Otherwise they use per-player quest slots. |
+| admission checks eligibility and max count | REF | Ineligible members are auto-passed and get no roll window. |
+| direct pickup re-checks eligibility | REF | Without flag 0x4, the second copy is refused to the player who completed the quest and goes to the other eligible human. |
+| single roll / two rolls split | REF | Ordinary group rolls stay legitimate. |
+| **Q6b surplus copy** | GAP | Two same-pull rolls are admitted while both humans are eligible. A wins both: the second award (L1662) happens after A's quest is complete, so `AllowedForPlayer(A)` is now false, yet A gets a second copy. B, eligible throughout, gets none. |
+| **Q6b Greed branch** | GAP | Same gap on Greed (L1746). |
+| **Q6b max count strands the copy** | GAP | With `maxcount = 1`, the second award fails with `CANT_CARRY_MORE`, which is not `INVENTORY_FULL`, so it is not mailed. The slot is reserved to A (L1682–L1683): hidden from B (LootMgr L1033–L1037) and refused to B (L13902). A is refused too. Nobody can loot it. |
+| **Q6 abandon while pending** | GAP | A abandons within the 60-second window and still wins. |
+| ignore-quest-status item | REF | With flag 0x2 a second copy is the item's intended rule, not a lapse. |
+| mail: default off / LFG only / everywhere | REF / REF / GAP | Only when `LFG.MailItemOnFullInventory` is not 0 (the default is 0): the full-bag win is mailed with no eligibility check. |
+| **Q13 vote overrides auto-pass** | GAP | **Forged or replayed packet only.** A Need vote from an auto-passed member is counted. Because the earlier pass is never subtracted, pass + need already equals the number rolling, so the roll ends at once and that member wins **before others vote**. |
+| **Q15 quest-slot pickup during roll** | GAP | **Forged packet only.** The honest window shows `ROLL_ONGOING`, but `StoreLootItem` skips `is_blocked` for quest slots (L13895). The pickup succeeds, and `CountTheRoll` does not check `is_looted`, so the roll winner also gets a copy: one drop, two items. Playerbots `d750b4b` skips non-`ALLOW_LOOT` slots (`LootAction.cpp` L423) and checks `NOT_EMITED_YET` before voting (`LootRollAction.cpp` L26–L27). |
+| normal pickup blocked during roll / disenchant / all pass | REF | Stock blocking, the disenchant result and unblocking stay as they are. |
+
+**Mutation check (local).** Each of these mutants turns specific GAP tests red, and the original passes 18/18:
+- the award re-checks `AllowedForPlayer` (8 tests);
+- votes require `NOT_EMITED_YET` (Q13);
+- quest slots honour `is_blocked` (Q15);
+- max-count failures are also mailed (the stranded case).
+
+## What this means for A04, and what it doesn't
+
+- **Scope.** Q6b, Q6 and the mail cases need the drop to **roll**. For a quest objective, that means the item has custom flag 0x4 or is a non-quest-bucket row. Most quest drops do not roll; they use per-player quest slots, and pickup re-checks eligibility (REF).
+- **The owner sample decides.** Any of these is a candidate only once the owner's one anonymized sample shows the item's `flagsCustom` and `maxcount`, the quest's required count, how many copies dropped in one pull, the loot method, each human's eligibility, and whether the copy reached bags, mail, or stayed visible to the winner only.
+- **Stock behaviour to preserve** in any later change: ordinary shared one-copy items, `MULTI_DROP` personal copies, a legitimate roll or turn winner, and the flag-0x2 intended rule.
+
+## Not verified
+
+- the owner's binary, config, item rows or flags;
+- any client, packet or game behaviour;
+- other modules' `OnAllowedForPlayerLootCheck` or `OnPlayerBeforeFillQuestLootItem` hooks;
+- master loot and Need Before Greed (`CanRollForItemInLFG`) beyond what #150 documents.
