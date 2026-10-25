@@ -4,6 +4,7 @@ import os
 import pathlib
 import tempfile
 import unittest
+from unittest.mock import patch
 from offline_attempt_journal_s4f import OfflineAttemptJournal, UnsafeJournal
 
 INC = "12345678-1234-1234-1234-123456789abc"
@@ -118,6 +119,48 @@ class OfflineAttemptTests(unittest.TestCase):
         with self.journal() as j:
             with self.assertRaisesRegex(UnsafeJournal, "orphan"):
                 j.begin("worldserver", INC, "a")
+
+    def test_write_error_leaves_unsafe_pending_not_retryable(self):
+        # O_EXCL successfully creates a name; the payload write then fails.
+        # An ambiguous, empty reservation must NEVER be overwritten or retried.
+        with self.journal() as j:
+            with patch("offline_attempt_journal_s4f.os.write",
+                       side_effect=OSError("synthetic EIO")):
+                with self.assertRaises(OSError):
+                    j.begin("worldserver", INC, "write_error")
+        pending = list(self.root.glob("*.pending"))
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].stat().st_size, 0)
+        with self.journal() as j:
+            with self.assertRaisesRegex(UnsafeJournal, "corrupt"):
+                j.begin("worldserver", INC, "write_error")
+        self.assertTrue(pending[0].exists())
+
+    def test_fsync_error_fails_originator_and_blocks_replay(self):
+        # A synthetic fsync failure denies the ORIGINAL caller permission to
+        # act; if bytes remain, a second caller must never obtain 'reserved'.
+        with self.journal() as j:
+            with patch("offline_attempt_journal_s4f.os.fsync",
+                       side_effect=OSError("synthetic fsync failure")):
+                with self.assertRaises(OSError):
+                    j.begin("authserver", INC, "fsync_error")
+        with self.journal() as j:
+            self.assertEqual(j.begin("authserver", INC, "fsync_error"), "pending")
+
+    def test_symlinked_done_never_confirms_success(self):
+        with self.journal() as j:
+            self.assertEqual(j.begin("worldserver", INC, "a"), "reserved")
+        pending = next(self.root.glob("*.pending"))
+        target = self.root / "inert-target"
+        target.write_bytes(b'{"state":"succeeded"}')
+        token = pending.name.removesuffix(".pending")
+        done = self.root / (token + ".done")
+        done.symlink_to(target)
+        with self.journal() as j:
+            with self.assertRaises(UnsafeJournal):
+                j.begin("worldserver", INC, "a")
+        self.assertTrue(done.is_symlink())
+        self.assertEqual(target.read_bytes(), b'{"state":"succeeded"}')
 
     def test_concurrent_processes_only_one_reserves(self):
         ctx = multiprocessing.get_context("spawn")
