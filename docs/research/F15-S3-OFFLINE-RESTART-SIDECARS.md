@@ -6,7 +6,7 @@ This stacked draft builds on the S2 offline storage prototype [PR #136](https://
 
 ## Why sidecars?
 
-The original finalized incident report remains **immutable**. When a trusted supervisor later supplies evidence of a real restart attempt and its observed result, the offline store may attach another immutable, no-clobber report with the same crash incident ID. `Crash-History.txt` is rebuilt with the latest verified attempt's status, but its Worldserver/Authserver/Total crash counts do **not** increase. Two separate attempts, including a failed attempt followed by recovery, both remain on disk.
+The original finalized incident report remains **immutable**. When a trusted supervisor later supplies evidence of a real restart attempt and its observed result, the offline store may attach another immutable, no-clobber report with the same crash incident ID. `Crash-History.txt` is rebuilt with the latest chronologically unambiguous verified attempt's status, but its Worldserver/Authserver/Total crash counts do **not** increase. Where multiple attempts share the same most-recent UTC second, order is **ambiguous**, and no arbitrary result is selected. Two separate attempts, including a failed attempt followed by recovery, both remain on disk.
 
 ## Source and trust boundary
 
@@ -14,8 +14,12 @@ The original finalized incident report remains **immutable**. When a trusted sup
 - A `RestartObservation` must contain a canonical, **already verified original crash incident ID**, a bounded allowlisted attempt identity, explicit UTC observation time, exactly `succeeded` or `failed`, and `verified=True`. The layer itself **cannot authenticate these claims**. The actual supervisor/owner launcher has not been identified and no adapter exists.
 - Derived sidecar identity uses a UUIDv5 from **incident ID + attempt ID**; **not** the time of later notification. A repeated identical observation is idempotent; a contradictory result for the same attempt is a no-clobber conflict that requires investigation.
 - Every sidecar is a restrictive UTF-8 file under the preexisting private, directory-descriptor-pinned output, via the S2 `flock`, temp-file `fsync`, atomic `link` no-clobber and directory sync. It contains deterministic JSON metadata and a SHA256 finalization trailer; the original report remains untouched.
-- History rebuilding validates both the base crash and its sidecars. Corrupt, symlinked, orphan or modified sidecars are **excluded and explicitly listed as unverified**, rather than counted as verified restarts. Latest displayed state is chosen from verified observed UTC time and deterministic sidecar ID. Original crash totals remain unchanged.
+- History rebuilding validates both the base crash and its sidecars. Corrupt, symlinked, orphan or modified sidecars are **excluded and explicitly listed as unverified**, rather than counted as verified restarts. Latest displayed state uses verified observed UTC time only when that establishes a unique latest attempt. If two or more distinct attempts share the latest UTC second, history displays **Ambiguous (sequence not verified)**, rather than choosing success or failure by UUID ordering. A sidecar observed earlier than the original crash's recorded termination time is refused or flagged unverified. Original crash totals remain unchanged.
 - A failed report/index publication can leave a durable report/sidecar despite an exception; the next locked rebuild can recover it. A detected corrupt sidecar cannot be overwritten, including when the corresponding index must be rebuilt.
+
+## Additional S3 source-order safety witnesses
+
+The source-only audit found two gaps in the original 21-case model: separate attempts at the same UTC second could be sorted by their UUIDs and projected as a false latest `succeeded`, and a correctly hashed sidecar could claim a restart **before** its original crash ended. Both are now fail-closed in this research model. Five additional synthetic witnesses cover opposite outcomes at the same time, identical outcomes with unresolved order, later uniquely timed recovery, pre-crash publication refusal, and pre-crash forged-but-checksummed sidecars excluded from history. These assumptions require a later trusted adapter to establish accurate chronological evidence, including possible cross-source clock skew, before S4 acceptance.
 
 ## Integration limitation: no mixing old S2 and new S3 writers
 
@@ -37,6 +41,6 @@ python3 -m unittest discover -s tests -p 'test_f15_offline_store_s2.py' -v
 python3 -m unittest discover -s tests -p 'test_f15_restart_sidecar_s3.py' -v
 ```
 
-The new suite tests idempotence across collector restart, process-concurrent publishers, distinct same-second restart attempts, no-clobber conflicts, tampering and orphan recovery, cross-process original report binding and crash-count invariance. A successful test proves **offline S3 projections only**. Independent Claude security review and eventual Grok review remain pending; no live adapter or staging permission is implied.
+The new suite tests idempotence across collector restart, process-concurrent publishers, distinct same-second restart attempts and ambiguous ordering, pre-crash event rejection, no-clobber conflicts, tampering and orphan recovery, cross-process original report binding and crash-count invariance. A successful test proves **offline S3 projections only**. Independent Claude security review and eventual Grok review remain pending; no live adapter or staging permission is implied.
 
 Project delivery: [Issue #28 master checklist](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28) / [Issue #48 team coordination](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48). Preserve the full first-build gameplay requirements and Grok-owned #135 research branch.
