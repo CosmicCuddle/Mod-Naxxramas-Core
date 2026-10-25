@@ -20,13 +20,27 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact fixture source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Run ONLY synthetic Python owned-child tests; no server process
         shell: bash
         run: |
           set -euo pipefail
           python3 --version
           PYTHONPATH=tools/f15 python3 -W error -m unittest discover \
-            -s tests -p 'test_f15_offline_kernel_wait_s4g.py' -v
+            -s tests -p 'test_f15_offline_kernel_wait_s4g.py' -v 2>&1 | tee s4g-test-output.txt
+          grep -Eq '^Ran 10 tests in ' s4g-test-output.txt
+          grep -Fxq 'OK' s4g-test-output.txt
+          if grep -Eq '(^FAILED|^OK \(skipped|skipped=)' s4g-test-output.txt; then
+            echo 'Unexpected failure or skipped tests'
+            exit 1
+          fi
       - name: Clarify nonproduction scope
         run: |
           echo 'Fixture launches only isolated Python children, not Worldserver or Authserver.'
