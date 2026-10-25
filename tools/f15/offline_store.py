@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import contextlib
+import errno
 import fcntl
 import hashlib
 import json
@@ -152,7 +153,12 @@ class IncidentStore:
             for part in self.root.parts[1:]:
                 if part in ("", ".", ".."):
                     raise ValueError("untrusted path component")
-                nextfd = os.open(part, flags, dir_fd=fd)
+                try:
+                    nextfd = os.open(part, flags, dir_fd=fd)
+                except OSError as exc:
+                    if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                        raise PermissionError("unsafe ancestor symlink/non-directory") from exc
+                    raise
                 os.close(fd)
                 fd = nextfd
             st = os.fstat(fd)
