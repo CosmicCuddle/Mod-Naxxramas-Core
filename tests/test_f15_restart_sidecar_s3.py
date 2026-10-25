@@ -106,6 +106,56 @@ class S3Tests(unittest.TestCase):
                                            "2026-10-25T00:05:00Z"))
         self.assertIn("restart: succeeded (attempt later)", self.history())
 
+    def test_same_second_conflicting_attempts_are_ambiguous_not_success(self):
+        self.store.publish_restart(restart(self.item, attempt="first", outcome="succeeded",
+                                           time="2026-10-25T00:05:00Z"))
+        self.store.publish_restart(restart(self.item, attempt="second", outcome="failed",
+                                           time="2026-10-25T00:05:00Z"))
+        self.assertEqual(len(self.sidecars()), 2)
+        history = self.history()
+        self.assertIn("restart: Ambiguous (2 attempts observed at 2026-10-25T00:05:00Z", history)
+        self.assertNotIn("restart: succeeded (attempt", history)
+        self.assertNotIn("restart: failed (attempt", history)
+        self.assertIn("Total: 1", history)
+
+    def test_later_unique_observation_resolves_same_second_ambiguity(self):
+        self.store.publish_restart(restart(self.item, attempt="a", outcome="succeeded",
+                                           time="2026-10-25T00:04:00Z"))
+        self.store.publish_restart(restart(self.item, attempt="b", outcome="failed",
+                                           time="2026-10-25T00:04:00Z"))
+        self.assertIn("restart: Ambiguous", self.history())
+        self.store.publish_restart(restart(self.item, attempt="c", outcome="succeeded",
+                                           time="2026-10-25T00:05:00Z"))
+        self.assertIn("restart: succeeded (attempt c)", self.history())
+        self.assertIn("Total: 1", self.history())
+
+    def test_restart_evidence_before_incident_death_rejected(self):
+        obs = restart(self.item, attempt="before-death",
+                      time="2026-10-25T00:01:59Z")
+        with self.assertRaisesRegex(ValueError, "predates"):
+            self.store.publish_restart(obs)
+        self.assertEqual(len(self.sidecars()), 0)
+        self.assertIn("restart: Not verified", self.history())
+
+    def test_pre_crash_but_correctly_hashed_sidecar_is_unverified(self):
+        # This simulates a separate producer bypassing publish_restart,
+        # proving rebuild independently enforces the chronology.
+        from offline_restart import sidecar_bytes
+        obs = restart(self.item, attempt="forged-order",
+                      time="2026-10-25T00:01:59Z")
+        (self.root / obs.filename()).write_bytes(sidecar_bytes(obs.info()))
+        self.assertEqual(self.store.rebuild(), (1, 0))
+        self.assertIn("Unverified or orphan restart sidecars: 1", self.history())
+        self.assertIn("restart: Not verified", self.history())
+        self.assertEqual(len(self.sidecars()), 1)  # never auto-destroy evidence
+
+    def test_equal_timestamp_and_matching_outcomes_still_ambiguous_sequence(self):
+        self.store.publish_restart(restart(self.item, attempt="a", outcome="succeeded",
+                                           time="2026-10-25T00:06:00Z"))
+        self.store.publish_restart(restart(self.item, attempt="b", outcome="succeeded",
+                                           time="2026-10-25T00:06:00Z"))
+        self.assertIn("restart: Ambiguous (2 attempts", self.history())
+
     def test_unverified_restart_cannot_claim_success(self):
         self.assertFalse(self.store.publish_restart(restart(self.item, verified=False)))
         self.assertEqual(len(self.sidecars()), 0)
