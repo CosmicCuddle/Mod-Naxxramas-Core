@@ -204,5 +204,97 @@ class S4eLookupTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob("restart-*.txt")), [])
 
 
+    def test_crash_report_orphan_temp_is_reaped_before_absent_lookup(self):
+        original = next(self.root.glob("*-crash-*.txt"))
+        temp_link = self.root / (".f15-s2-" + "a" * 32)
+        os.link(original, temp_link)
+        self.assertEqual(original.stat().st_nlink, 2)
+        self.assertIsNone(self.lookup((self.item.identity(), "new-attempt")))
+        self.assertFalse(temp_link.exists())
+        self.assertEqual(original.stat().st_nlink, 1)
+        self.assertIsNone(self.lookup((self.item.identity(), "another")))
+
+    def test_completed_sidecar_orphan_temp_survives_rebuild_then_recovers(self):
+        obs, sidecar = self.sidecar()
+        self.assertTrue(self.store.publish_restart(obs))
+        temp_link = self.root / (".f15-s2-" + "b" * 32)
+        os.link(sidecar, temp_link)
+        self.store.rebuild()
+        self.assertTrue(temp_link.exists())  # S3 rebuild did not recover it.
+        self.assertEqual(self.lookup((obs.incident_id, obs.attempt)), "succeeded")
+        self.assertFalse(temp_link.exists())
+        self.assertEqual(sidecar.stat().st_nlink, 1)
+        self.assertEqual(self.lookup((obs.incident_id, obs.attempt)), "succeeded")
+
+    def test_reopened_store_recovers_original_and_sidecar_orphans(self):
+        obs, sidecar = self.sidecar()
+        self.assertTrue(self.store.publish_restart(obs))
+        original = next(self.root.glob("*-crash-*.txt"))
+        incident_temp = self.root / (".f15-s2-" + "c" * 32)
+        sidecar_temp = self.root / (".f15-s2-" + "d" * 32)
+        os.link(original, incident_temp)
+        os.link(sidecar, sidecar_temp)
+        reopened = RestartSidecarStore(self.root)
+        try:
+            lookup = OfflineCompletedRestartLookup(reopened)
+            self.assertEqual(lookup((obs.incident_id, obs.attempt)), "succeeded")
+            self.assertFalse(incident_temp.exists())
+            self.assertFalse(sidecar_temp.exists())
+        finally:
+            reopened.close()
+
+    def test_unrelated_owned_private_temp_is_never_removed(self):
+        unrelated = self.root / (".f15-s2-" + "e" * 32)
+        unrelated.write_bytes(b"unrelated temporary state")
+        unrelated.chmod(0o600)
+        self.assertIsNone(self.lookup((self.item.identity(), "new-attempt")))
+        self.assertTrue(unrelated.exists())
+
+    def test_external_hardlink_never_recovered_by_unrelated_temp(self):
+        obs, sidecar = self.sidecar()
+        self.assertTrue(self.store.publish_restart(obs))
+        external = Path(self.temp.name) / "outside-hardlink"
+        os.link(sidecar, external)
+        unrelated = self.root / (".f15-s2-" + "f" * 32)
+        unrelated.write_bytes(b"unrelated")
+        unrelated.chmod(0o600)
+        with self.assertRaisesRegex(ValueError, "link"):
+            self.lookup((obs.incident_id, obs.attempt))
+        self.assertTrue(external.exists())
+        self.assertTrue(unrelated.exists())
+        self.assertEqual(sidecar.stat().st_nlink, 2)
+
+    def test_symlink_temp_does_not_authorize_external_hardlink(self):
+        obs, sidecar = self.sidecar()
+        self.assertTrue(self.store.publish_restart(obs))
+        external = Path(self.temp.name) / "outside-hardlink"
+        os.link(sidecar, external)
+        symlink_temp = self.root / (".f15-s2-" + "1" * 32)
+        symlink_temp.symlink_to(sidecar)
+        with self.assertRaisesRegex(ValueError, "link"):
+            self.lookup((obs.incident_id, obs.attempt))
+        self.assertTrue(symlink_temp.is_symlink())
+        self.assertEqual(sidecar.stat().st_nlink, 2)
+
+    def test_corrupt_sidecar_with_temp_does_not_trigger_cleanup(self):
+        obs, sidecar = self.sidecar()
+        self.assertTrue(self.store.publish_restart(obs))
+        temp_link = self.root / (".f15-s2-" + "2" * 32)
+        os.link(sidecar, temp_link)
+        sidecar.write_bytes(sidecar.read_bytes() + b"altered")
+        with self.assertRaisesRegex(ValueError, "unverified"):
+            self.lookup((obs.incident_id, obs.attempt))
+        self.assertTrue(temp_link.exists())
+
+    def test_noncanonical_temp_name_never_unlinked(self):
+        obs, sidecar = self.sidecar()
+        self.assertTrue(self.store.publish_restart(obs))
+        bad_temp = self.root / (".f15-s2-" + "A" * 32)
+        os.link(sidecar, bad_temp)
+        with self.assertRaisesRegex(ValueError, "link"):
+            self.lookup((obs.incident_id, obs.attempt))
+        self.assertTrue(bad_temp.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
