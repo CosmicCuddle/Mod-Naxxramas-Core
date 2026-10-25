@@ -79,6 +79,7 @@ REQUIRED_FLAGS = {
     "NaxxramasCore.ScarletExits.RouteDungeonFinderExits": "0",
     "NaxxramasCore.Atiesh.VanillaOutdoorArrival.Enabled": "0",
     "NaxxramasCore.HunterPetAutocast.RestoreHumanChain": "0",
+    "NaxxramasCore.HunterPetAutocast.AddonOptIn": "0",
 }
 
 
@@ -255,6 +256,25 @@ class UnionContractModel(unittest.TestCase):
         ):
             self.assertIn(key, REQUIRED_FLAGS)
             self.assertIn(key + " = " + REQUIRED_FLAGS[key], self.config_union)
+
+    def test_addon_optin_requires_independent_default_off(self):
+        key = "NaxxramasCore.HunterPetAutocast.AddonOptIn"
+        self.assertEqual(REQUIRED_FLAGS[key], "0")
+        self.assertEqual(config_errors(self.config_union), [])
+        self.assertEqual(self.config_union.count(key + " = 0"), 1)
+
+    def test_addon_optin_enabled_is_rejected(self):
+        key = "NaxxramasCore.HunterPetAutocast.AddonOptIn"
+        mutant = self.config_union.replace(key + " = 0", key + " = 1", 1)
+        self.assertIn(key, "\n".join(config_errors(mutant)))
+
+    def test_addon_optin_missing_or_duplicate_is_rejected(self):
+        key = "NaxxramasCore.HunterPetAutocast.AddonOptIn"
+        line = key + " = 0"
+        self.assertIn(key, "\n".join(config_errors(
+            self.config_union.replace(line + "\n", "", 1))))
+        self.assertIn(key, "\n".join(config_errors(
+            self.config_union + "\n" + line + "\n")))
 
     def test_dungeon_finder_flag_accidentally_enabled_is_detected(self):
         mutant = self.config_union.replace(
