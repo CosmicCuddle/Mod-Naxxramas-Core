@@ -86,6 +86,7 @@ jobs:
           grep -F "BLOCKED: AddScarletMonasteryExitScripts:" /tmp/first-combined-gate.txt
           grep -F "BLOCKED: AddAtieshKarazhanPortalScripts:" /tmp/first-combined-gate.txt
           grep -F "BLOCKED: AddHunterPetAutocastScripts:" /tmp/first-combined-gate.txt
+          grep -F "BLOCKED: NaxxramasCore.HunterPetAutocast.AddonOptIn: expected one default 0" /tmp/first-combined-gate.txt
           grep -F "BLOCKED: src/Systems/BotGolemaggReachGuard.cpp: missing implementation" /tmp/first-combined-gate.txt
           grep -F "BLOCKED: src/Systems/ScarletMonasteryExits.cpp: missing implementation" /tmp/first-combined-gate.txt
           grep -F "BLOCKED: src/Systems/AtieshKarazhanPortal.cpp: missing implementation" /tmp/first-combined-gate.txt
