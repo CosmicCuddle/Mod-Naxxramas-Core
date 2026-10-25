@@ -11,7 +11,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 import uuid
 
-from offline_store import safe_name, utc
+from offline_store import NAMESPACE, safe_name, utc
 
 SUPERVISOR = "supervisor-fixture"
 READY_PROBE = "readiness-probe-fixture"
@@ -50,6 +50,7 @@ class RestartStart:
     timeout_ms: int
     verified_supervisor: bool
     source: str
+    started_monotonic_ms: int = 0
 
     def checked(self):
         try:
@@ -64,6 +65,12 @@ class RestartStart:
         old, new = self.previous.checked(), self.replacement.checked()
         if old.service != new.service or old.host != new.host:
             raise ValueError("service/host mismatch")
+        old_identity = "\x1f".join([
+            old.host, old.boot, old.service, old.invocation,
+            str(old.pid), old.start_utc,
+        ])
+        if self.incident_id != str(uuid.uuid5(NAMESPACE, old_identity)):
+            raise ValueError("incident ID does not match the crashed child")
         if (old.boot, old.invocation, old.pid, old.start_utc) == (
                 new.boot, new.invocation, new.pid, new.start_utc):
             raise ValueError("same child cannot be restart")
@@ -73,6 +80,9 @@ class RestartStart:
             raise ValueError("replacement predates old death")
         if type(self.timeout_ms) is not int or not 1000 <= self.timeout_ms <= 600_000:
             raise ValueError("invalid bounded readiness deadline")
+        if (type(self.started_monotonic_ms) is not int or
+                not 0 <= self.started_monotonic_ms < (1 << 63)):
+            raise ValueError("invalid monotonic start of attempt")
         if type(self.verified_supervisor) is not bool:
             raise ValueError("verified_supervisor must be bool")
         return self
@@ -124,7 +134,8 @@ class OfflineRestartReadiness:
     qualifies. Exit, expired readiness, or trusted deadline = failure.
     """
 
-    def __init__(self, *, max_pending: int = 64, max_finished: int = 128):
+    def __init__(self, *, max_pending: int = 64, max_finished: int = 128,
+                 finished_lookup=None):
         if (type(max_pending) is not int or type(max_finished) is not int or
                 not 1 <= max_pending <= 4096 or
                 not 1 <= max_finished <= 8192):
@@ -133,6 +144,13 @@ class OfflineRestartReadiness:
         self.max_finished = max_finished
         self._pending: dict[tuple[str, str], _Pending] = {}
         self._finished: OrderedDict[tuple[str, str], str] = OrderedDict()
+        # After evicting a completed attempt, do not accept new attempts
+        # unless a future authenticated S3-backed lookup can reject replays.
+        # This callback is a synthetic fixture, NOT real durable proof.
+        if finished_lookup is not None and not callable(finished_lookup):
+            raise ValueError("finished_lookup must be callable")
+        self._finished_lookup = finished_lookup
+        self._ever_evicted = False
 
     def begin(self, start: RestartStart) -> Decision:
         if not isinstance(start, RestartStart):
@@ -150,6 +168,20 @@ class OfflineRestartReadiness:
             if self._pending[key].start != start:
                 return Decision("rejected", "conflicting same-attempt start")
             return Decision("duplicate", "attempt already active")
+        # Once a completed record is evicted, in-memory deduplication is
+        # insufficient. Refuse fresh attempts unless a durable lookup can
+        # distinguish new keys from old finalized keys.
+        if self._ever_evicted:
+            if self._finished_lookup is None:
+                return Decision("unverified", "durable completed-attempt lookup required")
+            try:
+                previous = self._finished_lookup(key)
+            except Exception:
+                return Decision("unverified", "durable completed-attempt lookup failed")
+            if previous in ("succeeded", "failed"):
+                return Decision("duplicate", "completed attempt from durable fixture", previous)
+            if previous is not None:
+                return Decision("unverified", "untrusted durable lookup outcome")
         if len(self._pending) >= self.max_pending:
             return Decision("capacity", "too many unclosed restart attempts")
         self._pending[key] = _Pending(start)
@@ -186,11 +218,29 @@ class OfflineRestartReadiness:
             return self._finish(key, "failed", "readiness deadline exceeded")
         return Decision("rejected", "unsupported transition")
 
+    def expire(self, now_monotonic_ms: int):
+        """Bounded sweep for lost follow-ups. Requires trusted-clock adapter.
+
+        The deadline conclusion is failed/readiness-unverified, NEVER a
+        proven child death; the fixture does not inspect an actual process.
+        """
+        if (type(now_monotonic_ms) is not int or
+                not 0 <= now_monotonic_ms < (1 << 63)):
+            raise ValueError("invalid monotonic sweep time")
+        completed = []
+        for key, state in list(self._pending.items()):
+            elapsed = now_monotonic_ms - state.start.started_monotonic_ms
+            if elapsed >= state.start.timeout_ms:
+                completed.append((key, self._finish(
+                    key, "failed", "readiness deadline elapsed with no evidence")))
+        return completed
+
     def _finish(self, key, outcome, reason):
         del self._pending[key]
         self._finished[key] = outcome
         if len(self._finished) > self.max_finished:
             self._finished.popitem(last=False)
+            self._ever_evicted = True
         return Decision("completed", reason, outcome)
 
     def counts(self):
