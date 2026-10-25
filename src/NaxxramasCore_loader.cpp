@@ -50,6 +50,9 @@ void AddNaxxramasEasternPlaguelandsTowerLockScripts();
 void AddQuestLootProtectionScripts();
 void AddBotGolemaggActionAuditScripts();
 void AddBotGolemaggReachGuardScripts();
+void AddScarletMonasteryExitScripts();
+void AddAtieshKarazhanPortalScripts();
+void AddWhoListingScripts();
 
 void Addmod_naxxramas_coreScripts()
 {
@@ -98,4 +101,7 @@ void Addmod_naxxramas_coreScripts()
     AddQuestLootProtectionScripts();
     AddBotGolemaggActionAuditScripts();
     AddBotGolemaggReachGuardScripts();
+    AddScarletMonasteryExitScripts();
+    AddAtieshKarazhanPortalScripts();
+    AddWhoListingScripts();
 }
