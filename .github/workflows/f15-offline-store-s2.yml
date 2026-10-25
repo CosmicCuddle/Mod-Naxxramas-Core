@@ -32,7 +32,7 @@ jobs:
               assert forbidden not in source, forbidden
           print("S2 offline core only: no supervisor, external service or root path")
           PY
-      - name: Run 23 deterministic and multiprocess synthetic cases
+      - name: Run 29 offline filesystem and multiprocess regression cases
         run: python3 -m unittest discover -s tests -p 'test_f15_offline_store_s2.py' -v
       - name: No artifacts or live monitoring
         run: echo 'Runs only in disposable runner temporary directories. No deployments or uploads.'
