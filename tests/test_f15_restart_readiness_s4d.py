@@ -205,6 +205,15 @@ class S4dReadinessTests(unittest.TestCase):
         self.assertEqual(t.begin(attempt(attempt="a2")).status, "unverified")
         self.assertEqual(t.counts(), (0, 1))
 
+    def test_fresh_collector_uses_durable_lookup_before_any_new_attempt(self):
+        known = {(INCIDENT, "previous-run"): "failed"}
+        t = OfflineRestartReadiness(
+            finished_lookup=lambda key: known.get(key))
+        old = t.begin(attempt(attempt="previous-run"))
+        self.assertEqual((old.status, old.outcome), ("duplicate", "failed"))
+        self.assertEqual(t.counts(), (0, 0))
+        self.assertEqual(t.begin(attempt(attempt="new-run")).status, "pending")
+
     def test_evicted_history_lookup_failure_fails_closed(self):
         def unavailable(key):
             raise OSError("synthetic storage unavailable")
