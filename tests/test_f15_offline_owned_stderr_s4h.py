@@ -2,7 +2,7 @@
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "f15"))
 from offline_owned_stderr_s4h import capture_disposable  # noqa: E402
@@ -83,6 +83,28 @@ class OwnedPipeFixture(unittest.TestCase):
         x = capture_disposable("unterminated")
         self.assertEqual(x.lines_seen, 1)
         self.assertEqual(x.records[0].message, "no-final-LF")
+
+    def test_inherited_pipe_writer_cannot_extend_grace_forever(self):
+        # Simulate a direct child that has already exited but whose stderr
+        # pipe remains readable-open (an inheriting writer). No real child
+        # process, OS fd or service is launched or signalled in this test.
+        proc = MagicMock()
+        proc.pid = 711
+        proc.poll.return_value = 0
+        proc.stderr.fileno.return_value = 77
+        selector = MagicMock()
+        selector.select.return_value = []  # no EOF and no readiness forever
+
+        with patch("offline_owned_stderr_s4h.subprocess.Popen", return_value=proc), \
+             patch("offline_owned_stderr_s4h.os.set_blocking"), \
+             patch("offline_owned_stderr_s4h.selectors.DefaultSelector", return_value=selector), \
+             patch("offline_owned_stderr_s4h.time.monotonic",
+                   side_effect=[0.0, 0.5, 1.0, 2.0]):
+            with self.assertRaisesRegex(TimeoutError, "pipe failed to close"):
+                capture_disposable("normal", timeout_seconds=0.5)
+        self.assertEqual(selector.select.call_count, 2)
+        proc.kill.assert_not_called()
+        proc.stderr.close.assert_called_once()
 
     def test_unapproved_mode_fails_before_any_spawn(self):
         with patch("offline_owned_stderr_s4h.subprocess.Popen") as popen:
