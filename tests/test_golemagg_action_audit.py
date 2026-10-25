@@ -286,3 +286,52 @@ class GolemaggActionAuditSourceContract(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _code_only(text):
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"//[^\n]*", "", text)
+
+
+def _body(code, signature):
+    start = code.index(signature)
+    brace = code.index("{", start)
+    depth = 0
+    for index in range(brace, len(code)):
+        depth += {"{": 1, "}": -1}.get(code[index], 0)
+        if depth == 0:
+            return code[brace:index + 1]
+    raise AssertionError(signature)
+
+
+class GolemaggActionAuditStartupConfig(unittest.TestCase):
+    """Same fix as #133 6396641760: no ConfigMgr read on a map thread."""
+
+    CODE = _code_only(SOURCE)
+
+    def test_config_manager_only_in_reader(self):
+        self.assertEqual(self.CODE.count("sConfigMgr->"), 2)
+        self.assertEqual(_body(self.CODE, "AuditConfig ReadAuditConfig()").count("sConfigMgr->"), 2)
+        self.assertNotIn("static bool const enabled", self.CODE)
+        self.assertNotIn("static std::string const allowedBot", self.CODE)
+
+    def test_reader_only_called_from_startup_hook(self):
+        self.assertEqual(self.CODE.count("ReadAuditConfig()"), 2)
+        hook = _body(self.CODE, "void OnAfterConfigLoad(bool reload)")
+        self.assertIn("ReadAuditConfig()", hook)
+        self.assertIn("if (!reload)", hook)
+        self.assertEqual(len(re.findall(r"StartupAuditConfig\s*=[^=]", self.CODE)), 1)
+        self.assertIn(
+            'WorldScript("NaxxramasCoreGolemaggActionAuditConfig", { WORLDHOOK_ON_AFTER_CONFIG_LOAD })',
+            self.CODE)
+
+    def test_map_thread_update_reads_snapshot_only(self):
+        update = _body(self.CODE, "void OnPlayerUpdate(Player* player")
+        self.assertNotIn("sConfigMgr", update)
+        self.assertNotIn("ReadAuditConfig", update)
+        self.assertIn("AuditConfig const& config = StartupAuditConfig;", update)
+
+    def test_both_scripts_registered_once(self):
+        add = _body(self.CODE, "void AddBotGolemaggActionAuditScripts()")
+        self.assertEqual(add.count("new NaxxramasCoreGolemaggActionAuditConfig();"), 1)
+        self.assertEqual(add.count("new NaxxramasCoreGolemaggActionAudit();"), 1)
