@@ -78,6 +78,9 @@ class Decision:
 class _Bucket:
     timestamps: deque[int] = field(default_factory=deque)
     emitted: bool = False
+    # Event-uptime cooldown prevents near-threshold steady error traffic
+    # from producing a new alert on every event after re-arm.
+    last_alert_uptime: int | None = None
 
 
 @dataclass(frozen=True)
@@ -102,8 +105,9 @@ class OfflineBurstTracker:
     A stream is keyed by (service, instance, stream) and sequence numbers must
     strictly increase. No retry or replay after a reject mutates counters.
     Per category, first reaching the threshold in one sliding window emits
-    one alert; sustained same-window noise never produces alert floods.
-    The category rearms once the rolling event count falls below threshold.
+    one alert; a sliding-window cooldown prevents steady error floods.
+    The category rearms once the rolling event count falls below threshold,
+    but never sends a second alert inside the previous alert window.
     An authenticated-in-fixture instance exit releases its stream/category memory;
     this model never establishes actual OS provenance.
     """
@@ -169,8 +173,14 @@ class OfflineBurstTracker:
         while len(bucket.timestamps) > self.threshold:
             bucket.timestamps.popleft()
 
-        if len(bucket.timestamps) == self.threshold and not bucket.emitted:
+        # Hysteresis is necessary: at e.g. one error / 25 seconds, the
+        # rolling count toggles between 2 and 3. Re-arming alone would
+        # emit 238 alerts for 240 entries; enforce one per full window.
+        cooldown_over = (bucket.last_alert_uptime is None or
+                         sample.uptime_ms - bucket.last_alert_uptime >= self.window_ms)
+        if len(bucket.timestamps) == self.threshold and not bucket.emitted and cooldown_over:
             bucket.emitted = True
+            bucket.last_alert_uptime = sample.uptime_ms
             return Decision(
                 "alert",
                 "bounded synthetic warning/error burst; no OS or log attestation",
