@@ -1,0 +1,155 @@
+name: "Part25 P0+F12+F13+F14 pinned Worldserver assembly (OFF)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/**'
+      - 'src/NaxxramasCore_loader.cpp'
+      - 'conf/mod_naxxramas_core.conf.dist'
+      - 'tests/test_p25_p0_f12_f13_f14_source_assembly.py'
+      - 'tests/test_scarlet_monastery_exits.py'
+      - 'tests/test_atiesh_karazhan_portal.py'
+      - 'tests/test_f14_who_listing_s2.py'
+      - 'docs/research/PART25-P0-F12-F13-F14-SOURCE-ASSEMBLY.md'
+      - '.github/workflows/part25-p0-f12-f13-f14-assembly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p25-p0-f12-f13-f14-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  exact-source-and-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Enforce exact HEAD
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Verify exact 120s P0 source and reviewed F12 F13 F14 blobs
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 -I -B tests/test_p25_p0_f12_f13_f14_source_assembly.py -v 2>&1 | tee /tmp/p25_source.log
+          grep -Eq '^Ran 5 tests in [0-9.]+s$' /tmp/p25_source.log
+          grep -qx 'OK' /tmp/p25_source.log
+          ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/p25_source.log
+      - name: Source regressions for three independent features
+        run: |
+          set -euo pipefail
+          python3 -m unittest tests/test_scarlet_monastery_exits.py -v
+          python3 -m unittest tests/test_atiesh_karazhan_portal.py -v
+          python3 -m unittest tests/test_f14_who_listing_s2.py -v
+          python3 -m unittest tests/test_f14_who_listing_model.py -v
+      - name: Three C++ policy test suites with C++17 and C++20
+        run: |
+          set -euo pipefail
+          for std in c++17 c++20; do
+            for feature in scarlet_exit_policy atiesh_portal_policy who_listing_policy; do
+              g++ -std=$std -Wall -Wextra -Werror -pedantic \
+                -Isrc/Systems tests/$feature.cpp -o /tmp/p25_${std}_${feature}
+              /tmp/p25_${std}_${feature}
+            done
+          done
+      - name: Checkout pinned core for exact /who native fingerprint
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+          sparse-checkout: |
+            src/server/game/Handlers/MiscHandler.cpp
+            src/server/game/Server/Protocol/Opcodes.cpp
+          sparse-checkout-cone-mode: false
+      - name: Confirm source handler fingerprint at exact core SHA
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          python3 scripts/check_f14_who_handler_fingerprint.py acore --print
+
+  full-pinned-worldserver-link:
+    needs: exact-source-and-native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout exact Grimfeather AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+      - name: Checkout pinned public Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout pinned Individual Progression
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout exact module candidate
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/Mod-Naxxramas-Core
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Enforce pinned snapshots and default-OFF flags
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          for key in \
+            'NaxxramasCore.Playerbots.GolemaggMeleeGuard.Enabled = 0' \
+            'NaxxramasCore.ScarletExits.Enabled = 0' \
+            'NaxxramasCore.Atiesh.VanillaOutdoorArrival.Enabled = 0' \
+            'NaxxramasCore.ExpansionRaceVisibility.HideTbcRaces = 0'; do
+            grep -Fqx "$key" acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          done
+      - name: Install compiler dependencies on disposable runner
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure pinned complete Worldserver with all modules
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Build and link full Worldserver without launching
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify P0 F12 F13 F14 registrations in linked Worldserver
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          test -s "$binary" && test -x "$binary"
+          nm -C --defined-only "$binary" > /tmp/p25_assembly_symbols.txt
+          for fn in \
+            AddBotRaidConsumablesScripts \
+            AddBotGolemaggReachGuardScripts \
+            AddScarletMonasteryExitScripts \
+            AddAtieshKarazhanPortalScripts \
+            AddWhoListingScripts; do
+            grep -Eq " T ${fn}\(\)$" /tmp/p25_assembly_symbols.txt
+          done
+          echo 'PASS: all five registered symbols are in the same pinned linked Worldserver.'
+          echo 'No server launched, no F15 operational monitor, and no A02/A04 functional acceptance.'
