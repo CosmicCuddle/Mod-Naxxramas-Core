@@ -2,7 +2,7 @@
 
 **NOT A LIVE SERVER MONITOR. DO NOT MERGE, INSTALL OR ENABLE.**
 
-This stacked draft builds on the S2 offline storage prototype [PR #136](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/136) at independently reviewed exact `a2b1185f29f32b8d71ed17f53058a62baea0e435` (Claude S2 PASS for storage only). It adds an S3 **host-independent** layer, not Worldserver or Authserver restart detection.
+This stacked draft builds on the S2 offline storage prototype [PR #136](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/136) at independently reviewed exact `a2b1185f29f32b8d71ed17f53058a62baea0e435` (Claude S2 PASS for storage only). It adds an S3 **host-independent** layer, not Worldserver or Authserver restart detection. The latest S3-only peer-review correction also updates the inherited offline S2 source **on this stacked branch only**; independently reviewed S2 PR #136 stays unchanged.
 
 ## Why sidecars?
 
@@ -21,9 +21,14 @@ The original finalized incident report remains **immutable**. When a trusted sup
 
 The source-only audit found two gaps in the original 21-case model: separate attempts at the same UTC second could be sorted by their UUIDs and projected as a false latest `succeeded`, and a correctly hashed sidecar could claim a restart **before** its original crash ended. Both are now fail-closed in this research model. Five additional synthetic witnesses cover opposite outcomes at the same time, identical outcomes with unresolved order, later uniquely timed recovery, pre-crash publication refusal, and pre-crash forged-but-checksummed sidecars excluded from history. These assumptions require a later trusted adapter to establish accurate chronological evidence, including possible cross-source clock skew, before S4 acceptance.
 
-## Integration limitation: no mixing old S2 and new S3 writers
+## S3 peer-review corrections — legacy writer and future clock safety
 
-**The S3 store must be the only incident+restart writer used by any future integration.** An older S2 `IncidentStore.rebuild()` will rewrite the derived index without the restart projection. Original reports and sidecars remain intact; running the S3 rebuild reconstructs it, but this means mixing implementations is not a supported deployment design. A future adapter needs a single named implementation and a tested migration plan, not parallel incompatible collectors.
+**Review response on the isolated S3 branch (not on the independently approved S2 #136 branch):**
+- An S2-only `IncidentStore.rebuild()` now **raises** when `restart-*.txt` sidecars exist, BEFORE rewriting `Crash-History.txt`. An S2-only `publish()` rejects these S3 directories BEFORE writing an incident. The S3 subclass retains its own sidecar-aware index rebuilding. This intentionally modifies the inherited `tools/f15/offline_store.py` **only on this stacked S3 branch**; S2 #136 remains unchanged. Tests demonstrate the legacy index cannot silently erase verified restart projections.
+- A verified restart sidecar claiming a timestamp more than **five minutes ahead of the writer's UTC wall clock** is rejected before publish. During locked history rebuilding, an otherwise valid, correctly hashed future-dated sidecar is listed as **unverified**, not chosen as the latest outcome. This is a conservative offline sanity check, not a substitute for trusted supervisor event ordering, monotonic identity, reliable clocks or cross-observer skew handling. Sidecar evidence is preserved for independent investigation.
+- Four new S3 negative tests cover both legacy-writer operations, future-date publication refusal and a correct-hash future-sidecar attempt to hide a later failed restart.
+
+**The S3 store must be the only crash+restart writer used by any future integration.** An old S2 collector whose code lacks these new guards could still erase a projection; deploying mixed, unreviewed versions is forbidden. All future S4 adapters need a single implementation, pinned source identity, a migration policy and independent tests.
 
 ## Deliberately unresolved
 
