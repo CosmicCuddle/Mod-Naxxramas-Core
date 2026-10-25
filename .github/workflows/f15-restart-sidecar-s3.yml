@@ -1,0 +1,44 @@
+name: F15 S3 offline restart sidecar validation (no host)
+on:
+  pull_request:
+    paths:
+      - 'tools/f15/offline_store.py'
+      - 'tools/f15/offline_restart.py'
+      - 'tests/test_f15_offline_store_s2.py'
+      - 'tests/test_f15_restart_sidecar_s3.py'
+      - 'docs/research/F15-S3-OFFLINE-RESTART-SIDECARS.md'
+      - '.github/workflows/f15-restart-sidecar-s3.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-sidecar-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert pinned exact head
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+      - name: Check no live service integrations in S3 additions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('tools/f15/offline_restart.py')
+          s=p.read_text()
+          for bad in ('subprocess.', 'socket.', 'requests.', 'systemctl', 'journalctl', '/root/cosmic_core'):
+              assert bad not in s, bad
+          assert Path('tools/f15/offline_store.py').exists()
+          print('No host service adapters / root-path access in S3 sidecar layer.')
+          PY
+      - name: Re-run independently peer-reviewed S2 offline storage regression suite
+        run: python3 -m unittest discover -s tests -p 'test_f15_offline_store_s2.py' -v
+      - name: Test immutable S3 restart sidecars and reconstruction with synthetic evidence
+        run: python3 -m unittest discover -s tests -p 'test_f15_restart_sidecar_s3.py' -v
+      - name: No test artifacts or deployments
+        run: echo 'Disposable temp directories and synthetic evidence only; not a server monitor.'
