@@ -198,9 +198,32 @@ Playerbots `reload` (`PlayerbotMgr.cpp:1075-1079`) and `rndbot reload` (`RandomP
 
 The addon message does not create the proof. It is the human signal only while the proof is already open. `RestoreHumanChain` stays default `0` (`conf/mod_naxxramas_core.conf.dist:411`). Both flags off means no restore.
 
+### PAK-SELF-RELOAD-ORDER-01 is OPEN
+
+**MODEL GAP. Not a proven exploit.** Real-time SelfBot exclusion is **BLOCKED**. The startup latch is the only sample this candidate can justify, and it is not a live subscription to later Playerbots reloads.
+
+**VERIFIED** at `mod-playerbots` `d750b4b3a50effdf22bedc8032f0e8e5f7cb8091`:
+
+| Call | Lines | What it does |
+| --- | --- | --- |
+| GM `reload` in `PlayerbotMgr` | `PlayerbotMgr.cpp:1075-1079` | `sPlayerbotAIConfig.Initialize()`. No `World::LoadConfigSettings`. No `OnAfterConfigLoad` |
+| `rndbot reload` | `RandomPlayerbotMgr.cpp:2532-2536` | The same direct `Initialize()` |
+| `Initialize` | `PlayerbotAIConfig.cpp:83-87`, `:759` | Explicit `Playerbots.Enabled` false returns before the assignment. Otherwise `SelfBotLevel = sConfigMgr->GetOption<int32>("Playerbots.SelfBotLevel", 1)` |
+| Startup | `Playerbots.cpp:509-531` | `OnBeforeWorldInitialized` calls `Initialize()`. That hook list is not `OnAfterConfigLoad` |
+
+`note_playerbots_reload` in the Python model is an injected notification. It is not a function in that tree. A test that calls it shows the latch only for a harness that already knows the new integer. PAK-SELF-APPLY stays that injected case. PAK-SELF-RELOAD-ORDER-01 does not call it.
+
+**VERIFIED** at Grimfeather `8daffda`, `World::LoadConfigSettings` (`World.cpp:170-188`): on `reload == true` the function calls `sConfigMgr->Reload()` (`Config.cpp:470-484`) and, when that returns false, logs and returns at `World.cpp:174-178`. `OnBeforeConfigLoad` (`World.cpp:187`) and `OnAfterConfigLoad` (`World.cpp:302`) both sit after that return. A failed reload runs neither hook. `Config::Reload` loads app configs and module configs as two steps (`Config.cpp:472-479`). Whether a false return leaves `Playerbots.SelfBotLevel` changed is **UNKNOWN**. This pass did not establish that pathway. The failed-reload witness is a hypothetical gap, not an observed config mutation, and not a live exploit.
+
+No module hook runs from those two Playerbots reload commands, and no module hook runs when `Reload()` returns false. The chat-accept sample runs only when an `NXCPAK` message is already being accepted. `OnAfterConfigLoad` runs only when `LoadConfigSettings` reaches it. Neither one is a producer for every `Initialize()`.
+
+The candidate therefore has no real-time refresh. Map workers stay on the atomic. They do not call `GetOption`. They do not read `_playerbotsAIMap`. Per-tick unlocked `ConfigMgr` or Playerbots reads stay rejected.
+
+Model rule, offline only: apply is allowed only while the startup latch is open, the atomic is integer `0`, and the modelled Playerbots integer is still `0`. A direct `Initialize()` that hypothetically assigns `2` leaves the atomic at `0` and apply is denied. The same call assigning `0` again is not a bypass, because unchanged `sConfigMgr` was not shown to enable SelfBot. A failed World reload records an early return, leaves the atomic at `0`, and apply is denied because the hooks that would have sampled did not run. Those two denies are harness observations. No `WorldScript` runs on the false return, and no module callback runs inside `Initialize()`, so a module cannot set the flag the harness sets. That is why the outcome stays a model rule and real-time exclusion stays **BLOCKED**, rather than a C++ change. In-game behaviour is **NOT TESTED**. Live `playerbots.conf` is **UNKNOWN**. Human-only autocast stays default OFF.
+
 Playerbots and Altbots stay unaffected. `AddPlayerBot` constructs the session with a null socket (`PlayerbotMgr.cpp:158-160`). `WorldSession::Update` pops client packets only while `m_Socket` is set (`WorldSession.cpp:414`). The hook runs from `CMSG_MESSAGECHAT` (`Opcodes.cpp:280`, `ChatHandler.cpp:364`). A search of the pinned Playerbots tree finds no call to that handler. A headless session does not deliver `NXCPAK`. A forced headless accept returns without a write.
 
-An active SelfBot stays unaffected because the proof is closed whenever the effective value is not integer `0`, at startup and again at apply. No per-player AI read is added. `_playerbotsAIMap` stays unread.
+An active SelfBot stays unaffected when the sampled atomic and the Playerbots integer are both not `0`. The unsampled case, where the Playerbots integer changes and the atomic stays `0`, is PAK-SELF-RELOAD-ORDER-01 and is **OPEN**. No per-player AI read is added. `_playerbotsAIMap` stays unread.
 
 The #130 note already rejected a per-player distinction: the unlocked AI map, `!IsHeadless`, account lists, `playerBots`, and a login latch. This decision does not reopen them. No Playerbots, core, or Individual Progression file was edited.
 
@@ -363,8 +386,15 @@ The Python file models v1 from the parent receiver and models this candidate. Th
 | PAK-SELF-OFF | Startup level 0 with Enabled not false applies one valid v2 message | Holds | Holds |
 | PAK-SELF-RELOAD | A reload from non-zero to 0 does not open a closed gate | v1 writes | Holds |
 | PAK-SELF-NOCLIENT | A sender with no client does not deliver a message | Holds. The hook is not entered | Holds |
+| PAK-SELF-RELOAD-ORDER-01 | A hypothetical direct `Initialize()` to 2 leaves the A02 atomic at 0 and apply is denied. Assigning 0 again is not a bypass. **OPEN** model gap, not a live exploit | v1 writes | Holds in the model. Real-time exclusion is **BLOCKED** |
+| PAK-SELF-RELOAD-ORDER-01-WORLD-FAIL | `Reload()` false returns before both config hooks. Apply is denied. A changed `SelfBotLevel` on that path is **UNKNOWN** | v1 writes | Holds in the model |
+| PAK-H-SPLIT-01 | Spells transaction can fail while the pet row commits. The save return is not a receipt. No H append | Native hazard | Module H unminted |
+| PAK-H-ORDER-01 | `WorkerThreads > 1` can commit the pet row before spells. Default is 1. One worker still returns before completion | Native hazard | Module H unminted |
+| PAK-H-SUCCESSIVE-01 | Two saves, multiple workers: the older pet row can complete last | Native hazard | Module H unminted |
+| PAK-H-RESTORE-01 | Owner, number, and entry match a restored row whose `abdata` differs | Native fence matches | No sidecar |
+| PAK-H-TAME-01 | Tame order has no hook that receives the `character_pet` transaction | No such hook | Module H unminted |
 
-Lua, against the frozen addon, covers `PetKey` same-name collision, `v1|clear` with no pet field, seq wrap prefixing `v1|clear`, empty and missing spellbook entries omitted, Cower omitted when the bar does not have it, and the absence of `CHAT_MSG_ADDON`. Those are client-source facts. They are not in-game results.
+Lua, against the frozen addon, covers `PetKey` same-name collision, `v1|clear` with no pet field, seq wrap prefixing `v1|clear`, empty and missing spellbook entries omitted, Cower omitted when the bar does not have it, and the absence of `CHAT_MSG_ADDON`. Those are client-source facts. They are not in-game results. The H rows above use the v1 column for the native save model. They are not new failures of the #134 receiver.
 
 ## Labels
 
@@ -398,6 +428,12 @@ Lua, against the frozen addon, covers `PetKey` same-name collision, `v1|clear` w
 | Boot-epoch collision as a quarantine | **UNRESOLVED**. About 1/999999999 against the previous boot. Not lineage |
 | `OnWorldUpdate` as the SelfBot refresh point | **REJECTED** for the same tick. It is `World.cpp:1355`, after `MapMgr::Update` at `:1254` |
 | Positive human classification | **UNRESOLVED**. `SelfBotLevel == 0` is necessary and not sufficient |
+| `PAK-SELF-RELOAD-ORDER-01` | **OPEN**. Model gap. Not a proven exploit. In-game **NOT TESTED** |
+| Real-time SelfBot exclusion | **BLOCKED**. No hook runs for direct `Initialize()` or for a failed `Reload()` |
+| `PlayerbotMgr.cpp:1075-1079` and `RandomPlayerbotMgr.cpp:2532-2536` call `Initialize()` only | **VERIFIED** at Playerbots `d750b4b`. Not executed |
+| `World.cpp:174-178` returns before both config hooks when `Reload()` is false | **VERIFIED** source order at `8daffda`. Partial `ConfigMgr` mutation on that false return is **UNKNOWN** |
+| Module-only durable H | **BLOCKED**. No existing hook receives the `character_pet` transaction |
+| M1 `OnPetBeforeCharacterPetCommit` | Paper seam only. No core patch. Not approved |
 | Owner Playerbots `e88cc409` plus two local edits | **UNRESOLVED**. Not read |
 | Hybrid H, creation-id column, never-reuse allocator | H is not selected. The other two need a core patch. No SQL here |
 | In-game hello delivery and Lua quarantine | **UNRESOLVED** / **NOT TESTED** |
@@ -413,20 +449,52 @@ CS01's review of the module-owned identity table (issue #48 comments 6399692347 
 | Backup restore with the same owner, number, and entry | Undetectable | Stale `creation_id` can match the wrong lifetime. **UNRESOLVED** | Only if the column is restored with the row. **UNRESOLVED** | A rolled-back high-water mark can reissue. **UNRESOLVED** |
 | Tame Beast: `CurrentPet` filled, then `AddToMap`, then `SetMinion` and `SavePetToDB` | Apply is later, in `OnWorldObjectUpdate`, and requires `GetPet()` and `CurrentPet` together | Requiring `GetPet()==pet` inside `OnPetAddToWorld` can reject a legitimate tame. Two-phase bind is **UNRESOLVED**. No synchronous map-worker SQL | Not in this branch | Not in this branch |
 
-The tame order in the row above is CS01's source correction (6399828949), not re-traced line by line in this pass, so that two-phase flow stays **UNRESOLVED**.
+The tame order in the row above was re-read at Grimfeather `8daffda` in this pass. It is source order. It is **NOT TESTED** in game.
 
-**PAK-CANONICAL-COMMIT-01 is OPEN.** **VERIFIED** this pass at Grimfeather `8daffda`: `Pet::SavePetToDB` (`Pet.cpp:502`) calls `CharacterDatabase.CommitTransaction` twice (`Pet.cpp:538` and `:589`). `DatabaseWorkerPool::CommitTransaction` (`DatabaseWorkerPool.cpp:248-268`) is void and ends in `Enqueue(new TransactionTask(transaction))`. It does not return a completion result. `AsyncCommitTransaction` (`:271-294`) is a different API and is not the call `SavePetToDB` makes. A later `OnUnitUpdate` or `OnWorldObjectUpdate` therefore does not attest that the canonical row was committed. Whether the row is visible on the next tick is **NOT TESTED**. No safe late commit seam is proven in this module without a core change. H is not assumed to work as module-only code. This branch does not mint a token, send a hello, or restore autocast from a save return.
+**Hunter tame and save paths, VERIFIED as source order:**
 
-Added falsifiers, all **OPEN** / **UNRESOLVED** (no sidecar exists here to fail them in a runtime):
+`Spell::EffectTameCreature` (`SpellEffects.cpp:3311`) calls `CreateTamedPetFrom` (`:3341`), then `Map::AddToMap` (`:3354`), then `SetMinion` (`:3360`), then `SavePetToDB(PET_SAVE_AS_CURRENT)` (`:3366`). `Map::AddToMap` for a creature calls `obj->AddToWorld()` (`Map.cpp:339`). `Pet::AddToWorld` calls `sScriptMgr->OnPetAddToWorld(this)` (`Pet.cpp:118`). `SetMinion` is what calls `SetPetGUID` (`Unit.cpp:7610` and `:7616`). `Player::GetPet` reads that GUID (`Player.cpp:9157-9160`). During `OnPetAddToWorld` on this tame path, `SetMinion` has not run, so `GetPet()` is not this pet yet.
 
-| Case | What this proposal does |
-| --- | --- |
-| `SavePetToDB` has returned but the commit is still queued or has failed | No H row is written. No hello is treated as a committed identity |
-| The first follow-up tick runs before the canonical row is visible | Observe still requires the in-memory `CurrentPet` only. It does not query `character_pet` and does not treat that tick as a commit |
-| An old read completes after A→B→A, logout, or relog | Not implemented. A late result would have to be discarded. There is no query to return |
-| The canonical save commits and a sidecar write fails | No sidecar write is attempted |
-| The process crashes after a sidecar insert and before the next sighting | No sidecar. Preferences are not recovered from a creation id |
-| A partial character-database restore keeps the same owner, number, and entry | PetNumber plus entry is not birth proof. Rows keyed that way stay quarantined across a boot epoch |
+`Unit::InitTamedPet` (`Unit.cpp:13427`) fills `CurrentPet` at `:13451` before that `AddToMap`. It also calls `GeneratePetNumber` and `SetPetNumber` at `:13447`. An earlier `GeneratePetNumber` in `Pet::CreateBaseAtTamed` (`Pet.cpp:1018`) is passed through `Pet::Create` (`Pet.cpp:2316`) into `Object::_Create` as the GUID entry argument (`Object.cpp:128-130`). The `character_pet` id written by `SavePetToDB` is `GetPetNumber()`, which is the `SetPetNumber` value, not that GUID entry argument. In-game GUID display is **NOT TESTED**.
+
+`Spell::EffectCreateTamedPet` (`SpellEffects.cpp:6165`) has the same shape: `AddToMap` `:6179`, `SetMinion` `:6182`, `SavePetToDB` `:6188`. `Player::CreatePet` does too (`Player.cpp:9480`, `:9486`, `:9490`, and the entry overload `:9521`, `:9527`, `:9531`). Other save calls, also with no script transaction argument: `Spell::EffectLearnPetSpell` (`SpellEffects.cpp:3508`), `Spell::EffectResurrectPet` (`:5533`), `Player::RemovePet` (`Player.cpp:9367`), `Player::SummonPet` only inside the `SUMMON_PET` branch (`Player.cpp:9274-9278`), and `Player::SaveToDB` (`PlayerStorage.cpp:7304-7305`).
+
+`Player::SaveToDB` begins its own character transaction at `PlayerStorage.cpp:7240` and commits it at `:7244`. `OnPlayerSave` (`:7270`, declared `PlayerScript.h:377`) receives the player and no transaction, and it runs before `SavePetToDB`. `SavePetToDB` does not append to that player transaction. It begins its own.
+
+**Module-only durable H is BLOCKED.** `Pet::SavePetToDB` (`Pet.cpp:502-589`) contains no `sScriptMgr` call. The only `PetScript` hooks at this pin are `PetScript.h:26-31`: `OnInitStatsForLevel`, `OnCalculateMaxTalentPointsForLevel`, `CanUnlearnSpellSet`, `CanUnlearnSpellDefault`, `CanResetTalents`, and `OnPetAddToWorld` (`PetScript.h:58`). None of them receives a `CharacterDatabaseTransaction`. `OnPetAddToWorld` is not inside `SavePetToDB`. The transaction hooks that do exist (`OnItemDelFromDB`, `OnPlayerAchievementSave`, `OnPlayerCriteriaSave`, `OnPlayerDeleteFromDB`) are not called from `SavePetToDB`. There is no existing module or script hook that runs before the native `character_pet` transaction is enqueued and that is given that actual transaction.
+
+**PAK-CANONICAL-COMMIT-01 is OPEN.** **VERIFIED** this pass at Grimfeather `8daffda`: the function always commits auras, spells, and cooldowns in one transaction (`Pet.cpp:528-538`) and, when `mode >= PET_SAVE_AS_CURRENT`, commits `CHAR_DEL_CHAR_PET_BY_ID`, the optional hunter slot delete, and `CHAR_REP_CHAR_PET` in a second transaction (`Pet.cpp:544-589`). `mode` below current still commits the spells transaction and then `DeleteFromDB` (`Pet.cpp:599`, commit at `:623`), which is a third transaction. `DatabaseWorkerPool::CommitTransaction` (`DatabaseWorkerPool.cpp:248-268`, closing brace at line 269) is void and ends in `Enqueue(new TransactionTask(transaction))`. It does not return a completion result. `AsyncCommitTransaction` (`:271-294`) is a different API and is not the call `SavePetToDB` makes. `DirectCommitTransaction` (`:297`) is not that call either.
+
+`DatabaseLoader.cpp:67-68` reads `CharacterDatabase.WorkerThreads`, default 1, allowed range 1..32. The distributed default is 1 (`worldserver.conf.dist:140`). Live worker count is **UNKNOWN**. Each async connection starts one `DatabaseWorker` (`MySQLConnection.cpp:59-67`). Workers share one queue and run `WaitAndPop` then `call()` (`DatabaseWorker.cpp:34-52`). With one worker, completion follows dequeue order. With more than one worker, a transaction dequeued later can finish first. That ordering is a source capability. It is **NOT TESTED** on a live server. Even with one worker, `CommitTransaction` returns before `call()` finishes, and a synchronous read uses the sync pool (`GetFreeConnection`), not the async worker. A later `OnUnitUpdate` or `OnWorldObjectUpdate` does not attest that either transaction committed. Whether the row is visible on the next tick is **NOT TESTED**.
+
+### M1 paper seam
+
+No core patch. No SQL. Not approved. Not implemented in this branch.
+
+The smallest core change that would give a module the actual `character_pet` transaction is one new `PetScript` hook, called from `Pet::SavePetToDB` after `CHAR_REP_CHAR_PET` is appended and before `CommitTransaction` at `Pet.cpp:589`:
+
+```text
+void OnPetBeforeCharacterPetCommit(Pet* pet, PetSaveMode mode, CharacterDatabaseTransaction trans);
+```
+
+`trans` is that second transaction only. The spells, auras, and cooldowns transaction committed at `Pet.cpp:538` is already queued and is not this argument. The module may append statements to `trans`. It must not call `CommitTransaction`, `DirectCommitTransaction`, or `Cleanup`. The hook is absent on the early returns in `SavePetToDB` (not a player pet, still loading, uncontrolled, hunter temporary-unsummon skip). `DeleteFromDB` stays outside this seam unless a later review adds a separate hook on that third transaction.
+
+M1 does not switch the native call to `AsyncCommitTransaction`, so the caller still learns nothing about commit success. M1 does not order the spells transaction against the pet-row transaction. A sidecar appended to the pet-row transaction can commit or roll back with that row only. It does not attest that the spells transaction committed, and it does not record a manual autocast bit that Individual Progression changes after the save. An H row in its own later transaction can still orphan or mismatch when one of the native transactions fails. Backup restore of the same owner, number, and entry is still not birth proof, because M1 adds no column in this paper note and this branch adds no table.
+
+### H falsifier matrix
+
+Offline model in `SplitPetSave`. Not a database. Each row is a **MODEL GAP** or a source fact, as labelled. None of them is a live race that this pass executed.
+
+| Id | Case | Label |
+| --- | --- | --- |
+| PAK-H-SPLIT-01 | Spells transaction fails and the pet-row transaction commits, or the reverse. `SavePetToDB` has already returned `void` | **VERIFIED** as two enqueues in source. Failure split is **modelled**. Live result **NOT TESTED**. Module appends nothing |
+| PAK-H-ORDER-01 | `WorkerThreads > 1`: pet row completes before the spells transaction of the same save. `WorkerThreads == 1`: completion stays in dequeue order, and the return still happens before completion. Dist default is 1. Live value **UNKNOWN** | **VERIFIED** source capability. **NOT TESTED** live |
+| PAK-H-SUCCESSIVE-01 | Save A then save B. With multiple workers the older pet row can become the visible row last | **Modelled**. **NOT TESTED** live |
+| PAK-H-RESTORE-01 | A restored `character_pet` row keeps owner, number, and entry and carries older `abdata`. A fence on those three fields matches it | **Modelled**. Detecting that restore from the module is **BLOCKED** with the current columns. No sidecar is written |
+| PAK-H-TAME-01 | Paths listed above. `OnPetAddToWorld` has no transaction. No hook sees the pet-row transaction before enqueue | **VERIFIED** source. In-game tame **NOT TESTED** |
+| Prior open cases | Return before the queue drains; first follow-up tick; a late read after A→B→A, logout, or relog; sidecar failure; crash; partial restore | Still **OPEN**. This branch still writes no H row and still does not query `character_pet` |
+
+H is not selected. Module-only durable H is **BLOCKED**. M1 is paper only and is not owner-approved. This branch does not mint a token from a save return, does not send a hello, and does not restore autocast from a committed row.
 
 ## Open decisions for Michael
 
@@ -446,12 +514,12 @@ Offline only. Not an in-game result. Parent `2ab30306c884d3af1c92bb5ad7042648b90
 python3 tests/research/test_a02_pak_d1_protocol_v2.py
 ```
 
-Result on this revision: 36 unittest methods, OK, exit 0. Printed witnesses: 44. v1 safety FAIL 27, v1 safety PASS 17, v2 safety FAIL 0, v2 safety PASS 44. `SOURCE_ANCHORS proposal+header+cpp OK` is an extra unittest check, not one of the 44. Isolation witnesses still assume a startup proof that `Playerbots.SelfBotLevel` is 0, and PAK-SELF-APPLY then closes that proof. The witnesses added in this revision are PAK-RESTART-01, PAK-RESTART-ENTROPY, PAK-STABLE-MEMBER-01, PAK-HELLO-STALE-01, PAK-SUMMON-01, PAK-SELF-APPLY, and PAK-ID-QUARANTINE. PAK-ID-07 still restores A inside one process; it is not a cross-restart durable key. PAK-CANONICAL-COMMIT-01 is OPEN in the Hybrid H section and is not one of the 44 witnesses.
+Result on this revision: 39 unittest methods, OK, exit 0. Printed witnesses: 51. v1 safety FAIL 34, v1 safety PASS 17, v2 safety FAIL 0, v2 safety PASS 51. `SOURCE_ANCHORS proposal+header+cpp OK` is one of the 39 unittest methods and is not one of the 51 witnesses. The seven witnesses added in this revision are PAK-SELF-RELOAD-ORDER-01, PAK-SELF-RELOAD-ORDER-01-WORLD-FAIL, PAK-H-SPLIT-01, PAK-H-ORDER-01, PAK-H-SUCCESSIVE-01, PAK-H-RESTORE-01, and PAK-H-TAME-01. Their v1 FAIL column is the native save model or the #134 receiver still writing. It is not a new v2 safety failure. v2 safety FAIL stays 0. Isolation witnesses still assume a startup proof that `Playerbots.SelfBotLevel` is 0. PAK-SELF-APPLY still uses the injected `note_playerbots_reload`. PAK-SELF-RELOAD-ORDER-01 does not. PAK-ID-07 still restores A inside one process. It is not a cross-restart durable key. PAK-CANONICAL-COMMIT-01 stays OPEN. It is not one of the 51 witnesses.
 
 ```text
 lua5.1 tests/research/test_a02_pak_d1_addon_contract.lua <PetAutocastKeeper directory at zip sha256 4d4e04843e6274b4ede20a03429c3c6f05f2b579f8536d48d59710ec9dc7e007>
 ```
 
-**NOT RUN** on this revision. `lua5.1` is Lua 5.1.5 here, and the script starts, but the PetAutocastKeeper directory for zip sha256 `4d4e04843e6274b4ede20a03429c3c6f05f2b579f8536d48d59710ec9dc7e007` is not in this checkout. The Lua file was not changed. It still checks the frozen addon, which keys by `PetKey` and does not know a pet number. Quarantine of `db.pets[petNumber]` is documentation and a Python client model for a later addon. It is not a patch to that zip.
+**NOT RUN** against the frozen zip on this revision. `lua5.1` is Lua 5.1.5. With no addon directory the script prints `NOT TESTED: pass the PetAutocastKeeper directory` and exits 2. The zip sha256 `4d4e04843e6274b4ede20a03429c3c6f05f2b579f8536d48d59710ec9dc7e007` is not in this checkout. A different local zip (`b5755438…`) fails the hash gate (exit 1, 0 passed, 4 failed) and is not a contract run. The Lua file was not changed. The earlier 35/0 report in #135 comment 6400116100 is a run at `a01a44cc`, not a run of this commit. Quarantine of `db.pets[petNumber]` is documentation and a Python client model for a later addon. It is not a patch to that zip.
 
 Still **NOT TESTED**: in-game summon, stable, relog, bar, fallback button, 3.3.5a Lua delivery of a server addon whisper, live `AddonChannel`, live `MapUpdate.Threads`, live `playerbots.conf`, DBC autocast and spell-chain rows, `learnSpell`'s autocast bit, and any C++ implementation of this candidate. Both module flags stay 0.

@@ -550,6 +550,16 @@ class V2Store:
         self.selfbot_warnings = 0
         self._selfbot_warned = False
         self.effective_level = WorldAtomic(-1)
+        # Integer Initialize() would write. None means that assignment has not run.
+        # Distinct from the A02 atomic, which a direct Initialize() does not store.
+        self.playerbots_effective: int | None = None
+        self.direct_initialize_calls = 0
+        self.note_playerbots_reload_calls = 0
+        self.initialize_assigned = False
+        # World::LoadConfigSettings returned before either config hook.
+        # Hypothetical model gap. Not a claim that ConfigMgr changed.
+        self.failed_world_reload_gap = False
+        self.config_hooks: list[str] = []
         self._entropy = entropy or os.urandom
         self.entropy_ok = False
         self.boot_nonce = b""
@@ -600,6 +610,15 @@ class V2Store:
             level, readable=readable, playerbots_enabled=playerbots_enabled
         )
         self.effective_level.store(0 if proven else -1)
+        # Same sample Initialize() would assign from sConfigMgr. A missing or
+        # bad token becomes Playerbots' own default 1. Enabled false returns
+        # before the assignment and leaves the field unchanged.
+        if playerbots_enabled is False:
+            pass
+        elif readable and type(level) is int:
+            self.playerbots_effective = level
+        else:
+            self.playerbots_effective = 1
         if not reload:
             self.selfbot_off = proven
         elif not proven:
@@ -612,18 +631,64 @@ class V2Store:
 
     def note_playerbots_reload(self, level: int | None, *, readable: bool = True,
                                playerbots_enabled: bool = True) -> None:
-        """Playerbots Initialize() path. It does not call OnAfterConfigLoad.
+        """Injected notification. Not a live producer.
 
-        Re-samples the effective level on the world thread. Never opens a
-        closed latch. A value other than integer 0 closes the gate.
+        PlayerbotMgr.cpp:1075-1079 and RandomPlayerbotMgr.cpp:2532-2536 call
+        Initialize() and do not call this. Tests that use this method are
+        showing the gate only if something notified it. PAK-SELF-RELOAD-ORDER-01
+        does not call this method.
         """
+        self.note_playerbots_reload_calls += 1
         self.load_selfbot(
             level, readable=readable, playerbots_enabled=playerbots_enabled, reload=True
         )
 
+    def hypothesize_direct_initialize(self, level: int | None, *, readable: bool = True,
+                                      playerbots_enabled: bool = True) -> None:
+        """Hypothetical Playerbots Initialize() with no A02 sample.
+
+        Updates only the Playerbots effective integer. Leaves the A02 atomic
+        and the startup latch untouched. Does not call note_playerbots_reload.
+        MODEL GAP. Not a proven live exploit. An ordinary call that assigns
+        the same integer 0 is not treated as a bypass.
+        """
+        self.direct_initialize_calls += 1
+        if playerbots_enabled is False:
+            self.initialize_assigned = False
+            return
+        self.initialize_assigned = True
+        if readable and type(level) is int:
+            self.playerbots_effective = level
+        else:
+            self.playerbots_effective = 1
+
+    def note_failed_world_reload(self) -> str:
+        """World::LoadConfigSettings reload when sConfigMgr->Reload() is false.
+
+        World.cpp:174-178 returns before OnBeforeConfigLoad and
+        OnAfterConfigLoad. The atomic is not stored. This does not claim the
+        file or ConfigMgr changed. MODEL GAP. Not a proven live exploit.
+        """
+        self.failed_world_reload_gap = True
+        self.config_hooks = []
+        return "early-return"
+
     def apply_allowed(self) -> bool:
-        """Map-side acquire load. Missing, unreadable, and non-zero stay closed."""
-        return bool(self.selfbot_off) and self.effective_level.load() == 0 and self.entropy_ok
+        """Map-side acquire load.
+
+        The atomic must be integer 0 and the startup latch must be open.
+        Real-time SelfBot exclusion is BLOCKED: a direct Initialize() that
+        hypothetically assigns anything other than 0, or a failed World
+        reload whose hooks did not run, denies apply. Map workers do not
+        call GetOption.
+        """
+        if not (bool(self.selfbot_off) and self.effective_level.load() == 0 and self.entropy_ok):
+            return False
+        if self.playerbots_effective != 0:
+            return False
+        if self.failed_world_reload_gap:
+            return False
+        return True
 
     def _drop_outbound(self) -> None:
         for player in self.players.values():
@@ -987,6 +1052,104 @@ class Harness:
 
 def bite(pet: Pet) -> bool:
     return pet.spells[17259]
+
+
+class SaveTx:
+    def __init__(self, save_id: int, kind: str, payload: dict):
+        self.save_id = save_id
+        self.kind = kind
+        self.payload = dict(payload)
+        self.state = "queued"
+
+
+class SplitPetSave:
+    """Native SavePetToDB shape at Grimfeather 8daffda. Not a worldserver.
+
+    Two void enqueues. The spells transaction and the character_pet
+    transaction are separate. No module statement is appended. H rows stay
+    empty. A visible pet row does not attest that the spells transaction
+    committed. workers==1 completes in dequeue order and still returns
+    before any completion. workers>1 may finish a later dequeue first.
+    """
+
+    def __init__(self, workers: int):
+        if workers < 1:
+            raise ValueError("workers")
+        self.workers = workers
+        self.queue: list[SaveTx] = []
+        self.completion: list[SaveTx] = []
+        self.visible_pet: dict | None = None
+        self.visible_spells: dict | None = None
+        self.h_rows: list[dict] = []
+        self.return_values: list[None] = []
+
+    def enqueue(self, tx: SaveTx) -> None:
+        self.queue.append(tx)
+        self.return_values.append(None)
+
+    def save_current(self, save_id: int, *, owner: int, number: int, entry: int,
+                     spells: dict, abdata: str) -> tuple[SaveTx, SaveTx]:
+        spells_tx = SaveTx(save_id, "spells", {"spells": dict(spells)})
+        pet_tx = SaveTx(save_id, "pet_row", {
+            "owner": owner,
+            "number": number,
+            "entry": entry,
+            "abdata": abdata,
+            "save_id": save_id,
+        })
+        self.enqueue(spells_tx)
+        self.enqueue(pet_tx)
+        return spells_tx, pet_tx
+
+    def finish(self, tx: SaveTx, *, ok: bool) -> None:
+        if tx not in self.queue:
+            raise AssertionError("transaction is not queued")
+        if self.workers == 1 and self.queue[0] is not tx:
+            raise AssertionError("single worker completed out of dequeue order")
+        self.queue.remove(tx)
+        tx.state = "committed" if ok else "failed"
+        self.completion.append(tx)
+        if not ok:
+            return
+        if tx.kind == "pet_row":
+            self.visible_pet = tx.payload
+        elif tx.kind == "spells":
+            self.visible_spells = tx.payload
+
+    def row_attests_spells(self) -> bool:
+        """A visible character_pet payload is not a spells-commit receipt."""
+        return False
+
+
+# PetScript.h:26-31 at the pinned core. None receives a transaction.
+PET_SCRIPT_HOOKS = (
+    "OnInitStatsForLevel",
+    "OnCalculateMaxTalentPointsForLevel",
+    "CanUnlearnSpellSet",
+    "CanUnlearnSpellDefault",
+    "CanResetTalents",
+    "OnPetAddToWorld",
+)
+
+# Hunter tame path transcribed from the pinned core. Not an in-game trace.
+HUNTER_TAME_ORDER = (
+    "GeneratePetNumber_passed_to_Object_Create",
+    "GeneratePetNumber_SetPetNumber_and_CurrentPet",
+    "AddToMap_OnPetAddToWorld",
+    "SetMinion_SetPetGUID",
+    "SavePetToDB_spells_transaction_then_pet_row",
+)
+
+HUNTER_SAVE_CALLS = (
+    "Spell::EffectTameCreature",
+    "Spell::EffectCreateTamedPet",
+    "Player::CreatePet",
+    "Spell::EffectLearnPetSpell",
+    "Spell::EffectResurrectPet",
+    "Player::RemovePet",
+    "Player::SummonPet",
+    "Player::SaveToDB",
+)
 
 
 class PakD1(unittest.TestCase):
@@ -1453,6 +1616,16 @@ class PakD1(unittest.TestCase):
         self.assertIn("not selected", proposal)
         self.assertIn("PAK-CANONICAL-COMMIT-01", proposal)
         self.assertIn("DatabaseWorkerPool.cpp:248-268", proposal)
+        self.assertIn("PAK-SELF-RELOAD-ORDER-01", proposal)
+        self.assertIn("Real-time SelfBot exclusion is **BLOCKED**", proposal)
+        self.assertIn("Module-only durable H is **BLOCKED**", proposal)
+        self.assertIn("OnPetBeforeCharacterPetCommit", proposal)
+        self.assertIn("PlayerbotMgr.cpp:1075-1079", proposal)
+        self.assertIn("RandomPlayerbotMgr.cpp:2532-2536", proposal)
+        self.assertIn("World.cpp:174-178", proposal)
+        self.assertIn("MODEL GAP", proposal)
+        self.assertIn("PetScript.h:26-31", proposal)
+        self.assertIn("No core patch", proposal)
         self.assertIn("per-summon", proposal)
         self.assertIn("ChatHandler.cpp:292", proposal)
         self.assertIn("checkHunterPetSpells", proposal)
@@ -2082,6 +2255,219 @@ class PakD1(unittest.TestCase):
             False,
             True,
             "a new boot epoch quarantines db.pets[petNumber]; the old packet does not restore; v1 name key still writes",
+        )
+
+    def test_pak_self_reload_order_01_unsampled_initialize_denies_apply(self) -> None:
+        """Direct Initialize() is not note_playerbots_reload. MODEL GAP."""
+        harness = Harness("v2")
+        pet = make_wolf(101, bite=True)
+        harness.summon(pet)
+        harness.send(harness.chunk(1, "17259=0"))
+        harness.tick()
+        self.assertFalse(bite(pet))
+        pet.spells[17259] = True
+        store = harness.store
+        assert isinstance(store, V2Store)
+        self.assertEqual(store.note_playerbots_reload_calls, 0)
+        store.hypothesize_direct_initialize(0)
+        self.assertEqual(store.direct_initialize_calls, 1)
+        self.assertEqual(store.playerbots_effective, 0)
+        self.assertEqual(store.effective_level.load(), 0)
+        self.assertTrue(store.apply_allowed())
+        store.hypothesize_direct_initialize(2)
+        self.assertEqual(store.note_playerbots_reload_calls, 0)
+        self.assertEqual(store.playerbots_effective, 2)
+        self.assertEqual(store.effective_level.load(), 0)
+        self.assertTrue(store.selfbot_off)
+        self.assertFalse(store.apply_allowed())
+        status = harness.send(harness.chunk(2, "17259=0"))
+        self.assertEqual(status, "Queued")
+        harness.tick()
+        self.assertEqual(store.record(1, 101), {BITE[0]: False})
+        denied = bite(pet) is True and store.choices_for(1, pet) is None
+
+        legacy = Harness("v1")
+        legacy_pet = make_wolf(101, bite=True)
+        legacy.summon(legacy_pet)
+        legacy.send(legacy.chunk(1, "17259=0"))
+        legacy.tick()
+        self.check(
+            "PAK-SELF-RELOAD-ORDER-01",
+            bite(legacy_pet) is True,
+            denied,
+            False,
+            True,
+            "hypothetical Initialize() to 2 leaves the A02 atomic at 0; apply is denied; "
+            "the same call assigning 0 is not a bypass; MODEL GAP, not a live exploit",
+        )
+
+    def test_pak_self_reload_order_01_failed_world_reload_denies_apply(self) -> None:
+        harness = Harness("v2")
+        pet = make_wolf(101, bite=True)
+        harness.summon(pet)
+        harness.send(harness.chunk(1, "17259=0"))
+        harness.tick()
+        self.assertFalse(bite(pet))
+        pet.spells[17259] = True
+        store = harness.store
+        assert isinstance(store, V2Store)
+        self.assertEqual(store.note_failed_world_reload(), "early-return")
+        self.assertEqual(store.config_hooks, [])
+        self.assertEqual(store.note_playerbots_reload_calls, 0)
+        self.assertEqual(store.effective_level.load(), 0)
+        self.assertEqual(store.playerbots_effective, 0)
+        self.assertTrue(store.selfbot_off)
+        self.assertTrue(store.failed_world_reload_gap)
+        self.assertFalse(store.apply_allowed())
+        self.assertEqual(harness.send(harness.chunk(2, "17259=0")), "Queued")
+        harness.tick()
+        denied = bite(pet) is True and store.choices_for(1, pet) is None
+
+        legacy = Harness("v1")
+        legacy_pet = make_wolf(101, bite=True)
+        legacy.summon(legacy_pet)
+        legacy.send(legacy.chunk(1, "17259=0"))
+        legacy.tick()
+        self.check(
+            "PAK-SELF-RELOAD-ORDER-01-WORLD-FAIL",
+            bite(legacy_pet) is True,
+            denied,
+            False,
+            True,
+            "Reload() false returns before both config hooks; the atomic stays 0; "
+            "apply is denied; ConfigMgr mutation is not established; MODEL GAP",
+        )
+
+    def test_pak_h_falsifier_matrix(self) -> None:
+        """Native split-save model. v1 column is that hazard. v2 column is module H stays unminted."""
+        split = SplitPetSave(workers=1)
+        spells, pet_row = split.save_current(
+            1, owner=7, number=101, entry=123, spells={1742: False}, abdata="bar-a"
+        )
+        self.assertIsNone(split.return_values[-1])
+        self.assertIsNone(split.visible_pet)
+        split.finish(spells, ok=False)
+        split.finish(pet_row, ok=True)
+        self.assertEqual(spells.state, "failed")
+        self.assertEqual(pet_row.state, "committed")
+        self.assertIsNotNone(split.visible_pet)
+        self.assertIsNone(split.visible_spells)
+        self.assertEqual(split.h_rows, [])
+        self.assertFalse(split.row_attests_spells())
+        hazard = split.visible_pet is not None and split.visible_spells is None
+        closed = split.h_rows == [] and all(value is None for value in split.return_values)
+        self.check(
+            "PAK-H-SPLIT-01",
+            not hazard,
+            closed,
+            False,
+            True,
+            "spells transaction can fail after the pet row commits; SavePetToDB returns no receipt; no H append",
+        )
+
+        ordered = SplitPetSave(workers=1)
+        spells_b, pet_b = ordered.save_current(
+            1, owner=7, number=101, entry=123, spells={1742: False}, abdata="bar-a"
+        )
+        with self.assertRaises(AssertionError):
+            ordered.finish(pet_b, ok=True)
+        self.assertIsNone(ordered.visible_pet)
+        raced = SplitPetSave(workers=2)
+        spells_c, pet_c = raced.save_current(
+            1, owner=7, number=101, entry=123, spells={1742: False}, abdata="bar-a"
+        )
+        raced.finish(pet_c, ok=True)
+        self.assertIsNotNone(raced.visible_pet)
+        self.assertIsNone(raced.visible_spells)
+        self.assertFalse(raced.row_attests_spells())
+        raced.finish(spells_c, ok=True)
+        self.assertEqual(raced.completion[0].kind, "pet_row")
+        self.assertEqual(raced.h_rows, [])
+        order_hazard = raced.completion[0] is pet_c and ordered.visible_pet is None
+        self.check(
+            "PAK-H-ORDER-01",
+            not order_hazard,
+            raced.h_rows == [] and spells_b.state == "queued",
+            False,
+            True,
+            "workers>1 can commit the pet row before spells; workers==1 stays FIFO and still returns before completion; dist default workers is 1; live count UNKNOWN",
+        )
+
+        successive = SplitPetSave(workers=2)
+        _, older = successive.save_current(
+            1, owner=7, number=101, entry=123, spells={1742: False}, abdata="old"
+        )
+        _, newer = successive.save_current(
+            2, owner=7, number=101, entry=123, spells={1742: True}, abdata="new"
+        )
+        successive.finish(newer, ok=True)
+        successive.finish(older, ok=True)
+        landed_old = successive.visible_pet is not None and successive.visible_pet["abdata"] == "old"
+        self.assertNotEqual(older.save_id, newer.save_id)
+        self.check(
+            "PAK-H-SUCCESSIVE-01",
+            not landed_old,
+            successive.h_rows == [],
+            False,
+            True,
+            "two saves with workers>1: the older pet row can complete last; module writes no H row",
+        )
+
+        current = {"owner": 7, "number": 101, "entry": 123, "abdata": "new"}
+        backup = {"owner": 7, "number": 101, "entry": 123, "abdata": "old"}
+
+        def owner_number_entry_fence(row: dict, expected: dict) -> bool:
+            return (
+                row["owner"] == expected["owner"]
+                and row["number"] == expected["number"]
+                and row["entry"] == expected["entry"]
+            )
+
+        fence_matches_backup = owner_number_entry_fence(backup, current)
+        self.assertTrue(fence_matches_backup)
+        self.assertNotEqual(backup["abdata"], current["abdata"])
+        restore = SplitPetSave(workers=1)
+        restore.visible_pet = dict(backup)
+        self.check(
+            "PAK-H-RESTORE-01",
+            not fence_matches_backup,
+            restore.h_rows == [] and restore.visible_pet == backup,
+            False,
+            True,
+            "owner+number+entry fence matches a restored row whose abdata differs; no sidecar is written",
+        )
+
+        self.assertEqual(
+            HUNTER_TAME_ORDER,
+            (
+                "GeneratePetNumber_passed_to_Object_Create",
+                "GeneratePetNumber_SetPetNumber_and_CurrentPet",
+                "AddToMap_OnPetAddToWorld",
+                "SetMinion_SetPetGUID",
+                "SavePetToDB_spells_transaction_then_pet_row",
+            ),
+        )
+        self.assertNotIn("OnPetBeforeCharacterPetCommit", PET_SCRIPT_HOOKS)
+        self.assertIn("OnPetAddToWorld", PET_SCRIPT_HOOKS)
+        hook_has_transaction = any(False for _name in PET_SCRIPT_HOOKS)
+        tame = SplitPetSave(workers=1)
+        tame_spells, tame_pet = tame.save_current(
+            1, owner=7, number=202, entry=456, spells={17259: True}, abdata="tame"
+        )
+        self.assertIsNone(tame.return_values[-1])
+        self.assertEqual(tame_spells.state, "queued")
+        self.assertEqual(tame_pet.state, "queued")
+        proposal = PROPOSAL.read_text(encoding="utf-8")
+        for call in HUNTER_SAVE_CALLS:
+            self.assertIn(call, proposal)
+        self.assertIn("Module-only durable H is **BLOCKED**", proposal)
+        self.check(
+            "PAK-H-TAME-01",
+            hook_has_transaction,
+            tame.h_rows == [] and "OnPetAddToWorld" in PET_SCRIPT_HOOKS,
+            False,
+            True,
+            "tame fills CurrentPet, then OnPetAddToWorld, then SetMinion, then two saves; no existing hook sees the pet-row transaction",
         )
 
 
