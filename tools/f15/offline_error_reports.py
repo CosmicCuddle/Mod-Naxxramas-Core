@@ -135,6 +135,31 @@ class OfflineErrorReportStore(RestartSidecarStore):
                 UnicodeError, AttributeError):
             return None
 
+    def _reap_abandoned_temps_locked(self):
+        """Clean only owned/private, regular S2-format temps while locked.
+
+        A crash after link(temp, immutable_name) may leave 2 links. The
+        finalized report is durable, but nlink==2 would wrongly disqualify
+        it until a future run safely removes the abandoned temp pathname.
+        The shared flock prevents racing any active compatible S2/S3 writer.
+        Never follow symlinks, and never remove unrelated names.
+        """
+        found = False
+        for name in os.listdir(self._fd):
+            if not re.fullmatch(r"\.f15-s2-[0-9a-f]{32}", name):
+                continue
+            try:
+                st = os.stat(name, dir_fd=self._fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if (not stat.S_ISREG(st.st_mode) or
+                    st.st_uid != os.geteuid() or st.st_mode & 0o077):
+                continue
+            self._unlink(name)
+            found = True
+        if found:
+            self._durable()
+
     def _errors(self):
         # Unexpected names are counted, NEVER echoed in text (newline/escape
         # path injection could otherwise corrupt the human index).
@@ -154,6 +179,7 @@ class OfflineErrorReportStore(RestartSidecarStore):
                        (p[1]["observed_utc"], p[1]["error_id"])), invalid)
 
     def _rebuild_errors_locked(self):
+        self._reap_abandoned_temps_locked()
         records, invalid = self._errors()
         worlds = sum(i["service"] == "worldserver" for _, i in records)
         auths = len(records) - worlds
@@ -198,6 +224,7 @@ class OfflineErrorReportStore(RestartSidecarStore):
         info = observation.info()
         name = observation.filename()
         with self._locked():
+            self._reap_abandoned_temps_locked()
             try:
                 os.stat(name, dir_fd=self._fd, follow_symlinks=False)
                 exists = True
@@ -205,7 +232,12 @@ class OfflineErrorReportStore(RestartSidecarStore):
                 exists = False
             if exists:
                 prior = self._read_error(name)
-                if prior is None or prior != info:
+                # A replay can be stamped with a newer observed wall time;
+                # immutable burst identity uses process uptime, not UTC.
+                # Retain the FIRST verified report, never rewrite it.
+                if (prior is None or
+                        {k: v for k, v in prior.items() if k != "observed_utc"} !=
+                        {k: v for k, v in info.items() if k != "observed_utc"}):
                     self._rebuild_errors_locked()
                     raise FileExistsError("immutable error report conflict")
                 self._rebuild_errors_locked()
