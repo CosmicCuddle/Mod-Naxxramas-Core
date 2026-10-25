@@ -9,7 +9,7 @@
 3. Atiesh Vanilla exterior Karazhan F13: original unmodified source/test/docs from #127 at 31f312b5fe1678ea7aaf3fa935b9b00802a320c1.
 4. Blood Elf/Draenei Vanilla-stage /who F14: original unmodified source/test/docs from #145 at e07a1e18f7525f8b2c0d1bb6215e31c985717540.
 
-Git trees reuse the nineteen actual reviewed feature blob SHAs, not recoded or translated copies. The independent five-test suite pins all of them and key production P0 blobs. Loader modifications are strictly the addition of F12, F13 and F14 script declarations/calls, preserving every P0 registration including the Golemagg guard and BotRaidConsumables. It verifies this by stripping the three lines and hashing the original loader. Configuration preserves the exact first 19,381 bytes of #120 and appends the three reviewed F12/F13/F14 default-OFF sections. No runtime switch is enabled.
+Git trees reuse the nineteen actual reviewed feature blob SHAs, not recoded or translated copies. The independent five-test suite pins all of them and key production P0 blobs. Loader modifications are strictly the addition of F12, F13 and F14 script declarations/calls, preserving every P0 registration including the Golemagg guard and BotRaidConsumables. It verifies this by stripping the three lines and hashing the original loader. Configuration preserves the exact first 19,389 bytes of #120 and appends the three reviewed F12/F13/F14 default-OFF sections. No runtime switch is enabled.
 
 ## Source and build proof
 
