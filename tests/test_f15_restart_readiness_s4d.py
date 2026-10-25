@@ -1,20 +1,24 @@
 """F15 S4d synthetic restart readiness; actual OS and service signals NOT used."""
 import sys
 import unittest
+import uuid
 from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "f15"))
+from offline_store import NAMESPACE
 from offline_restart_readiness import (
     ChildRef, RestartStart, RestartSignal, OfflineRestartReadiness,
     SUPERVISOR, READY_PROBE, REAL_WAIT, MONOTONIC
 )
 
-INCIDENT = "11111111-1111-4111-8111-111111111111"
 OLD = ChildRef("worldserver", "demo-host", "host-boot1", "world-old",
                4321, "2026-10-25T00:00:00Z")
 NEW = ChildRef("worldserver", "demo-host", "host-boot1", "world-new",
                4322, "2026-10-25T00:03:00Z")
+INCIDENT = str(uuid.uuid5(NAMESPACE, "\x1f".join((
+    OLD.host, OLD.boot, OLD.service, OLD.invocation, str(OLD.pid), OLD.start_utc
+))))
 
 
 def attempt(**modifiers):
@@ -176,12 +180,73 @@ class S4dReadinessTests(unittest.TestCase):
         self.assertEqual(t.begin(attempt(attempt="try2")).status, "pending")
 
     def test_finished_memory_bounded_over_200_attempts(self):
-        t = OfflineRestartReadiness(max_finished=8)
+        persisted = {}
+        t = OfflineRestartReadiness(
+            max_finished=8, finished_lookup=lambda key: persisted.get(key))
         for i in range(200):
             key = "attempt-" + str(i)
             self.assertEqual(t.begin(attempt(attempt=key)).status, "pending")
-            self.assertEqual(t.observe(event(attempt=key)).outcome, "succeeded")
+            result = t.observe(event(attempt=key))
+            self.assertEqual(result.outcome, "succeeded")
+            persisted[(INCIDENT, key)] = result.outcome
         self.assertEqual(t.counts(), (0, 8))
+        # Evicted old attempt still cannot be re-finalized.
+        duplicate = t.begin(attempt(attempt="attempt-0"))
+        self.assertEqual((duplicate.status, duplicate.outcome),
+                         ("duplicate", "succeeded"))
+
+    def test_evicted_history_without_durable_lookup_fails_closed(self):
+        t = OfflineRestartReadiness(max_finished=1)
+        t.begin(attempt(attempt="a0"))
+        self.assertEqual(t.observe(event(attempt="a0")).outcome, "succeeded")
+        t.begin(attempt(attempt="a1"))
+        self.assertEqual(t.observe(event(attempt="a1")).outcome, "succeeded")
+        self.assertEqual(t.begin(attempt(attempt="a0")).status, "unverified")
+        self.assertEqual(t.begin(attempt(attempt="a2")).status, "unverified")
+        self.assertEqual(t.counts(), (0, 1))
+
+    def test_evicted_history_lookup_failure_fails_closed(self):
+        def unavailable(key):
+            raise OSError("synthetic storage unavailable")
+        t = OfflineRestartReadiness(max_finished=1, finished_lookup=unavailable)
+        for key in ("a0", "a1"):
+            t.begin(attempt(attempt=key))
+            t.observe(event(attempt=key))
+        self.assertEqual(t.begin(attempt(attempt="a2")).status, "unverified")
+
+    def test_lost_followup_expiry_reclaims_all_pending_slots(self):
+        t = OfflineRestartReadiness(max_pending=64)
+        for i in range(64):
+            self.assertEqual(t.begin(attempt(attempt="lost-" + str(i))).status, "pending")
+        self.assertEqual(t.begin(attempt(attempt="overflow")).status, "capacity")
+        self.assertEqual(t.expire(4999), [])
+        results = t.expire(5000)
+        self.assertEqual(len(results), 64)
+        self.assertTrue(all(result.outcome == "failed" for _, result in results))
+        self.assertEqual(t.counts(), (0, 64))
+        self.assertEqual(t.begin(attempt(attempt="fresh")).status, "pending")
+
+    def test_expiry_uses_absolute_monotonic_start_time(self):
+        self.assertEqual(self.begin(started_monotonic_ms=10_000).status, "pending")
+        self.assertEqual(self.model.expire(14_999), [])
+        done = self.model.expire(15_000)
+        self.assertEqual(len(done), 1)
+        self.assertEqual(done[0][1].outcome, "failed")
+        self.assertEqual(self.obs().outcome, "failed")
+
+    def test_invalid_monotonic_expiry_and_start_are_rejected(self):
+        for when in (-1, "now", True):
+            with self.subTest(when=when), self.assertRaises(ValueError):
+                self.model.expire(when)
+            self.assertEqual(self.begin(started_monotonic_ms=when).status, "rejected")
+
+    def test_canonical_but_unrelated_incident_uuid_rejected(self):
+        forged = "11111111-1111-4111-8111-111111111111"
+        self.assertNotEqual(forged, INCIDENT)
+        self.assertEqual(self.begin(incident_id=forged).status, "rejected")
+
+    def test_modified_crashed_child_identity_cannot_reuse_incident(self):
+        self.assertEqual(self.begin(previous=replace(OLD, pid=9999)).status, "rejected")
 
     def test_wrong_signal_type_and_unknown_event_kind_refused(self):
         self.begin()
