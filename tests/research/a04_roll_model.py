@@ -57,11 +57,37 @@ class ItemTemplate:
     ignore_quest_status: bool = False  # flagsCustom 0x2 (ITEM_FLAGS_CU_IGNORE_QUEST_STATUS)
 
 
+QUEST_STATUS_INCOMPLETE, QUEST_STATUS_COMPLETE = "INCOMPLETE", "COMPLETE"
+
+
 @dataclass
-class QuestObjective:
-    item: int
-    required: int
-    incomplete: bool = True            # QUEST_STATUS_INCOMPLETE in the quest log
+class Quest:
+    """One quest-log entry with deliver objectives (QUEST_SPECIAL_FLAGS_DELIVER).
+
+    `counts` is QuestStatusData.ItemCount, kept separately from inventory,
+    exactly as core does: it only moves through AdjustQuestReqItemCount
+    (accept), ItemAddedQuestCheck and ItemRemovedQuestCheck.
+    """
+    required: dict                      # RequiredItemId -> RequiredItemCount
+    counts: dict = field(default_factory=dict)
+    status: str = QUEST_STATUS_INCOMPLETE
+
+    def all_objectives_met(self):
+        return all(self.counts.get(i, 0) >= n for i, n in self.required.items())
+
+    @property
+    def incomplete(self):
+        return self.status == QUEST_STATUS_INCOMPLETE
+
+    @incomplete.setter
+    def incomplete(self, value):
+        # Fixtures use this to mark a quest finished (completed or turned in).
+        self.status = QUEST_STATUS_INCOMPLETE if value else QUEST_STATUS_COMPLETE
+
+
+def QuestObjective(item, required):
+    """A single-objective deliver quest (the common fixture)."""
+    return Quest({item: required})
 
 
 @dataclass
@@ -72,15 +98,32 @@ class Player:
     quests: list = field(default_factory=list)
     mailbox: list = field(default_factory=list)
 
+    def __post_init__(self):
+        for q in self.quests:
+            self.adjust_quest_req_item_count(q)
+
     def item_count(self, entry):
         return self.inventory.get(entry, 0)
 
+    def adjust_quest_req_item_count(self, quest):
+        # PlayerQuest.cpp L1838-L1855 (on accept): counter = min(held, required).
+        for item, needed in quest.required.items():
+            quest.counts[item] = min(self.item_count(item), needed)
+        if quest.incomplete and quest.all_objectives_met():
+            quest.status = QUEST_STATUS_COMPLETE
+
+    def accept_quest(self, quest):
+        self.quests.append(quest)
+        self.adjust_quest_req_item_count(quest)
+
     def has_quest_for_item(self, entry):
-        # PlayerQuest.cpp L2338-L2385: an INCOMPLETE quest whose objective
-        # count is below the required count, and the player holds fewer
-        # than required. A completed objective returns false.
+        # PlayerQuest.cpp L2338-L2385, as called by AllowedForPlayer (no
+        # showInLoot, no turnIn): an INCOMPLETE quest whose objective
+        # COUNTER (QuestStatusData.ItemCount), not inventory, is below the
+        # required count.
         for q in self.quests:
-            if q.incomplete and q.item == entry and self.item_count(entry) < q.required:
+            if (q.incomplete and entry in q.required and
+                    q.counts.get(entry, 0) < q.required[entry]):
                 return True
         return False
 
@@ -95,9 +138,34 @@ class Player:
     def store_new_item(self, entry, count):
         self.inventory[entry] = self.item_count(entry) + count
         self.bag_slots_free -= 1
+        # ItemAddedQuestCheck L1909-L1946: only INCOMPLETE quests count up,
+        # capped at the required count; complete when every objective is met.
         for q in self.quests:
-            if q.item == entry and self.item_count(entry) >= q.required:
-                q.incomplete = False   # objective met -> quest no longer INCOMPLETE
+            if not q.incomplete or entry not in q.required:
+                continue
+            if q.counts.get(entry, 0) < q.required[entry]:
+                q.counts[entry] = min(q.counts.get(entry, 0) + count, q.required[entry])
+            if q.all_objectives_met():
+                q.status = QUEST_STATUS_COMPLETE
+
+    def remove_item(self, entry, count):
+        # ItemRemovedQuestCheck L1948-L1985, called before the item leaves:
+        # a met counter is re-read from inventory, reduced, capped, and the
+        # quest becomes INCOMPLETE again.
+        for q in self.quests:
+            if entry not in q.required:
+                continue
+            needed = q.required[entry]
+            current = q.counts.get(entry, 0)
+            if current >= needed:
+                current = self.item_count(entry)
+            new = 0 if count > current else current - count
+            new = min(new, needed)
+            if new != q.counts.get(entry, 0):
+                q.counts[entry] = new
+                q.status = QUEST_STATUS_INCOMPLETE
+        self.inventory[entry] = max(0, self.item_count(entry) - count)
+        self.bag_slots_free += 1
 
 
 @dataclass

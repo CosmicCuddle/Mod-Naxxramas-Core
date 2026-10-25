@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I -B tests/research/test_cs03_a04_q6b_roll_timing.py -v 2>&1 | tee /tmp/q6b.txt
-          grep -qx "Ran 18 tests in [0-9.]*s" /tmp/q6b.txt
+          grep -qx "Ran 22 tests in [0-9.]*s" /tmp/q6b.txt
           grep -qx "OK" /tmp/q6b.txt
           ! grep -q "skipped" /tmp/q6b.txt
       - name: Checkout pinned core (four files only)

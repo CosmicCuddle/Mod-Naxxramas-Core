@@ -14,11 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from a04_roll_model import (  # noqa: E402
     DISENCHANT, GREED, MAIL_DISABLED, MAIL_EVERYWHERE, MAIL_LFG_ONLY, NEED,
     NOT_EMITED_YET, PASS, SLOT_ALLOW_LOOT, SLOT_HIDDEN, SLOT_OWNER,
-    SLOT_ROLL_ONGOING, Group, ItemTemplate, LootItem, Player, QuestObjective,
-    can_roll_on_item, loot_view_slot, slot_rolls, store_loot_item,
+    SLOT_ROLL_ONGOING, Group, ItemTemplate, LootItem, Player, Quest,
+    QuestObjective, can_roll_on_item, loot_view_slot, slot_rolls,
+    store_loot_item,
 )
 
 ITEM = 9001          # a synthetic quest objective item
+OTHER = 9002         # a second objective of the same quest
 NEEDED = 1           # the quest needs one copy
 
 
@@ -246,6 +248,48 @@ class ForgedOrOutOfBandActions(unittest.TestCase):
         self.assertFalse(drop.is_blocked)
         self.assertEqual(loot_view_slot(b, drop, via_quest_slot=False), SLOT_ALLOW_LOOT)
         self.assertTrue(store_loot_item(b, drop, via_quest_slot=False))
+
+
+class ObjectiveCounters(unittest.TestCase):
+    """Eligibility follows QuestStatusData.ItemCount, not inventory (CS01 6400615303)."""
+
+    def test_ref_met_objective_ends_eligibility_while_quest_stays_incomplete(self):
+        a = Player("A", quests=[Quest({ITEM: 1, OTHER: 1})])
+        a.store_new_item(ITEM, 1)
+        quest = a.quests[0]
+        self.assertTrue(quest.incomplete)                  # OTHER still missing
+        self.assertEqual(quest.counts[ITEM], 1)
+        self.assertFalse(quest_drop().allowed_for_player(a))
+        self.assertTrue(LootItem(ItemTemplate(OTHER), needs_quest=True).allowed_for_player(a))
+
+    def test_ref_destroying_the_item_reopens_eligibility(self):
+        a = Player("A", quests=[QuestObjective(ITEM, NEEDED)])
+        a.store_new_item(ITEM, 1)
+        self.assertFalse(a.quests[0].incomplete)
+        a.remove_item(ITEM, 1)                             # ItemRemovedQuestCheck
+        self.assertTrue(a.quests[0].incomplete)
+        self.assertEqual(a.quests[0].counts[ITEM], 0)
+        self.assertTrue(quest_drop().allowed_for_player(a))
+
+    def test_ref_items_held_before_accepting_count_at_accept(self):
+        a = Player("A", inventory={ITEM: 1})
+        a.accept_quest(QuestObjective(ITEM, NEEDED))      # AdjustQuestReqItemCount
+        self.assertEqual(a.quests[0].counts[ITEM], 1)
+        self.assertFalse(quest_drop().allowed_for_player(a))
+
+    def test_gap_q6b_surplus_also_while_multi_objective_quest_incomplete(self):
+        # The gap does not need the whole quest to finish: once A's ITEM
+        # objective is met, a second same-pull win is still stored for A.
+        a = Player("A", quests=[Quest({ITEM: 1, OTHER: 1})])
+        b = Player("B", quests=[Quest({ITEM: 1, OTHER: 1})])
+        group = Group([a, b])
+        drops, (r1, r2) = same_pull(group, 2)
+        for r in (r1, r2):
+            group.count_roll_vote(r, "A", NEED)
+            group.count_roll_vote(r, "B", NEED, rolls={"A": 90, "B": 10})
+        self.assertTrue(a.quests[0].incomplete)
+        self.assertEqual((a.item_count(ITEM), b.item_count(ITEM)), (2, 0))
+        self.assertEqual(a.quests[0].counts[ITEM], 1)       # counter capped at required
 
 
 if __name__ == "__main__":

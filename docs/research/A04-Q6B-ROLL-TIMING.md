@@ -17,14 +17,34 @@ It follows CS03's scrutiny of #150 ([6399573014](https://github.com/CosmicCuddle
 | `Group::CountTheRoll` | `Group.cpp` L1604–L1826 | Need, then Greed award; mail; roll winner reservation |
 | `SendRollWonItemViaMail` | `Group.cpp` L67 | mail award when bags are full |
 | `Player::StoreLootItem` | `Player.cpp` L13861–L13962 | direct pickup gates |
-| `Player::HasQuestForItem` | `PlayerQuest.cpp` L2338–L2385 | quest still needs the item |
+| `Player::HasQuestForItem` | `PlayerQuest.cpp` L2338–L2385 | quest still needs the item (reads the objective **counter**) |
+| `AdjustQuestReqItemCount`, `ItemAddedQuestCheck`, `ItemRemovedQuestCheck` | `PlayerQuest.cpp` L1838–L1855, L1909–L1946, L1948–L1985 | objective counter on accept, receipt and removal |
 | `LootItem::AllowedForPlayer` | `LootMgr.cpp` L417–L470 | eligibility |
 | `Loot::LootItemInSlot`, `LootView` | `LootMgr.cpp` L821–L880, L1033–L1037, L1130–L1149 | quest slots and visibility |
 
-- **Drift gate.** `scripts/check_a04_roll_fingerprint.py` hashes all ten functions at the pin. A one-character change fails it, which forces this model to be re-reviewed.
+- **Drift gate.** `scripts/check_a04_roll_fingerprint.py` hashes all 13 functions at the pin. A one-character change fails it, which forces this model to be re-reviewed.
 - **Simplifications:** one loot source; one slot per roll; injected roll numbers instead of `urand`; no conditions, faction, recipe or disable rules (none of which change during a roll); no packets or achievements.
 
-## Results (18 tests: 7 GAP, 11 REF)
+## Objective counters, not inventory (revision after CS01 review `6400615303`)
+
+`AllowedForPlayer` calls `HasQuestForItem`, which reads the quest log's `QuestStatusData.ItemCount` (the objective **counter**), not inventory. The counter moves only through these three functions, and the model now copies each one separately:
+- **On accept**, `AdjustQuestReqItemCount` sets it to `min(held, required)`.
+- **On receipt**, `ItemAddedQuestCheck` raises it only while the quest is `INCOMPLETE`, capped at the required count. The quest becomes complete when every objective is met.
+- **On removal**, `ItemRemovedQuestCheck` re-reads a met counter from inventory, reduces it, and marks the quest `INCOMPLETE` again.
+
+Four tests cover the cases the first version could not express:
+- a multi-objective quest stays `INCOMPLETE` while one item's objective is already met (that item is no longer eligible);
+- destroying the item reopens eligibility;
+- items held before accepting count at accept;
+- the same-pull surplus gap also happens while a multi-objective quest is still incomplete.
+
+**Still simplified:**
+- every quest is a deliver quest;
+- no source-item, timed or reward-choice objectives;
+- turn-in is modelled as leaving the quest log;
+- `CountRollVote` provenance (map, packet and session state) beyond the vote itself.
+
+## Results (22 tests: 8 GAP, 14 REF)
 
 GAP means a stock path that gives an item to a player the native rule would refuse at award time, or strands a copy. REF means legitimate stock behaviour that any later change must keep.
 
@@ -44,7 +64,7 @@ GAP means a stock path that gives an item to a player the native rule would refu
 | **Q15 quest-slot pickup during roll** | GAP | **Forged packet only.** The honest window shows `ROLL_ONGOING`, but `StoreLootItem` skips `is_blocked` for quest slots (L13895). The pickup succeeds, and `CountTheRoll` does not check `is_looted`, so the roll winner also gets a copy: one drop, two items. Playerbots `d750b4b` skips non-`ALLOW_LOOT` slots (`LootAction.cpp` L423) and checks `NOT_EMITED_YET` before voting (`LootRollAction.cpp` L26–L27). |
 | normal pickup blocked during roll / disenchant / all pass | REF | Stock blocking, the disenchant result and unblocking stay as they are. |
 
-**Mutation check (local).** Each of these mutants turns specific GAP tests red, and the original passes 18/18:
+**Mutation check (local).** Each of these mutants turns specific GAP tests red, and the original passes all tests:
 - the award re-checks `AllowedForPlayer` (8 tests);
 - votes require `NOT_EMITED_YET` (Q13);
 - quest slots honour `is_blocked` (Q15);
