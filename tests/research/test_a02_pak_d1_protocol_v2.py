@@ -1451,6 +1451,8 @@ class PakD1(unittest.TestCase):
         self.assertIn("GetRandomBytes", proposal)
         self.assertIn("Hybrid H", proposal)
         self.assertIn("not selected", proposal)
+        self.assertIn("PAK-CANONICAL-COMMIT-01", proposal)
+        self.assertIn("DatabaseWorkerPool.cpp:248-268", proposal)
         self.assertIn("per-summon", proposal)
         self.assertIn("ChatHandler.cpp:292", proposal)
         self.assertIn("checkHunterPetSpells", proposal)

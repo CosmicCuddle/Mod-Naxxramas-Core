@@ -413,7 +413,20 @@ CS01's review of the module-owned identity table (issue #48 comments 6399692347 
 | Backup restore with the same owner, number, and entry | Undetectable | Stale `creation_id` can match the wrong lifetime. **UNRESOLVED** | Only if the column is restored with the row. **UNRESOLVED** | A rolled-back high-water mark can reissue. **UNRESOLVED** |
 | Tame Beast: `CurrentPet` filled, then `AddToMap`, then `SetMinion` and `SavePetToDB` | Apply is later, in `OnWorldObjectUpdate`, and requires `GetPet()` and `CurrentPet` together | Requiring `GetPet()==pet` inside `OnPetAddToWorld` can reject a legitimate tame. Two-phase bind is **UNRESOLVED**. No synchronous map-worker SQL | Not in this branch | Not in this branch |
 
-The tame order is CS01's source correction, not re-traced line by line in this pass, so the two-phase flow stays **UNRESOLVED**. No second observation point is implemented. If none is proven later, H fails closed and does not hello.
+The tame order in the row above is CS01's source correction (6399828949), not re-traced line by line in this pass, so that two-phase flow stays **UNRESOLVED**.
+
+**PAK-CANONICAL-COMMIT-01 is OPEN.** **VERIFIED** this pass at Grimfeather `8daffda`: `Pet::SavePetToDB` (`Pet.cpp:502`) calls `CharacterDatabase.CommitTransaction` twice (`Pet.cpp:538` and `:589`). `DatabaseWorkerPool::CommitTransaction` (`DatabaseWorkerPool.cpp:248-268`) is void and ends in `Enqueue(new TransactionTask(transaction))`. It does not return a completion result. `AsyncCommitTransaction` (`:271-294`) is a different API and is not the call `SavePetToDB` makes. A later `OnUnitUpdate` or `OnWorldObjectUpdate` therefore does not attest that the canonical row was committed. Whether the row is visible on the next tick is **NOT TESTED**. No safe late commit seam is proven in this module without a core change. H is not assumed to work as module-only code. This branch does not mint a token, send a hello, or restore autocast from a save return.
+
+Added falsifiers, all **OPEN** / **UNRESOLVED** (no sidecar exists here to fail them in a runtime):
+
+| Case | What this proposal does |
+| --- | --- |
+| `SavePetToDB` has returned but the commit is still queued or has failed | No H row is written. No hello is treated as a committed identity |
+| The first follow-up tick runs before the canonical row is visible | Observe still requires the in-memory `CurrentPet` only. It does not query `character_pet` and does not treat that tick as a commit |
+| An old read completes after A→B→A, logout, or relog | Not implemented. A late result would have to be discarded. There is no query to return |
+| The canonical save commits and a sidecar write fails | No sidecar write is attempted |
+| The process crashes after a sidecar insert and before the next sighting | No sidecar. Preferences are not recovered from a creation id |
+| A partial character-database restore keeps the same owner, number, and entry | PetNumber plus entry is not birth proof. Rows keyed that way stay quarantined across a boot epoch |
 
 ## Open decisions for Michael
 
@@ -433,7 +446,7 @@ Offline only. Not an in-game result. Parent `2ab30306c884d3af1c92bb5ad7042648b90
 python3 tests/research/test_a02_pak_d1_protocol_v2.py
 ```
 
-Result on this revision: 36 unittest methods, OK, exit 0. Printed witnesses: 44. v1 safety FAIL 27, v1 safety PASS 17, v2 safety FAIL 0, v2 safety PASS 44. `SOURCE_ANCHORS proposal+header+cpp OK` is an extra unittest check, not one of the 44. Isolation witnesses still assume a startup proof that `Playerbots.SelfBotLevel` is 0, and PAK-SELF-APPLY then closes that proof. The witnesses added in this revision are PAK-RESTART-01, PAK-RESTART-ENTROPY, PAK-STABLE-MEMBER-01, PAK-HELLO-STALE-01, PAK-SUMMON-01, PAK-SELF-APPLY, and PAK-ID-QUARANTINE. PAK-ID-07 still restores A inside one process; it is not a cross-restart durable key.
+Result on this revision: 36 unittest methods, OK, exit 0. Printed witnesses: 44. v1 safety FAIL 27, v1 safety PASS 17, v2 safety FAIL 0, v2 safety PASS 44. `SOURCE_ANCHORS proposal+header+cpp OK` is an extra unittest check, not one of the 44. Isolation witnesses still assume a startup proof that `Playerbots.SelfBotLevel` is 0, and PAK-SELF-APPLY then closes that proof. The witnesses added in this revision are PAK-RESTART-01, PAK-RESTART-ENTROPY, PAK-STABLE-MEMBER-01, PAK-HELLO-STALE-01, PAK-SUMMON-01, PAK-SELF-APPLY, and PAK-ID-QUARANTINE. PAK-ID-07 still restores A inside one process; it is not a cross-restart durable key. PAK-CANONICAL-COMMIT-01 is OPEN in the Hybrid H section and is not one of the 44 witnesses.
 
 ```text
 lua5.1 tests/research/test_a02_pak_d1_addon_contract.lua <PetAutocastKeeper directory at zip sha256 4d4e04843e6274b4ede20a03429c3c6f05f2b579f8536d48d59710ec9dc7e007>
