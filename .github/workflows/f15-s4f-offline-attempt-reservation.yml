@@ -1,0 +1,51 @@
+name: F15 S4f offline attempt reservation (NO HOST)
+
+on:
+  push:
+    branches:
+      - cs01/f15-s4f-offline-reservation-journal-part24
+  pull_request:
+    paths:
+      - tools/f15/offline_attempt_journal_s4f.py
+      - tests/test_f15_offline_attempt_journal_s4f.py
+      - .github/workflows/f15-s4f-offline-attempt-reservation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact tested PR HEAD or push SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          actual="$(git rev-parse HEAD)"
+          echo "Expected SHA: $expected"
+          echo "Actual SHA:   $actual"
+          test "$actual" = "$expected"
+      - name: Run S4f synthetic reservation negatives; NO service or owner paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=tools/f15 python3 -m unittest discover \
+            -s tests -p 'test_f15_offline_attempt_journal_s4f.py' -v 2>&1 | tee s4f-test-output.txt
+          grep -Eq '^Ran 14 tests in ' s4f-test-output.txt
+          grep -Fxq 'OK' s4f-test-output.txt
+          if grep -Eq '(^FAILED|^OK \(skipped|skipped=)' s4f-test-output.txt; then
+            echo 'Unexpected failure or skipped tests'
+            exit 1
+          fi
+      - name: Declare limits
+        run: |
+          echo 'Synthetic /tmp-only multiprocessing and immutable journal evidence.'
+          echo 'No service launch, restart, systemctl, GDB, root path or owner host.'
+          echo 'No S2/S3 live integration, provenance authentication or deployment.'
