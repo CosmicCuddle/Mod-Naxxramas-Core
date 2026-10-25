@@ -43,5 +43,10 @@ jobs:
           test "$(git hash-object "/tmp/frozen135/$MODEL_PATH")" = "$MODEL_BLOB"
       - name: Grok's own model suite still passes unchanged
         run: (cd /tmp/frozen135 && python3 -I "$MODEL_PATH")
-      - name: CS03 negative witnesses (8 GAP/REF tests)
-        run: PAK_MODEL="/tmp/frozen135/$MODEL_PATH" python3 -I tests/research/test_cs03_a02_pak_negatives.py -v
+      - name: CS03 negative witnesses (8 GAP/REF tests, never silently skipped)
+        run: |
+          set -euo pipefail
+          PAK_MODEL="/tmp/frozen135/$MODEL_PATH" python3 -I tests/research/test_cs03_a02_pak_negatives.py -v 2>&1 | tee /tmp/cs03_pak.txt
+          grep -qx "Ran 8 tests in [0-9.]*s" /tmp/cs03_pak.txt
+          grep -qx "OK" /tmp/cs03_pak.txt
+          ! grep -q "skipped" /tmp/cs03_pak.txt
