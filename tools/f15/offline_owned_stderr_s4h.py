@@ -122,20 +122,24 @@ def capture_disposable(mode: str, *, max_line_bytes: int = 256,
     timed_out = False
     eof = False
     deadline = time.monotonic() + timeout_seconds
+    grace_deadline = None
     selector = selectors.DefaultSelector()
     try:
         os.set_blocking(child.stderr.fileno(), False)
         selector.register(child.stderr, selectors.EVENT_READ)
         while not eof:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            now = time.monotonic()
+            if not timed_out and now >= deadline:
                 timed_out = True
                 if child.poll() is None:
                     child.kill()  # exclusively the Python child this fixture started
-                deadline = time.monotonic() + 1.0
-            if timed_out and deadline - time.monotonic() <= 0:
+                # The grace period is set only ONCE. A pipe can stay open
+                # after its direct child exits (e.g. inherited writer fd).
+                grace_deadline = now + 1.0
+            if timed_out and now >= grace_deadline:
                 raise TimeoutError("disposable child pipe failed to close")
-            for _, _ in selector.select(min(0.1, max(0.0, deadline - time.monotonic()))):
+            wait_until = grace_deadline if timed_out else deadline
+            for _, _ in selector.select(min(0.1, max(0.0, wait_until - now))):
                 data = os.read(child.stderr.fileno(), 4096)
                 if data:
                     bytes_read += len(data)
