@@ -23,6 +23,10 @@ SOURCE = (ROOT / "tools/f15/r1r3_owned_child_producer.py").read_text()
 
 
 def producer(mode, *extra, **kw):
+    # The original fixtures write level-prefixed lines, i.e. they model a
+    # console with flag 0x02, so they DECLARE prefix mode. Role is required.
+    kw.setdefault("role", "worldserver")
+    kw.setdefault("prefix_loglevel", True)
     return m.OwnedChildProducer([sys.executable, "-I", FIXTURE, mode, *extra],
                                 allowed_executables=ALLOW, **kw)
 
@@ -221,7 +225,7 @@ class StreamSafety(unittest.TestCase):
         s = obs.stream
         self.assertEqual([(r.severity, r.message, r.line) for r in s.records],
                          [("ERROR", "first", 1),
-                          ("ERROR", "split�?[31mred", 3),
+                          ("ERROR", "split�red", 3),   # ANSI CSI now stripped
                           ("WARN", "no newline at end", 4)])
         self.assertTrue(s.final_partial_line)
         self.assertEqual(s.lines_terminated, 3)
@@ -384,6 +388,144 @@ class Lifecycle(unittest.TestCase):
     def test_clean_scan_reports_complete(self):
         _, _, obs = run("exit0")
         self.assertTrue(obs.group_scan_complete)
+
+
+class DualStreamSeverity(unittest.TestCase):
+    """CS01 #167 6418335424: stdout+stderr provenance, unknown by default."""
+
+    def plain(self, **kw):
+        return run("two_streams_plain", prefix_loglevel=False, **kw)[2]
+
+    def test_default_severity_is_unknown_with_stream_provenance_and_hints(self):
+        obs = self.plain()
+        self.assertEqual(obs.stdout.attestation, "owned-stdout-pipe")
+        self.assertEqual(obs.stderr.attestation, "owned-stderr-pipe")
+        self.assertEqual([(r.stream, r.severity, r.message, r.severity_hint, r.hint_source)
+                          for r in obs.stdout.records],
+                         [("stdout", "unknown", "Map 0 loaded", "below_error_candidate",
+                           "pinned_console_route"),
+                          ("stdout", "unknown", "Could not find creature 1234",
+                           "below_error_candidate", "pinned_console_route")])
+        self.assertEqual([(r.stream, r.severity, r.severity_hint) for r in obs.stderr.records],
+                         [("stderr", "unknown", "error_or_fatal_candidate")])
+        self.assertEqual(obs.cross_stream_order, "unknown")
+        self.assertTrue(obs.stdout_may_be_block_buffered)
+
+    def test_hint_or_message_word_never_becomes_a_severity(self):
+        obs = run("two_streams_prefixed", prefix_loglevel=False)[2]
+        records = obs.stdout.records + obs.stderr.records
+        self.assertTrue(records)
+        self.assertTrue(all(r.severity == "unknown" and r.severity_source == "none"
+                            for r in records))
+
+    def test_declared_prefix_decodes_line_start_only_after_ansi(self):
+        obs = run("two_streams_prefixed", prefix_loglevel=True)[2]
+        self.assertEqual([(r.severity, r.message, r.severity_source) for r in obs.stdout.records],
+                         [("WARN", "Creature missing", "declared_prefix"),
+                          ("unknown", "hello ERROR not a prefix", "none")])
+        self.assertEqual(obs.stdout.lines_below_warn, 1)           # INFO
+        self.assertEqual([(r.severity, r.message) for r in obs.stderr.records],
+                         [("ERROR", "DB down"), ("FATAL", "boom")])
+        self.assertGreaterEqual(obs.stdout.ansi_sequences_stripped, 4)
+        self.assertGreaterEqual(obs.stderr.ansi_sequences_stripped, 3)
+        self.assertEqual(obs.stderr.lines_blank, 1)               # trailing colour reset
+        for s in (obs.stdout, obs.stderr):
+            self.assertTrue(accounted(s))
+
+    def test_declared_timestamp_prefix_is_positional(self):
+        obs = run("timestamped", prefix_loglevel=True, prefix_timestamp=True)[2]
+        self.assertEqual([(r.severity, r.message) for r in obs.stderr.records],
+                         [("ERROR", "timed")])
+        self.assertEqual([(r.severity, r.message) for r in obs.stdout.records],
+                         [("unknown", "ERROR missing timestamp")])
+
+    def test_timestamp_mode_requires_declared_prefix_mode(self):
+        with self.assertRaises(ValueError):
+            producer("exit0", prefix_loglevel=False, prefix_timestamp=True)
+
+    def test_stdout_flood_cannot_hide_a_stderr_error(self):
+        mib = 40
+        _, _, obs = run("stdout_flood_stderr_error", str(mib), prefix_loglevel=True,
+                        retain_bytes=64 * 1024, max_records=8, eof_grace_seconds=1.0)
+        out, err = obs.stdout, obs.stderr
+        self.assertEqual(out.bytes_drained, mib * 1024 * 1024)
+        self.assertGreater(out.bytes_dropped, 0)
+        self.assertTrue(accounted(out) and accounted(err))
+        self.assertEqual([(r.severity, r.message) for r in err.records],
+                         [("ERROR", "important while stdout floods")])
+        self.assertEqual(err.bytes_dropped, 0)                     # separate budget
+        self.assertTrue(out.eof and err.eof)
+        self.assertEqual(obs.exit.kind, "exited")
+        self.assertLess(obs.exit.exit_code, 10)                    # child never stalled
+
+    def test_buffered_stdout_tail_is_lost_on_crash_and_flagged(self):
+        _, _, obs = run("buffered_then_segv")
+        self.assertEqual(obs.exit.classification, "fatal_signal")
+        self.assertEqual(obs.stdout.bytes_drained, 0)              # tail never written
+        self.assertTrue(obs.stdout_tail_lost_on_crash_possible)
+        self.assertEqual([(r.severity, r.message) for r in obs.stderr.records],
+                         [("ERROR", "kept on unbuffered stderr")])
+
+    def test_one_stream_ending_does_not_end_the_other(self):
+        _, _, obs = run("stdout_late_descendant", eof_grace_seconds=2.0)
+        self.assertTrue(obs.stderr.eof)
+        self.assertTrue(obs.stdout.eof and not obs.stdout.deadline_hit)
+        self.assertEqual([(r.severity, r.message) for r in obs.stdout.records],
+                         [("WARN", "late stdout line")])
+
+    def test_clean_exit_does_not_flag_lost_tail(self):
+        _, _, obs = run("exit0")
+        self.assertFalse(obs.stdout_tail_lost_on_crash_possible)
+
+
+class RoleAndStdin(unittest.TestCase):
+    def test_role_is_recorded_on_observation_and_both_streams(self):
+        for role in ("worldserver", "authserver"):
+            with self.subTest(role=role):
+                obs = run("two_streams_plain", role=role)[2]
+                self.assertEqual((obs.role, obs.stdout.role, obs.stderr.role),
+                                 (role, role, role))
+
+    def test_role_must_be_declared_from_the_allowlist(self):
+        for role in (None, "", "WorldServer", "realmd"):
+            with self.subTest(role=role), self.assertRaises(ValueError):
+                producer("exit0", role=role)
+
+    def test_devnull_stdin_lets_a_console_stop_on_eof(self):
+        _, _, obs = run("fake_cli", stdin_mode="devnull", prefix_loglevel=False)
+        self.assertEqual(obs.exit.exit_code, 0)
+        self.assertEqual(obs.stdout.records[0].message, "console EOF: shutting down")
+
+    def test_held_open_stdin_keeps_console_running_and_is_never_written(self):
+        p, _, obs = run("fake_cli", stdin_mode="held_open")
+        self.assertEqual(obs.exit.exit_code, 7)        # no EOF, no data (9)
+        self.assertTrue(p._proc.stdin.closed)          # closed after collection
+
+    def test_held_open_stdin_survives_handoff_until_collection(self):
+        p = producer("fake_cli", stdin_mode="held_open")
+        p.start()
+        with self.assertRaises(m.ObservationTimeout) as cm:
+            p.observe(deadline_seconds=0.2)
+        h = cm.exception.handoff
+        assert_reaped(self, p, h)
+        self.assertEqual(h.raw_exit, ("exited", 7))     # stdin stayed open to the end
+        self.assertTrue(p._proc.stdin.closed)
+
+    def test_reaper_drains_both_streams(self):
+        p = producer("chatty_both")
+        p.start()
+        with self.assertRaises(m.ObservationTimeout) as cm:
+            p.observe(deadline_seconds=0.3)
+        h = cm.exception.handoff
+        assert_reaped(self, p, h)
+        self.assertEqual(h.raw_exit, ("exited", 0))     # no EPIPE on either stream
+        self.assertGreater(h.discarded_by_stream["stdout"], 0)
+        self.assertGreater(h.discarded_by_stream["stderr"], 0)
+        self.assertTrue(p._proc.stdout.closed)
+
+    def test_invalid_stdin_mode_refused(self):
+        with self.assertRaises(ValueError):
+            producer("exit0", stdin_mode="pty")
 
 
 class Guards(unittest.TestCase):
