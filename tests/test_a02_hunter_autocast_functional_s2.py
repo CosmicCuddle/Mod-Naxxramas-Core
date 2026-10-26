@@ -59,7 +59,7 @@ def fast_path_before_expensive(body, later_marker):
 
 
 def opt_in_gate_before_toggle(body):
-    gate = body.find("if (!optIn)")
+    gate = body.find("if (!Policy::EligibleForAutomaticRestore(optIn.get()))")
     toggle = body.find("ToggleAutocast(")
     if gate < 0 or toggle < 0 or gate > toggle:
         return False
@@ -220,7 +220,7 @@ class HumanAndChainGuards(unittest.TestCase):
     def test_removing_the_fail_closed_return_fails_the_contract(self):
         self.assertTrue(opt_in_gate_before_toggle(RESTORE))
         mutated = RESTORE.replace(
-            "if (!optIn)\n"
+            "if (!Policy::EligibleForAutomaticRestore(optIn.get()))\n"
             "            {\n"
             "                CopyBook(state->Book, state->Scratch);\n"
             "                state->AppliedGeneration = publishedGeneration;\n"

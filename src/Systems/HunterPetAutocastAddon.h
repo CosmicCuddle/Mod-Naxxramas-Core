@@ -101,8 +101,19 @@ namespace NaxxramasHunterPetAutocast
     {
         uint32_t Seq = 0;
         bool OptedIn = false;
+        // Strong, server-side provenance only. The legacy v1 addon payload
+        // does NOT authenticate a human manual click, current pet generation,
+        // or a particular player-vs-SelfBot mode. AcceptChunk NEVER sets this.
+        // A future independently reviewed v2/native post-acceptance path must
+        // provide genuine proof before any module autocast restore is allowed.
+        bool VerifiedHumanManualOrigin = false;
         std::vector<ChainChoice> Choices;
     };
+
+    inline bool EligibleForAutomaticRestore(PreferenceSnapshot const* preference)
+    {
+        return preference && preference->OptedIn && preference->VerifiedHumanManualOrigin;
+    }
 
     struct PlannedToggle
     {

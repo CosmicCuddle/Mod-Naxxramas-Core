@@ -292,7 +292,11 @@ namespace
             // No published addon opt-in: do not toggle. The book is stored
             // so the next unchanged ticks stay on the fast path. This does
             // not call IsRealPlayer and does not read _playerbotsAIMap.
-            if (!optIn)
+            // Even if BOTH experimental A02 flags are enabled accidentally,
+            // a legacy v1 packet cannot authorize a pet write. v1 observes
+            // session-owned addon data, NOT a verified human click, birth ID,
+            // or current human-vs-SelfBot mode. Pending safety is fail-closed.
+            if (!Policy::EligibleForAutomaticRestore(optIn.get()))
             {
                 CopyBook(state->Book, state->Scratch);
                 state->AppliedGeneration = publishedGeneration;

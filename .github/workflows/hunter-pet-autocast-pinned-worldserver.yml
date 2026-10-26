@@ -14,6 +14,9 @@ on:
       - 'tests/test_a02_hunter_autocast_functional_s2.py'
       - 'tests/test_a02_hunter_autocast_functional_s2c.py'
       - 'tests/test_a02_hunter_autocast_receiver_gate.py'
+      - 'tests/test_a02_v1_runtime_quarantine.py'
+      - 'tests/hunter_pet_autocast_v1_quarantine.cpp'
+      - 'docs/research/A02-PART26-UNVERIFIED-V1-RUNTIME-QUARANTINE.md'
       - 'docs/research/a02-hunter-autocast-functional-s2.md'
       - 'docs/A02-ADDON-PROTOCOL.md'
       - '.github/workflows/hunter-pet-autocast-pinned-worldserver.yml'
@@ -43,6 +46,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p 'test_a02_hunter_autocast_functional_s*.py' -v
           python3 -m unittest discover -s tests -p 'test_a02_hunter_autocast_receiver_gate.py' -v
+          python3 -m unittest discover -s tests -p 'test_a02_v1_runtime_quarantine.py' -v
       - name: Native policy tests (C++17, C++20)
         run: |
           set -euo pipefail
@@ -53,6 +57,9 @@ jobs:
             g++ -std=$std -Wall -Wextra -Werror -pedantic -pthread \
               -Isrc/Systems tests/hunter_pet_autocast_addon.cpp -o /tmp/hunter_pet_addon_$std
             /tmp/hunter_pet_addon_$std
+            g++ -std=$std -Wall -Wextra -Werror -pedantic -pthread \
+              -Isrc/Systems tests/hunter_pet_autocast_v1_quarantine.cpp -o /tmp/hunter_pet_v1_quarantine_$std
+            /tmp/hunter_pet_v1_quarantine_$std
           done
 
   pinned-worldserver-link:
