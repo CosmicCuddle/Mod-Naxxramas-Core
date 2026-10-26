@@ -25,6 +25,8 @@ namespace
         p.PlayerGuid = 1234;
         p.ServerEpoch = 777;
         p.PetNumber = number;
+        p.BirthToken[0] = 0xB1;
+        p.BirthToken[15] = 0xA4;  // synthetic ONLY: not evidence of a real birth authority
         p.SummonGeneration = generation;
         p.ServerToken[0] = 0xA7;
         p.ServerToken[15] = 0xD4;
@@ -36,9 +38,11 @@ namespace
         AcceptedManualChoice x;
         x.Pet = Pet();
         x.Revision = 21;
+        x.RevisionDomain = 99; // synthetic authoritative counter domain
         x.SpellChain = 17253; // synthetic Bite chain, NOT a DBC assertion
         x.Enable = enabled;
         x.TrustedManualReceipt = true; // fixture input, not real attestation
+        x.TrustedBirthAtReceipt = true; // fabricated verified-birth INPUT
         return x;
     }
 
@@ -47,6 +51,8 @@ namespace
         CurrentObservation c;
         c.Pet = Pet();
         c.LatestAcceptedRevision = 21;
+        c.LatestRevisionDomain = 99;
+        c.TrustedCurrentBirth = true; // fixture-only, no production source
         c.AllowedSpellChain = 17253;
         c.AllowedSpellId = 17260; // illustrative IP-permitted rank
         c.BookRevision = 6;
@@ -86,14 +92,33 @@ int main()
     };
 
     trial("different pet number", [](auto&, auto& x) { x.Pet.PetNumber = 43; });
-    trial("different summon generation", [](auto&, auto& x) { x.Pet.SummonGeneration++; });
-    trial("recycled server epoch", [](auto&, auto& x) { x.Pet.ServerEpoch++; });
+    // The SAME authenticated birth is permitted across new summon/session
+    // incarnations. Treat these as synthetic acceptance examples ONLY.
+    {
+        auto summoned = c;
+        summoned.Pet.SummonGeneration++;
+        summoned.Pet.ServerToken[1] = 0x7A;
+        Check(Decide(yes, summoned, budget) == Verdict::ApplyOn,
+            "same certified pet birth resummon may preserve ON");
+        auto relog = c;
+        relog.Pet.ServerEpoch++;
+        relog.Pet.ServerToken[2] = 0x7B;
+        Check(Decide(yes, relog, budget) == Verdict::ApplyOn,
+            "same certified persistent birth permits relog when proven");
+    }
+    trial("same PetNumber but replaced pet birth", [](auto&, auto& x) { x.Pet.BirthToken[15]++; });
+    trial("missing current birth token", [](auto&, auto& x) { x.Pet.BirthToken = {}; });
+    trial("missing accepted birth token", [](auto& choice, auto&) { choice.Pet.BirthToken = {}; });
     trial("different player", [](auto&, auto& x) { x.Pet.PlayerGuid++; });
     trial("different server token", [](auto&, auto& x) { x.Pet.ServerToken[15]++; });
     trial("missing server token", [](auto&, auto& x) { x.Pet.ServerToken = {}; });
     trial("zero current pet number", [](auto&, auto& x) { x.Pet.PetNumber = 0; });
     trial("old accepted revision", [](auto&, auto& x) { x.LatestAcceptedRevision++; });
     trial("missing accepted revision", [](auto& x, auto&) { x.Revision = 0; });
+    trial("missing revision domain", [](auto& x, auto&) { x.RevisionDomain = 0; });
+    trial("reused revision in other domain", [](auto&, auto& x) { x.LatestRevisionDomain++; });
+    trial("missing current birth attestation", [](auto&, auto& x) { x.TrustedCurrentBirth = false; });
+    trial("missing accepted birth attestation", [](auto& x, auto&) { x.TrustedBirthAtReceipt = false; });
     trial("no authoritative client receipt", [](auto& x, auto&) { x.TrustedManualReceipt = false; });
     trial("untrusted transport", [](auto&, auto& x) { x.HasVerifiedClientTransport = false; });
     trial("receiver unauthenticated", [](auto&, auto& x) { x.ReceiverAuthenticated = false; });
@@ -117,6 +142,19 @@ int main()
     Check(Decide(yes, c, budget) == Verdict::ApplyOn, "first retry for same book");
     RecordAttempt(budget, yes, c);
     Check(Decide(yes, c, budget) == Verdict::NoWrite, "two-attempt ceiling");
+    // Previous summon attempts never exhaust a *new* summon, even when its
+    // observed spellbook starts with the same revision number.
+    {
+        auto newSummon = c;
+        newSummon.Pet.SummonGeneration++;
+        newSummon.Pet.ServerToken[4] = 0xF2;
+        Check(Decide(yes, newSummon, budget) == Verdict::ApplyOn,
+            "old summon budget cannot block same birth new summon");
+        RecordAttempt(budget, yes, newSummon);
+        RecordAttempt(budget, yes, newSummon);
+        Check(Decide(yes, newSummon, budget) == Verdict::NoWrite,
+            "new summon also bounded to two attempts");
+    }
     c.BookRevision++;
     c.AllowedSpellId = 17259; // different synthetic allowed rank
     Check(Decide(yes, c, budget) == Verdict::ApplyOn, "new IP transition separate bounded attempt");
