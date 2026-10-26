@@ -15,9 +15,9 @@ This is a narrow R3 evidence experiment supporting the operational design contra
 
 Run: PYTHONDONTWRITEBYTECODE=1 python3 -I -B tests/test_f15_offline_owned_stderr_s4h.py -v
 
-Fourteen synthetic Python unittest witnesses cover: separate WARN/ERROR; ignored INFO/DEBUG; forged fatal text; exit 139 not attesting a signal; invalid UTF-8 and controls; a 20,000-byte single-line overflow; a 100-message flood with explicit drop counts; a byte-flood quota that stops capture and flags incomplete evidence; a rejected unlimited quota; one simulated inherited pipe-writer with a fixed, non-restarting timeout grace; split writes across an anonymous pipe; empty output; missing final newline; and refusal to spawn if given an unsupported service name. All input is deliberately synthetic and generated only by self-launched Python children.
+Fifteen synthetic Python unittest witnesses cover: separate WARN/ERROR; ignored INFO/DEBUG; forged fatal text; exit 139 not attesting a signal; invalid UTF-8 and controls; a 20,000-byte single-line overflow; a 100-message flood with explicit drop counts; a byte-flood quota that stops capture and flags incomplete evidence; a rejected unlimited quota; one simulated inherited pipe-writer with a fixed, non-restarting timeout grace; split writes across an anonymous pipe; empty output; missing final newline; and refusal to spawn if given an unsupported service name. All input is deliberately synthetic and generated only by self-launched Python children.
 
-A dedicated exact-head GitHub workflow must separately pass all fourteen tests with no skip; **do not report hosted success until its actual SHA/job/log are inspected**.
+A dedicated exact-head GitHub workflow must separately pass all fifteen tests with no skip; **do not report hosted success until its actual SHA/job/log are inspected**.
 
 ## Limits before an operational reporter
 
@@ -32,3 +32,7 @@ When more bytes arrive than the configured 4 KiB–1 MiB bounded quota, the pare
 ## Single-shot deadline hardening (Part 25 follow-up)
 
 The initial 13-test model reset its one-second EOF grace deadline *every time* the reader loop noticed an expired deadline. If the direct child had already exited but a different process held the stderr pipe's write end open, the loop could continue forever without receiving EOF. The corrected fixture fixes the grace deadline once after the main timeout and deterministically raises `TimeoutError` when it expires. The 14th regression uses a mocked dead direct child and a mocked permanently open pipe (no actual child or descendant launched) to catch this source mistake. An inherited fd is a hypothetical negative; it is not an authenticated Worldserver/Authserver test and demonstrates why true production source attribution and process-tree supervision remain open.
+
+## Incomplete line on stream-quota cutoff (Part 25 follow-up)
+
+The previous offline fixture set `byte_limit_exceeded=True` for stream loss but could finalise the trailing, LF-less `ERROR` record with `truncated=False` when the total byte budget interrupted it before the per-line limit. The `cut_line` regression supplies a fixed disposable Python child emitting over 5,000 bytes before its newline. With a 4,096-byte stream budget, it now requires both `byte_limit_exceeded=True` and the sole retained line's `truncated=True`, with `clipped_lines=1`. Only the fixture's unfinished in-memory record is marked; an already completed line remains complete. This is still not a real Worldserver/Authserver log or crash witness, and the fixture-only child kill policy must never be applied to a production daemon.
