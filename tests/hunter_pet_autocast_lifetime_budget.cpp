@@ -100,6 +100,17 @@ int main()
               "global cap never increments or writes after exhaustion");
         Check(lifetime.Entries[0].Attempts == 20,
               "no count inflation or hidden reset at lifetime ceiling");
+        // An apparent settled state must not free the prior choice budget:
+        // IP / Playerbots may independently flip it after this observation.
+        auto brieflyCorrect = Current(on, 11);
+        brieflyCorrect.EnabledNow = true;
+        Check(DecideWithLifetime(on, brieflyCorrect, incarnation, lifetime)
+              == Verdict::AlreadyCorrect,
+              "already-correct is a no-op, not a reason to release lifetime history");
+        auto subsequentlyChanged = Current(on, 12);
+        Check(DecideWithLifetime(on, subsequentlyChanged, incarnation, lifetime)
+              == Verdict::NoWrite,
+              "same choice remains exhausted if state is later changed externally");
 
         // Other spell chain is independent.
         auto claw = Choice(true, 21, 200);
@@ -175,6 +186,38 @@ int main()
               "existing chain may accept newer OFF despite full ledger");
         Check(full.Entries[0].Attempts == 1,
               "new revision for existing chain does not retain old attempt usage");
+    }
+
+    // This state must be explicitly owned by ONE player. Sharing a single
+    // global ledger cannot silently mix counters or evict the first owner.
+    {
+        Ledger firstPlayer;
+        AttemptLedger firstSummon;
+        auto a = Choice();
+        auto nowA = Current(a);
+        Check(ReserveWithLifetime(a, nowA, firstSummon, firstPlayer),
+              "first player's authenticated choice can reserve its ledger");
+        Check(firstPlayer.OwnerGuid == a.Pet.PlayerGuid,
+              "ledger becomes bound only after a successful reservation");
+
+        auto otherPlayer = Choice();
+        otherPlayer.Pet.PlayerGuid = 2400;
+        auto nowB = Current(otherPlayer);
+        nowB.Pet.PlayerGuid = 2400;
+        AttemptLedger secondSummon;
+        Check(DecideWithLifetime(otherPlayer, nowB, secondSummon, firstPlayer)
+              == Verdict::NoWrite,
+              "a different player cannot borrow the existing player's ledger");
+        Check(!ReserveWithLifetime(otherPlayer, nowB, secondSummon, firstPlayer),
+              "cross-player reservation must be refused");
+        Check(firstPlayer.OwnerGuid == a.Pet.PlayerGuid,
+              "refused cross-player attempt cannot rebind the ledger");
+
+        Ledger secondPlayer;
+        Check(ReserveWithLifetime(otherPlayer, nowB, secondSummon, secondPlayer),
+              "other player can use a separate owner-local ledger");
+        Check(secondPlayer.OwnerGuid == otherPlayer.Pet.PlayerGuid,
+              "second ledger independently binds to its owner");
     }
 
     // Important unsolved limitation: an IN-MEMORY budget can be restarted.
