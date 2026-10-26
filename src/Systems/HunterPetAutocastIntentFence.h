@@ -233,7 +233,10 @@ namespace IntentFence
         return choice.Enable ? Verdict::ApplyOn : Verdict::ApplyOff;
     }
 
-    // Part27: a bounded per-incarnation, per-chain store. A single
+    // Part27: multi-chain callers MUST use DecideTracked and
+    // RecordTrackedAttempt (or an independently reviewed stable keyed ledger).
+    // Raw Decide/RecordAttempt are SINGLE-CHAIN ONLY. A bounded per-chain
+    // store prevents accidental reset of total attempts. A single
     // AttemptBudget MUST NOT be shared between chains: alternating two chains
     // resets TotalAttempts and evades the 20-attempt ceiling. This ledger is
     // caller-owned on the established owning thread; it has NO shared map,
