@@ -11,7 +11,7 @@
 |---|---|---|
 | GFPP EXACT 120 seconds | DONE—source and DONE—linked in frozen #160 | Owner stopwatch, expiry and raid/bot interactions |
 | A02 genuine Hunter pet autocast ON/OFF | #164 FULL pinned linked PASS; #165 fail-closed v1 protection, source/native PASS and full link in progress; #166 unwired model PASS | **BLOCKED** by post-validated native accepted human choice, durable pet birth and positive human/SelfBot exclusion, proper IP rank reconciliation, real 3.3.5a |
-| A04 human group quest loot | #153 synthetic source research only | **BLOCKED**: (1) fellow human needs item but receives none; (2) sparkling corpse cannot be looted; genuine owner-private stock-group-loot casework |
+| A04 human–human quest loot | #110 and #153 isolated source/model research, #109 owner observations authoritative; actual loaded guard/config UNKNOWN | **BLOCKED**: (1) a real friend apparently successfully takes quest loot shown available though the owner considers it theirs; (2) a different sparkle/visible-loot case results in denied pickup. Determine entitlement, group turn and guard state without assuming either case is proved or disproved by synthetic CI |
 | F12 Scarlet physical exits | DONE—source/native/linked in frozen #160 | Owner Cathedral 610↔604 and Armory 612↔606 physical walk out/back |
 | F13 Atiesh exterior | DONE—source/native/linked in frozen #160 | Owner Vanilla exterior of Karazhan in-game |
 
@@ -53,12 +53,14 @@ F14 vanilla `/who` remains OPTIONAL and default OFF. Golemagg/B10 diagnostics ar
 - [ ] Real warning/error + crash provenance for BOTH daemons, report writer/durability (R2/R4 as scoped), least privilege, protected storage and rollback R5.
 - [ ] **NOT OPERATIONAL**. Current prototype writes no actual owner crash or error reports and is not installed.
 
-## 5. A04 owner-private evidence
+## 5. A04 — authoritative owner report, no premature policy change
 
-- [ ] Preserve both distinct symptoms: fellow human did not receive a needed item, sparkling corpse cannot be looted.
-- [ ] Collect effective installed module revision/feature flag ONLY with owner-approved private evidence. Never publish exact NPC/item/quest/loot mappings.
-- [ ] Protect stock party loot, loot rights, eligible in-range group members and ordinary rotation/UI.
-- [x] #153 synthetic research does not solve owner incident.
+- [x] Corrected this checklist against [owner incident #109](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109) rather than inventing a missing-item/failed-award scenario. **Observation H1 (apparently accepted):** a real human friend repeatedly sees a quest item/corpse as available and apparently successfully collects what owner regards as their quest loot. **Observation H2 (denied):** another group member sees an apparently lootable/sparkling corpse, opens or attempts pickup, yet cannot collect the protected quest item. These are **different outcomes** and neither may be erased.
+- [x] Read exact module `main@80e9de1` `src/Systems/QuestLootProtection.cpp` blob `48729dc9fdd674eea0f4bb7bd1a47762558daf6f`: `Enabled` defaults FALSE, `CanPacketReceive` intercepts only `CMSG_AUTOSTORE_LOOT_ITEM`. `PermitPickup` is deliberately **fail-open** except for one-copy creature quest rows with a verified active eligible group round-robin owner; normal slots, `freeforall`, `follow_loot_rules`, rolls, owner release, absent/moved owners and other group modes follow core. This is source behaviour only; actual installed config, quest/item/loot row and human eligibility UNKNOWN.
+- [x] Related [PR #110](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/110) investigates packet fail-open and per-viewer sparkle mismatch; [PR #153](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/153) is synthetic roll timing research. Neither is a verified fix or in-game acceptance. A successful friend's pickup may be an eligible stock single-copy award, **or** an actual inappropriate grant. The present evidence does not decide.
+- [ ] **Human–human acceptance H01–H05:** non-entitled viewer's sparkle and loot slot, correct pickup rejection; eligible viewer's correct reward; a claimed wrong-human successful pickup versus merely visible denied slot; normal loot/gold/FFA/MULTI_DROP/professions; group round-robin release, loot-method change, each human order, roll and corpse refresh. Test playerbots separately.
+- [ ] Confirm owner's installed module SHA and effective config, quest/item/drop/group eligibility and actual packet pathway **privately and only with owner approval**. No private NPC/item/quest/loot IDs or source relationships in PUBLIC GitHub.
+- [ ] **Do not** broadly suppress sparkles, reserve ordinary loot, invent per-human item copies, change item flags/loot economy or enable custom guard while the owner case is unknown; preserve stock group loot and the eight map threads.
 
 ## 6. Coordination
 
