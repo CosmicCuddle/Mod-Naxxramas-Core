@@ -66,6 +66,30 @@ elif mode == "multiline":
     time.sleep(0.05)
     os.write(err, b"OR split\xff\x1b[31mred\nWARN no newline at end")
     sys.exit(0)
+elif mode == "chatty":
+    # Outlives a short observation deadline while writing; exits 3 if a
+    # write ever fails (EPIPE), 0 if every write succeeded.
+    try:
+        for i in range(30):
+            say(f"WARN still running {i}\n")
+            time.sleep(0.05)
+    except BrokenPipeError:
+        os._exit(3)
+    os._exit(0)
+elif mode == "descendant_floods":
+    pid = os.fork()
+    if pid == 0:                        # grandchild floods the inherited pipe
+        os.setsid()
+        end = time.monotonic() + float(arg or 4)
+        try:
+            while time.monotonic() < end:
+                os.write(err, b"WARN " + b"y" * 4090 + b"\n")
+        except BrokenPipeError:
+            pass
+        os._exit(0)
+    say(f"WARN spawned helper {pid}\n")
+    time.sleep(0.2)
+    sys.exit(0)
 elif mode == "flood":
     line = b"ERROR " + b"x" * 1017 + b"\n"   # 1024 bytes per line
     started = time.monotonic()

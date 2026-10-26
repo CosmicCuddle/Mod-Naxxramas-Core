@@ -5,6 +5,7 @@ import os
 import re
 import signal
 import sys
+import threading
 import time
 import types
 import unittest
@@ -30,6 +31,19 @@ def run(mode, *extra, **kw):
     p = producer(mode, *extra, **kw)
     inc = p.start()
     return p, inc, p.observe()
+
+
+def assert_reaped(test, p, handoff, timeout=10.0):
+    """The handed-off child was collected and every descriptor we owned is
+    closed: no zombie, no fd leak. Nothing was signalled by the producer."""
+    test.assertIs(handoff, p.handoff)
+    test.assertTrue(handoff.finished.wait(timeout), "reaper did not finish")
+    test.assertIsNotNone(handoff.raw_exit)
+    test.assertFalse(os.path.exists(f"/proc/{p._proc.pid}"))    # not even a zombie
+    test.assertTrue(p._proc.stderr.closed)
+    test.assertIsNone(p._pidfd)
+    with test.assertRaises(ChildProcessError):
+        os.waitpid(p._proc.pid, os.WNOHANG)                       # already collected
 
 
 def accounted(s):
@@ -140,11 +154,9 @@ class Identity(unittest.TestCase):
         p = producer("exit0")
         with mock.patch.object(m, "read_stat",
                                side_effect=lambda pid: (1,) + real(pid)[1:]):
-            with self.assertRaisesRegex(RuntimeError, "not our own child"):
+            with self.assertRaisesRegex(m.StartFailed, "not our own child") as cm:
                 p.start()
-        p._proc.wait()                             # test cleanup only
-        self.assertIsNone(p._pidfd)
-        self.assertTrue(p._proc.stderr.closed)     # our pipe end released
+        assert_reaped(self, p, cm.exception.handoff)
         with self.assertRaises(RuntimeError):
             p.observe()                            # refused producer is spent
 
@@ -220,6 +232,103 @@ class StreamSafety(unittest.TestCase):
         self.assertTrue(obs.stream.records[0].truncated)
         self.assertEqual(obs.stream.records[0].message, "co")
         self.assertTrue(accounted(obs.stream))
+
+
+class Lifecycle(unittest.TestCase):
+    """CS01 #167 review: no child or descriptor escapes on any failure path."""
+
+    def test_pidfd_open_failure_after_spawn_hands_off_and_reaps(self):
+        p = producer("exit0")
+        with mock.patch.object(m.os, "pidfd_open", side_effect=OSError(38, "ENOSYS")):
+            with self.assertRaises(m.StartFailed) as cm:
+                p.start()
+        assert_reaped(self, p, cm.exception.handoff)
+        self.assertEqual(cm.exception.handoff.raw_exit, ("exited", 0))
+
+    def test_read_stat_failure_after_spawn_hands_off_and_reaps(self):
+        p = producer("exit2")
+        with mock.patch.object(m, "read_stat", side_effect=OSError(5, "EIO")):
+            with self.assertRaises(m.StartFailed) as cm:
+                p.start()
+        h = cm.exception.handoff
+        assert_reaped(self, p, h)
+        self.assertEqual(h.raw_exit, ("exited", 2))
+        self.assertGreater(h.bytes_discarded, 0)          # its ERROR line was drained
+
+    def test_deadline_with_live_child_hands_off_and_keeps_its_pipe_working(self):
+        p = producer("chatty")
+        p.start()
+        started = time.monotonic()
+        with self.assertRaises(m.ObservationTimeout) as cm:
+            p.observe(deadline_seconds=0.3)
+        self.assertLess(time.monotonic() - started, 1.5)  # no hang
+        h = cm.exception.handoff
+        assert_reaped(self, p, h)
+        # Exit 0 means every later stderr write succeeded: no EPIPE, no stall.
+        self.assertEqual(h.raw_exit, ("exited", 0))
+        self.assertGreater(h.bytes_discarded, 0)
+        with self.assertRaises(RuntimeError):
+            p.observe()
+
+    def test_never_pausing_writer_cannot_starve_exit_and_deadline(self):
+        endless = lambda fd: b"z" * 65536                  # never EAGAIN, never EOF
+        p = producer("exit0", eof_grace_seconds=0.3, retain_bytes=4096)
+        p.start()
+        box = {}
+        with mock.patch.object(m, "_read_chunk", side_effect=endless):
+            t = threading.Thread(target=lambda: box.setdefault("obs", p.observe(5.0)),
+                                 daemon=True)
+            t.start()
+            t.join(4.0)
+        self.assertFalse(t.is_alive(), "observe() starved by a busy writer")
+        obs = box["obs"]
+        self.assertEqual(obs.exit.classification, "normal_exit")
+        self.assertTrue(obs.stream.deadline_hit and not obs.stream.eof)
+        self.assertTrue(accounted(obs.stream))
+        self.assertGreater(obs.stream.bytes_dropped, 0)
+
+    def test_descendant_flooding_after_exit_respects_one_shot_grace(self):
+        start = time.monotonic()
+        _, _, obs = run("descendant_floods", "4", eof_grace_seconds=0.5,
+                        retain_bytes=8192, max_records=4)
+        self.assertLess(time.monotonic() - start, 2.5)
+        s = obs.stream
+        self.assertEqual(obs.exit.classification, "normal_exit")
+        self.assertTrue(s.deadline_hit and s.source_incomplete)
+        self.assertTrue(accounted(s))
+        self.assertGreater(s.bytes_dropped, 100_000)
+        helper = int(re.search(r"helper (\d+)", s.records[0].message).group(1))
+        try:
+            os.kill(helper, signal.SIGKILL)                # test cleanup only
+        except ProcessLookupError:
+            pass
+
+    def test_group_scan_listing_failure_keeps_the_observation(self):
+        p = producer("sigsegv")
+        p.start()
+        with mock.patch.object(m.os, "listdir", side_effect=PermissionError(13, "EACCES")):
+            obs = p.observe()
+        self.assertEqual(obs.exit.classification, "fatal_signal")
+        self.assertFalse(obs.group_scan_complete)
+        self.assertEqual(obs.group_members_seen_after_exit, ())
+
+    def test_group_scan_unreadable_entry_marks_scan_incomplete(self):
+        p = producer("exit0")
+        inc = p.start()
+        real = m.read_stat
+
+        def flaky(pid):
+            if pid == os.getpid():
+                raise PermissionError(13, "EACCES")
+            return real(pid)
+        with mock.patch.object(m, "read_stat", side_effect=flaky):
+            obs = p.observe()
+        self.assertEqual(obs.exit.incarnation, inc)
+        self.assertFalse(obs.group_scan_complete)
+
+    def test_clean_scan_reports_complete(self):
+        _, _, obs = run("exit0")
+        self.assertTrue(obs.group_scan_complete)
 
 
 class Guards(unittest.TestCase):

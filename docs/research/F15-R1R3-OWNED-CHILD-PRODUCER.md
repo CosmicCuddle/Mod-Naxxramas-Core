@@ -20,12 +20,15 @@ Files: `tools/f15/r1r3_owned_child_producer.py` (stdlib only), `tests/test_f15_r
 | No stall under a flood | **VERIFIED for a 48 MiB flood** | One nonblocking select loop drains the pipe whether or not the child has exited. Past the retention budget, bytes are dropped and counted. The child's own write time stays under 10 s. |
 | Byte accounting | **VERIFIED** | `bytes_drained == bytes_retained + bytes_framing + bytes_dropped`, all non-negative. Lost *lines* are not claimed exactly: `lines_unclassified` counts lines with no kept bytes, and partial framing is flagged. |
 | Descendants holding the pipe | **SOURCE_INCOMPLETE, never killed** | After the child exits, a single-shot grace deadline waits for EOF. On expiry, `deadline_hit` and `source_incomplete` are set and only our own read end is closed. |
-| Process group emptiness | **NOT provable here** | `group_members_seen_after_exit` comes from a read-only `/proc` scan. An empty result is not proof, because a descendant can leave the group with `setsid()` (tested). |
+| Failure after spawn (`pidfd_open`, `/proc` read, PPID/boot mismatch) | **no event; child handed off** | `StartFailed` carries a reaper thread that drains and counts stderr, collects the exit (pidfd, or `poll()` if no pidfd) and closes our descriptors. No zombie or fd leak (tested), no signal. |
+| Child still running at the observation deadline | **no event; child handed off** | `ObservationTimeout` carries the same reaper. Our read end stays open and drained, so the child's later writes still succeed (tested: exit 0, not EPIPE). |
+| A writer that never pauses | **cannot starve the loop** | At most 16 × 64 KiB reads per event-loop turn, then exit and deadline checks run (tested with a read source that never returns `EAGAIN`). |
+| Process group emptiness | **NOT provable here** | `group_members_seen_after_exit` comes from a best-effort, read-only `/proc` scan with `group_scan_complete`. A listing or entry permission error marks the scan incomplete and never fails the observation (tested). Even a complete empty result is not proof, because a descendant can leave the group with `setsid()` (tested). |
 | Real Worldserver/Authserver, systemd/journal, log files, GDB, restart (R2), reports (R4) | **NOT IMPLEMENTED** | Each needs R0 facts and/or owner permission. |
 
 ## Tests
 
-24 tests with real child processes:
+32 tests with real child processes:
 - clean exit; startup error (exit 2 with an ERROR line); exit 139; real SIGSEGV and SIGABRT; forged crash text;
 - a wrapper hiding a grandchild's SIGSEGV;
 - unplanned TERM; a declared plan delivered by the harness, and a plan for TERM that doesn't cover INT;
@@ -38,8 +41,9 @@ Files: `tools/f15/r1r3_owned_child_producer.py` (stdlib only), `tests/test_f15_r
 - a 48 MiB flood, fully accounted;
 - multiline, split-write, invalid UTF-8 and escape-sequence framing; truncation;
 - the executable allowlist, single use, and a source guard: **no signal-sending call exists in the module**.
+- lifecycle (CS01 review): failure after spawn in `pidfd_open` and in `/proc` reads, each reaped with no zombie or fd leak; a live child at the deadline handed off and still writing successfully; a never-pausing read source; a descendant flooding after exit within the one-shot grace, fully accounted; group-scan listing and entry permission failures.
 
-Fourteen must-fail mutants are each caught:
+Nineteen must-fail mutants are each caught:
 1. exit status >128 treated as a signal;
 2. "SIGSEGV" text trusted;
 3. a wrapper's 0 treated as a crash;
@@ -54,6 +58,11 @@ Fourteen must-fail mutants are each caught:
 12. an exited child still matching;
 13. the group scan returning empty;
 14. the stream identity taken from elsewhere.
+15. a start failure not handed off;
+16. the deadline closing a live child's pipe;
+17. unbounded draining;
+18. group-scan errors propagating;
+19. the reaper not draining.
 
 ## Limits
 

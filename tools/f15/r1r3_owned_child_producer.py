@@ -21,6 +21,14 @@ What it establishes from the kernel rather than from text:
       retention budget, bytes are dropped and counted. Stopping reads would
       fill the pipe and block the child's write(2).
 
+Lifecycle (CS01 #167 review): if anything fails after spawn, or the child is
+still running at the observation deadline, no attested event is produced and
+the child is HANDED OFF to a reaper thread that keeps draining (counting) its
+stderr and collects its exit, so neither the child nor our descriptors leak
+and the child never blocks on a full or closed pipe. Reads are bounded per
+event-loop turn so a busy writer cannot starve exit/deadline handling. The
+/proc group scan is best effort and can never fail an observation.
+
 It sends NO signals at all. A "planned stop" can only be a plan declared to
 the producer before start by the test harness that will deliver it; any other
 terminating signal is unplanned. Process-group membership is reported from a
@@ -33,6 +41,7 @@ import os
 import selectors
 import signal
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -126,6 +135,7 @@ class Observation:
     exit: ExitFact
     stream: StreamFact
     group_members_seen_after_exit: tuple[int, ...]   # /proc scan; not proof
+    group_scan_complete: bool                         # False: scan unreliable
 
 
 class _Framer:
@@ -193,6 +203,118 @@ class _Framer:
                 return
 
 
+class StartFailed(RuntimeError):
+    """Spawn succeeded but pinning/verifying the child did not. No event is
+    produced; the child is handed to a reaper (see `handoff`), never signalled."""
+
+    def __init__(self, message: str, handoff: "_Reaper"):
+        super().__init__(message)
+        self.handoff = handoff
+
+
+class ObservationTimeout(TimeoutError):
+    """The child was still running at the observation deadline. No attested
+    exit event exists; ownership passed to a reaper that keeps draining."""
+
+    def __init__(self, message: str, handoff: "_Reaper"):
+        super().__init__(message)
+        self.handoff = handoff
+
+
+# Bounded work per event-loop turn, so a writer that never pauses cannot
+# starve the exit (pidfd) and deadline checks.
+_MAX_READS_PER_TURN = 16
+_READ_SIZE = 65536
+
+
+def _read_chunk(fd: int) -> bytes:
+    return os.read(fd, _READ_SIZE)
+
+
+def _drain_some(fd: int, sink) -> bool:
+    """Read at most _MAX_READS_PER_TURN chunks; True once EOF is seen."""
+    for _ in range(_MAX_READS_PER_TURN):
+        try:
+            data = _read_chunk(fd)
+        except BlockingIOError:
+            return False
+        if not data:
+            return True
+        sink(data)
+    return False
+
+
+class _Reaper(threading.Thread):
+    """Takes over a direct child we can no longer observe for an attested
+    event. Keeps draining (and only counting) its stderr so it never blocks on
+    a full pipe, collects its exit so no zombie remains, then releases our
+    descriptors. It sends no signals and waits only as long as the child
+    lives (bounded by the child, never by killing it). After the child exits,
+    the same single-shot EOF grace applies before our read end is closed.
+    Its results are diagnostics, NOT attested R1/R3 events."""
+
+    def __init__(self, proc: subprocess.Popen, pidfd: int | None, grace: float):
+        super().__init__(name=f"f15-reaper-{proc.pid}", daemon=True)
+        self._proc, self._pidfd, self._grace = proc, pidfd, grace
+        self.bytes_discarded = 0
+        self.raw_exit: tuple[str, int] | None = None   # ("exited"|"signal", n)
+        self.eof = False
+        self.finished = threading.Event()
+
+    def run(self) -> None:
+        out = self._proc.stderr
+        sel = selectors.DefaultSelector()
+        try:
+            if out is not None and not out.closed:
+                os.set_blocking(out.fileno(), False)
+                sel.register(out.fileno(), selectors.EVENT_READ, "stream")
+            else:
+                self.eof = True
+            if self._pidfd is not None:
+                sel.register(self._pidfd, selectors.EVENT_READ, "exit")
+            eof_deadline = None
+            while not (self.raw_exit and self.eof):
+                if eof_deadline is not None and time.monotonic() >= eof_deadline:
+                    break
+                for key, _ in sel.select(0.2):
+                    if key.data == "stream":
+                        if _drain_some(key.fd, self._count):
+                            self.eof = True
+                            sel.unregister(key.fd)
+                    elif self.raw_exit is None:
+                        self._collect()
+                        sel.unregister(key.fd)
+                if self.raw_exit is None and self._pidfd is None:
+                    self._collect(poll=True)
+                if self.raw_exit is not None and eof_deadline is None:
+                    eof_deadline = time.monotonic() + self._grace
+        finally:
+            sel.close()
+            if out is not None and not out.closed:
+                out.close()
+            if self._pidfd is not None:
+                os.close(self._pidfd)
+                self._pidfd = None
+            self.finished.set()
+
+    def _count(self, data: bytes) -> None:
+        self.bytes_discarded += len(data)
+
+    def _collect(self, poll: bool = False) -> None:
+        if poll:
+            code = self._proc.poll()          # no pidfd: plain waitpid(WNOHANG)
+            if code is not None:
+                self.raw_exit = ("exited", code) if code >= 0 else ("signal", -code)
+            return
+        info = os.waitid(os.P_PIDFD, self._pidfd, os.WEXITED)
+        if info.si_code == os.CLD_EXITED:
+            self._proc.returncode = info.si_status
+            self.raw_exit = ("exited", info.si_status)
+        else:
+            self._proc.returncode = -info.si_status
+            self.raw_exit = ("signal", info.si_status)
+
+
 class OwnedChildProducer:
     """Spawn one disposable child and observe it. Single use. Sends no signals."""
 
@@ -216,12 +338,21 @@ class OwnedChildProducer:
         self._pidfd: int | None = None
         self._incarnation: Incarnation | None = None
         self._done = False
+        self.handoff: _Reaper | None = None
 
     @property
     def incarnation(self) -> Incarnation:
         if self._incarnation is None:
             raise RuntimeError("not started")
         return self._incarnation
+
+    def _hand_off(self) -> _Reaper:
+        """Terminal state: give the child and our descriptors to a reaper."""
+        self._done = True
+        pidfd, self._pidfd = self._pidfd, None
+        self.handoff = _Reaper(self._proc, pidfd, self._grace)
+        self.handoff.start()
+        return self.handoff
 
     def start(self) -> Incarnation:
         if self._proc is not None:
@@ -231,17 +362,18 @@ class OwnedChildProducer:
             self._argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE, close_fds=True, start_new_session=True)
         pid = self._proc.pid
-        # No PID-reuse window: the child is ours and unreaped (at worst a
-        # zombie), so `pid` cannot name another process until WE wait on it.
-        self._pidfd = os.pidfd_open(pid)
-        ppid, pgrp, start = read_stat(pid)
-        if ppid != os.getpid() or read_boot_id() != boot:
-            # Release only what we own; the process itself is not signalled.
-            os.close(self._pidfd)
-            self._pidfd = None
-            self._proc.stderr.close()
-            self._done = True
-            raise RuntimeError("pinned process is not our own child")
+        try:
+            # No PID-reuse window: the child is ours and unreaped (at worst a
+            # zombie), so `pid` cannot name another process until WE wait.
+            self._pidfd = os.pidfd_open(pid)
+            ppid, pgrp, start = read_stat(pid)
+            if ppid != os.getpid() or read_boot_id() != boot:
+                raise RuntimeError("pinned process is not our own child")
+        except Exception as exc:
+            # Spawned but not verifiable: no event, no signal. The child is
+            # handed to a reaper so neither it nor our descriptors leak.
+            raise StartFailed(f"start failed after spawn: {exc}",
+                              self._hand_off()) from exc
         self._incarnation = Incarnation(boot, pid, start, ppid, pgrp)
         return self._incarnation
 
@@ -276,22 +408,25 @@ class OwnedChildProducer:
         exit_fact = None
         hard_deadline = time.monotonic() + deadline_seconds
         eof_deadline = None
+        handed_off = False
         try:
-            # One nonblocking loop: the pipe keeps draining whether or not
-            # the child has exited. Exit and EOF are separate facts; either
-            # may come first. Two single-shot deadlines bound the wait.
+            # One nonblocking loop with bounded reads per turn: the pipe keeps
+            # draining whether or not the child has exited, and a busy writer
+            # cannot starve the exit/deadline checks. Exit and EOF are separate
+            # facts; two single-shot deadlines bound the wait.
             while not (exit_fact is not None and fact.eof):
                 now = time.monotonic()
                 if exit_fact is None and now >= hard_deadline:
-                    raise TimeoutError("owned child did not exit in time")
+                    handed_off = True
+                    break
                 if eof_deadline is not None and now >= eof_deadline:
                     fact.deadline_hit = True     # no signal is ever sent
                     break
                 limit = eof_deadline if exit_fact else hard_deadline
                 for key, _ in sel.select(max(0.0, min(0.2, limit - now))):
                     if key.data == "stream":
-                        self._drain(out, framer, fact)
-                        if fact.eof:
+                        if _drain_some(out, framer.feed):
+                            fact.eof = True
                             sel.unregister(out)
                     elif exit_fact is None:
                         exit_fact = self._reap()
@@ -300,26 +435,21 @@ class OwnedChildProducer:
             framer.finish()
         finally:
             sel.close()
-            self._proc.stderr.close()   # closes ONLY our own read end
-            # Forget the number too: a closed fd number can be reused.
-            pidfd, self._pidfd = self._pidfd, None
-            os.close(pidfd)
+            if not handed_off:
+                self._proc.stderr.close()   # closes ONLY our own read end
+                # Forget the number too: a closed fd number can be reused.
+                pidfd, self._pidfd = self._pidfd, None
+                os.close(pidfd)
+        if handed_off:
+            # The child is still running: keep its pipe drained and collect
+            # it later, without an attested event and without signalling.
+            self._done = False
+            raise ObservationTimeout("owned child still running at deadline",
+                                     self._hand_off())
         if exit_fact is None:
             raise RuntimeError("stream ended but exit not observed")
-        return Observation(exit_fact, fact,
-                           _scan_group(self.incarnation.pgid, self.incarnation.pid))
-
-    @staticmethod
-    def _drain(fd: int, framer: _Framer, fact: StreamFact) -> None:
-        while True:
-            try:
-                data = os.read(fd, 65536)
-            except BlockingIOError:
-                return
-            if not data:
-                fact.eof = True
-                return
-            framer.feed(data)
+        members, complete = _scan_group(self.incarnation.pgid, self.incarnation.pid)
+        return Observation(exit_fact, fact, members, complete)
 
     def _reap(self) -> ExitFact:
         info = os.waitid(os.P_PIDFD, self._pidfd, os.WEXITED)
@@ -349,17 +479,25 @@ class OwnedChildProducer:
         raise RuntimeError(f"unexpected waitid si_code {code}")
 
 
-def _scan_group(pgid: int, leader: int) -> tuple[int, ...]:
-    """Read-only /proc scan for processes still in the child's process group.
-    An empty result is NOT proof: a descendant can leave the group with
-    setsid(), and processes can appear or vanish during the scan."""
-    found = []
-    for name in os.listdir("/proc"):
+def _scan_group(pgid: int, leader: int) -> tuple[tuple[int, ...], bool]:
+    """Best-effort, read-only /proc scan for processes still in the child's
+    process group: (members seen, scan_complete). It is diagnostic only and
+    can never fail an observation. Even a complete empty scan is NOT proof:
+    a descendant can leave the group with setsid(), and processes can appear
+    or vanish during the scan."""
+    found, complete = [], True
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return (), False
+    for name in names:
         if not name.isdigit() or int(name) == leader:
             continue
         try:
             if read_stat(int(name))[1] == pgid:
                 found.append(int(name))
-        except (FileNotFoundError, ProcessLookupError, ValueError):
-            continue
-    return tuple(sorted(found))
+        except (FileNotFoundError, ProcessLookupError):
+            continue                     # exited during the scan: normal
+        except (OSError, ValueError):
+            complete = False             # unreadable entry: scan incomplete
+    return tuple(sorted(found)), complete
