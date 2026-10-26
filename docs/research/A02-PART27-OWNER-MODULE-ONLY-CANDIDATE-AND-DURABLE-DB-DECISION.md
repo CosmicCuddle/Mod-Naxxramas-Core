@@ -51,7 +51,18 @@ Suggested abstract record fields (not DDL): player identity, current persistent 
 
 **Before any owner-private DDL or migration:** backups and recorded restore path; no writes against live DB; character_pet lifecycle and transaction audit; migration of v1 data must default untrusted; explicit delete/abandon/re-tame/restart/recovery tests; verify a new pet with the same name/number cannot inherit old choices; fail-closed after DB timeout/partial commit; operator-access and rollback. The new table must not compromise the existing eight map threads or block gameplay on synchronous DB calls.
 
-## 4. Status and explicit gates
+## 4. New peer-verified async ordering and temporary-resummon findings
+
+**Pinned public source, not owner's actual installation:**
+
+- The same `CharacterDatabase` pool has one FIFO work queue with a configurable count of independent asynchronous DB workers; **the default is one, the owner's effective count is UNKNOWN**. When more than one worker executes different dequeued operations, *completion* need not follow *dequeue* order. An independent [N-Core source-bound C++ fixture](https://github.com/CosmicCuddle/N-Core/actions/runs/40348692127) compiled the actual pinned `PCQueue.h` with two workers and demonstrated dequeue `1,2` followed by completion `2,1`. This does **not** demonstrate actual MySQL pet-transaction reordering or failure.
+- Module-specific database pools have their **own queue**, so a sidecar transaction enqueued there cannot be assumed ordered with the character-pet row commit, even if each pool individually has one worker. `AsyncCommitTransaction` confirms its **own** operation only. Pinned `Pet::SavePetToDB` uses **two fire-and-forget commits** without an atomic pet birth-bound module hook. Review details in [team research](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6419904431) and the [separate N-Core queue witness](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6419901648).
+- Therefore neither a sidecar callback, a `character_pet` presence read-back, single-worker FIFO by itself, nor returned `SavePetToDB` certifies permanent birth. **If canonical and sidecar birth state cannot be proven atomically or revalidated with adequate failure handling, the persisted row must remain Unverified/NoWrite.** Do not silently turn SQL durability into evidence of identity.
+- [CS03's #169 source review](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/169#issuecomment-6419605947) documents normal temporary unsummon/recreation during mounting, dismounting and far teleports. This can create many `Pet*` incarnations for one human choice. The existing #169 20-attempt budget is **per incarnation**, so repeated object changes could renew that limit. This is a demonstrated **source-model edge case**, not proof of real server toggle loops.
+- CS01's separate [DRAFT #172](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/172) explores an additional in-memory cumulative limit **per verified birth, chain and latest accepted revision**. Its exact-head [CI](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40365720621) passed **104/104 C++17** and **104/104 C++20** standalone assertions. The fixture deliberately loses its budget on process restart and supplies fictional trusted fields. No policy selection, real pet integration, persistent counter or owner permission follows from this pass.
+- Owner decision still required on *both* whether a cross-incarnation limit is wanted **and** whether that count must survive restart. Without independently trusted durable birth/revision, no restore may be authorised regardless of the number of green synthetic tests.
+
+## 5. Status and explicit gates
 
 | Gate | Direction or status | Work currently authorized |
 |---|---|---|
