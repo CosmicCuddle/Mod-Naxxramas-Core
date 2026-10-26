@@ -16,7 +16,7 @@ import time
 
 ALLOWED_MODES = frozenset({
     "normal", "forged_crash", "exit139", "bad_utf8", "oversize",
-    "flood", "byte_flood", "split", "info", "empty", "unterminated",
+    "flood", "byte_flood", "cut_line", "split", "info", "empty", "unterminated",
 })
 
 
@@ -151,6 +151,10 @@ def capture_disposable(mode: str, *, max_line_bytes: int = 256,
                         # Truncation is explicitly reported; it is NOT a
                         # health, service-crash or trusted-source verdict.
                         byte_limit_exceeded = True
+                        # The final buffered record has no observed LF: it is
+                        # incomplete even if its own line cap was not hit.
+                        if framer._started:
+                            framer._clipped = True
                         if child.poll() is None:
                             child.kill()  # only this disposable Python child
                         eof = True
@@ -189,6 +193,8 @@ def _fixture(mode: str) -> None:
     elif mode == "byte_flood":
         for _ in range(2000):
             os.write(2, b"ERROR " + b"x" * 1024 + b"\n")
+    elif mode == "cut_line":
+        os.write(2, b"ERROR " + b"x" * 5000 + b"\n")
     elif mode == "split":
         os.write(2, b"ERR")
         time.sleep(0.02)
