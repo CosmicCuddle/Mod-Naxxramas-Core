@@ -14,7 +14,7 @@
 | File | Purpose |
 |---|---|
 | `tools/f15/report_schema.py` | Pure builder, canonical form, strict parser and validator. Imports only `json`, `hashlib`, `re` and `__future__`. |
-| `tests/test_f15_report_schema.py` | 39 tests. Reports are built from real observations of the #170 fixture children. |
+| `tests/test_f15_report_schema.py` | 43 tests. Reports are built from real observations of the #170 fixture children; 4 more cover hostile input. |
 | `docs/research/F15-REPORT-SCHEMA-V1.md` | This document. |
 | `.github/workflows/f15-report-schema.yml` | Exact-head CI with scope guards. |
 
