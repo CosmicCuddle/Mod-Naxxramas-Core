@@ -23,7 +23,7 @@ This is **one optional source-design alternative**, not the owner's approval of 
 ## Adversarial C++17/C++20 offline tests
 
 The test supplies **fabricated** trustworthy birth and accepted-human fields to explore the conditional policy only. It asserts:
-- ten ephemeral incarnations of the same hypothetical birth, with two failed attempts each, accumulate 20 total; incarnation 11 is denied even though the old per-incarnation ledger alone would permit another attempt;
+- ten ephemeral incarnations of the same hypothetical birth, with two failed attempts each, accumulate 20 total; the fixture **changes its synthetic IP-allowed rank ID each time while keeping one stable spell-chain key**, so a rank switch cannot replenish the lifetime budget; incarnation 11 is denied even though the old per-incarnation ledger alone would permit another attempt;
 - independent Claw/Bite spell-chain allowances and newest accepted OFF vs stale ON;
 - recycled PetNumber with a changed certified birth never receives the old choice;
 - missing birth trust, missing genuine manual receipt and attached bot mode never permit writing;
