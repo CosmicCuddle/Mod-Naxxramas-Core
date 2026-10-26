@@ -22,7 +22,7 @@ Files: `tools/f15/r1r3_owned_child_producer.py` (stdlib only), `tests/test_f15_r
 | ANSI colour | **stripped, counted, never used** | CSI/ESC sequences are removed before parsing (`ansi_sequences_stripped`). Stock consoles are coloured and print the reset **after** the newline, so the next line starts with `\x1b[0m`. A line empty after stripping is counted in `lines_blank`. |
 | stdout timing and completeness | **NOT claimed** | stdio block-buffers a pipe (the pinned core never calls `setvbuf`), so stdout lines can arrive late. `stdout_tail_lost_on_crash_possible` is set on any signal death (tested: a buffered tail is lost while stderr is kept). `cross_stream_order="unknown"`. |
 | Role | **declared, descriptive only** | `role ∈ {worldserver, authserver}` is required and recorded on the observation and both streams. It is not authentication of the executable. |
-| stdin | **fixture setting only** | `stdin_mode="devnull"` or `"held_open"` (an owned pipe never written, closed only after the child is collected, including after a hand-off). A worldserver with `Console.Enable=1` calls `World::StopNow(0)` on stdin EOF (`CliRunnable.cpp` L236–238). A fake console fixture shows both behaviours. The real stdin destination is an R0/owner decision. |
+| stdin | **fixture setting only** | `stdin_mode="devnull"` or `"held_open"` (an owned pipe never written, closed only after the child is collected, including after a hand-off). A worldserver with `Console.Enable=1` calls `World::StopNow(0)` on stdin EOF (`CliRunnable.cpp` L236–238). A fake console fixture shows both behaviours. **`held_open` is NOT a proven safe operational mode** (see Limits). The real stdin destination is an R0/owner decision. |
 | No stall under a flood | **VERIFIED for a 48 MiB flood** | One nonblocking select loop drains the pipe whether or not the child has exited. Past the retention budget, bytes are dropped and counted. The child's own write time stays under 10 s. |
 | Byte accounting | **VERIFIED** | `bytes_drained == bytes_retained + bytes_framing + bytes_dropped`, all non-negative. Lost *lines* are not claimed exactly: `lines_unclassified` counts lines with no kept bytes, and partial framing is flagged. |
 | Descendants holding the pipe | **SOURCE_INCOMPLETE, never killed** | After the child exits, a single-shot grace deadline waits for EOF. On expiry, `deadline_hit` and `source_incomplete` are set and only our own read end is closed. |
@@ -87,6 +87,12 @@ Thirty-three must-fail mutants are each caught (21 earlier, 12 dual-stream):
 33. blank lines recorded.
 
 ## Limits
+
+- **`held_open` stdin vs the real worldserver shutdown (CS01 #170 review, pinned `8daffda`).** On Linux `ShutdownCLIThread` does no I/O cancellation and calls `cliThread->join()` unconditionally (`src/server/apps/worldserver/Main.cpp` L523–581, join at L578). The CLI thread sits in a blocking `readline()` (`CommandLine/CliRunnable.cpp` L205). It leaves only through `rl_event_hook = cli_hook_func` (L127), which sets `rl_done` once `World::IsStopped()` (L68–70), or through EOF.
+  - With a held-open, never-written stdin pipe there is no EOF. Whether GNU Readline calls the event hook while waiting on a **non-TTY pipe** is **unproven**, so a normal `World::StopNow`/exit could hang in that `join()`.
+  - The `fake_cli` fixture models only "EOF stops the console" vs "no EOF". It does not exercise GNU Readline or the real join.
+  - Alternatives, **none selected or edited here**, all needing owner R0 facts and approval: `Console.Enable=0` in the owner's config (no CLI thread); a real PTY for stdin; or the owner launcher's actual stdin semantics (systemd, tmux/screen, script).
+- **Declared prefix:** `prefix_loglevel` is declared by the caller and is not self-authenticating. For the stock flags `0` it must stay `False`, so severity stays `unknown`.
 
 - **Console capture only.** Stock AzerothCore also routes output to files (`Server.log`, `Auth.log`, `Errors.log`) and possibly the journal. A pipe sees none of that, and those adapters need R0 facts.
 - **Redaction:** only ANSI and control characters are removed. That is not production privacy redaction.
