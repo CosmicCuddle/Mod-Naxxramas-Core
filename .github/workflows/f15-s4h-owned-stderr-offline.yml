@@ -34,11 +34,11 @@ jobs:
           test -f tools/f15/offline_owned_stderr_s4h.py
           test -f tests/test_f15_offline_owned_stderr_s4h.py
           ! grep -Eq '^[[:space:]]*-[[:space:]]*uses:[[:space:]]*actions/upload-artifact@' .github/workflows/f15-s4h-owned-stderr-offline.yml
-      - name: Fourteen owned Python child + bounded stderr tests; never launch services
+      - name: Fifteen owned Python child + bounded stderr tests; never launch services
         run: |
           set -euo pipefail
           PYTHONDONTWRITEBYTECODE=1 python3 -I -B tests/test_f15_offline_owned_stderr_s4h.py -v 2>&1 | tee /tmp/f15_s4h_test.log
-          grep -Eq '^Ran 14 tests in [0-9.]+s$' /tmp/f15_s4h_test.log
+          grep -Eq '^Ran 15 tests in [0-9.]+s$' /tmp/f15_s4h_test.log
           grep -qx 'OK' /tmp/f15_s4h_test.log
           ! grep -Eq '^FAILED|^ERROR:|^OK \(skipped|^Ran [^1]|skipped=' /tmp/f15_s4h_test.log
       - name: Declare nonproduction evidence limits
