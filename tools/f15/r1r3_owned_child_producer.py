@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """F15 R1/R3 producer prototype, launch mode A only: a supervisor that starts
-a process itself and owns its stderr pipe. Linux only, Python standard library.
+a process itself and owns its stdout AND stderr pipes. Linux only, Python
+standard library.
 
 DRAFT, UNSELECTED and OFF. It must only ever observe disposable children that
 its own tests spawn. It is not an owner launcher, is not installed, and must
-not be run against a real Worldserver/Authserver (CS01 #143 6415818621).
+not be run against a real Worldserver/Authserver (CS01 #143 6415818621,
+#167 6418335424).
 
 What it establishes from the kernel rather than from text:
   R1  Which process incarnation ended, and how. Identity is
@@ -15,29 +17,43 @@ What it establishes from the kernel rather than from text:
       waitid(P_PIDFD, WEXITED): CLD_EXITED, CLD_KILLED and CLD_DUMPED stay
       distinct. Exit 139, printed "SIGSEGV" or a wrapper's 0 never becomes a
       signal death.
-  R3  WARN/ERROR lines from the stderr pipe this producer created, bound to
-      the same incarnation by the producer (never by the child's text). The
-      pipe is ALWAYS drained in one nonblocking select loop: past the
-      retention budget, bytes are dropped and counted. Stopping reads would
-      fill the pipe and block the child's write(2).
+  R3  Lines from the stdout and stderr pipes this producer created, each
+      tagged with its stream and bound to the same incarnation by the
+      producer (never by the child's text). Both pipes are ALWAYS drained in
+      one nonblocking select loop, with bounded reads per stream per turn and
+      separate retention budgets; past a budget, bytes are dropped and
+      counted. Stopping reads would fill a pipe and block the child.
 
-Lifecycle (CS01 #167 review): if anything fails after spawn, or the child is
+Severity (CS01 decision, #167 6418335424): `severity` is "unknown" unless the
+caller DECLARES `prefix_loglevel=True` (an owner R0 fact that the console
+appender has flag 0x02), in which case only a level token at the exact line
+start (after ANSI removal and an optionally declared timestamp) is decoded.
+The stream of origin is provenance plus a non-authoritative `severity_hint`
+from the pinned AzerothCore console route (ERROR/FATAL -> stderr, the rest ->
+stdout, AppenderConsole.cpp@8daffda L174); a hint never makes a severity.
+Message text such as "ERROR" elsewhere in a line is never a severity.
+
+Not claimed: the relative order of stdout vs stderr lines; real-time stdout
+(stdio block-buffers a pipe); that stdout is complete after a signal death
+(its buffered tail is lost). `role` is caller-declared and descriptive only.
+
+Lifecycle (CS01 #167 reviews): if anything fails after spawn, or the child is
 still running at the observation deadline, no attested event is produced and
-the child is HANDED OFF to a reaper thread that keeps draining (counting) its
-stderr and collects its exit, so neither the child nor our descriptors leak
-and the child never blocks on a full or closed pipe. Reads are bounded per
-event-loop turn so a busy writer cannot starve exit/deadline handling. The
-/proc group scan is best effort and can never fail an observation.
+the child is HANDED OFF to a reaper thread that keeps draining (counting)
+both pipes and collects its exit, so neither the child nor our descriptors
+leak and the child never blocks on a full or closed pipe. With
+`stdin_mode="held_open"` the producer holds an stdin pipe it never writes to,
+closing it only after the child is collected (a console that stops on stdin
+EOF keeps running). The /proc group scan is best effort.
 
 It sends NO signals at all. A "planned stop" can only be a plan declared to
-the producer before start by the test harness that will deliver it; any other
-terminating signal is unplanned. Process-group membership is reported from a
-read-only /proc scan, which can never prove that no descendant remains.
+the producer before start by the test harness that will deliver it.
 Restart (R2), report writing (R4), journal/file/GDB modes: out of scope.
 """
 from __future__ import annotations
 
 import os
+import re
 import selectors
 import signal
 import subprocess
@@ -46,10 +62,20 @@ import time
 from dataclasses import dataclass, field
 
 ATTEST_EXIT = "owned-child-waitid"
-ATTEST_STREAM = "owned-stderr-pipe"
+ATTEST_STREAMS = {"stdout": "owned-stdout-pipe", "stderr": "owned-stderr-pipe"}
+ATTEST_STREAM = ATTEST_STREAMS["stderr"]
 FATAL_SIGNALS = frozenset({signal.SIGSEGV, signal.SIGABRT, signal.SIGBUS,
                            signal.SIGFPE, signal.SIGILL, signal.SIGSYS})
-_PREFIXES = (("ERROR ", "ERROR"), ("WARN ", "WARN"), ("WARNING ", "WARN"))
+ROLES = frozenset({"worldserver", "authserver"})
+STDIN_MODES = frozenset({"devnull", "held_open"})
+HINT_SOURCE = "pinned_console_route"   # AppenderConsole.cpp@8daffda L174
+HINTS = {"stderr": "error_or_fatal_candidate", "stdout": "below_error_candidate"}
+LEVELS = ("FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE")
+REPORTED_LEVELS = frozenset({"FATAL", "ERROR", "WARN"})
+# Appender::write prefix order: timestamp ("%Y-%m-%d %X"), then level.
+_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} ")
+# CSI sequences (colours etc.) and two-byte ESC sequences.
+_ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-Z\\-_]")
 
 
 class Unsupported(RuntimeError):
@@ -103,25 +129,34 @@ class ExitFact:
 
 @dataclass(frozen=True)
 class Record:
-    severity: str
+    severity: str             # decoded level, or "unknown"
     message: str
     line: int
     truncated: bool
+    stream: str = "stderr"
+    severity_source: str = "none"          # "declared_prefix" | "none"
+    severity_hint: str = ""                # never authoritative
+    hint_source: str = HINT_SOURCE
 
 
 @dataclass
 class StreamFact:
     incarnation: Incarnation
     attestation: str = ATTEST_STREAM
+    stream: str = "stderr"
+    role: str = ""
     eof: bool = False
     deadline_hit: bool = False      # EOF grace expired: SOURCE_INCOMPLETE
     bytes_drained: int = 0          # every byte read from the pipe
     bytes_retained: int = 0         # bytes that entered the bounded buffers
     bytes_framing: int = 0          # newline delimiters consumed
     bytes_dropped: int = 0          # drained - retained - framing
+    ansi_sequences_stripped: int = 0
     lines_terminated: int = 0       # complete lines (newline seen)
     final_partial_line: bool = False
     lines_unclassified: int = 0     # severity unreadable: budget exhausted
+    lines_below_warn: int = 0       # declared-prefix INFO/DEBUG/TRACE lines
+    lines_blank: int = 0            # empty after ANSI/control sanitising
     records_dropped: int = 0
     records: list[Record] = field(default_factory=list)
 
@@ -133,18 +168,28 @@ class StreamFact:
 @dataclass(frozen=True)
 class Observation:
     exit: ExitFact
-    stream: StreamFact
+    stream: StreamFact                     # stderr (kept name)
     group_members_seen_after_exit: tuple[int, ...]   # /proc scan; not proof
     group_scan_complete: bool                         # False: scan unreliable
+    stdout: StreamFact | None = None
+    role: str = ""
+    cross_stream_order: str = "unknown"    # two pipes: no relative order
+    stdout_may_be_block_buffered: bool = True
+    stdout_tail_lost_on_crash_possible: bool = False
+
+    @property
+    def stderr(self) -> StreamFact:
+        return self.stream
 
 
 class _Framer:
     """Bounded line framing on whole chunks; never asks to stop reading."""
 
     def __init__(self, fact: StreamFact, max_line: int, max_records: int,
-                 retain_bytes: int):
+                 retain_bytes: int, prefix_loglevel: bool, prefix_timestamp: bool):
         self.fact, self.max_line = fact, max_line
         self.max_records, self.retain_left = max_records, retain_bytes
+        self.prefix_loglevel, self.prefix_timestamp = prefix_loglevel, prefix_timestamp
         self.pending, self.truncated, self.started = bytearray(), False, False
 
     def feed(self, data: bytes) -> None:
@@ -182,8 +227,23 @@ class _Framer:
             self.fact.final_partial_line = True
             self._line()
 
+    def _classify(self, text: str) -> tuple[str, str, str]:
+        """(severity, severity_source, message). Positional, declared only."""
+        if not self.prefix_loglevel:
+            return "unknown", "none", text
+        rest = text
+        if self.prefix_timestamp:
+            m = _TIMESTAMP.match(rest)
+            if not m:
+                return "unknown", "none", text
+            rest = rest[m.end():]
+        for level in LEVELS:
+            if rest.startswith(level + " "):
+                return level, "declared_prefix", rest[len(level) + 1:]
+        return "unknown", "none", text
+
     def _line(self) -> None:
-        text = self.pending.decode("utf-8", "replace").rstrip("\r")
+        raw = self.pending.decode("utf-8", "replace").rstrip("\r")
         truncated, empty = self.truncated, not self.pending
         number = self.fact.lines_terminated + (1 if self.fact.final_partial_line else 0)
         self.pending.clear()
@@ -192,15 +252,24 @@ class _Framer:
             # Budget exhausted before any byte was kept: severity unknown.
             self.fact.lines_unclassified += 1
             return
-        for prefix, severity in _PREFIXES:
-            if text.startswith(prefix):
-                body = "".join(c if c.isprintable() else "?"
-                               for c in text[len(prefix):])
-                if len(self.fact.records) < self.max_records:
-                    self.fact.records.append(Record(severity, body, number, truncated))
-                else:
-                    self.fact.records_dropped += 1
-                return
+        text, stripped = _ANSI.subn("", raw)
+        self.fact.ansi_sequences_stripped += stripped
+        text = "".join(c if c.isprintable() else "?" for c in text)
+        if not text:
+            # e.g. the colour reset a coloured console prints AFTER the last
+            # newline: nothing to report, counted, never an empty record.
+            self.fact.lines_blank += 1
+            return
+        severity, source, message = self._classify(text)
+        if severity in LEVELS and severity not in REPORTED_LEVELS:
+            self.fact.lines_below_warn += 1
+            return
+        if len(self.fact.records) >= self.max_records:
+            self.fact.records_dropped += 1
+            return
+        self.fact.records.append(Record(
+            severity, message, number, truncated, self.fact.stream, source,
+            HINTS[self.fact.stream], HINT_SOURCE))
 
 
 class StartFailed(RuntimeError):
@@ -230,8 +299,8 @@ class ObservationFailed(RuntimeError):
         self.handoff = handoff
 
 
-# Bounded work per event-loop turn, so a writer that never pauses cannot
-# starve the exit (pidfd) and deadline checks.
+# Bounded work per stream per event-loop turn, so a writer that never pauses
+# cannot starve the other stream, the exit (pidfd) or the deadline checks.
 _MAX_READS_PER_TURN = 16
 _READ_SIZE = 65536
 
@@ -255,40 +324,46 @@ def _drain_some(fd: int, sink) -> bool:
 
 class _Reaper(threading.Thread):
     """Takes over a direct child we can no longer observe for an attested
-    event. Keeps draining (and only counting) its stderr so it never blocks on
-    a full pipe, collects its exit so no zombie remains, then releases our
-    descriptors. It sends no signals and waits only as long as the child
-    lives (bounded by the child, never by killing it). After the child exits,
-    the same single-shot EOF grace applies before our read end is closed.
-    Its results are diagnostics, NOT attested R1/R3 events."""
+    event. Keeps draining (and only counting) BOTH output pipes so the child
+    never blocks, collects its exit so no zombie remains, closes a held stdin
+    only after collection, then releases our descriptors. It sends no
+    signals and waits only as long as the child lives. Its results are
+    diagnostics, NOT attested R1/R3 events. It is a daemon thread: it ends if
+    the observer process exits, so it is no 24/7 service guarantee."""
 
     def __init__(self, proc: subprocess.Popen, pidfd: int | None, grace: float):
         super().__init__(name=f"f15-reaper-{proc.pid}", daemon=True)
         self._proc, self._pidfd, self._grace = proc, pidfd, grace
         self.bytes_discarded = 0
+        self.discarded_by_stream = {"stdout": 0, "stderr": 0}
         self.raw_exit: tuple[str, int] | None = None   # ("exited"|"signal", n)
         self.eof = False
         self.finished = threading.Event()
 
+    def _outputs(self):
+        return [(name, f) for name, f in (("stdout", self._proc.stdout),
+                                          ("stderr", self._proc.stderr))
+                if f is not None and not f.closed]
+
     def run(self) -> None:
-        out = self._proc.stderr
         sel = selectors.DefaultSelector()
+        open_streams = 0
         try:
-            if out is not None and not out.closed:
-                os.set_blocking(out.fileno(), False)
-                sel.register(out.fileno(), selectors.EVENT_READ, "stream")
-            else:
-                self.eof = True
+            for name, f in self._outputs():
+                os.set_blocking(f.fileno(), False)
+                sel.register(f.fileno(), selectors.EVENT_READ, name)
+                open_streams += 1
             if self._pidfd is not None:
                 sel.register(self._pidfd, selectors.EVENT_READ, "exit")
             eof_deadline = None
-            while not (self.raw_exit and self.eof):
+            while not (self.raw_exit and open_streams == 0):
                 if eof_deadline is not None and time.monotonic() >= eof_deadline:
                     break
                 for key, _ in sel.select(0.2):
-                    if key.data == "stream":
-                        if _drain_some(key.fd, self._count):
-                            self.eof = True
+                    if key.data in ("stdout", "stderr"):
+                        name = key.data
+                        if _drain_some(key.fd, lambda d, n=name: self._count(n, d)):
+                            open_streams -= 1
                             sel.unregister(key.fd)
                     elif self.raw_exit is None:
                         self._collect()
@@ -297,17 +372,21 @@ class _Reaper(threading.Thread):
                     self._collect(poll=True)
                 if self.raw_exit is not None and eof_deadline is None:
                     eof_deadline = time.monotonic() + self._grace
+            self.eof = open_streams == 0
         finally:
             sel.close()
-            if out is not None and not out.closed:
-                out.close()
+            for _, f in self._outputs():
+                f.close()
+            if self._proc.stdin is not None and not self._proc.stdin.closed:
+                self._proc.stdin.close()     # only after collection (or our end)
             if self._pidfd is not None:
                 os.close(self._pidfd)
                 self._pidfd = None
             self.finished.set()
 
-    def _count(self, data: bytes) -> None:
+    def _count(self, name: str, data: bytes) -> None:
         self.bytes_discarded += len(data)
+        self.discarded_by_stream[name] += len(data)
 
     def _collect(self, poll: bool = False) -> None:
         if poll:
@@ -328,17 +407,28 @@ class OwnedChildProducer:
     """Spawn one disposable child and observe it. Single use. Sends no signals."""
 
     def __init__(self, argv: list[str], *, allowed_executables: frozenset[str],
-                 planned_signal: int | None = None,
+                 role: str | None = None, planned_signal: int | None = None,
+                 stdin_mode: str = "devnull",
+                 prefix_loglevel: bool = False, prefix_timestamp: bool = False,
                  max_line_bytes: int = 512, max_records: int = 64,
                  retain_bytes: int = 256 * 1024, eof_grace_seconds: float = 2.0):
         require_capabilities()
         if not argv or os.path.realpath(argv[0]) not in allowed_executables:
             raise ValueError("executable is not in the reviewed allowlist")
+        if role not in ROLES:
+            raise ValueError("role must be declared: worldserver or authserver")
+        if stdin_mode not in STDIN_MODES:
+            raise ValueError("stdin_mode must be devnull or held_open")
+        if prefix_timestamp and not prefix_loglevel:
+            raise ValueError("a timestamp prefix is only parsed in declared prefix mode")
         if not (1 <= max_line_bytes <= 8192 and 1 <= max_records <= 4096
                 and 4096 <= retain_bytes <= 16 * 1024 * 1024
                 and 0.1 <= eof_grace_seconds <= 60.0):
             raise ValueError("bounds out of range")
         self._argv = list(argv)
+        self._role = role
+        self._stdin_mode = stdin_mode
+        self._prefix = (prefix_loglevel, prefix_timestamp)
         self._limits = (max_line_bytes, max_records, retain_bytes)
         self._grace = eof_grace_seconds
         # Declared by the harness BEFORE start; the producer never delivers it.
@@ -367,8 +457,9 @@ class OwnedChildProducer:
         if self._proc is not None:
             raise RuntimeError("single use")
         boot = read_boot_id()
+        stdin = subprocess.PIPE if self._stdin_mode == "held_open" else subprocess.DEVNULL
         self._proc = subprocess.Popen(
-            self._argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            self._argv, stdin=stdin, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, close_fds=True, start_new_session=True)
         pid = self._proc.pid
         try:
@@ -403,13 +494,16 @@ class OwnedChildProducer:
         except FileNotFoundError:
             return False
 
+    def _new_stream(self, name: str) -> tuple[StreamFact, _Framer]:
+        fact = StreamFact(self.incarnation, ATTEST_STREAMS[name], name, self._role)
+        return fact, _Framer(fact, *self._limits, *self._prefix)
+
     def observe(self, deadline_seconds: float = 30.0) -> Observation:
         if self._proc is None or self._done:
             raise RuntimeError("not started or already observed")
         self._done = True
-        fact = StreamFact(self.incarnation)
-        framer = _Framer(fact, *self._limits)
-        out = self._proc.stderr.fileno()
+        streams = {name: self._new_stream(name) for name in ("stdout", "stderr")}
+        pipes = {"stdout": self._proc.stdout, "stderr": self._proc.stderr}
         sel = selectors.DefaultSelector()
         exit_fact = None
         hard_deadline = time.monotonic() + deadline_seconds
@@ -417,49 +511,54 @@ class OwnedChildProducer:
         handed_off = False
         failure: BaseException | None = None
         try:
-            os.set_blocking(out, False)
-            sel.register(out, selectors.EVENT_READ, "stream")
+            for name, pipe in pipes.items():
+                os.set_blocking(pipe.fileno(), False)
+                sel.register(pipe.fileno(), selectors.EVENT_READ, name)
             sel.register(self._pidfd, selectors.EVENT_READ, "exit")
-            # One nonblocking loop with bounded reads per turn: the pipe keeps
-            # draining whether or not the child has exited, and a busy writer
-            # cannot starve the exit/deadline checks. Exit and EOF are separate
-            # facts; two single-shot deadlines bound the wait.
-            while not (exit_fact is not None and fact.eof):
+            # One nonblocking loop with bounded reads per stream per turn:
+            # both pipes keep draining whether or not the child has exited,
+            # neither can starve the other or the exit/deadline checks.
+            while not (exit_fact is not None
+                       and all(fact.eof for fact, _ in streams.values())):
                 now = time.monotonic()
                 if exit_fact is None and now >= hard_deadline:
                     handed_off = True
                     break
                 if eof_deadline is not None and now >= eof_deadline:
-                    fact.deadline_hit = True     # no signal is ever sent
+                    for fact, _ in streams.values():
+                        if not fact.eof:
+                            fact.deadline_hit = True   # no signal is ever sent
                     break
                 limit = eof_deadline if exit_fact else hard_deadline
                 for key, _ in sel.select(max(0.0, min(0.2, limit - now))):
-                    if key.data == "stream":
-                        if _drain_some(out, framer.feed):
+                    if key.data in streams:
+                        fact, framer = streams[key.data]
+                        if _drain_some(key.fd, framer.feed):
                             fact.eof = True
-                            sel.unregister(out)
+                            sel.unregister(key.fd)
                     elif exit_fact is None:
                         exit_fact = self._reap()
                         sel.unregister(self._pidfd)
                         eof_deadline = time.monotonic() + self._grace
-            framer.finish()
+            for _, framer in streams.values():
+                framer.finish()
         except Exception as exc:
             if exit_fact is not None:
                 raise                    # child already collected: nothing owned
-            # Unexpected failure while the child may still be running (read
-            # error, selector or waitid failure): never abandon it. Same
-            # handoff as the deadline path; no event and no signal.
+            # Unexpected failure while the child may still be running: never
+            # abandon it. Same handoff as the deadline path; no event, no signal.
             handed_off, failure = True, exc
         finally:
             sel.close()
             if not handed_off:
-                self._proc.stderr.close()   # closes ONLY our own read end
-                # Forget the number too: a closed fd number can be reused.
+                # The child is collected: close ONLY our own ends.
+                for pipe in pipes.values():
+                    pipe.close()
+                if self._proc.stdin is not None:
+                    self._proc.stdin.close()
                 pidfd, self._pidfd = self._pidfd, None
                 os.close(pidfd)
         if handed_off:
-            # The child is (or may be) still running: keep its pipe drained
-            # and collect it later, without an attested event or a signal.
             self._done = False
             if failure is not None:
                 raise ObservationFailed(f"observation failed before exit: {failure}",
@@ -469,7 +568,10 @@ class OwnedChildProducer:
         if exit_fact is None:
             raise RuntimeError("stream ended but exit not observed")
         members, complete = _scan_group(self.incarnation.pgid, self.incarnation.pid)
-        return Observation(exit_fact, fact, members, complete)
+        return Observation(
+            exit_fact, streams["stderr"][0], members, complete,
+            stdout=streams["stdout"][0], role=self._role,
+            stdout_tail_lost_on_crash_possible=exit_fact.kind in ("killed", "dumped"))
 
     def _reap(self) -> ExitFact:
         info = os.waitid(os.P_PIDFD, self._pidfd, os.WEXITED)
