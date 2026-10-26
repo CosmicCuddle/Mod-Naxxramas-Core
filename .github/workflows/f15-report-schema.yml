@@ -33,7 +33,7 @@ jobs:
           persist-credentials: false
       - name: Confirm exact head
         run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
-      - name: Child of exact #170; only the four schema paths differ
+      - name: "Child of exact #170; only the four schema paths differ"
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$CONTRACT_162" HEAD
@@ -54,7 +54,7 @@ jobs:
           grep -Eq '^Ran 39 tests in [0-9.]+s$' /tmp/schema.txt
           grep -qx 'OK' /tmp/schema.txt
           ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/schema.txt
-      - name: Unchanged #170 producer still passes its own 51 tests
+      - name: "Unchanged #170 producer still passes its own 51 tests"
         run: |
           set -euo pipefail
           python3 -I -B -W error tests/test_f15_r1r3_owned_child_producer.py 2>&1 | tee /tmp/r1r3.txt
