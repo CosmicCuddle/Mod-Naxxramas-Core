@@ -57,6 +57,16 @@ class OwnedPipeFixture(unittest.TestCase):
         self.assertLessEqual(x.bytes_read, 4096 + 4096)
         self.assertFalse(hasattr(x, "crash_verified"))
 
+    def test_line_cut_at_stream_budget_is_marked_incomplete(self):
+        x = capture_disposable("cut_line", max_line_bytes=4096,
+                               max_total_bytes=4096)
+        self.assertTrue(x.byte_limit_exceeded)
+        self.assertEqual(len(x.records), 1)
+        self.assertTrue(x.records[0].truncated)
+        self.assertEqual(x.clipped_lines, 1)
+        self.assertEqual(x.records[0].severity, "ERROR")
+        self.assertLessEqual(len(x.records[0].message), 4096)
+
     def test_invalid_byte_budget_refuses_to_spawn(self):
         with patch("offline_owned_stderr_s4h.subprocess.Popen") as popen:
             with self.assertRaises(ValueError):
