@@ -17,7 +17,7 @@ Review at [#166 comment 6417980798](https://github.com/CosmicCuddle/Mod-Naxxrama
 
 - Alternate two spell chains, two attempts on each of ten independent book revisions (40 total valid attempts, capped 20 **per chain**); assert both chains deny attempt 21 even after alternating.
 - Two-attempt same-book cap independent per chain; an accepted newer OFF after an exhausted ON receives its own budget, and does not clear another chain's exhausted attempts.
-- New *verified* summon has a fresh budget.
+- New *verified* summon has a fresh budget. **Regression added after CS03 review:** fill all 32 slots on summon A, then switch to summon B with a new generation/token and attempt an entirely new chain; it must both return `ApplyOn` AND record successfully, the old occupied slots must be cleared and an old chain must be independently introducible. This catches removal of the `ledger = AttemptLedger{}` reset, which the earlier test suite did not.
 - Fill all 32 entries and assert unknown 33rd chain `NoWrite`, with no eviction of existing chain counters.
 - Preserve the inherited **76 assertions** and run strict standalone C++17 + C++20. Results must be independently verified from hosted exact-head CI before citing them.
 
