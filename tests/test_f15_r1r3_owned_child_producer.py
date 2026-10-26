@@ -144,6 +144,9 @@ class Identity(unittest.TestCase):
                 p.start()
         p._proc.wait()                             # test cleanup only
         self.assertIsNone(p._pidfd)
+        self.assertTrue(p._proc.stderr.closed)     # our pipe end released
+        with self.assertRaises(RuntimeError):
+            p.observe()                            # refused producer is spent
 
     def test_child_text_cannot_change_the_incarnation(self):
         _, inc, obs = run("spoof_identity")
@@ -179,6 +182,10 @@ class StreamSafety(unittest.TestCase):
         helper = int(re.search(r"helper (\d+)", obs.stream.records[0].message).group(1))
         self.assertIn(helper, obs.group_members_seen_after_exit)
         self.assertTrue(obs.stream.eof)
+        try:
+            os.kill(helper, signal.SIGKILL)         # test cleanup only
+        except ProcessLookupError:
+            pass
 
     def test_flood_is_drained_and_every_byte_accounted(self):
         mib = 48

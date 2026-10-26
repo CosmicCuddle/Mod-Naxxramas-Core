@@ -236,8 +236,11 @@ class OwnedChildProducer:
         self._pidfd = os.pidfd_open(pid)
         ppid, pgrp, start = read_stat(pid)
         if ppid != os.getpid() or read_boot_id() != boot:
+            # Release only what we own; the process itself is not signalled.
             os.close(self._pidfd)
             self._pidfd = None
+            self._proc.stderr.close()
+            self._done = True
             raise RuntimeError("pinned process is not our own child")
         self._incarnation = Incarnation(boot, pid, start, ppid, pgrp)
         return self._incarnation
