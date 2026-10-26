@@ -175,6 +175,42 @@ int main()
     c.EnabledNow = false;
     Check(Decide(latest, c, budget) == Verdict::AlreadyCorrect, "successful OFF is idempotent");
 
+    // If IP toggles/relearns repeatedly, every book revision must not
+    // create unlimited retries. Cap at 2 per revision AND 20 per summon/choice.
+    {
+        auto oscillating = Current();
+        auto accepted = Manual();
+        AttemptBudget cap;
+        for (uint64_t rev = 1; rev <= 10; ++rev)
+        {
+            oscillating.BookRevision = rev;
+            for (unsigned j = 0; j < 2; ++j)
+            {
+                Check(Decide(accepted, oscillating, cap) == Verdict::ApplyOn,
+                    "attempt within bounded IP loop");
+                RecordAttempt(cap, accepted, oscillating);
+            }
+            Check(Decide(accepted, oscillating, cap) == Verdict::NoWrite,
+                "same book revision never gets third attempt");
+        }
+        oscillating.BookRevision = 11;
+        Check(cap.TotalAttempts == 20 && Decide(accepted, oscillating, cap) == Verdict::NoWrite,
+            "global per-summon choice ceiling survives new IP rank revision");
+        accepted.Revision++;
+        accepted.Enable = false;
+        oscillating.LatestAcceptedRevision++;
+        oscillating.EnabledNow = true;
+        Check(Decide(accepted, oscillating, cap) == Verdict::ApplyOff,
+            "newer human OFF has independent budget after prior ON saturation");
+        RecordAttempt(cap, accepted, oscillating);
+        Check(cap.TotalAttempts == 1, "newer accepted manual revision resets total");
+        auto resummoned = oscillating;
+        resummoned.Pet.SummonGeneration++;
+        resummoned.Pet.ServerToken[5] = 0xAA;
+        Check(Decide(accepted, resummoned, cap) == Verdict::ApplyOff,
+            "new certified incarnation has a separate bounded budget");
+    }
+
     // Never infer real-human proof from a typed boolean on the wire:
     // Owner and TrustedManualReceipt are out-of-band *unresolved* production inputs.
     std::cout << "A02 source-only intent fence: " << checked - failed
