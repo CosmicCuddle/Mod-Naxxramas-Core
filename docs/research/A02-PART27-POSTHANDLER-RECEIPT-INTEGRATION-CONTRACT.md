@@ -1,6 +1,6 @@
-# A02 Part 27 — native post-handler accepted-command integration contract (SOURCE DESIGN ONLY)
+# A02 Part 27 — native post-handler acceptance technical comparison (SOURCE DESIGN ONLY)
 
-**State:** DRAFT REVIEW, **NOT IMPLEMENTED IN CORE OR MODULE**. Owner has not approved a core hook, pet-birth persistence, IP edits, any live changes, or use of the feature. The actual legacy-v1 writer quarantine in #165 remains mandatory, and both A02 flags stay OFF. The purpose here is an implementable, source-anchored decision contract for owner review — not a simulated acceptance receipt.
+**State:** DRAFT SOURCE COMPARISON, **NOT IMPLEMENTED IN CORE OR MODULE**. **UPDATE 26 OCT:** owner directions relayed via CS02 favour module-only pre-handler candidate + later map update and a new restart-persistent DB table, **not** a core hook. These are directions, not code/SQL/merge/deployment approvals; see [the superseding selected-path decision record](A02-PART27-OWNER-MODULE-ONLY-CANDIDATE-AND-DURABLE-DB-DECISION.md). This document remains useful to show what causal evidence the selected module-only route lacks. No pet-birth persistence, IP edits, live changes or feature use authorized. The actual legacy-v1 writer quarantine in #165 remains mandatory, and both A02 flags stay OFF. The purpose here is an implementable, source-anchored decision contract for owner review — not a simulated acceptance receipt.
 
 ## Exact review inputs
 
@@ -10,7 +10,7 @@
 - [PetScript.h](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/src/server/game/Scripting/ScriptDefines/PetScript.h), and [WorldSession.cpp:459–465](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/src/server/game/Server/WorldSession.cpp#L459-L465). Pinned scripts have **no** post-accepted pet autocast event; CanPacketReceive runs **before** the native handler.
 - #164 @ `b480dff` has source and full Worldserver link CI success; #165 @ `0bec377` has actual production fail-closed guard; #166 @ `9f0af14` has only an unwired synthetic model with hypothetical trusted input. **Do not wire its fake booleans to native pre-handler packets.**
 
-## What an owner-approved minimal CORE change would need to establish
+## Technical comparison only — what a post-handler native event would have established (NOT owner-selected)
 
 This section is a **proposed contract, not a patch**. It would require a narrow new optional scripting event, registered/compiled against the exact pinned core, with a deliberate zero-subscriber fast path. An event is a **server-accepted client-command state transition**, not cryptographic proof of a physical human click or that the session currently lacks SelfBot automation.
 
@@ -42,7 +42,7 @@ Use value-only records: `owner GUID`, `actual pet GUID`, `PetNumber` **as a hint
 
 - **CS03 #168 (6418151816): ACCEPT** — pre-actionbar disagreement is diagnostic, not an automatic rejection, while the two core spell stores must agree before and after. Pinned `Pet.cpp:2247–2291` and `CharmInfo.cpp:291–300` confirm the different mutation paths. A valid post-handler bar state remains necessary if a matching entry exists.
 - **CS03: ACCEPT** — pinned Playerbots direct pet togglers don't send the native client opcode, but a human client attached to SelfBot can still send it. The post-handler event alone cannot certify human mode; C3 positive race-safe status is mandatory.
-- **CS02 #168 (6417981592): REJECT as an authoritative receipt** the module-only mirror of pre-handler validation followed by an after-state observation. It can be diagnostic-only: other IP/AI/script writers in between can produce matching state even if the client's command was rejected. It must never set `TrustedManualReceipt` or authorize #165 writes. True C1 handler-local post-validation is preferred and requires owner approval.
+- **CS02 #168 (6417981592): REJECT as an authoritative receipt** the module-only mirror of pre-handler validation followed by an after-state observation. It can be diagnostic-only: other IP/AI/script writers in between can produce matching state even if the client's command was rejected. It must never set `TrustedManualReceipt` or authorize #165 writes. As of the CS02-relayed owner C1 direction, **module-only is selected for design**; this negative proof limitation still holds and does not authorize promotion to `TrustedManualReceipt`. The native seam remains comparison only.
 - **CS02 #166 (6417980798): ACCEPT** that a reused single mutable `AttemptBudget` across chains can repeatedly reset the 20 cap, and latest accepted revision must be scoped to `(owner, verified pet birth, spell chain)` even when a per-owner counter issues globally monotonic revisions. Model-only correction required before wiring.
 - **CS02 PetNumber finding: QUALIFY** — a pinned in-process counter may prevent reuse until restart, but doesn't establish owner durable pet birth after restart or custom edits. In-process `(boot epoch, owner, PetNumber)` is only a proposed transient key; persisted cross-restart identity and revision still require C2.
 
@@ -65,12 +65,12 @@ Use value-only records: `owner GUID`, `actual pet GUID`, `PetNumber` **as a hint
 
 ## Explicit approval/decision gates — DO NOT EXECUTE
 
-**Gate C1, separate owner approval:** smallest upstream CORE hook patch. Only then may an isolated throwaway source patch/compilation exercise be created; no live binary, IP edit, or installation follows by implication.
+**Gate C1, OWNER DIRECTION ONLY (per CS02, #48):** use a module-only mirrored native precondition candidate and later matching map-state observation, **not** a core source hook. Neither implementation nor accepting weakened causal assurance is approved. CandidateMatched is not native-accepted or human-proven. See the linked decision record; keep automatic writes OFF until a separately approved risk disposition.
 
-**Gate C2, separate owner approval:** durable pet-birth provenance/persistence approach, including any SQL/schema migration and backup/rollback. PetNumber name/family alone is insufficient.
+**Gate C2, OWNER DIRECTION ONLY (per CS02, #48):** a new table should preserve owner+PetNumber-hinted preference across server restarts. No SQL/schema execution or real data access approved. PetNumber can recycle; asynchronous pet-save transactions do not guarantee sidecar atomic birth binding. Need independently validated durable birth or NoWrite, plus backups/rollback and owner-private schema approval.
 
 **Gate C3, separate owner approval:** positive SelfBot-vs-human mechanism and safe boundary; assess Playerbots customizations without touching them.
 
 **Gate C4, separate owner staging approval:** pinned combined full Worldserver build, backup/rollback, default-OFF integration and in-game 3.3.5a acceptance including GFPP 120s, A04 two symptoms, F12, F13 and regressions. Current project milestone 0/5 owner-signed; #160 remains frozen.
 
-**Owner decision requested later:** May CS01 prepare a **source-only isolated core-hook patch under C1**? Do **not** infer permission from this document or review comments. Until C1/C2/C3, the engineering outcome is a precisely defined blocker, not working A02.
+**Owner-selected direction acknowledged:** no upstream core hook is to be prepared as the default approach. The remaining decision is **which level of assurance can legitimately authorize automatic writes** if the module's delayed snapshot is only a correlation, not causal acceptance. Until the owner separately approves a tested policy and C2/C3 prerequisites, this remains diagnostics/no-write, not working A02.
