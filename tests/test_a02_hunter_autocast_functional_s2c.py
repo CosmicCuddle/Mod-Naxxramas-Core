@@ -57,7 +57,8 @@ class ServerGate(unittest.TestCase):
         self.assertIn("AddonOptInEnabled{false}", CPP)
 
     def test_writer_requires_opt_in_and_does_not_answer(self):
-        self.assertIn("if (!optIn)", CPP)
+        self.assertIn("if (!Policy::EligibleForAutomaticRestore(optIn.get()))", CPP)
+        self.assertIn("bool VerifiedHumanManualOrigin = false;", ADDON)
         self.assertNotIn("IsRealPlayer(", CPP)
         self.assertNotIn("Playerbots.h", CPP)
         self.assertNotIn("_playerbotsAIMap", ADDON)
