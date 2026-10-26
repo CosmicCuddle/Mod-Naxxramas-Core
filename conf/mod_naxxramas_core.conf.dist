@@ -410,6 +410,12 @@ NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
 # This draft does not set the key on.
 NaxxramasCore.HunterPetAutocast.RestoreHumanChain = 0
 #
+# PART26 SAFETY QUARANTINE (draft): the existing v1 relay does NOT prove
+# a current pet birth or genuine accepted manual human ON/OFF. Even if both
+# experimental A02 options are set to 1, v1 preference snapshots are NOT
+# authorised to perform autocast writes. Real v2/native human provenance is
+# unimplemented, so leave both flags OFF. This is not a working restore fix.
+#
 # Default OFF. Addon opt-in listener (A02 S2c). While 0 the chat hook
 # returns before it parses a message, and config load clears any
 # published set. Protocol: docs/A02-ADDON-PROTOCOL.md. Both this key
