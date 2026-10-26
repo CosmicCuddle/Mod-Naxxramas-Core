@@ -1,0 +1,48 @@
+name: A02 Part 26 v2 manual intent fence (standalone only)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/HunterPetAutocastIntentFence.h'
+      - 'tests/hunter_pet_autocast_intent_fence.cpp'
+      - 'docs/research/A02-PART26-V2-MANUAL-INTENT-FENCE.md'
+      - '.github/workflows/a02-part26-v2-intent-fence-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-only-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Ensure exact source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Assert source-only scope and preserved production runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f src/Systems/HunterPetAutocastIntentFence.h
+          test -f tests/hunter_pet_autocast_intent_fence.cpp
+          ! grep -Eq '#include "(Pet|Player|ScriptMgr|World|Playerbots)\.h"' src/Systems/HunterPetAutocastIntentFence.h
+          grep -Fq 'THIS HEADER IS NOT WIRED' src/Systems/HunterPetAutocastIntentFence.h
+          git diff --exit-code HEAD^ HEAD -- src/Systems/HunterPetAutocast.cpp src/Systems/HunterPetAutocastAddon.h             src/Systems/HunterPetAutocastPolicy.h src/NaxxramasCore_loader.cpp conf/mod_naxxramas_core.conf.dist
+      - name: Compile with C++17 and C++20, strict warnings and run all assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          for standard in c++17 c++20; do
+            g++ -std="$standard" -Wall -Wextra -Werror -pedantic -Isrc/Systems               tests/hunter_pet_autocast_intent_fence.cpp -o "/tmp/a02_intent_${standard}"
+            "/tmp/a02_intent_${standard}" | tee "/tmp/a02_result_${standard}.txt"
+            grep -Eq '^A02 source-only intent fence: [0-9]+/[0-9]+ assertions passed \(not gameplay\)$' "/tmp/a02_result_${standard}.txt"
+          done
+      - name: Evidence disclosure
+        run: |
+          echo 'Standalone conditional policy only. NO real pet, player, client, IP completion, race, Worldserver or gameplay proof.'
+          echo 'No production code wired and no owner host touched.'
