@@ -1,0 +1,66 @@
+name: "F15 report schema v1 (source-only, disposable children)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tools/f15/report_schema.py'
+      - 'tests/test_f15_report_schema.py'
+      - 'docs/research/F15-REPORT-SCHEMA-V1.md'
+      - '.github/workflows/f15-report-schema.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f15-report-schema-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  CONTRACT_162: 2f27ac3a0a7aec397f364d93e4dc03075c255d90
+  DUALSTREAM_170: 480e08d4d8f08c996718f9c6a8b25df026beef0a
+
+jobs:
+  schema-source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: "Child of exact #170; only the four schema paths differ"
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$CONTRACT_162" HEAD
+          git merge-base --is-ancestor "$DUALSTREAM_170" HEAD
+          git diff --quiet "$CONTRACT_162" HEAD -- src conf
+          allowed='tools/f15/report_schema.py
+          tests/test_f15_report_schema.py
+          docs/research/F15-REPORT-SCHEMA-V1.md
+          .github/workflows/f15-report-schema.yml'
+          git diff --name-only "$DUALSTREAM_170" HEAD | while read -r path; do
+            printf '%s\n' "$allowed" | sed 's/^ *//' | grep -Fxq "$path" \
+              || { echo "unexpected changed path: $path"; exit 1; }
+          done
+      - name: Schema tests (reports from real disposable Python children; no server binaries)
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_report_schema.py -v 2>&1 | tee /tmp/schema.txt
+          grep -Eq '^Ran 43 tests in [0-9.]+s$' /tmp/schema.txt
+          grep -qx 'OK' /tmp/schema.txt
+          ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/schema.txt
+      - name: "Unchanged #170 producer still passes its own 51 tests"
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_r1r3_owned_child_producer.py 2>&1 | tee /tmp/r1r3.txt
+          grep -Eq '^Ran 51 tests in [0-9.]+s$' /tmp/r1r3.txt
+          grep -qx 'OK' /tmp/r1r3.txt
+      - name: Scope of proof
+        run: |
+          echo 'In-memory report documents built from disposable children this job spawns, and their validation.'
+          echo 'No Worldserver/Authserver, host, report path, file write, journal, restart or signing key.'
