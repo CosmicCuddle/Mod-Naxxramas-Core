@@ -232,6 +232,92 @@ namespace IntentFence
             return Verdict::NoWrite;
         return choice.Enable ? Verdict::ApplyOn : Verdict::ApplyOff;
     }
+
+    // Part27: multi-chain callers MUST use DecideTracked and
+    // RecordTrackedAttempt (or an independently reviewed stable keyed ledger).
+    // Raw Decide/RecordAttempt are SINGLE-CHAIN ONLY. A bounded per-chain
+    // store prevents accidental reset of total attempts. A single
+    // AttemptBudget MUST NOT be shared between chains: alternating two chains
+    // resets TotalAttempts and evades the 20-attempt ceiling. This ledger is
+    // caller-owned on the established owning thread; it has NO shared map,
+    // source of human trust, accepted opcode producer, or pet persistence.
+    constexpr std::size_t kMaxTrackedChainsPerIncarnation = 32;
+
+    struct AttemptLedger
+    {
+        Identity Pet;
+        std::array<AttemptBudget, kMaxTrackedChainsPerIncarnation> Budgets{};
+        std::array<bool, kMaxTrackedChainsPerIncarnation> Occupied{};
+    };
+
+    inline AttemptBudget const* FindLedgerBudget(AttemptLedger const& ledger,
+                                                 CurrentObservation const& current, uint32_t chain)
+    {
+        if (!SameIncarnation(ledger.Pet, current.Pet))
+            return nullptr;
+        for (std::size_t i = 0; i < ledger.Budgets.size(); ++i)
+            if (ledger.Occupied[i] && ledger.Budgets[i].Chain == chain)
+                return &ledger.Budgets[i];
+        return nullptr;
+    }
+
+    inline bool HasFreeLedgerSlot(AttemptLedger const& ledger,
+                                  CurrentObservation const& current)
+    {
+        if (!SameIncarnation(ledger.Pet, current.Pet))
+            return true;  // a distinct summon gets an independent fresh ledger
+        for (bool occupied : ledger.Occupied)
+            if (!occupied)
+                return true;
+        return false;
+    }
+
+    // For future callers: the safe default for an absent chain is a blank
+    // budget, not another chain's mutable budget. Full ledger fails closed.
+    inline Verdict DecideTracked(AcceptedManualChoice const& choice,
+                                  CurrentObservation const& current,
+                                  AttemptLedger const& ledger)
+    {
+        if (AttemptBudget const* budget = FindLedgerBudget(ledger, current, choice.SpellChain))
+            return Decide(choice, current, *budget);
+        if (!HasFreeLedgerSlot(ledger, current))
+            return Verdict::NoWrite;
+        return Decide(choice, current, AttemptBudget{});
+    }
+
+    // Count from the unchanged PRE-TOGGLE observation immediately before
+    // an actual toggle attempt. An unsuccessful attempt still counts. Never
+    // record a no-op or post-toggle AlreadyCorrect state; a new accepted OFF
+    // gets its own revision budget after an older ON is exhausted.
+    inline bool RecordTrackedAttempt(AttemptLedger& ledger,
+                                      AcceptedManualChoice const& choice,
+                                      CurrentObservation const& current)
+    {
+        Verdict const verdict = DecideTracked(choice, current, ledger);
+        if (verdict != Verdict::ApplyOn && verdict != Verdict::ApplyOff)
+            return false;
+
+        if (!SameIncarnation(ledger.Pet, current.Pet))
+        {
+            ledger = AttemptLedger{};
+            ledger.Pet = current.Pet;
+        }
+        for (std::size_t i = 0; i < ledger.Budgets.size(); ++i)
+            if (ledger.Occupied[i] && ledger.Budgets[i].Chain == choice.SpellChain)
+            {
+                RecordAttempt(ledger.Budgets[i], choice, current);
+                return true;
+            }
+        for (std::size_t i = 0; i < ledger.Budgets.size(); ++i)
+            if (!ledger.Occupied[i])
+            {
+                ledger.Occupied[i] = true;
+                RecordAttempt(ledger.Budgets[i], choice, current);
+                return true;
+            }
+        return false;  // bounded storage, never evict another active chain
+    }
+
 }
 }
 #endif
