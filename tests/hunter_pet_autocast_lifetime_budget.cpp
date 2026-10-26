@@ -77,6 +77,10 @@ int main()
         for (uint64_t gen = 1; gen <= 10; ++gen)
         {
             auto now = Current(on, gen);
+            // Simulate IP's allowed spell RANK changing while the ability
+            // CHAIN and accepted manual choice stay the same. A lifetime
+            // budget keyed by rank ID would lose its 20-attempt bound.
+            now.AllowedSpellId = static_cast<uint32_t>(on.SpellChain + gen);
             for (unsigned attempt = 0; attempt < 2; ++attempt)
             {
                 Check(DecideWithLifetime(on, now, incarnation, lifetime) == Verdict::ApplyOn,
