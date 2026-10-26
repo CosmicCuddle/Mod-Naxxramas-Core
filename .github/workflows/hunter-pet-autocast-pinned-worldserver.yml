@@ -13,6 +13,7 @@ on:
       - 'tests/hunter_pet_autocast_addon.cpp'
       - 'tests/test_a02_hunter_autocast_functional_s2.py'
       - 'tests/test_a02_hunter_autocast_functional_s2c.py'
+      - 'tests/test_a02_hunter_autocast_receiver_gate.py'
       - 'docs/research/a02-hunter-autocast-functional-s2.md'
       - 'docs/A02-ADDON-PROTOCOL.md'
       - '.github/workflows/hunter-pet-autocast-pinned-worldserver.yml'
@@ -41,6 +42,7 @@ jobs:
       - name: Source contract
         run: |
           python3 -m unittest discover -s tests -p 'test_a02_hunter_autocast_functional_s*.py' -v
+          python3 -m unittest discover -s tests -p 'test_a02_hunter_autocast_receiver_gate.py' -v
       - name: Native policy tests (C++17, C++20)
         run: |
           set -euo pipefail
@@ -138,7 +140,7 @@ jobs:
           grep -F ' T AddHunterPetAutocastScripts()' /tmp/naxx_a02_symbols.txt
           grep -F 'NaxxramasHunterPetAutocastSnapshotScript::OnUnitUpdate' /tmp/naxx_a02_symbols.txt
           grep -F 'NaxxramasHunterPetAutocastRestoreScript::OnWorldObjectUpdate' /tmp/naxx_a02_symbols.txt
-          grep -F 'NaxxramasHunterPetAutocastAddonScript::OnPlayerBeforeSendChatMessage' /tmp/naxx_a02_symbols.txt
+          grep -F 'NaxxramasHunterPetAutocastAddonScript::OnPlayerCanUseChat' /tmp/naxx_a02_symbols.txt
           echo "PASS linked: AddHunterPetAutocastScripts + both update hooks + addon chat hook"
           echo "The binary stays on the runner and is not uploaded."
           echo "Public-pin link only. Not an in-game result and not an owner-installed build."
