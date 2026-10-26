@@ -11,6 +11,11 @@ on:
       - 'tests/test_scarlet_monastery_exits.py'
       - 'tests/test_atiesh_karazhan_portal.py'
       - 'tests/test_f14_who_listing_s2.py'
+      - 'tests/test_f14_who_listing_model.py'
+      - 'tests/scarlet_exit_policy.cpp'
+      - 'tests/atiesh_portal_policy.cpp'
+      - 'tests/who_listing_policy.cpp'
+      - 'scripts/check_f14_who_handler_fingerprint.py'
       - 'docs/research/PART25-P0-F12-F13-F14-SOURCE-ASSEMBLY.md'
       - '.github/workflows/part25-p0-f12-f13-f14-assembly.yml'
   workflow_dispatch:
