@@ -110,7 +110,12 @@ int main()
     trial("missing current birth token", [](auto&, auto& x) { x.Pet.BirthToken = {}; });
     trial("missing accepted birth token", [](auto& choice, auto&) { choice.Pet.BirthToken = {}; });
     trial("different player", [](auto&, auto& x) { x.Pet.PlayerGuid++; });
-    trial("different server token", [](auto&, auto& x) { x.Pet.ServerToken[15]++; });
+    {
+        auto nextSummonToken = c;
+        nextSummonToken.Pet.ServerToken[15]++;
+        Check(Decide(yes, nextSummonToken, budget) == Verdict::ApplyOn,
+            "changed ephemeral token alone does not make same birth another pet");
+    }
     trial("missing server token", [](auto&, auto& x) { x.Pet.ServerToken = {}; });
     trial("zero current pet number", [](auto&, auto& x) { x.Pet.PetNumber = 0; });
     trial("old accepted revision", [](auto&, auto& x) { x.LatestAcceptedRevision++; });
