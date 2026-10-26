@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I -B -W error tests/test_f15_r1r3_owned_child_producer.py -v 2>&1 | tee /tmp/r1r3.txt
-          grep -Eq '^Ran 32 tests in [0-9.]+s$' /tmp/r1r3.txt
+          grep -Eq '^Ran 35 tests in [0-9.]+s$' /tmp/r1r3.txt
           grep -qx 'OK' /tmp/r1r3.txt
           ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/r1r3.txt
       - name: Scope of proof

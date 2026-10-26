@@ -270,6 +270,61 @@ class Lifecycle(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             p.observe()
 
+    @staticmethod
+    def one_shot(real, exc):
+        state = {"fired": False}
+
+        def side_effect(*args, **kwargs):
+            if not state["fired"]:
+                state["fired"] = True
+                raise exc
+            return real(*args, **kwargs)
+        return side_effect
+
+    def assert_failed_but_reaped(self, p, cm):
+        h = cm.exception.handoff
+        assert_reaped(self, p, h)
+        self.assertEqual(h.raw_exit, ("exited", 0))   # child kept writing: no EPIPE
+        with self.assertRaises(RuntimeError):
+            p.observe()
+
+    def test_read_error_while_child_alive_hands_off(self):
+        p = producer("chatty")
+        p.start()
+        time.sleep(0.1)
+        with mock.patch.object(m, "_read_chunk",
+                               side_effect=self.one_shot(m._read_chunk, OSError(5, "EIO"))):
+            with self.assertRaisesRegex(m.ObservationFailed, "EIO") as cm:
+                p.observe(deadline_seconds=5.0)
+            self.assert_failed_but_reaped(p, cm)
+        self.assertGreater(cm.exception.handoff.bytes_discarded, 0)
+
+    def test_selector_register_failure_hands_off(self):
+        real_cls = m.selectors.DefaultSelector
+        calls = {"n": 0}
+
+        class FlakySelector(real_cls):
+            def register(self, *a, **kw):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise OSError(12, "ENOMEM")
+                return super().register(*a, **kw)
+        p = producer("chatty")
+        p.start()
+        with mock.patch.object(m.selectors, "DefaultSelector", FlakySelector):
+            with self.assertRaisesRegex(m.ObservationFailed, "ENOMEM") as cm:
+                p.observe(deadline_seconds=5.0)
+            self.assert_failed_but_reaped(p, cm)
+
+    def test_waitid_failure_before_collection_hands_off(self):
+        p = producer("exit0")
+        p.start()
+        with mock.patch.object(m.os, "waitid",
+                               side_effect=self.one_shot(os.waitid, OSError(4, "EINTR"))):
+            with self.assertRaisesRegex(m.ObservationFailed, "EINTR") as cm:
+                p.observe(deadline_seconds=5.0)
+            self.assert_failed_but_reaped(p, cm)
+
     def test_never_pausing_writer_cannot_starve_exit_and_deadline(self):
         endless = lambda fd: b"z" * 65536                  # never EAGAIN, never EOF
         p = producer("exit0", eof_grace_seconds=0.3, retain_bytes=4096)

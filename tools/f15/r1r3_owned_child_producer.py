@@ -221,6 +221,15 @@ class ObservationTimeout(TimeoutError):
         self.handoff = handoff
 
 
+class ObservationFailed(RuntimeError):
+    """An unexpected error occurred before the child's exit was collected.
+    No attested event; the child was handed to a reaper, never signalled."""
+
+    def __init__(self, message: str, handoff: "_Reaper"):
+        super().__init__(message)
+        self.handoff = handoff
+
+
 # Bounded work per event-loop turn, so a writer that never pauses cannot
 # starve the exit (pidfd) and deadline checks.
 _MAX_READS_PER_TURN = 16
@@ -401,15 +410,16 @@ class OwnedChildProducer:
         fact = StreamFact(self.incarnation)
         framer = _Framer(fact, *self._limits)
         out = self._proc.stderr.fileno()
-        os.set_blocking(out, False)
         sel = selectors.DefaultSelector()
-        sel.register(out, selectors.EVENT_READ, "stream")
-        sel.register(self._pidfd, selectors.EVENT_READ, "exit")
         exit_fact = None
         hard_deadline = time.monotonic() + deadline_seconds
         eof_deadline = None
         handed_off = False
+        failure: BaseException | None = None
         try:
+            os.set_blocking(out, False)
+            sel.register(out, selectors.EVENT_READ, "stream")
+            sel.register(self._pidfd, selectors.EVENT_READ, "exit")
             # One nonblocking loop with bounded reads per turn: the pipe keeps
             # draining whether or not the child has exited, and a busy writer
             # cannot starve the exit/deadline checks. Exit and EOF are separate
@@ -433,6 +443,13 @@ class OwnedChildProducer:
                         sel.unregister(self._pidfd)
                         eof_deadline = time.monotonic() + self._grace
             framer.finish()
+        except Exception as exc:
+            if exit_fact is not None:
+                raise                    # child already collected: nothing owned
+            # Unexpected failure while the child may still be running (read
+            # error, selector or waitid failure): never abandon it. Same
+            # handoff as the deadline path; no event and no signal.
+            handed_off, failure = True, exc
         finally:
             sel.close()
             if not handed_off:
@@ -441,9 +458,12 @@ class OwnedChildProducer:
                 pidfd, self._pidfd = self._pidfd, None
                 os.close(pidfd)
         if handed_off:
-            # The child is still running: keep its pipe drained and collect
-            # it later, without an attested event and without signalling.
+            # The child is (or may be) still running: keep its pipe drained
+            # and collect it later, without an attested event or a signal.
             self._done = False
+            if failure is not None:
+                raise ObservationFailed(f"observation failed before exit: {failure}",
+                                        self._hand_off()) from failure
             raise ObservationTimeout("owned child still running at deadline",
                                      self._hand_off())
         if exit_fact is None:
