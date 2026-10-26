@@ -37,8 +37,12 @@ namespace LifetimeModel
 
     struct Ledger
     {
-        // Caller owns a single serialized ledger across temporary unsummons,
-        // mounts, teleports and map transitions; never recreate per Pet*.
+        // A ledger is dedicated to ONE positively identified player. Binding
+        // the owner on first successfully reserved attempt ensures accidentally
+        // sharing this object between players fails closed. This is NOT a lock.
+        // All access must still be serialized on that owner's proven context,
+        // across temporary unsummons, map moves and different Pet* objects.
+        uint64_t OwnerGuid = 0;
         std::array<Entry, kMaxLifetimeKeys> Entries{};
     };
 
@@ -68,6 +72,10 @@ namespace LifetimeModel
                                        AttemptLedger const& perIncarnation,
                                        Ledger const& lifetime)
     {
+        // A process-global or wrong-player ledger cannot own this choice.
+        // Identity validation in DecideTracked is independent of this check.
+        if (lifetime.OwnerGuid && lifetime.OwnerGuid != choice.Pet.PlayerGuid)
+            return Verdict::NoWrite;
         Verdict const verdict = DecideTracked(choice, current, perIncarnation);
         if (verdict != Verdict::ApplyOn && verdict != Verdict::ApplyOff)
             return verdict; // includes NO-WRITE for all missing trust inputs
@@ -107,6 +115,10 @@ namespace LifetimeModel
         if (!RecordTrackedAttempt(perIncarnation, choice, current))
             return false;
 
+        // Only a verified successful reservation may bind an empty ledger.
+        // A later call from a different owner is NO-WRITE, never eviction.
+        if (!lifetime.OwnerGuid)
+            lifetime.OwnerGuid = choice.Pet.PlayerGuid;
         Entry& entry = lifetime.Entries[index];
         bool const sameAcceptedChoice = entry.Occupied
             && entry.RevisionDomain == choice.RevisionDomain
