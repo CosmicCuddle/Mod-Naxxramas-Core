@@ -32,6 +32,16 @@ The test supplies **fabricated** trustworthy birth and accepted-human fields to 
 
 The existing #169 source model and runtime files are unchanged by this child PR. The new workflow compiles the isolated source under strict C++17 and C++20, verifies the original #169 model blob and production module/config blob IDs, and asserts the source does not include real game/server headers. **These tests cannot prove any in-game functionality.**
 
+## CS02 peer follow-up — per-owner isolation and bounded-key liveness
+
+[CS02 review of #172](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/172#issuecomment-6426066110) confirmed the source-model tests and identified two risks. This later source-only revision addresses **owner misuse safety** and records the **unresolved capacity lifecycle**.
+
+- The model's `Ledger.OwnerGuid` starts unbound, is bound only by a successfully reserved hypothetical trusted choice, and thereafter rejects another player's choice with `NoWrite`. The new fixture verifies that a second player needs their own ledger. **This is not thread synchronization**: the real owner context must be per-player, serialized and retained across that player's pet object recreation; no process-global map or mutex is implemented here.
+- The 32-key bounded lifetime collection **does not reclaim slots** on `AlreadyCorrect`, a pet temporarily disappearing, or a change of spell rank. Those are **not irreversible retirement proofs**. A source-only regression verifies that when an apparently correct state is independently changed again later, an already exhausted choice **remains exhausted**. Releasing at `AlreadyCorrect` would make the retry cap reset under IP/AI flapping.
+- **Liveness remains intentionally blocked when full**: 32 ever-used (verified birth, chain) keys under one player eventually refuse an unknown 33rd key until a separately authorized lifecycle disposition is implemented. A future `RetireVerifiedBirth` concept would need trustworthy *canonical deletion/retirement*, proof no in-flight choices or callbacks can revive the old birth, plus safe concurrent handoff. Pinned public `Pet::SavePetToDB` broad slot deletion and character deletion can remove canonical rows without invoking each pet's `DeleteFromDB`; a single Pet hook is not sufficient. Do NOT add an untrusted reclaim/eviction method or call this capacity policy production-ready.
+- Repeat clicks on the SAME birth + chain use the existing slot and replace its revision/attempt count; a new rank within the chain does not consume a new slot. This fact does **not** remove the possibility of exhausting all 32 keys over a player's longer lifetime.
+- This prototype deliberately has no stable session owner, real birth certification, C1 causal accepted-human source, C2 durable restart store, C3 positive SelfBot proof or production atomic registration. Every claimed trust input remains synthetic and `NoWrite` is the only defensible operational outcome now.
+
 ## Integration and owner approval still blocked
 
 - The owner-directed **module-only** C1 can observe a matching state after a native packet, but *cannot causally prove native acceptance*. `CandidateMatched` remains diagnostic, not `TrustedManualReceipt`. No automatic restore.
