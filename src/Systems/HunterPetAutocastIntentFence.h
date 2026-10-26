@@ -282,9 +282,10 @@ namespace IntentFence
         return Decide(choice, current, AttemptBudget{});
     }
 
-    // Record ONLY after an actual attempted toggle; callers must treat false
-    // as no authority to write. New accepted OFF gets a new revision budget
-    // for its own chain, even when an older ON exhausted that same chain.
+    // Count from the unchanged PRE-TOGGLE observation immediately before
+    // an actual toggle attempt. An unsuccessful attempt still counts. Never
+    // record a no-op or post-toggle AlreadyCorrect state; a new accepted OFF
+    // gets its own revision budget after an older ON is exhausted.
     inline bool RecordTrackedAttempt(AttemptLedger& ledger,
                                       AcceptedManualChoice const& choice,
                                       CurrentObservation const& current)
