@@ -128,24 +128,38 @@ namespace IntentFence
         bool EnabledNow = false;
     };
 
-    // This key is stored in per-Pet map-worker state, not a global dictionary.
-    // Two retries per *same actual spellbook transition*; no time-based guess.
+    // Strict per-map-worker accounting; no process-global mutable pet map.
+    // IP may reconcile multiple times. A book revision is NOT an excuse for
+    // unbounded toggles if another system repeatedly flips the same rank.
+    constexpr uint8_t kMaxAttemptsPerBook = 2;
+    constexpr uint8_t kMaxAttemptsPerSummonChoice = 20;
+
     struct AttemptBudget
     {
         Identity Pet;
         uint64_t IntentRevision = 0;
+        uint64_t RevisionDomain = 0;
         uint32_t Chain = 0;
         uint64_t BookRevision = 0;
         uint8_t Attempts = 0;
+        uint8_t TotalAttempts = 0;
     };
+
+    inline bool SameSummonChoice(AttemptBudget const& budget,
+                                 AcceptedManualChoice const& choice,
+                                 CurrentObservation const& current)
+    {
+        return SameIncarnation(budget.Pet, current.Pet)
+            && budget.RevisionDomain == choice.RevisionDomain
+            && budget.IntentRevision == choice.Revision
+            && budget.Chain == choice.SpellChain;
+    }
 
     inline bool SameAttemptKey(AttemptBudget const& budget,
                                AcceptedManualChoice const& choice,
                                CurrentObservation const& current)
     {
-        return SameIncarnation(budget.Pet, current.Pet)
-            && budget.IntentRevision == choice.Revision
-            && budget.Chain == choice.SpellChain
+        return SameSummonChoice(budget, choice, current)
             && budget.BookRevision == current.BookRevision;
     }
 
@@ -156,22 +170,37 @@ namespace IntentFence
         return SameAttemptKey(budget, choice, current) ? budget.Attempts : 0;
     }
 
+    inline uint8_t TotalAttemptsUsed(AttemptBudget const& budget,
+                                    AcceptedManualChoice const& choice,
+                                    CurrentObservation const& current)
+    {
+        return SameSummonChoice(budget, choice, current) ? budget.TotalAttempts : 0;
+    }
+
     // Caller invokes this ONLY for a real attempted toggle, not for a no-op.
-    // Failing to acknowledge a write cannot be treated as success.
+    // Failed verification is NOT success. Attempts stay counted to cap damage.
     inline void RecordAttempt(AttemptBudget& budget,
                               AcceptedManualChoice const& choice,
                               CurrentObservation const& current)
     {
+        bool const sameChoice = SameSummonChoice(budget, choice, current);
         if (!SameAttemptKey(budget, choice, current))
         {
             budget.Pet = current.Pet;
             budget.IntentRevision = choice.Revision;
+            budget.RevisionDomain = choice.RevisionDomain;
             budget.Chain = choice.SpellChain;
             budget.BookRevision = current.BookRevision;
             budget.Attempts = 0;
+            if (!sameChoice)
+                budget.TotalAttempts = 0;
         }
-        if (budget.Attempts < 2)
+        if (budget.Attempts < kMaxAttemptsPerBook
+            && budget.TotalAttempts < kMaxAttemptsPerSummonChoice)
+        {
             ++budget.Attempts;
+            ++budget.TotalAttempts;
+        }
     }
 
     inline Verdict Decide(AcceptedManualChoice const& choice,
@@ -198,7 +227,8 @@ namespace IntentFence
             return Verdict::NoWrite;
         if (choice.Enable == current.EnabledNow)
             return Verdict::AlreadyCorrect;
-        if (AttemptsUsed(budget, choice, current) >= 2)
+        if (AttemptsUsed(budget, choice, current) >= kMaxAttemptsPerBook
+            || TotalAttemptsUsed(budget, choice, current) >= kMaxAttemptsPerSummonChoice)
             return Verdict::NoWrite;
         return choice.Enable ? Verdict::ApplyOn : Verdict::ApplyOff;
     }
