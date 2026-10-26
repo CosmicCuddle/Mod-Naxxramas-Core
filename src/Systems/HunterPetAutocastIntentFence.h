@@ -7,7 +7,9 @@
  *
  * It enforces one last invariant AFTER trusted transport/identity checks:
  * a current player's newest accepted manual ON/OFF cannot be replayed onto
- * another pet, incarnation, old revision, unapproved rank or unknown owner.
+ * another pet birth, outdated revision, unapproved rank or unknown owner.
+ * A summon is NOT a pet birth: same authenticated birth may resummon, while
+ * recycled PetNumber NEVER establishes same birth across replacement/relog.
  * No learn, spellbook mutation, global map, Playerbots or DB access occurs.
  */
 #ifndef NAXXRAMAS_CORE_HUNTER_PET_AUTOCAST_INTENT_FENCE_H
@@ -41,6 +43,12 @@ namespace IntentFence
         uint64_t PlayerGuid = 0;
         uint64_t ServerEpoch = 0;
         uint32_t PetNumber = 0;
+        // BirthToken MUST be bound server-side to the same physical pet birth
+        // across sessions. No v1 packet, name, family or PetNumber proves it.
+        // A missing/unverified token rejects cross-summon restore.
+        std::array<uint8_t, 16> BirthToken{};
+        // Below are transient incarnation details; do NOT bind the enduring
+        // human preference to these or resummon would always be rejected.
         uint64_t SummonGeneration = 0;
         std::array<uint8_t, 16> ServerToken{};
     };
@@ -57,14 +65,24 @@ namespace IntentFence
     {
         return identity.PlayerGuid != 0 && identity.ServerEpoch != 0
             && identity.PetNumber != 0 && identity.SummonGeneration != 0
-            && HasToken(identity.ServerToken);
+            && HasToken(identity.BirthToken) && HasToken(identity.ServerToken);
     }
 
-    inline bool SameIdentity(Identity const& a, Identity const& b)
+    // Policy-A preference continuity. Server-authenticated durable birth is
+    // an additional MANDATORY prerequisite in Decide; comparing bytes alone
+    // does not establish authenticity of an alleged persistent token.
+    inline bool SameBirth(Identity const& a, Identity const& b)
     {
         return ValidIdentity(a) && ValidIdentity(b)
-            && a.PlayerGuid == b.PlayerGuid && a.ServerEpoch == b.ServerEpoch
-            && a.PetNumber == b.PetNumber
+            && a.PlayerGuid == b.PlayerGuid && a.PetNumber == b.PetNumber
+            && a.BirthToken == b.BirthToken;
+    }
+
+    // Only same in-flight summon operation. Used for retry accounting, NEVER
+    // as the key of an accepted choice across dismiss/resummon/relog.
+    inline bool SameIncarnation(Identity const& a, Identity const& b)
+    {
+        return SameBirth(a, b) && a.ServerEpoch == b.ServerEpoch
             && a.SummonGeneration == b.SummonGeneration
             && a.ServerToken == b.ServerToken;
     }
@@ -73,16 +91,26 @@ namespace IntentFence
     {
         Identity Pet;
         uint64_t Revision = 0;
+        // Scope the revision to one positively-identified authoritative
+        // counter domain. Reused revision 1 in another login is NOT newer.
+        uint64_t RevisionDomain = 0;
         uint32_t SpellChain = 0;
         bool Enable = false;
         // Proven by receiver-side accepted manual-intent flow, NOT a client bit.
         bool TrustedManualReceipt = false;
+        // A module cannot infer this from PetNumber/name alone. Must have a
+        // separately verified immutable birth identity at receipt time.
+        bool TrustedBirthAtReceipt = false;
     };
 
     struct CurrentObservation
     {
         Identity Pet;
         uint64_t LatestAcceptedRevision = 0;
+        uint64_t LatestRevisionDomain = 0;
+        // True only if a separately reviewed producer has authenticated the
+        // CURRENT pet's birth binding (including relog/reuse). No producer yet.
+        bool TrustedCurrentBirth = false;
         uint32_t AllowedSpellChain = 0;
         uint32_t AllowedSpellId = 0;
         // Incremented for an actual relevant post-IP spellbook transition.
@@ -115,7 +143,7 @@ namespace IntentFence
                                AcceptedManualChoice const& choice,
                                CurrentObservation const& current)
     {
-        return SameIdentity(budget.Pet, current.Pet)
+        return SameIncarnation(budget.Pet, current.Pet)
             && budget.IntentRevision == choice.Revision
             && budget.Chain == choice.SpellChain
             && budget.BookRevision == current.BookRevision;
@@ -154,10 +182,13 @@ namespace IntentFence
             || !current.AddonOptIn || !choice.TrustedManualReceipt
             || current.Owner != OwnerMode::Human
             || !current.NoUnresolvedNewerManualClick
-            || !current.SelectedCurrentPet)
+            || !current.SelectedCurrentPet
+            || !choice.TrustedBirthAtReceipt || !current.TrustedCurrentBirth)
             return Verdict::NoWrite;
-        if (!SameIdentity(choice.Pet, current.Pet)
-            || choice.Revision == 0 || choice.Revision != current.LatestAcceptedRevision)
+        if (!SameBirth(choice.Pet, current.Pet)
+            || choice.Revision == 0 || choice.RevisionDomain == 0
+            || choice.RevisionDomain != current.LatestRevisionDomain
+            || choice.Revision != current.LatestAcceptedRevision)
             return Verdict::NoWrite;
         if (choice.SpellChain == 0 || current.AllowedSpellId == 0
             || choice.SpellChain != current.AllowedSpellChain
