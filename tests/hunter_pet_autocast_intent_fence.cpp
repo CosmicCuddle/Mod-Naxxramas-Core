@@ -293,6 +293,35 @@ int main()
             "unknown 33rd chain fails closed with full ledger");
         Check(!RecordTrackedAttempt(bounded, extraIntent, extraObs),
             "full ledger cannot record overflow attempt");
+        // CS03 review: after a full 32-chain summon, the next certified
+        // incarnation must clear its ledger BEFORE recording its first new
+        // chain. Otherwise a stale full array silently starves new pets.
+        auto newSummon = extraObs;
+        newSummon.Pet.SummonGeneration++;
+        newSummon.Pet.ServerToken[7]++;
+        Check(DecideTracked(extraIntent, newSummon, bounded) == Verdict::ApplyOn,
+            "new incarnation permits a 33rd distinct chain after old full ledger");
+        Check(RecordTrackedAttempt(bounded, extraIntent, newSummon),
+            "new incarnation actually records a distinct chain after reset");
+        Check(SameIncarnation(bounded.Pet, newSummon.Pet),
+            "ledger is rebound to the verified new incarnation");
+        unsigned occupiedAfterReset = 0;
+        for (bool occupied : bounded.Occupied)
+            if (occupied)
+                ++occupiedAfterReset;
+        Check(occupiedAfterReset == 1,
+            "new incarnation discards all 32 old occupied slots");
+        auto oldChain = Manual();
+        auto oldChainNow = newSummon;
+        oldChain.SpellChain = 1;
+        oldChainNow.AllowedSpellChain = 1;
+        oldChainNow.AllowedSpellId = 1;
+        Check(DecideTracked(oldChain, oldChainNow, bounded) == Verdict::ApplyOn,
+            "old chain can be independently reintroduced on new summon");
+        Check(RecordTrackedAttempt(bounded, oldChain, oldChainNow),
+            "old chain gets its own new-incarnation attempt budget");
+        Check(bounded.Budgets[0].TotalAttempts == 1,
+            "new chain fresh attempt is counted rather than silently lost");
     }
     // Never infer real-human proof from a typed boolean on the wire:
     // Owner and TrustedManualReceipt are out-of-band *unresolved* production inputs.
