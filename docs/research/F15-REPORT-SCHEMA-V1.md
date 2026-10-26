@@ -61,7 +61,16 @@ An observation that ends in a handoff (`ObservationTimeout`, `ObservationFailed`
 
 ## 3. Rules the validator enforces
 
-- **Strict JSON.** Exact key sets; integers only (no floats or NaN); no duplicate keys; at most 1 MiB; at most 4096 records per stream. `parse()` accepts only the exact canonical bytes: sorted keys, no whitespace, UTF-8.
+**These rules check internal consistency only.** Anyone who can write a whole document can also fake `attestation:"owned-child-waitid"`, `declared`, `source_sha` or `recorded_utc`, then recompute the digest. The "Trust" column in §1 says where each value is *meant* to come from; `validate()` cannot confirm that a kernel wait actually happened, or who wrote the document. A trusted producer/writer boundary is future R4 work and needs the owner's approval.
+
+- **Strict JSON.** Exact key sets; integers only (no floats or NaN); no duplicate keys; at most 1 MiB; at most 4096 records per stream; nesting no deeper than 8 (the schema needs 5). `parse()` accepts only the exact canonical bytes: sorted keys, no whitespace, UTF-8.
+- **Malformed input is refused, never raised (CS01 review on #171).** `parse()` turns all of the following into `ReportRefused`:
+  - bad UTF-8 or JSON;
+  - an integer literal over Python's digit limit;
+  - nesting deeper than the limit (checked first by an iterative pre-scan that ignores brackets inside strings);
+  - any leftover `RecursionError`.
+
+  Given a deep, cyclic or oversized object, `validate()` returns an error list instead of raising. Other exceptions are deliberately not caught, so a programming defect stays visible.
 - **No crash from text.** `crash` comes from the kernel exit fact only. The classification is recomputed from `kind`, `exit_code`, `signal_number` and `planned`, so a document cannot call a SIGTERM a fatal signal, or an exit code of 139 a SIGSEGV.
 - **Event list must be complete and exact.** A crash cannot be left out, and nothing unsupported can be added.
 - **Planned stops.** Only SIGINT or SIGTERM may be declared planned. A fatal signal declared planned is refused by both the builder and the validator. This is **stricter than the producer**, which records any declared signal.

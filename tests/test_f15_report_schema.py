@@ -331,6 +331,46 @@ class CanonicalFormAndParse(unittest.TestCase):
         self.assertEqual(rs.seal(self.doc), self.doc)
 
 
+class HostileInputIsRefusedNotRaised(unittest.TestCase):
+    """CS01 #171 review: malformed input must end in ReportRefused (parse) or
+    an error list (validate), never RecursionError/ValueError escaping."""
+
+    def test_deep_nesting_is_refused_by_parse(self):
+        for raw in (b"[" * 10000 + b"0" + b"]" * 10000,      # CS01's 20,001 bytes
+                    b'{"a":' * 5000 + b"0" + b"}" * 5000,
+                    b"[" * (rs.MAX_DEPTH + 1) + b"]" * (rs.MAX_DEPTH + 1)):
+            with self.subTest(size=len(raw)), \
+                    self.assertRaisesRegex(rs.ReportRefused, "nesting deeper"):
+                rs.parse(raw)
+
+    def test_brackets_inside_strings_are_not_nesting(self):
+        # Brackets on both sides of an escaped quote, all inside one string.
+        raw = b'{"a":"' + b"[{" * 50 + b'\\"' + b"[{" * 5000 + b'"}'
+        with self.assertRaises(rs.ReportRefused) as caught:
+            rs.parse(raw)                    # refused, but by the schema rules
+        self.assertNotIn("nesting", str(caught.exception))
+
+    def test_overlong_integer_literal_is_refused_by_parse(self):
+        with self.assertRaisesRegex(rs.ReportRefused, "not JSON: ValueError"):
+            rs.parse(b'{"a":' + b"1" * 5000 + b"}")          # CS01's 5 KiB input
+
+    def test_validate_returns_errors_for_deep_cyclic_and_huge_values(self):
+        deep = cursor = []
+        for _ in range(5000):
+            cursor.append([])
+            cursor = cursor[0]
+        cyclic = {}
+        cyclic["self"] = cyclic
+        doc = report("exit2", prefix=True)
+        doc["incarnation"]["starttime"] = 10 ** 5000          # over the digit limit
+        for value, needle in ((deep, "nesting deeper"), (cyclic, "nesting deeper"),
+                              (doc, "ValueError")):
+            with self.subTest(needle=needle):
+                errors = rs.validate(value)
+                self.assertEqual(len(errors), 1)
+                self.assertIn(needle, errors[0])
+
+
 class Boundaries(unittest.TestCase):
     def test_schema_module_is_pure(self):
         tree = ast.parse(SCHEMA_SOURCE)

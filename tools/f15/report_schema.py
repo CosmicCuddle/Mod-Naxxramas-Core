@@ -7,8 +7,13 @@ JSON document, and checks such documents. It writes nothing, opens nothing,
 spawns nothing and sends nothing: there is no report path, broker, restart,
 journal or file adapter here (R2/R4 and owner R0 gates, #162/#170).
 
-Rules the validator enforces, so a document cannot claim more than the
-producer attested:
+Rules the validator enforces. They check INTERNAL CONSISTENCY only: whoever
+can write a whole document can also write a fake attestation string, role,
+prefix declaration, source_sha or time and recompute the digest, so
+validate() cannot tell whether a kernel wait really happened or who wrote the
+document. A trusted producer/writer boundary is future owner-gated R4 work.
+Malformed or hostile input (bad UTF-8/JSON, over-long integers, nesting
+deeper than MAX_DEPTH, cycles) is refused, never raised as another error:
   * Closed schema: every object has an exact key set; unknown keys, floats,
     NaN, duplicate JSON keys and non-canonical bytes are refused.
   * No log message text at all ("message_text_omitted"): records carry only
@@ -45,6 +50,9 @@ PRODUCER_TOOL = "tools/f15/r1r3_owned_child_producer.py"
 CANONICALIZATION = "naxx-f15-json-v1"
 MAX_REPORT_BYTES = 1024 * 1024
 MAX_RECORDS = 4096
+# Deepest legal path is $.streams.<name>.records[i].<key> (5 containers);
+# anything deeper is refused before parsing or walking, never recursed into.
+MAX_DEPTH = 8
 # The producer keeps <= 8192 raw bytes per line; invalid bytes decode to
 # U+FFFD (3 UTF-8 bytes each), so the retained length can reach 3x that.
 MAX_MESSAGE_BYTES = 3 * 8192
@@ -103,22 +111,48 @@ class ReportRefused(ValueError):
 
 
 # ---------------------------------------------------------------- canonical form
-def _check_json_types(value, path="$"):
+def _check_json_types(value, path="$", depth=0):
     if value is None or isinstance(value, (bool, str)):
         return
     if type(value) is int:
         return
+    if isinstance(value, (list, dict)) and depth >= MAX_DEPTH:
+        # Also stops a self-referencing object: no unbounded recursion.
+        raise ReportRefused(f"{path}: nesting deeper than {MAX_DEPTH}")
     if isinstance(value, list):
         for i, item in enumerate(value):
-            _check_json_types(item, f"{path}[{i}]")
+            _check_json_types(item, f"{path}[{i}]", depth + 1)
         return
     if isinstance(value, dict):
         for key, item in value.items():
             if not isinstance(key, str):
                 raise ReportRefused(f"{path}: non-string key")
-            _check_json_types(item, f"{path}.{key}")
+            _check_json_types(item, f"{path}.{key}", depth + 1)
         return
     raise ReportRefused(f"{path}: type {type(value).__name__} is not allowed")
+
+
+def _max_nesting(raw: bytes) -> int:
+    """Deepest [ / { nesting in JSON bytes, ignoring brackets inside strings.
+    Iterative, so hostile input cannot exhaust the Python stack."""
+    depth = deepest = 0
+    in_string = escaped = False
+    for byte in raw:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:            # backslash
+                escaped = True
+            elif byte == 0x22:            # closing quote
+                in_string = False
+        elif byte == 0x22:
+            in_string = True
+        elif byte in (0x5B, 0x7B):        # [ {
+            depth += 1
+            deepest = max(deepest, depth)
+        elif byte in (0x5D, 0x7D):        # ] }
+            depth -= 1
+    return deepest
 
 
 def canonical_bytes(doc: dict) -> bytes:
@@ -158,11 +192,18 @@ def parse(raw: bytes) -> dict:
     valid document."""
     if not isinstance(raw, bytes) or len(raw) > MAX_REPORT_BYTES:
         raise ReportRefused("report must be bytes within the size limit")
+    if _max_nesting(raw) > MAX_DEPTH:
+        raise ReportRefused(f"nesting deeper than {MAX_DEPTH}")
     try:
         doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates,
                          parse_float=_no_float, parse_constant=_no_float)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ReportRefused(f"not JSON: {exc}") from exc
+    except ReportRefused:
+        raise
+    except (ValueError, RecursionError) as exc:
+        # Malformed input only: bad UTF-8 or JSON (both ValueError), an
+        # over-long integer literal (ValueError from the int digit limit),
+        # or nesting the pre-scan missed (RecursionError, fail closed).
+        raise ReportRefused(f"not JSON: {type(exc).__name__}") from exc
     if not isinstance(doc, dict):
         raise ReportRefused("top level must be an object")
     errors = validate(doc)
@@ -309,8 +350,8 @@ def validate(doc) -> list[str]:
     errors: list[str] = []
     try:
         size = len(canonical_bytes(doc))
-    except (ReportRefused, ValueError, TypeError) as exc:
-        return [f"$: {exc}"]
+    except (ReportRefused, ValueError, TypeError, RecursionError) as exc:
+        return [f"$: {type(exc).__name__}: {exc}"]
     if size > MAX_REPORT_BYTES:
         return ["$: report exceeds the size limit"]
     if not _keys(errors, doc, "", "$"):

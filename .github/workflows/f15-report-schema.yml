@@ -51,7 +51,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I -B -W error tests/test_f15_report_schema.py -v 2>&1 | tee /tmp/schema.txt
-          grep -Eq '^Ran 39 tests in [0-9.]+s$' /tmp/schema.txt
+          grep -Eq '^Ran 43 tests in [0-9.]+s$' /tmp/schema.txt
           grep -qx 'OK' /tmp/schema.txt
           ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/schema.txt
       - name: "Unchanged #170 producer still passes its own 51 tests"
