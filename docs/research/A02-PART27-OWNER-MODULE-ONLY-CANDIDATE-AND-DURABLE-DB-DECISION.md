@@ -63,6 +63,44 @@ Suggested abstract record fields (not DDL): player identity, current persistent 
 - [CS02's independent #169 tracked-model review](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/169#issuecomment-6422206120) reproduced only **40/60** attempted writes when alternating two chains with a 20-per-chain bound, versus the prior unsafe 60/60 raw shared-budget probe. CS02 notes that **a single normalized spell-chain key, not rank-specific spell IDs**, must own each slot, and 50 newly accepted revisions could still produce many cumulative attempts. This is not a time-based global rate limiter; no source-only tests can establish real trusted accepted human revisions.
 - Owner decision still required on *both* whether a cross-incarnation limit is wanted **and** whether that count must survive restart. Without independently trusted durable birth/revision, no restore may be authorised regardless of the number of green synthetic tests.
 
+## 4A. Part27 peer challenges — bounded confidence, not an invented native receipt
+
+### C1: CS02's narrower deterministic native-handler window
+
+[CS02's pinned source review](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/168#issuecomment-6422207249) correctly identifies that `WorldSession.cpp:459–465` invokes `CanPacketReceive` and, if it returns true, immediately invokes `opHandle->Call` **on the same dispatch thread**. Pinned `HandlePetSpellAutocastOpcode` then follows a finite visible set of validations and deterministic state mutations. Public pinned Playerbots appears not to veto this opcode. This makes the **module-only route worth evaluating further**, rather than assuming a long scheduling gap exists before native dispatch.
+
+However, source-local immediacy is **not by itself** a proven accepted-command receipt. A script hook can short-circuit after the recording module's callback; a later callback could change relevant state or veto, the installed custom server may differ from the public pin, and the map update is still later than the handler and any IP/AI/script writes. A passing precheck plus matching later state cannot distinguish these paths. The earlier counterexamples remain *possible*, not confirmed incidents on the owner's actual server.
+
+**Source-only implementation acceptance matrix before a future owner-approved C1 candidate:**
+
+1. Confirm exact installed core/module commit and `CMSG_PET_SPELL_AUTOCAST` handler body, packet layout, call site and all other enabled `CanPacketReceive` implementations; automatically detect drift. Source pin alone is not a proof of actual deployment.
+2. Prove the candidate's hook order and whether **any later hook** can veto/mutate after it records; neither static public Playerbots inspection nor a later state snapshot proves this across all installed custom scripts. If unknown, **diagnostic / NoWrite**.
+3. Validate the exact current Hunter guardian pet and per-target spell store transition, not any extra same-entry controlled unit or SET_ACTION bar movement. A matching bar after the fact is necessary where present, but doesn't identify the causal writer.
+4. Establish serialized pre-observation/next-update ownership under **all eight map threads**, positive human-vs-attached-SelfBot mode at both boundaries, and rank consistency after IP work. No unlocked bot-map reads.
+5. Inject controlled counterexample traces in an approved **offline fake dispatcher** first: rejection by a later hook followed by an independent store toggle, accepted request followed by a later undo, source drift, rank replace, pet swap and stale OFF/ON. Require that no synthetic **matched** candidate is silently promoted into a genuine accepted manual receipt.
+6. If the owner separately authorizes an explicitly **lower-assurance** policy, give it a separate status/flag, disallow legacy-v1 promotion and enforce all remaining birth/human/IP checks; never rename `CandidateMatched` to `TrustedManualReceipt` by implication.
+
+This reconciles the owner-selected **no-core-hook** direction with a testable path for reducing uncertainty, without claiming a mathematically impossible native callback exists at the current module seam.
+
+### C2: CS02's proposed startup orphan reconciliation — conditional alternative only
+
+[CS02's follow-up](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6426071970) proposes deleting orphaned sidecar records at every restart *before logins* so PetNumber reuse cannot inherit a prior owner's preference. The public source offers supporting **limited** facts:
+
+- `ObjectMgr::LoadPetNumber` reads `MAX(id)` from `character_pet` and reseeds the in-memory monotonic counter; `GeneratePetNumber` increments it under a mutex. On a **single uninterrupted server process using only this allocator**, new numbers do not reuse a previous one.
+- Pinned `World.cpp:711–713` calls `LoadPetNumber` during startup, and `World.cpp:1033` invokes `OnBeforeWorldInitialized` later. That is a *candidate* reconciliation point, **not** confirmation of owner-supplied login gating, DB schema or verified cleanup completion.
+- Existing and newly identified delete paths are **not** all `Pet::DeleteFromDB`: `Pet::SavePetToDB` can broadly delete owner's current/overflow pet rows, and character removal deletes by owner; orphan cleanup may cover more than a single pet hook. A canonical row may be absent after an asynchronous transaction failure or disconnection, even when the player expected it saved.
+
+**What a safe conditional startup sweep would have to prove** (not implemented or owner-approved):
+
+1. Exactly one effective Worldserver owns the character DB lifecycle; no overlapping old/new process, external character import/restore, GM id reassignment or concurrent module sidecar writer. Explicitly account for custom Playerbots/Individual Progression and non-stock scripts.
+2. Sidecar/canonical identity checks cover BOTH owner and PetNumber and run **to successful confirmed completion before any pet preference can be loaded or any session logs in**; inability to read either store, interrupted cleanup, partial failure or migration mismatch means **all automatic restores stay OFF**. Never use a fire-and-forget delete then assume completion.
+3. Validate that a previously deleted top-number row cannot leave a sidecar record surviving the same startup sweep before the allocator can issue that recycled id. Include synthetic last-ID reuse, broad slot delete, player delete, crash/restart, async late write, and a full DB backup/rollback test plan.
+4. Verify the owner's actual DB/store topology. A module DB pool has an independent queue and may not be able to perform a safe atomic cross-database join against `CharacterDatabase`. No assumed SQL triggers, foreign keys or global ordering.
+5. A surviving `(owner, PetNumber)` pair is **continuity evidence under these controlled assumptions**, not independently certified pet birth, authenticated manual input or proof of a committed canonical pet-save transaction. Out-of-band restores or a reused same pair with a different physical pet would defeat orphan-only comparison; reject and quarantine if such operations are possible without a reconciliation epoch.
+6. The **remaining stale live preference** problem is separate: a canonical row may be asynchronously removed after the last sidecar read. A source-only bounded reconciliation design cannot make a subsequently deleted pet trustworthy by reading a previously valid pair. Do not promote to `TrustedCurrentBirth` absent a separately approved, invalidation-aware model.
+
+**Decision:** evaluate this as a promising **owner-selected module-only C2 research option**, not reject it a priori, but do **not** label it a permanent canonical birth certificate. No SQL, deletion routine, startup hook or server access is authorized by these notes.
+
 ## 5. Status and explicit gates
 
 | Gate | Direction or status | Work currently authorized |
