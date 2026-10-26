@@ -1,0 +1,63 @@
+name: "F15 R1/R3 owned-child producer (disposable children only)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tools/f15/r1r3_owned_child_producer.py'
+      - 'tests/test_f15_r1r3_owned_child_producer.py'
+      - 'tests/r1r3_fixture_child.py'
+      - 'docs/research/F15-R1R3-OWNED-CHILD-PRODUCER.md'
+      - '.github/workflows/f15-r1r3-owned-child-producer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f15-r1r3-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  CONTRACT_162: 2f27ac3a0a7aec397f364d93e4dc03075c255d90
+
+jobs:
+  disposable-children-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Child of exact #162; only the five prototype paths differ
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$CONTRACT_162" HEAD
+          git diff --quiet "$CONTRACT_162" HEAD -- src conf
+          allowed='tools/f15/r1r3_owned_child_producer.py
+          tests/test_f15_r1r3_owned_child_producer.py
+          tests/r1r3_fixture_child.py
+          docs/research/F15-R1R3-OWNED-CHILD-PRODUCER.md
+          .github/workflows/f15-r1r3-owned-child-producer.yml'
+          git diff --name-only "$CONTRACT_162" HEAD | while read -r path; do
+            printf '%s\n' "$allowed" | sed 's/^ *//' | grep -Fxq "$path" \
+              || { echo "unexpected changed path: $path"; exit 1; }
+          done
+      - name: Kernel primitives present on this runner
+        run: |
+          python3 -I -c "import os, sys; print(sys.version, os.uname().release); assert hasattr(os, 'pidfd_open') and hasattr(os, 'P_PIDFD')"
+      - name: Producer tests (real disposable Python children; no server binaries)
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_r1r3_owned_child_producer.py -v 2>&1 | tee /tmp/r1r3.txt
+          grep -Eq '^Ran 35 tests in [0-9.]+s$' /tmp/r1r3.txt
+          grep -qx 'OK' /tmp/r1r3.txt
+          ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/r1r3.txt
+      - name: Scope of proof
+        run: |
+          echo 'Kernel exit/identity and owned-pipe facts for disposable children this job spawns.'
+          echo 'No Worldserver/Authserver launched, no host, no signals sent by the producer, no reports, no restart.'
