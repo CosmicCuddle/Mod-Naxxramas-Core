@@ -1,0 +1,47 @@
+name: "F15 S4h owned disposable child stderr (OFFLINE ONLY)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tools/f15/offline_owned_stderr_s4h.py'
+      - 'tests/test_f15_offline_owned_stderr_s4h.py'
+      - 'docs/research/F15-S4H-OWNED-STDERR-PIPE-FIXTURE.md'
+      - '.github/workflows/f15-s4h-owned-stderr-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f15-s4h-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  disposable-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact source commit
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Confirm test-only scope (no game source, no privileged paths)
+        run: |
+          set -euo pipefail
+          test -f tools/f15/offline_owned_stderr_s4h.py
+          test -f tests/test_f15_offline_owned_stderr_s4h.py
+          ! grep -Eq '^[[:space:]]*-[[:space:]]*uses:[[:space:]]*actions/upload-artifact@' .github/workflows/f15-s4h-owned-stderr-offline.yml
+      - name: Fifteen owned Python child + bounded stderr tests; never launch services
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python3 -I -B tests/test_f15_offline_owned_stderr_s4h.py -v 2>&1 | tee /tmp/f15_s4h_test.log
+          grep -Eq '^Ran 15 tests in [0-9.]+s$' /tmp/f15_s4h_test.log
+          grep -qx 'OK' /tmp/f15_s4h_test.log
+          ! grep -Eq '^FAILED|^ERROR:|^OK \(skipped|^Ran [^1]|skipped=' /tmp/f15_s4h_test.log
+      - name: Declare nonproduction evidence limits
+        run: |
+          echo 'S4h PASS tests only the stderr PIPE of disposable Python children.'
+          echo 'No Worldserver/Authserver/GDB/systemd launch, true crash attestation, restart or report writing.'
