@@ -211,6 +211,89 @@ int main()
             "new certified incarnation has a separate bounded budget");
     }
 
+    // Part27 adversarial multi-chain case: the old single shared mutable
+    // AttemptBudget resets whenever the chain changes (60+ writes possible).
+    // The new caller-owned ledger must independently cap each chain.
+    {
+        AttemptLedger ledger;
+        auto bite = Manual();
+        auto claw = Manual();
+        claw.SpellChain = 16827;       // synthetic second chain
+        auto biteNow = Current();
+        auto clawNow = Current();
+        clawNow.AllowedSpellChain = 16827;
+        clawNow.AllowedSpellId = 16828;
+        for (uint64_t rev = 1; rev <= 10; ++rev)
+        {
+            biteNow.BookRevision = rev;
+            clawNow.BookRevision = rev;
+            for (unsigned attempt = 0; attempt < 2; ++attempt)
+            {
+                Check(DecideTracked(bite, biteNow, ledger) == Verdict::ApplyOn,
+                    "first chain retains separate attempts");
+                Check(RecordTrackedAttempt(ledger, bite, biteNow),
+                    "record first chain in bounded ledger");
+                Check(DecideTracked(claw, clawNow, ledger) == Verdict::ApplyOn,
+                    "second chain retains separate attempts");
+                Check(RecordTrackedAttempt(ledger, claw, clawNow),
+                    "record second chain in bounded ledger");
+            }
+            Check(DecideTracked(bite, biteNow, ledger) == Verdict::NoWrite,
+                "first chain has no third try in same book");
+            Check(DecideTracked(claw, clawNow, ledger) == Verdict::NoWrite,
+                "second chain has no third try in same book");
+        }
+        biteNow.BookRevision = 11;
+        clawNow.BookRevision = 11;
+        Check(DecideTracked(bite, biteNow, ledger) == Verdict::NoWrite,
+            "interleaved first chain still capped at twenty");
+        Check(DecideTracked(claw, clawNow, ledger) == Verdict::NoWrite,
+            "interleaved second chain still capped at twenty");
+        // Fresh manual OFF on Bite is not consumed by the previous ON.
+        auto off = bite;
+        off.Revision++;
+        off.Enable = false;
+        biteNow.LatestAcceptedRevision++;
+        biteNow.EnabledNow = true;
+        Check(DecideTracked(off, biteNow, ledger) == Verdict::ApplyOff,
+            "new manual OFF available after old ON hit cap");
+        Check(RecordTrackedAttempt(ledger, off, biteNow),
+            "new OFF records its own fresh revision budget");
+        Check(DecideTracked(claw, clawNow, ledger) == Verdict::NoWrite,
+            "new Bite OFF does not erase exhausted Claw budget");
+        auto reSummoned = clawNow;
+        reSummoned.Pet.SummonGeneration++;
+        reSummoned.Pet.ServerToken[3]++;
+        Check(DecideTracked(claw, reSummoned, ledger) == Verdict::ApplyOn,
+            "verified new incarnation receives a fresh budget");
+        Check(RecordTrackedAttempt(ledger, claw, reSummoned),
+            "new incarnation safely resets previous chain records");
+    }
+
+    // Bounded-memory failure is a NO-WRITE, not LRU eviction of a distinct
+    // chain's still active attempt history.
+    {
+        AttemptLedger bounded;
+        for (uint32_t chain = 1; chain <= kMaxTrackedChainsPerIncarnation; ++chain)
+        {
+            auto intent = Manual();
+            auto observation = Current();
+            intent.SpellChain = chain;
+            observation.AllowedSpellChain = chain;
+            observation.AllowedSpellId = chain;
+            Check(RecordTrackedAttempt(bounded, intent, observation),
+                "fill finite source-only chain ledger");
+        }
+        auto extraIntent = Manual();
+        auto extraObs = Current();
+        extraIntent.SpellChain = 100000;
+        extraObs.AllowedSpellChain = 100000;
+        extraObs.AllowedSpellId = 100000;
+        Check(DecideTracked(extraIntent, extraObs, bounded) == Verdict::NoWrite,
+            "unknown 33rd chain fails closed with full ledger");
+        Check(!RecordTrackedAttempt(bounded, extraIntent, extraObs),
+            "full ledger cannot record overflow attempt");
+    }
     // Never infer real-human proof from a typed boolean on the wire:
     // Owner and TrustedManualReceipt are out-of-band *unresolved* production inputs.
     std::cout << "A02 source-only intent fence: " << checked - failed
