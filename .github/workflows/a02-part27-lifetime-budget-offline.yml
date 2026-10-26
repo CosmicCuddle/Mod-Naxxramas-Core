@@ -1,0 +1,52 @@
+name: A02 Part27 lifetime retry model (standalone only)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/HunterPetAutocastLifetimeBudgetModel.h'
+      - 'tests/hunter_pet_autocast_lifetime_budget.cpp'
+      - 'docs/research/A02-PART27-CROSS-INCARNATION-RETRY-REVIEW.md'
+      - '.github/workflows/a02-part27-lifetime-budget-offline.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  lifetime-source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Pin exact PR head and parent model scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git rev-parse HEAD:src/Systems/HunterPetAutocastIntentFence.h)" = "838584cbe9076079174fbdc6f374c7cc90278201"
+          test "$(git rev-parse HEAD:src/Systems/HunterPetAutocast.cpp)" = "d722112f19bb167e93cc35d56fbe8f580e56f0df"
+          test "$(git rev-parse HEAD:src/Systems/HunterPetAutocastAddon.h)" = "eb6dff5c1380a5ebdf837faaa415b0294b01a8d1"
+          test "$(git rev-parse HEAD:src/Systems/HunterPetAutocastPolicy.h)" = "e6148d6b1afac39bc3e8a48c0becd81f45b5f177"
+          test "$(git rev-parse HEAD:src/NaxxramasCore_loader.cpp)" = "72f235241b3494ba3b824049b3f805a5bb91d7f0"
+          test "$(git rev-parse HEAD:conf/mod_naxxramas_core.conf.dist)" = "730391a5d84516a4f80f768a216b4e218c727b4f"
+          grep -Fq 'NOT MODULE CODE' src/Systems/HunterPetAutocastLifetimeBudgetModel.h
+          ! grep -Eq '#include "(Pet|Player|ScriptMgr|World|Playerbots)\.h"' src/Systems/HunterPetAutocastLifetimeBudgetModel.h
+      - name: Strict C++17 and C++20 cross-incarnation retry fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          for standard in c++17 c++20; do
+            g++ -std="$standard" -Wall -Wextra -Werror -pedantic \
+              -Isrc/Systems tests/hunter_pet_autocast_lifetime_budget.cpp \
+              -o "/tmp/a02_lifetime_$standard"
+            "/tmp/a02_lifetime_$standard" | tee "/tmp/a02_lifetime_$standard.txt"
+            grep -Eq '^A02 cross-incarnation retry model: [0-9]+/[0-9]+ assertions passed \(UNWIRED, not gameplay\)$' "/tmp/a02_lifetime_$standard.txt"
+          done
+      - name: Proof limitations
+        run: |
+          echo 'NO real pet birth, accepted client command, SelfBot exclusion or IP rank completion evidence.'
+          echo 'NO Worldserver build/launch, SQL, writer, host, core or deployment.'
+          echo 'Lifetime ledger loses state across server restart; missing durable birth => no automatic restore.'
