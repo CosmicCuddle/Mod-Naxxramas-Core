@@ -366,19 +366,29 @@ namespace
         NaxxramasHunterPetAutocastAddonScript()
             : PlayerScript("NaxxramasHunterPetAutocastAddonScript",
                 {
-                    PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE,
+                    PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT,
                     PLAYERHOOK_ON_LOGIN,
                     PLAYERHOOK_ON_LOGOUT
                 })
         {
         }
 
-        void OnPlayerBeforeSendChatMessage(Player* player, uint32& type, uint32& lang, std::string& msg) override
+        // Pinned core 8daffdabe: Player::Whisper resolves the receiver before
+        // invoking this overload. The old BeforeSend hook ran before recipient
+        // resolution and could not prove that an addon whisper targeted self.
+        // This proves session-owned sender -> same receiver only; it does NOT
+        // authenticate a physical manual pet-autocast click or a live human
+        // rather than an attached SelfBot.
+        using PlayerScript::OnPlayerCanUseChat;
+        bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 lang,
+                                std::string& msg, Player* receiver) override
         {
             if (!AddonOptInEnabled.load(std::memory_order_acquire))
-                return;
-            if (!player || type != CHAT_MSG_WHISPER || lang != LANG_ADDON)
-                return;
+                return true;
+            if (!player || !receiver || receiver != player
+                || type != CHAT_MSG_WHISPER || lang != LANG_ADDON)
+                return true;
+
             AddonStore().Accept(
                 player->GetGUID().GetCounter(),
                 player->IsClass(CLASS_HUNTER),
@@ -386,6 +396,7 @@ namespace
                 NowMs(),
                 &LookupPetSpell,
                 nullptr);
+            return true; // Never alter stock whisper dispatch or chat policy.
         }
 
         void OnPlayerLogin(Player* player) override
