@@ -20,6 +20,24 @@ The canonical parser also **rejects legacy text bytes**. Legacy `Incident.metada
 
 **Implication:** there is no validated, lossless adapter, no selected runtime classification policy and no trustworthy service-origin proof. Neither importing the separate canonical schema into the legacy store nor relabeling exit code 139 as SIGSEGV is safe. Never call `Incident.is_reportable()` an authentic kernel crash classifier; it assumes the caller has already provided verified death facts. Do not change historical legacy report bytes/headings in place: that would invalidate previously finalized hashes and may break existing duplicate/history readers.
 
+## Newly verified warning/error mismatch: declared lines are not bursts
+
+Independent comparison uses **actual functions in both pinned drafts**, not a guessed adapter: `report_schema.py` `derive_event_types` from #171, `OfflineBurstTracker.observe` and `LogEvidence.checked` from the same #182 offline stack, and `ErrorBurstObservation.checked` in its S4c store. The canonical helper is exercised with a minimal **source-shaped** fixture to show event derivation; that minimal object is not misrepresented as a full parsed, validated JSON report.
+
+| Input / origin | Canonical v1 #171 | S4b/S4c offline store #182 | Required future safe choice |
+| --- | --- | --- | --- |
+| **ONE** declared-prefix WARN line | `declared_warning_lines` present | `OfflineBurstTracker` default threshold **3**: `ignored`, no burst alert | Do not save a warning **burst** for merely one line; decide separate line-event policy |
+| Three WARN lines in 60s, **same category** | Still one document-level `declared_warning_lines` event | Third qualifying sample emits one `BurstAlert`, fourth suppressed by hysteresis/cooldown | Requires independently verified stream, monotonic uptime, increasing per-stream seq, category and threshold policy |
+| Three ERROR lines in 60s, **different codes** | `declared_error_lines` present | No group meets threshold; all three ignored for burst | Canonical schema lacks the S4b category `code` and time/seq per line |
+| Declared FATAL line | Canonical `FATAL` counts as `declared_error_lines` | S4b `LEVELS` includes only `WARN`, `ERROR`; `LogEvidence.checked` REJECTS `FATAL` | Never silently drop a FATAL record or masquerade as a verified kernel crash; explicit owner policy needed |
+| Severity `unknown` from unprefixed route | No declared warning/error event from that record | Offline model rejects `unknown` as not WARN/ERROR | Stream hint or stderr alone must not create invented severity |
+| Console pipe versus file log | Canonical stream objects only `stdout`, `stderr` | S4b permits `world-log`, `auth-log` | New authenticated file-log origin, rotation and event timestamp policy needed; do not pretend files are owned pipes |
+| Verified origin flag | Canonical identity and source strings label intended waitid/pipe evidence but are not cryptographic proof | S4b accepts a **caller-made** `verified-stream-fixture` string and `verified_stream=True`; S4c accepts caller `verified=True` | Permission separation / actual trusted producer and writer approval required |
+
+**Missing information for a lossless bridge:** canonical v1 `record` has `line`, `stream`, `severity`, `severity_source`, `severity_hint`, `truncated`, and retained `message_bytes`; it does not provide S4b's monotonic `uptime_ms`, strict per-stream `seq` or stable bounded safe category `code`. **Do not derive uptime from wall time, construct a fake sequence from the JSON line ordinal, or use raw message text for category classification.** S4b's result also has an independent per-instance lifecycle and cooldown/tombstones. A schema design decision is required before a meaningful warning/error burst event exists; no selected policy or adapter is being shipped.
+
+**Nine further source-and-model negative controls** document one-line versus burst, same/different category timing, canonical FATAL asymmetry, unknown severity, unauthenticated Boolean provenance, extra file streams, missing timestamp/category/sequence semantics and S4c's caller-created `verified` value. Alongside the prior 12 crash/format tests, the dedicated cross-stack test count is now **21**; the inherited 158 offline safety tests remain required. These tests cannot demonstrate that either real daemon wrote a WARN/ERROR line.
+
 ## Integration decisions that must precede any code
 
 1. **Select event vocabulary with explicit owner policy.** Proposed safe distinction: `fatal_signal_crash` only for positively attested fatal child signal; `unexpected_nonsignal_exit` for exits like 1/139 (Worldserver's status 2 requires review); `uncertain_signal` for SIGTERM not approved as an ordinary stop; separately `declared_warning_lines`, `declared_error_lines` and `source_incomplete`. These are *proposal labels*, not an approved schema.
