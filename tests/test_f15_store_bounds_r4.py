@@ -248,6 +248,103 @@ class OfflineStoreBounds(unittest.TestCase):
         self.assertFalse(self.store.publish(crash(1)))
         self.assertFalse(self.store.publish_error(burst(1)))
 
+    def test_crowded_directory_blocks_new_crash_and_error_without_removal(self):
+        # Extra unrelated entries DO count toward scanner safety, even
+        # when none is a recognized final report. Lock file counts too.
+        unrelated = [self.root / f"unrelated-{i}" for i in range(8)]
+        for f in unrelated:
+            f.write_text("preserve", encoding="utf-8")
+        with patch("offline_store.MAX_DIRECTORY_SCAN_ENTRIES", 8):
+            with self.assertRaisesRegex(OverflowError, "scan budget"):
+                self.store.publish(crash(1))
+            with self.assertRaisesRegex(OverflowError, "scan budget"):
+                self.store.publish_error(burst(1))
+        self.assertEqual(self.store.offline_rejections()["capacity"], 2)
+        self.assertEqual(self.finals(), [])
+        self.assertFalse(list(self.root.glob(".f15-s2-*")))
+        for f in unrelated:
+            self.assertEqual(f.read_text(encoding="utf-8"), "preserve")
+        # No auto-purge; once temporary test-specific cap is raised,
+        # a new report can be published normally.
+        self.assertTrue(self.store.publish(crash(1)))
+
+    def test_crowded_rebuilds_keep_final_report_and_existing_history(self):
+        self.assertTrue(self.store.publish(crash(1)))
+        self.assertTrue(self.store.publish_error(burst(1)))
+        snapshots = {
+            p.name: p.read_bytes() for p in
+            (self.finals() + [self.root / "Crash-History.txt",
+                              self.root / "Error-History.txt"])
+        }
+        for i in range(9):
+            (self.root / f"extra-{i}").write_text("unrelated", encoding="utf-8")
+        with patch("offline_store.MAX_DIRECTORY_SCAN_ENTRIES", 5):
+            with self.assertRaisesRegex(OverflowError, "scan budget"):
+                self.store.rebuild()
+            with self.assertRaisesRegex(OverflowError, "scan budget"):
+                self.store.rebuild_errors()
+        for name, old in snapshots.items():
+            self.assertEqual((self.root / name).read_bytes(), old)
+        self.store.rebuild()
+        self.store.rebuild_errors()
+        self.assertEqual({name: (self.root / name).read_bytes()
+                          for name in snapshots if "-crash-" in name
+                          or name.startswith("error-burst-")},
+                         {name: data for name, data in snapshots.items()
+                          if "-crash-" in name or name.startswith("error-burst-")})
+
+    def test_sidecar_scan_cannot_bypass_directory_limit(self):
+        # Explicitly exercise the inherited S3 restart projection path,
+        # independently of earlier report scans.
+        for i in range(6):
+            (self.root / f"restart-sidecar-synthetic-{i}.txt").write_text(
+                "not a verified sidecar", encoding="utf-8")
+        with patch("offline_store.MAX_DIRECTORY_SCAN_ENTRIES", 5):
+            with self.store._locked():
+                with self.assertRaisesRegex(OverflowError, "scan budget"):
+                    self.store._sidecars({})
+        self.assertEqual(len(list(self.root.glob("restart-sidecar-*"))), 6)
+
+    def test_abandoned_temp_reaper_aborts_before_removal_if_scan_crowded(self):
+        # A compatible orphan temp with older mtime must be left alone
+        # while the bounded scanner refuses the directory.
+        candidate = self.root / (".f15-s2-" + "a" * 32)
+        candidate.write_bytes(b"disposable-diagnostic-fixture")
+        import time
+        os.utime(candidate, (time.time() - 86400 * 2, time.time() - 86400 * 2))
+        for i in range(6):
+            (self.root / f"filler-{i}").write_bytes(b"x")
+        with patch("offline_store.MAX_DIRECTORY_SCAN_ENTRIES", 5):
+            with self.assertRaisesRegex(OverflowError, "scan budget"):
+                self.store.rebuild_errors()
+        self.assertTrue(candidate.exists())
+        self.assertEqual(candidate.read_bytes(), b"disposable-diagnostic-fixture")
+
+    def test_lazy_scan_stops_after_limit_plus_one_names(self):
+        # A synthetic iterator guards against a future regression to
+        # a full unbounded materialization BEFORE the size is checked.
+        from types import SimpleNamespace
+        seen = []
+        class SyntheticScandir:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def __iter__(self):
+                for i in range(100000):
+                    seen.append(i)
+                    yield SimpleNamespace(name=f"synthetic-entry-{i}")
+
+        with patch("offline_store.MAX_DIRECTORY_SCAN_ENTRIES", 3):
+            with patch("offline_store.os.scandir",
+                       return_value=SyntheticScandir()):
+                with self.assertRaisesRegex(OverflowError, "scan budget"):
+                    self.store._dir_names_bounded()
+        self.assertEqual(seen, [0, 1, 2, 3])
+        self.assertEqual(self.finals(), [])
+
     def test_hostile_symlink_named_as_report_is_never_overwritten(self):
         external = Path(self.tmp.name) / "outside-sentinel"
         external.write_text("keep", encoding="utf-8")

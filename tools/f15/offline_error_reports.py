@@ -145,7 +145,7 @@ class OfflineErrorReportStore(RestartSidecarStore):
         Never follow symlinks, and never remove unrelated names.
         """
         found = False
-        for name in os.listdir(self._fd):
+        for name in self._dir_names_bounded():
             if not re.fullmatch(r"\.f15-s2-[0-9a-f]{32}", name):
                 continue
             try:
@@ -164,7 +164,7 @@ class OfflineErrorReportStore(RestartSidecarStore):
         # Unexpected names are counted, NEVER echoed in text (newline/escape
         # path injection could otherwise corrupt the human index).
         valid, invalid = {}, []
-        for name in os.listdir(self._fd):
+        for name in self._dir_names_bounded():
             if not (name.startswith("error-burst-") and name.endswith(".txt")):
                 continue
             if not ERROR_FILE.fullmatch(name):
