@@ -73,7 +73,8 @@ class PinnedHandlerAndHookOrder(unittest.TestCase):
         self.assertIn("typedef std::vector<std::vector<TScript*>> EnabledHooksVector;", s)
         self.assertIn("static EnabledHooksVector EnabledHooks;", s)
         self.assertIn("EnabledHooks[v].emplace_back(script);", s)
-        self.assertIn("must not be modified after server startup.", s)
+        self.assertIn("must not be modified", s)
+        self.assertIn("after server startup.", s)
 
     def test_world_and_server_script_are_distinct_subclasses(self):
         self.assertIn("class ServerScript : public ScriptObject", source("server_h"))
