@@ -32,7 +32,10 @@ FEATURE_BLOBS = {
     "docs/research/F14-WHO-LISTING-S1.md": "767aa33d9e145fd20ba1352aa544034351536cb5",
 }
 P0_BLOBS = {
-    "src/Systems/BotRaidConsumables.cpp": "fcc6e7e4c5f8b7fbe11adbac723abf69b5ea0920",
+    # Limited post-#160 GFPP config data-race review overlay. Original #160
+    # immutable blob fcc6e7e4c5f8b7fbe11adbac723abf69b5ea0920 is
+    # preserved in parent PR; all OTHER P0 and feature blobs stay pinned.
+    "src/Systems/BotRaidConsumables.cpp": "c0ac7da1d6a2d94a694ec9560371ef7085ad32f9",
     "src/Systems/CrossMapAuraQueue.h": "a92d974ee4ac865a92e68eae333cb52438979058",
     "src/Systems/BotGolemaggReachGuard.cpp": "0d36278104126820142b83328ebd55773196b4b0",
     "src/Systems/HonorOverflow.cpp": "812037978847d3977bfdb1f0d3a3e7da4b6405ca",
