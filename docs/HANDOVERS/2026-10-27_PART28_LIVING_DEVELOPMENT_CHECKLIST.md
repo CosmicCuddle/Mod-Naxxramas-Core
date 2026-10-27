@@ -11,6 +11,10 @@
 - [x] Preparation checkpoint: main **80e9de1**; protected frozen #160 **a7523eb**, still OPEN DRAFT UNMERGED at 27 Oct read. No merge/deploy by CS01.
 - [x] Record post-checkpoint activity: #173 first `80feb4a` [14/14](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40496349909), now **`8b35ae4` [18/18](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40497891982)**. Both are source-only CI successes; three changed paths remain test/CI/memo. Main `80e9de1` and frozen #160 `a7523eb` unchanged; #173 OPEN DRAFT.
 
+## Owner-ready staging preparation (three implemented features)
+
+- [x] **Part28 owner-gated gameplay acceptance worksheet prepared**, **NOT EXECUTED**: [GFPP 120 seconds / F12 Scarlet 610↔604 and 612↔606 / F13 Atiesh exterior](../pilots/PART28-THREE-FEATURE-OWNER-STAGING-ACCEPTANCE.md). Written against frozen combined DRAFT [#160](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/160) exact `a7523ebb823169edc969d971d00aa293119f2f05`, verified [same-executable pinned full Worldserver assembly 40229204745](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40229204745) SUCCESS. Separates each feature's positive/negative tests, exact owner-private installed revision and restore-tested backup approval, before/after/rollback, and explicitly excludes A02, A04 and F15. **No staging host, command, configs, SQL, DBC, server, player or daemon touched; 0/3 owner pilot tests started.** Source/build readiness is not owner runtime eligibility or acceptance.
+
 ## Combined five mandatory gameplay fixes — **0/5 owner-signed together**
 
 - [ ] GFPP exactly **120 seconds**: owner timing/gameplay acceptance.
