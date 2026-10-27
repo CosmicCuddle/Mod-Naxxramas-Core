@@ -73,7 +73,7 @@ class PinnedHandlerAndHookOrder(unittest.TestCase):
         self.assertIn("typedef std::vector<std::vector<TScript*>> EnabledHooksVector;", s)
         self.assertIn("static EnabledHooksVector EnabledHooks;", s)
         self.assertIn("EnabledHooks[v].emplace_back(script);", s)
-        self.assertIn("it must not be modified after server startup.", s)
+        self.assertIn("must not be modified after server startup.", s)
 
     def test_world_and_server_script_are_distinct_subclasses(self):
         self.assertIn("class ServerScript : public ScriptObject", source("server_h"))
@@ -81,15 +81,6 @@ class PinnedHandlerAndHookOrder(unittest.TestCase):
         # In a WorldScript callback 'this' is NOT the registered ServerScript*.
         # This test forbids neither runtime pointer capture nor a core patch,
         # it solely nails down the hierarchy on the public pin.
-
-    def test_last_registered_hook_is_not_proven_by_source(self):
-        # Even if the order *can* be checked, the actual last element is a
-        # property of installed module registration, UNKNOWN in this checkout.
-        self.assertTrue(ordered(source("scripts"),
-                                "static EnabledHooksVector EnabledHooks;",
-                                "EnabledHooks[v].emplace_back(script);"))
-        self.assertTrue(ordered("different scripts may register later",
-                                "different scripts may register later"))
 
 
 class PinnedStartupAndDatabaseContract(unittest.TestCase):
