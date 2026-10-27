@@ -13,6 +13,7 @@ PIN = "8daffdabe9202c228e45d833c9a1d399597a15cd"
 ROOT = Path(os.environ.get("A02_PINNED_CORE", "acore"))
 FILES = {
     "dispatch": "src/server/game/Server/WorldSession.cpp",
+    "opcodes": "src/server/game/Server/Protocol/Opcodes.cpp",
     "hooks": "src/server/game/Scripting/ScriptMgrMacros.h",
     "scripts": "src/server/game/Scripting/ScriptMgr.h",
     "server": "src/server/game/Scripting/ScriptDefines/ServerScript.cpp",
@@ -49,14 +50,60 @@ def source(name):
 
 
 class PinnedHandlerAndHookOrder(unittest.TestCase):
-    def test_native_handler_dispatch_immediately_follows_packet_hooks(self):
-        self.assertTrue(ordered(source("dispatch"),
-            "if (!sScriptMgr->CanPacketReceive(this, *packet)) break;",
-            "opHandle->Call(this, *packet);"))
-        self.assertFalse(ordered(
-            "opHandle->Call(this, *packet); if (!sScriptMgr->CanPacketReceive(this, *packet)) break;",
-            "if (!sScriptMgr->CanPacketReceive(this, *packet)) break;",
-            "opHandle->Call(this, *packet);"))
+    def test_native_handler_call_is_adjacent_after_accepted_packet_hooks(self):
+        # Lexical source-drift guard: none of the four stock dispatch branches
+        # may insert code between the positive hook result and native Call.
+        s = source("dispatch")
+        guard = re.compile(
+            r"if\s*\(!sScriptMgr->CanPacketReceive\(this,\s*\*packet\)\)"
+            r"\s*break;\s*opHandle->Call\(this,\s*\*packet\);"
+        )
+        self.assertEqual(s.count("if (!sScriptMgr->CanPacketReceive(this, *packet))"), 4)
+        self.assertEqual(len(guard.findall(s)), 4)
+        self.assertIsNone(guard.search(
+            "if (!sScriptMgr->CanPacketReceive(this, *packet)) "
+            "break; InterposedWriter(); opHandle->Call(this, *packet);"
+        ))
+
+    def test_three_pet_opcode_handlers_keep_expected_status_and_threads(self):
+        # A change in any native opcode routing must invalidate C1 assumptions.
+        s = source("opcodes")
+        for opcode, processing, handler in (
+            ("CMSG_PET_SPELL_AUTOCAST", "PROCESS_INPLACE", "HandlePetSpellAutocastOpcode"),
+            ("CMSG_PET_ACTION", "PROCESS_THREADSAFE", "HandlePetAction"),
+            ("CMSG_PET_SET_ACTION", "PROCESS_THREADUNSAFE", "HandlePetSetAction"),
+        ):
+            with self.subTest(opcode=opcode):
+                pattern = (
+                    r"(?m)^\s*/\*0x[0-9A-Fa-f]+\*/\s*DEFINE_HANDLER\(\s*"
+                    + re.escape(opcode) + r"\s*,\s*STATUS_LOGGEDIN\s*,\s*"
+                    + re.escape(processing) + r"\s*,\s*&WorldSession::"
+                    + re.escape(handler) + r"\s*\);"
+                )
+                self.assertEqual(len(re.findall(pattern, s)), 1)
+
+    def test_map_and_world_session_filters_keep_packet_routing(self):
+        s = source("dispatch")
+        m = re.search(
+            r"(?ms)^bool MapSessionFilter::Process\(WorldPacket\* packet\)"
+            r"\s*\{(.*?)^\}", s
+        )
+        w = re.search(
+            r"(?ms)^bool WorldSessionFilter::Process\(WorldPacket\* packet\)"
+            r"\s*\{(.*?)^\}", s
+        )
+        self.assertIsNotNone(m)
+        self.assertIsNotNone(w)
+        self.assertTrue(ordered(m.group(1),
+            "if (opHandle->ProcessingPlace == PROCESS_INPLACE) return true;",
+            "if (opHandle->ProcessingPlace == PROCESS_THREADUNSAFE) return false;",
+            "return player->IsInWorld();"))
+        self.assertTrue(ordered(w.group(1),
+            "if (opHandle->ProcessingPlace == PROCESS_INPLACE) return true;",
+            "if (opHandle->ProcessingPlace == PROCESS_THREADUNSAFE) return true;",
+            "return !player->IsInWorld();"))
+        # Thread affinity is CONDITIONAL on caller and session state.
+        # This check does not certify ownership under eight map workers.
 
     def test_hook_macro_is_ordered_and_short_circuits_on_false(self):
         s = compact(source("hooks"))
@@ -117,9 +164,14 @@ class PinnedStartupAndDatabaseContract(unittest.TestCase):
 
     def test_pet_save_has_two_distinct_async_transaction_commits(self):
         s = source("pet")
-        at = s.find("void Pet::SavePetToDB(PetSaveMode mode)")
-        self.assertGreaterEqual(at, 0)
-        body = s[at:at + 4200]
+        # Do not use an arbitrary character window that can truncate the
+        # second canonical-row commit as the upstream function grows.
+        match = re.search(
+            r"(?ms)^void Pet::SavePetToDB\(PetSaveMode mode\)\s*\{"
+            r"(?P<body>.*?)^void Pet::DeleteFromDB\(", s
+        )
+        self.assertIsNotNone(match)
+        body = match.group("body")
         self.assertGreaterEqual(body.count("CharacterDatabase.CommitTransaction(trans);"), 2)
         self.assertIn("CHAR_DEL_CHAR_PET_BY_SLOT", body)
         self.assertIn("CHAR_REP_CHAR_PET", body)
