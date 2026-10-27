@@ -833,6 +833,18 @@ namespace
 
     std::atomic<bool> CrossMapAuraSafetyEnabled{ false };
 
+    // The one-shot switch is read by PLAYERHOOK_ON_UPDATE (map workers).
+    // ConfigMgr can be reloaded on the world thread, so do not read its
+    // mutable option map from the timer or command paths. Preserve the
+    // previous hot-reload behavior through this atomic snapshot.
+    std::atomic<bool> GreaterFireProtectionOneShotEnabled{ false };
+
+    bool IsGreaterFireProtectionOneShotEnabled()
+    {
+        return GreaterFireProtectionOneShotEnabled.load(
+            std::memory_order_relaxed);
+    }
+
     NaxxramasCrossMapAura::RemovalQueue CrossMapAuraRemovals;
 
     bool IsCrossMapAuraSafetyEnabled()
@@ -1189,9 +1201,7 @@ namespace
             return;
         }
 
-        if (!sConfigMgr->GetOption<bool>(
-                "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled",
-                false) || !spellId)
+        if (!IsGreaterFireProtectionOneShotEnabled() || !spellId)
         {
             return;
         }
@@ -3308,9 +3318,7 @@ void PrepareManaUser(
 
             // A config reload that disables this feature also
             // suppresses an already scheduled refresh attempt.
-            if (!sConfigMgr->GetOption<bool>(
-                    "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled",
-                    false))
+            if (!IsGreaterFireProtectionOneShotEnabled())
             {
                 continue;
             }
@@ -4890,6 +4898,12 @@ public:
         CrossMapAuraSafetyEnabled.store(
             sConfigMgr->GetOption<bool>(
                 "NaxxramasCore.BotConsumables.CrossMapAuraSafety",
+                false),
+            std::memory_order_relaxed);
+
+        GreaterFireProtectionOneShotEnabled.store(
+            sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled",
                 false),
             std::memory_order_relaxed);
     }
