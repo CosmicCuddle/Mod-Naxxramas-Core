@@ -1,0 +1,29 @@
+# F15 Part29 — directory inode dual-lock (synthetic, no host)
+
+**ISOLATED DRAFT / OFFLINE FIXTURE ONLY. NOT an F15 operational monitor. DO NOT MERGE, DEPLOY, TOUCH AN OWNER SERVER, SQL, OS SERVICES OR PRODUCTION LOGS.** This child is stacked on unmodified [PR #181](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/181) `07dd882ab690165807793fa43d96a85f41c84a7e`; no real Worldserver/Authserver process, supervisor, launcher, service unit, `/root` directory or private character/world data has been used.
+
+## Problem, reproduction and narrow improvement
+
+Original `IncidentStore._locked()` flocked only a **named file**, `.f15.offline.lock`, beneath a pinned report directory. The lock file itself is mode 0600, `O_NOFOLLOW`, owner-checked and link-count checked, but the directory is deliberately owned and writable by the **writer UID** (0700). That UID can rename the lock file *while the first publisher still holds its inode*, create a new same-named file and obtain another `flock` on the new inode. Two cooperating file-lock-only publishers can thereby enter independent critical sections despite each apparently acquiring `.f15.offline.lock`. Path and `st_nlink` checks alone do not prove one stable lock domain.
+
+On the disposable Linux test environment, `flock(LOCK_EX|LOCK_NB)` on a **separately opened descriptor of the pinned directory inode** blocks a second descriptor, even though both directory opens use `os.open('.', O_RDONLY|O_DIRECTORY|O_NOFOLLOW, dir_fd=pinned_fd)`. This gives modern cooperating publishers a locking object whose identity is the already-pinned report directory itself, not a replaceable named lock.
+
+The child changes only `IncidentStore._locked()` to acquire **both locks in fixed order**: (1) a **fresh open-file description of the same pinned directory inode**, compare `st_dev/st_ino` against the root FD and `flock` it, then (2) open and validate the legacy `.f15.offline.lock` with `O_NOFOLLOW`, owner/mode/link validation and `flock` it. Both acquisitions share the **same existing 5-second monotonic deadline**. Releases are reversed; all opened FDs are closed on every normal or exceptional exit. A fresh `os.open` (not `os.dup`) is essential: `flock` is per open file description and `dup` would not serialize threads sharing one `IncidentStore` instance.
+
+**Compatibility:** retaining the named-file lock continues to synchronize with an older cooperating S2/S3/S4c offline writer that uses only the legacy file lock **so long as it has not been replaced**. New-versus-new publishers remain serialized by the directory lock even if the legacy file is replaced. **Mixed old/new publishers after legacy lock replacement are not safe**; never run mixed versions on the owner host without explicit, reviewed migration. No false assertion that all F15 historical versions use this lock protocol.
+
+**Fail closed:** Linux filesystems that refuse directory `flock` (for example `EOPNOTSUPP`) cause an exception before any new report is published; no fallback silently downgrades to name-only locking. If the directory FD identity does not match the originally pinned root, fail before writes. The 5-second deadline still applies across *both* locks; `TimeoutError` increments only the process-local nonauthenticated rejection counter. Existing finalized reports remain immutable; no automatic directory/lock replacement, retention, cleanup, deletion or restart is introduced.
+
+## Source-only regression and retained controls
+
+New `tests/test_f15_directory_inode_flock_p29.py` supplies **six** disposable regressions: (1) subprocess holds both locks, same-UID fixture renames and recreates legacy lock; independent publisher must time out despite the new named file being independently lockable; (2) an older named-file-only lock holder must still block the dual-lock writer; (3) two threads sharing the same store must not enter concurrently; (4) injected unsupported directory flock fails closed; (5) an independently opened store's pinned directory identity remains unchanged after a named-lock swap; and (6) normal publish/replay remains idempotent. These tests deliberately do **not** attack/report actual owner files and never treat passing fixture races as a complete hostile same-UID security boundary.
+
+The updated exact-head GitHub Action must pass **six new tests**, plus the inherited **16 bounded storage/directory tests and 135 S2/S3/S4b/S4c tests**, and the inherited separate F15 workflows at that exact commit. These tests do not run systemd, root, journal readers, Worldserver or Authserver.
+
+## Remaining F15 blockers — DO NOT MARK OPERATIONAL
+
+- Advisory locks are **not access control**: a malicious process running as the same UID can ignore either lock entirely and can usually mutate private files in a directory owned by that UID. A trusted owner-approved privilege/UID separation and monitoring architecture remains required. Lock identity changes outside the pinned directory and mixed legacy writers require separate integration review.
+- No authentic approved Worldserver/Authserver event collector, launcher identities, termination provenance, true positive daemon binding, warning/error intake, durable authenticated overflow, retention/archival plan, timestamp trust, canonical JSON/text format unification, reviewed least privilege layout or verified owner-stage fault injection.
+- The current 4,096-entry directory budget and report count/bytes ceilings are **offline fail-closed backpressure**, not a disk quota. An unsupported filesystem, over-limit legacy folder, or contested locks results in refused logging until the owner independently resolves it; that may reduce monitor availability. No claim World/Auth capture is working.
+
+Protected combined gameplay PR #160, parent #181 and `main` remain unchanged. All five owner gameplay features remain 0/5 accepted; F15 is separate. Claude is on a break and no external review task is automatically performed.
