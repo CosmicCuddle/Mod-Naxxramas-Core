@@ -31,7 +31,7 @@ NOT_TESTED_CLAIMS = (
 )
 
 OWNER_LOOKUP = (
-    "        Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);"
+    "        Player* owner = ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer);"
 )
 
 # Each snippet is a fail-open permit. Denial (return false) must come later.
@@ -51,16 +51,25 @@ PRESENCE_FAIL_OPEN = (
 
 
 def presence_fail_open(source):
-    """True when every presence guard permits and the deny is still last."""
-    deny = source.rfind("return false;")
-    if deny < 0:
+    """Verify the LEGACY quest-slot guard, not an earlier ordinary-slot deny.
+
+    A04's new independently gated ordinary-slot branch may have its own
+    SendLootError before the legacy owner lookup. Anchor every check to
+    that owner lookup, or the old tests accidentally reject a safe extra
+    branch without actually checking the legacy fail-open semantics.
+    """
+    at_owner = source.find(OWNER_LOOKUP)
+    if at_owner < 0 or source.count(OWNER_LOOKUP) != 1:
         return False
-    locked = source.find("player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED)")
-    if locked < 0 or locked > deny:
+    locked = source.find(
+        "player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED)", at_owner
+    )
+    deny = source.find("return false;", locked)
+    if locked < at_owner or deny < locked:
         return False
     for snippet in PRESENCE_FAIL_OPEN:
-        at = source.find(snippet)
-        if at < 0 or at > locked:
+        at = source.find(snippet, at_owner)
+        if at < 0 or at >= locked:
             return False
     return "Distance and death are not extra denies" in source
 
@@ -401,14 +410,23 @@ class QuestLootProtectionContract(unittest.TestCase):
         start = CPP.index("bool CanPacketReceive")
         body = CPP[start:]
         opcode = body.index("packet.GetOpcode() != CMSG_AUTOSTORE_LOOT_ITEM")
-        enabled = body.index("!NaxxramasQuestLootProtection::Enabled()")
         size = body.index("packet.size() < 1")
+        legacy = body.index("NaxxramasQuestLootProtection::Enabled()")
+        hidden = body.index("NaxxramasQuestLootProtection::RestrictHiddenOrdinarySlots()")
+        reject_off = body.index("if (!legacyQuestTurnEnabled && !hiddenOrdinarySlotEnabled)")
         copy = body.index("WorldPacket copy(packet)")
         read = body.index("copy >> requestedSlot")
-        self.assertLess(opcode, enabled)
-        self.assertLess(enabled, size)
-        self.assertLess(size, copy)
+        self.assertLess(opcode, size)
+        self.assertLess(size, legacy)
+        self.assertLess(legacy, hidden)
+        self.assertLess(hidden, reject_off)
+        self.assertLess(reject_off, copy)
         self.assertLess(copy, read)
+        # New pilot is independent: ON alone must never arm the older
+        # quest-turn denial, and either switch OFF remains stock in its
+        # own branch.
+        self.assertIn("if (!legacyQuestTurnEnabled)\n            return true;", CPP)
+        self.assertIn("if (!hiddenOrdinarySlotEnabled)\n                return true;", CPP)
         self.assertNotIn("packet >> requestedSlot", CPP)
         # Trailing bytes are not a model bypass. Live packet bytes are not sent.
         self.assertFalse(modeled_pickup(padded=True))
@@ -445,8 +463,10 @@ class QuestLootProtectionContract(unittest.TestCase):
 
     def test_workflow_pins_exact_head_and_does_not_upload(self):
         self.assertIn("8daffdabe9202c228e45d833c9a1d399597a15cd", WORKFLOW)
-        self.assertIn("037c01418b5d01506917a3db9b44fd56ac5f965c", WORKFLOW)
-        self.assertIn("4ff4b5fcc1480348f058c632573143e62d4e3a41", WORKFLOW)
+        self.assertIn("d750b4b3a50effdf22bedc8032f0e8e5f7cb8091", WORKFLOW)
+        self.assertIn("dd96f2b77e3ebfa2a4726bf785525ba133f1ab61", WORKFLOW)
+        for obsolete in ("037c01418b5d01506917a3db9b44fd56ac5f965c", "4ff4b5fcc1480348f058c632573143e62d4e3a41"):
+            self.assertNotIn(obsolete, WORKFLOW)
         self.assertIn("github.event.pull_request.head.sha", WORKFLOW)
         self.assertNotIn("actions/upload-artifact", WORKFLOW)
         self.assertNotIn("actions/upload-pages-artifact", WORKFLOW)
@@ -471,6 +491,18 @@ class QuestLootProtectionContract(unittest.TestCase):
         self.assertTrue(modeled_pickup(
             owner_in_world=False, owner_same_map=False,
             owner_same_instance=False))
+
+    def test_legacy_owner_lookup_is_same_map_only(self):
+        # Backport the reviewed #132 safety correction, without
+        # altering the separately gated ordinary-slot policy.
+        self.assertEqual(CPP.count(
+            "ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer)"), 2)
+        self.assertNotIn("ObjectAccessor::FindPlayer(", CPP)
+        self.assertEqual(CPP.count(OWNER_LOOKUP), 1)
+        legacy = CPP[CPP.index(OWNER_LOOKUP):]
+        self.assertIn("if (!owner || owner->GetGroup() != group)", legacy)
+        self.assertIn("if (!owner->IsInWorld())", legacy)
+        self.assertTrue(presence_fail_open(CPP))
 
     def test_presence_guards_are_fail_open_in_source(self):
         self.assertTrue(presence_fail_open(CPP))

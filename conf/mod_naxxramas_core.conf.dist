@@ -368,6 +368,17 @@ NaxxramasCore.QuestLootProtection.Enabled = 0
 # Default: 0
 NaxxramasCore.QuestLootProtection.Debug = 0
 
+# PROTOTYPE ONLY. Separately gated defensive check for a creature's
+# ORDINARY, under-threshold loot slot hidden from a non-turn-holder by
+# stock group loot visibility rules. It does NOT change quest eligibility,
+# shared copy ownership, drop rates, rolls, rewards, or personal item flags.
+# Independent of the older QuestLootProtection.Enabled guard: either can
+# be turned on alone. For stock-loot parity tests keep the legacy quest-turn
+# rule OFF; enabling this new option must not also enable that old rule.
+# This candidate is NOT a proven explanation for the reported human case.
+# Default: 0
+NaxxramasCore.QuestLootProtection.RestrictHiddenOrdinarySlots = 0
+
 #####################################
 # Molten Core / Golemagg — READ-ONLY Playerbot action probe
 #####################################

@@ -21,6 +21,8 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 
+#include "QuestLootNormalSlotPolicy.h"
+
 namespace NaxxramasQuestLootProtection
 {
     bool Enabled()
@@ -35,11 +37,20 @@ namespace NaxxramasQuestLootProtection
             "NaxxramasCore.QuestLootProtection.Debug", false);
     }
 
+    // Separately gated experimental stock-loot visibility/award parity.
+    // Remains OFF even when the existing QuestLootProtection master is ON.
+    bool RestrictHiddenOrdinarySlots()
+    {
+        return sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.QuestLootProtection.RestrictHiddenOrdinarySlots", false);
+    }
+
     // Return true to leave this request to normal AzerothCore validation.
-    // The only false path is a verified one-copy creature quest drop whose
-    // round-robin owner is still grouped, eligible, in the world, and on
-    // the same live map and instance as the looter and corpse.
-    bool PermitPickup(Player* player, uint8 requestedSlot)
+    // The legacy one-copy quest-turn guard and the new ordinary hidden-slot
+    // parity candidate have INDEPENDENT default-OFF switches. Neither
+    // requires enabling the other; all supported source/method checks stay.
+    bool PermitPickup(Player* player, uint8 requestedSlot,
+        bool legacyQuestTurnEnabled, bool hiddenOrdinarySlotEnabled)
     {
         if (!player || !player->IsInWorld() || !player->GetMap())
             return true;
@@ -79,6 +90,85 @@ namespace NaxxramasQuestLootProtection
         // specific: never index quest_items with the client slot directly.
         std::size_t const normalCount = loot.items.size();
         if (requestedSlot < normalCount)
+        {
+            // REVIEW-ONLY candidate: there is a native difference between
+            // ordinary-item loot window visibility and its store-time check.
+            // Never reinterpret normal quest-collection items as personal.
+            if (!hiddenOrdinarySlotEnabled)
+                return true;
+
+            LootItem const& item = loot.items[requestedSlot];
+            // Restrict the pilot to the requester's live map. AzerothCore
+            // warns that global FindPlayer access is not thread-safe across
+            // maps; no cross-map owner fields may be inspected here.
+            // A departed/other-map owner fails open to native handling.
+            Player* turnOwner = ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer);
+            bool ownerLiveHere = false;
+            if (turnOwner && turnOwner->IsInWorld() &&
+                turnOwner->GetGroup() == group)
+            {
+                Map const* ownerMap = turnOwner->FindMap();
+                Map const* requesterMap = player->FindMap();
+                Map const* sourceMap = creature->FindMap();
+                ownerLiveHere = ownerMap && ownerMap == requesterMap &&
+                    ownerMap == sourceMap &&
+                    turnOwner->GetInstanceId() == player->GetInstanceId() &&
+                    turnOwner->GetInstanceId() == creature->GetInstanceId();
+            }
+
+            namespace NormalSlot = NaxxramasQuestLootNormalSlotPolicy;
+            NormalSlot::Facts facts;
+            facts.Enabled = true;
+            switch (group->GetLootMethod())
+            {
+                case ROUND_ROBIN:
+                    facts.Method = NormalSlot::GroupMethod::RoundRobin;
+                    break;
+                case GROUP_LOOT:
+                    facts.Method = NormalSlot::GroupMethod::GroupLoot;
+                    break;
+                case NEED_BEFORE_GREED:
+                    facts.Method = NormalSlot::GroupMethod::NeedBeforeGreed;
+                    break;
+                default:
+                    facts.Method = NormalSlot::GroupMethod::Other;
+                    break;
+            }
+
+            facts.HasActiveTurn = bool(loot.roundRobinPlayer);
+            facts.RequesterHoldsTurn =
+                loot.roundRobinPlayer == player->GetGUID();
+            facts.OwnerPresentInSameGroupAndMap = ownerLiveHere;
+            facts.OrdinarySlotExists = true;
+            facts.IsLooted = item.is_looted;
+            facts.IsFreeForAllItem = item.freeforall;
+            facts.HasConditions = !item.conditions.empty();
+            facts.IsBlocked = item.is_blocked;
+            facts.HasRollWinner = bool(item.rollWinnerGUID);
+            facts.IsUnderThreshold = item.is_underthreshold;
+            facts.FollowsSpecialLootRules = item.follow_loot_rules;
+
+            if (!NormalSlot::RejectHiddenOrdinarySlot(facts))
+                return true;
+
+            // Only suppress a request for an ordinary slot that the
+            // stock per-viewer permission would hide. Native remains
+            // authoritative for all visible and unsupported slots.
+            if (Debug())
+                LOG_INFO("module",
+                    "QuestLootProtection: hidden ordinary item request "
+                    "player {} creature {} item {} slot {} owner {}",
+                    player->GetGUID().GetCounter(), creature->GetEntry(),
+                    item.itemid, uint32(requestedSlot),
+                    loot.roundRobinPlayer.GetCounter());
+
+            player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED);
+            return false;
+        }
+
+        // A stock-compatible ordinary-slot pilot must NOT implicitly arm
+        // the older, non-stock one-copy quest-turn protection.
+        if (!legacyQuestTurnEnabled)
             return true;
 
         auto const& personal = loot.GetPlayerQuestItems();
@@ -113,18 +203,20 @@ namespace NaxxramasQuestLootProtection
         //
         // Fail open. Deny another looter only when the owner is found,
         // IsInWorld(), and on the same live map and the same instance as
-        // the looter and this corpse. Pinned FindPlayer returns nullptr
-        // unless the player is already in world, and the explicit
-        // IsInWorld() test stays on the pointer we would deny for: GetMap()
-        // asserts when the player has no map. Pinned AllowedForPlayer does
-        // not test map, instance, or range, so a still-grouped owner who
-        // left the instance must not strand this one-copy quest item.
+        // the looter and this corpse. Use the already-reviewed #132
+        // map-scoped GetPlayer rather than cross-map global FindPlayer;
+        // a missing or other-map owner still defers to native loot.
+        // GetPlayer itself may read IsInWorld()/GetMap() after its global
+        // lookup lock has been released; this change reduces, but does
+        // not prove the absence of, concurrency races at eight map threads.
+        // Pinned AllowedForPlayer does not test map, instance, or range;
+        // an owner who left the instance must not strand this item.
         //
         // Distance and death are not extra denies. A dead owner who is
         // still in world on this map and instance keeps the turn. The
         // looter is already inside INTERACTION_DISTANCE; an owner who is
         // elsewhere in the same instance remains the round-robin owner.
-        Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);
+        Player* owner = ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer);
         if (!owner || owner->GetGroup() != group)
             return true;
 
@@ -208,8 +300,13 @@ public:
         // The hook runs for every incoming opcode. Fast-exit unrelated
         // packets before any ConfigMgr lookup or WorldSession inspection.
         if (packet.GetOpcode() != CMSG_AUTOSTORE_LOOT_ITEM ||
-            !NaxxramasQuestLootProtection::Enabled() ||
             !session || !session->GetPlayer() || packet.size() < 1)
+            return true;
+
+        bool const legacyQuestTurnEnabled = NaxxramasQuestLootProtection::Enabled();
+        bool const hiddenOrdinarySlotEnabled =
+            NaxxramasQuestLootProtection::RestrictHiddenOrdinarySlots();
+        if (!legacyQuestTurnEnabled && !hiddenOrdinarySlotEnabled)
             return true;
 
         // WorldPacket(copy) preserves the caller's original read cursor.
@@ -222,7 +319,8 @@ public:
         uint8 requestedSlot = 0;
         copy >> requestedSlot;
         return NaxxramasQuestLootProtection::PermitPickup(
-            session->GetPlayer(), requestedSlot);
+            session->GetPlayer(), requestedSlot,
+            legacyQuestTurnEnabled, hiddenOrdinarySlotEnabled);
     }
 };
 
