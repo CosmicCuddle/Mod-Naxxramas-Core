@@ -10,7 +10,8 @@ The [test fixture](../../tests/test_a02_p27_pinned_c1_c2_source_sentinels.py) is
 
 ## What exact-source checks can establish
 
-- `WorldSession.cpp`: successful `CanPacketReceive` immediately precedes invoking the native opcode handler in the stock `STATUS_LOGGEDIN` dispatch; does **not** prove the module observer is the last enabled script.
+- `WorldSession.cpp`: all four stock packet dispatch branches call the native handler immediately after a passing `CanPacketReceive` hook with **no intervening source statement**; the separate map/world filters constrain where INPLACE/THREADSAFE/THREADUNSAFE packets may execute. These checks do **not** prove the module observer is last, or that an event always executes on a specific worker.
+- `Opcodes.cpp`: the three pet opcodes preserve their reviewed `STATUS_LOGGEDIN` and processing flags: `CMSG_PET_SPELL_AUTOCAST` INPLACE; `CMSG_PET_ACTION` THREADSAFE; `CMSG_PET_SET_ACTION` THREADUNSAFE. A drift in these registrations invalidates the source-only routing assumption.
 - `ScriptMgrMacros.h`, `ServerScript.cpp`, `ScriptMgr.h`: enabled hooks iterate in order and stop on a false return, registry holds registered `ServerScript*` pointers and is not to be mutated after startup. The module must compare the exact registered **ServerScript observer pointer**, **not** `WorldScript::this`, in any future approved fail-closed startup check.
 - `World.cpp` and `Main.cpp`: `LoadPetNumber` and script database loading precede `OnBeforeWorldInitialized`, whereas `OnStartup` follows the world network listener. A future C2 orphan-sweep research proposal may consider the former boundary only; it must not use the latter.
 - `DatabaseWorkerPool.cpp`: `DirectExecute` returns void and discards `connection->Execute(...)` result; `Query` returns null for failure **or** zero rows. Mere call completion or empty result is not successful cleanup evidence. A **positive one-row scalar** check is a possible requirement, **not** proof of exclusivity, transaction durability or real owner DB safety.
@@ -18,7 +19,7 @@ The [test fixture](../../tests/test_a02_p27_pinned_c1_c2_source_sentinels.py) is
 
 ## Negative witnesses and failures
 
-A drift in these source excerpts must make hosted source tests fail rather than silently keeping a module-only proof claim. Small synthetic reversed-dispatch/network-order examples exercise the ordering helper, but do **not** stand in for runtime evidence. Even a fully green test suite cannot prove the observed pet state came from the client opcode rather than interposed IP/Playerbots/script writers.
+A drift in these source excerpts must make hosted source tests fail rather than silently keeping a module-only proof claim. Small synthetic reversed-dispatch/network-order examples exercise the ordering helper, and an inserted-statement negative witness guards the claimed **adjacency** at all four stock dispatch sites. The pet-save test now stops at the next named function instead of silently using a 4200-character window. These checks still do **not** stand in for runtime evidence. Even a fully green test suite cannot prove the observed pet state came from the client opcode rather than interposed IP/Playerbots/script writers.
 
 ## Scope of approval
 
@@ -27,3 +28,7 @@ A drift in these source excerpts must make hosted source tests fail rather than 
 - Parent [#168](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/168) remains the owner-selected architectural record, [#169](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/169) and [#172](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/172) are **unwired** retry-policy test models. There is still no functional A02 or owner gameplay acceptance.
 
 **Repository PUBLIC:** never add the owner's server configuration, SQL, NPC/quest/item/loot mappings, Individual Progression private relationships, host secrets or identifying data here.
+
+## Part 28 targeted source-drift refinement (27 October 2026)
+
+CS02's review of #173 identified missing opcode registration/filter routing coverage and an adjacency assertion named more strongly than it tested. This update addresses those specific shortcomings without changing module, core, Playerbots, Individual Progression, database, config, or A02 feature flags. The added assertions are **lexical safeguards at an immutable public pin**, not acceptance of C1 implementation or proof of safe human-origin or installed owner behaviour. All automatic pet writes remain in #165's fail-closed quarantine.
