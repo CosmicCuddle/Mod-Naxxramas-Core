@@ -242,7 +242,9 @@ class OfflineErrorReportStore(RestartSidecarStore):
                     raise FileExistsError("immutable error report conflict")
                 self._rebuild_errors_locked()
                 return False
-            temp = self._temp(error_bytes(info))
+            report = error_bytes(info)
+            self._admit_report_locked("error", info["service"], len(report))
+            temp = self._temp(report)
             try:
                 os.link(temp, name, src_dir_fd=self._fd,
                         dst_dir_fd=self._fd, follow_symlinks=False)
