@@ -8,6 +8,8 @@ on:
       - 'src/NaxxramasCore_loader.cpp'
       - 'conf/mod_naxxramas_core.conf.dist'
       - 'tests/test_p25_p0_f12_f13_f14_source_assembly.py'
+      - 'tests/test_mc_gfpp_one_shot.py'
+      - 'tests/test_p29_gfpp_atomic_config.py'
       - 'tests/test_scarlet_monastery_exits.py'
       - 'tests/test_atiesh_karazhan_portal.py'
       - 'tests/test_f14_who_listing_s2.py'
@@ -40,6 +42,14 @@ jobs:
           grep -Eq '^Ran 5 tests in [0-9.]+s$' /tmp/p25_source.log
           grep -qx 'OK' /tmp/p25_source.log
           ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/p25_source.log
+      - name: GFPP 120s native timer and atomic map-worker source regressions
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests.test_mc_gfpp_one_shot tests.test_p29_gfpp_atomic_config 2>&1 | tee /tmp/p29_gfpp_atomic.txt
+          grep -Eq 'Ran 18 tests in [0-9.]+s' /tmp/p29_gfpp_atomic.txt
+          grep -qx 'OK' /tmp/p29_gfpp_atomic.txt
+          ! grep -Eq '^FAILED|^ERROR:|^FAIL:|skipped' /tmp/p29_gfpp_atomic.txt
+
       - name: Source regressions for three independent features
         run: |
           set -euo pipefail
