@@ -203,18 +203,20 @@ namespace NaxxramasQuestLootProtection
         //
         // Fail open. Deny another looter only when the owner is found,
         // IsInWorld(), and on the same live map and the same instance as
-        // the looter and this corpse. Pinned FindPlayer returns nullptr
-        // unless the player is already in world, and the explicit
-        // IsInWorld() test stays on the pointer we would deny for: GetMap()
-        // asserts when the player has no map. Pinned AllowedForPlayer does
-        // not test map, instance, or range, so a still-grouped owner who
-        // left the instance must not strand this one-copy quest item.
+        // the looter and this corpse. Use the already-reviewed #132
+        // map-scoped GetPlayer rather than cross-map global FindPlayer;
+        // a missing or other-map owner still defers to native loot.
+        // GetPlayer itself may read IsInWorld()/GetMap() after its global
+        // lookup lock has been released; this change reduces, but does
+        // not prove the absence of, concurrency races at eight map threads.
+        // Pinned AllowedForPlayer does not test map, instance, or range;
+        // an owner who left the instance must not strand this item.
         //
         // Distance and death are not extra denies. A dead owner who is
         // still in world on this map and instance keeps the turn. The
         // looter is already inside INTERACTION_DISTANCE; an owner who is
         // elsewhere in the same instance remains the round-robin owner.
-        Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);
+        Player* owner = ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer);
         if (!owner || owner->GetGroup() != group)
             return true;
 
