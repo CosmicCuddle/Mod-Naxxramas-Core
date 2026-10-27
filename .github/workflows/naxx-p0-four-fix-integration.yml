@@ -32,11 +32,43 @@ jobs:
       - name: Checkout exact candidate
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Assert source and config combination
-        run: python3 -m unittest discover -s tests -p 'test_part14_four_fix_staging.py' -v
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          python3 -m unittest discover -s tests -p 'test_part14_four_fix_staging.py' -v
+      # The full test discovery includes the F13 GO lifecycle source test.
+      # It must see the same exact public core files as the dedicated F13 gate.
+      - name: Checkout pinned F13 native lifecycle source fixtures
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+          sparse-checkout: |
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Entities/Unit/Unit.cpp
+            src/server/game/Entities/GameObject/GameObject.cpp
+            src/server/game/Maps/Map.cpp
+          sparse-checkout-cone-mode: false
+      - name: Verify pinned F13 fixture checkout
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          for path in \
+            src/server/game/Entities/Player/Player.cpp \
+            src/server/game/Entities/Unit/Unit.cpp \
+            src/server/game/Entities/GameObject/GameObject.cpp \
+            src/server/game/Maps/Map.cpp; do
+            test -s "acore/$path"
+          done
       - name: Exercise complete module Python source and synthetic suite
-        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+        run: |
+          set -euo pipefail
+          F13_CORE_PIN_ROOT=acore python3 -m unittest discover -s tests -p 'test_*.py' -v
       - name: Exercise native C++ Golemagg policy on C++17 and C++20
         run: |
           set -euo pipefail
