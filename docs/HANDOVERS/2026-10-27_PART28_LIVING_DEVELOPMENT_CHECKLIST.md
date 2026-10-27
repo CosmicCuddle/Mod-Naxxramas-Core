@@ -5,11 +5,11 @@
 
 ## Start-up integrity checks
 
-- [ ] Read [COMPLETE Part27→28 handover](2026-10-27_PART27_TO_PART28.md) and this checklist IN FULL.
-- [ ] Read [current #168 owner-selected A02 decision memo](../research/A02-PART27-OWNER-MODULE-ONLY-CANDIDATE-AND-DURABLE-DB-DECISION.md) and former native hook comparison (technical context only).
-- [ ] Refresh exact GitHub heads, CI, comments and statuses of #160/#164/#165/#166/#168/#169/#172/#173/#167/#170/#171; read [master #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28), [team #48](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48), [A04 #109](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109), [F15 #143](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143).
+- [x] Read [COMPLETE Part27→28 handover](2026-10-27_PART27_TO_PART28.md) and this checklist IN FULL (Part28 CS01).
+- [x] Read [current #168 owner-selected A02 decision memo](../research/A02-PART27-OWNER-MODULE-ONLY-CANDIDATE-AND-DURABLE-DB-DECISION.md) and former native hook comparison (technical context only).
+- [x] Refresh exact GitHub heads, CI, comments and statuses of #160/#164/#165/#166/#168/#169/#172/#173/#167/#170/#171 and #174; read [master #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28), [team #48](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48), [A04 #109](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109), [F15 #143](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143) (27 Oct Part28 connected refresh; formal approvals are not implied by comment-only reviews).
 - [x] Preparation checkpoint: main **80e9de1**; protected frozen #160 **a7523eb**, still OPEN DRAFT UNMERGED at 27 Oct read. No merge/deploy by CS01.
-- [ ] Record any activity after these checkpoint heads before proceeding.
+- [x] Record activity after checkpoint: #173 source-only test+workflow+memo refined to **`80feb4a06f5f8cbc7500ab84182de3e837ce0233`**; [Actions 40496349909](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40496349909) job `122162716788` **14/14 Python tests PASS**, every step SUCCESS. Earlier PR heads unchanged when checked; #173 remains DRAFT. Main `80e9de1` and frozen #160 `a7523eb` unchanged.
 
 ## Combined five mandatory gameplay fixes — **0/5 owner-signed together**
 
@@ -32,8 +32,8 @@
 - [x] #166 **9f0af14** unwired birth/summon synthetic C++ 76/76 C++17 and C++20 PASS.
 - [x] #169 **5530f53**, [224/224 strict C++17+C++20 PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40344747079), unwired 32-chain per-incarnation retries, fresh-summon reset.
 - [x] #172 **f433aaa**, [113/113 strict C++17+C++20 PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40394758887), UNWIRED cross-incarnation lifetime retry bound per certified birth + chain + accepted revision. 32 ever-used keys, no safe eviction/retirement, restart loses counter. Unknown => NoWrite.
-- [x] #173 **a122c6e**, [12/12 pinned public core source checks PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40489921822); lexical/negative source sentinels, not compiled module or owner-installed hook proof.
-- [ ] **C1 causal proof risk:** prepacket CandidateMatched + next-map state does not identify native writer if later veto/AI/IP/script changed state. Do not set TrustedManualReceipt or break #165 quarantine; positive installed source/hook-order proof still missing.
+- [x] #173 updated to **80feb4a**, [14/14 pinned public core source checks PASS](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40496349909); exact-head original job `122162716788`. CS02 [review](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/173#issuecomment-6440345200) identified missing opcode flags, map/world processing filters, dispatch adjacency and brittle pet-save window; now addressed in existing draft #173 via three additive test/CI/memo files. Public-core lexical sentinels ONLY, not compiled module or owner-installed hook proof.
+- [ ] **C1 causal proof risk:** prepacket CandidateMatched + next-map state does not identify native writer if later veto/AI/IP/script changed state. Do not set TrustedManualReceipt or break #165 quarantine; positive installed source/hook-order proof still missing. Newly verified `CMSG_PET_SPELL_AUTOCAST=STATUS_LOGGEDIN/PROCESS_INPLACE`, `CMSG_PET_ACTION=THREADSAFE`, `CMSG_PET_SET_ACTION=THREADUNSAFE` in **pinned public core only**, NOT owner's installed custom source; map/world filters can both allow INPLACE. `NextQueuedPacket()` direct path and customized Playerbots routing remain outside source-check proof.
 - [ ] **C2 durable lifetime:** verify unique birth vs PetNumber recycle and all delete/broad-slot/character-delete paths; async stock pet save and cross-pool/worker order; possible prelogin orphan sweep is conditional, not a birth certificate; plan backups/rollback privately. No SQL.
 - [ ] **C3 human/SelfBot:** design synchronized positive mode proof at receipt and apply; never unlocked Playerbots map read on arbitrary map worker; preserve 8 map threads.
 - [ ] IP **Policy A**: only current allowed **existing** spell rank, do not learn/disallowed rank; account for its delayed 200ms event and repeated rank churn.
@@ -60,7 +60,7 @@
 ## Team and release discipline
 
 - [ ] CS01: source-grounded A02 integration/correctness and master tracker; maintain this checklist, exact-head checks, reviewer comments.
-- [ ] CS02 Grok: COMMENTS-ONLY module reviews unless owner changes coding availability; avoid paid overage. Request concise review of material A02 source/race proofs, not redundant fixture work.
+- [ ] CS02 Grok: COMMENTS-ONLY module reviews unless owner changes coding availability; avoid paid overage. New actionable #173 peer review received and three gaps addressed; request concise verification of exact updated `80feb4a` only when the separate CS02 session next checks GitHub. This is not an autonomous assignment.
 - [ ] CS03 Claude: F15 PRIMARY source-only R0 and private writer design; BACKUP A04 two human observations / A02 peer review. GitHub comments alone do not start agents.
 - [ ] Verify all PRs remain DRAFT/UNMERGED and #160/main protected after changes. NO live server/root, real binary, upstream core, SQL, DBC, Playerbots/IP/N-Core, map thread, protected file, feature-flag or deployment changes without explicit separate owner approval.
 - [ ] Never count synthetic source tests, pinned Worldserver link or a staged PR as **in-game acceptance**. Still **0/5 owner-signed together**.
