@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest -v tests.test_f15_directory_inode_flock_p29 2>&1 | tee /tmp/f15-directory-flock-tests.txt
-          grep -Eq 'Ran 6 tests in [0-9.]+s' /tmp/f15-directory-flock-tests.txt
+          grep -Eq 'Ran 7 tests in [0-9.]+s' /tmp/f15-directory-flock-tests.txt
           grep -qx 'OK' /tmp/f15-directory-flock-tests.txt
           ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/f15-directory-flock-tests.txt
 
