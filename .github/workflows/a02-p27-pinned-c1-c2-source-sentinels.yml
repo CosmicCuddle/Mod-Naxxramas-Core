@@ -4,6 +4,8 @@ on:
     types: [opened, reopened, synchronize]
     paths:
       - 'tests/test_a02_p27_pinned_c1_c2_source_sentinels.py'
+      - 'tests/test_a02_p29_dual_native_autocast_paths.py'
+      - 'docs/research/A02-PART29-DUAL-NATIVE-AUTOCAST-MUTATION-PROOF.md'
       - '.github/workflows/a02-p27-pinned-c1-c2-source-sentinels.yml'
       - 'docs/research/A02-PART27-PINNED-C1-C2-SOURCE-SENTINELS.md'
   workflow_dispatch:
@@ -42,6 +44,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             src/server/game/Server/WorldSession.cpp
+            src/server/game/Handlers/PetHandler.cpp
             src/server/game/Server/Protocol/Opcodes.cpp
             src/server/game/Scripting/ScriptMgrMacros.h
             src/server/game/Scripting/ScriptMgr.h
@@ -76,6 +79,7 @@ jobs:
           test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
           test "$(git -C playerbots rev-parse HEAD)" = d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
           A02_PINNED_PLAYERBOTS=playerbots A02_PINNED_CORE=acore python3 -m unittest discover -s tests -p 'test_a02_p27_pinned_c1_c2_source_sentinels.py' -v
+          A02_PINNED_CORE=acore python3 -m unittest discover -s tests -p 'test_a02_p29_dual_native_autocast_paths.py' -v
       - name: Proof limitations
         run: |
           echo 'PASS means only that pinned PUBLIC core and Playerbots sources resemble reviewed contracts.'
