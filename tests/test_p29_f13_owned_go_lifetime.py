@@ -51,8 +51,12 @@ class Lifetime(unittest.TestCase):
         t = body(self.p["player"], "bool Player::TeleportTo(")
         self.assertIn("oldmap->RemovePlayerFromMap(this, false);", t)
         self.assertIn("if (GetMapId() == mapid && !newInstance)", t)
-        self.assertLess(t.index("oldmap->RemovePlayerFromMap(this, false);"),
-                        t.index("return true;"))
+        # TeleportTo has earlier short-circuit true returns in its
+        # *near* and delayed-teleport branches. The far-transfer block
+        # removes the player before the method's FINAL successful return.
+        far = t[t.index("// far teleport to another map"):]
+        self.assertLess(far.index("oldmap->RemovePlayerFromMap(this, false);"),
+                        far.rindex("return true;"))
 
     def test_native_map_and_player_world_exit_chain(self):
         map_exit = body(self.p["map"], "void Map::RemovePlayerFromMap(Player* player, bool remove)")
