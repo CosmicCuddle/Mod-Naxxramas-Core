@@ -314,8 +314,6 @@ class IncidentStore:
         dir_fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                          dir_fd=self._fd)
         lock_fd = None
-        dir_acquired = False
-        file_acquired = False
         deadline = time.monotonic() + LOCK_WAIT_SECONDS
 
         def take_lock(fd):
@@ -346,7 +344,6 @@ class IncidentStore:
                 raise PermissionError("offline directory lock inode differs from pinned root")
 
             take_lock(dir_fd)
-            dir_acquired = True
 
             flags = os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW
             lock_fd = os.open(".f15.offline.lock", flags, 0o600,
@@ -357,16 +354,16 @@ class IncidentStore:
                 raise PermissionError("unsafe offline legacy compatibility lock")
 
             take_lock(lock_fd)
-            file_acquired = True
             yield
         finally:
-            if file_acquired:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            if lock_fd is not None:
-                os.close(lock_fd)
-            if dir_acquired:
-                fcntl.flock(dir_fd, fcntl.LOCK_UN)
-            os.close(dir_fd)
+            # Linux flock is released by closing these *independently opened*
+            # descriptors. Nested cleanup ensures the pinned directory lock
+            # is also released if closing the legacy file descriptor fails.
+            try:
+                if lock_fd is not None:
+                    os.close(lock_fd)
+            finally:
+                os.close(dir_fd)
     def _durable(self):
         os.fsync(self._fd)
 
