@@ -3,6 +3,7 @@
 No daemon, systemd, log, real report path, root, or server interaction.
 These limits are backpressure, NOT a retention/deletion policy.
 """
+import errno
 import fcntl
 import multiprocessing
 import os
@@ -48,6 +49,33 @@ def lock_holder(directory, started, release):
         fcntl.flock(fd, fcntl.LOCK_UN)
     finally:
         os.close(fd)
+
+
+
+def concurrent_publisher(folder, index, gate, result):
+    """Separate disposable process uses its own fd and shared flock."""
+    store = OfflineErrorReportStore(Path(folder))
+    try:
+        if not gate.wait(5):
+            result.put(("missing-start", index))
+            return
+        # Both kinds and services deliberately race over one global cap.
+        observation = (crash(index, "worldserver" if index % 2 else "authserver")
+                       if index % 3 else
+                       burst(index, "worldserver" if index % 2 else "authserver"))
+        with patch("offline_store.MAX_TOTAL_REPORTS", 3):
+            try:
+                if isinstance(observation, Incident):
+                    success = store.publish(observation)
+                else:
+                    success = store.publish_error(observation)
+                result.put(("published" if success else "duplicate", index))
+            except OverflowError:
+                result.put(("at-capacity", index))
+    except BaseException as exc:
+        result.put((type(exc).__name__, index))
+    finally:
+        store.close()
 
 
 class OfflineStoreBounds(unittest.TestCase):
@@ -135,11 +163,101 @@ class OfflineStoreBounds(unittest.TestCase):
                 with self.assertRaisesRegex(TimeoutError, "deadline"):
                     self.store.publish(crash(1))
             self.assertEqual(self.finals(), [])
+            self.assertEqual(self.store.offline_rejections(),
+                             {"capacity": 0, "lock_timeout": 1})
         finally:
             release.set()
             process.join(3)
         self.assertFalse(process.is_alive(), "disposable lock process did not exit")
         self.assertTrue(self.store.publish(crash(1)))
+
+    def test_rejection_counters_saturate_and_remain_in_memory(self):
+        with patch("offline_store.MAX_TOTAL_REPORTS", 0):
+            for _ in range(260):
+                with self.assertRaises(OverflowError):
+                    self.store.publish(crash(1))
+        self.assertEqual(self.store.offline_rejections(),
+                         {"capacity": 255, "lock_timeout": 0})
+        self.assertFalse((self.root / "offline-status.json").exists())
+        other = OfflineErrorReportStore(self.root)
+        try:
+            self.assertEqual(other.offline_rejections(),
+                             {"capacity": 0, "lock_timeout": 0})
+        finally:
+            other.close()
+
+    def test_simultaneous_cross_daemon_publish_never_exceeds_global_cap(self):
+        start = multiprocessing.Event()
+        results = multiprocessing.Queue()
+        children = [multiprocessing.Process(
+            target=concurrent_publisher,
+            args=(str(self.root), n, start, results),
+        ) for n in range(1, 9)]
+        try:
+            for child in children:
+                child.start()
+            start.set()
+            outcomes = [results.get(timeout=10)[0] for _ in children]
+            self.assertEqual(outcomes.count("published"), 3, outcomes)
+            self.assertEqual(outcomes.count("at-capacity"), 5, outcomes)
+            self.assertEqual(len(self.finals()), 3)
+            # Race losers cannot overwrite or mutate the winners.
+            observed = {p.name: p.read_bytes() for p in self.finals()}
+            self.store.rebuild_errors()
+            self.store.rebuild()
+            self.assertEqual(
+                {p.name: p.read_bytes() for p in self.finals()}, observed)
+        finally:
+            start.set()
+            for child in children:
+                child.join(5)
+                if child.is_alive():
+                    child.terminate()
+                    child.join(3)
+        self.assertTrue(all(child.exitcode == 0 for child in children))
+
+    def test_enospc_before_final_link_does_not_leave_report_or_temp(self):
+        with patch("offline_store.os.link",
+                   side_effect=OSError(errno.ENOSPC, "synthetic disk full")):
+            with self.assertRaises(OSError) as caught:
+                self.store.publish(crash(1))
+            self.assertEqual(caught.exception.errno, errno.ENOSPC)
+            with self.assertRaises(OSError):
+                self.store.publish_error(burst(1))
+        self.assertEqual(self.finals(), [])
+        self.assertEqual(list(self.root.glob(".f15-s2-*")), [])
+        # The disposable store is still able to accept a later event.
+        self.assertTrue(self.store.publish(crash(1)))
+
+    def test_eio_on_index_replace_preserves_final_crash_and_error(self):
+        with patch("offline_store.os.replace",
+                   side_effect=OSError(errno.EIO, "synthetic index failure")):
+            with self.assertRaises(OSError):
+                self.store.publish(crash(1))
+            with self.assertRaises(OSError):
+                self.store.publish_error(burst(1))
+        saved = {p.name: p.read_bytes() for p in self.finals()}
+        self.assertEqual(len(saved), 2)
+        self.store.rebuild()
+        self.store.rebuild_errors()
+        self.assertIn("Total: 1", (self.root / "Crash-History.txt").read_text())
+        self.assertIn("Total bursts: 1",
+                      (self.root / "Error-History.txt").read_text())
+        self.assertEqual(
+            {p.name: p.read_bytes() for p in self.finals()}, saved)
+        self.assertFalse(self.store.publish(crash(1)))
+        self.assertFalse(self.store.publish_error(burst(1)))
+
+    def test_hostile_symlink_named_as_report_is_never_overwritten(self):
+        external = Path(self.tmp.name) / "outside-sentinel"
+        external.write_text("keep", encoding="utf-8")
+        name = burst(1).filename()
+        (self.root / name).symlink_to(external)
+        with self.assertRaises(FileExistsError):
+            self.store.publish_error(burst(1))
+        self.assertEqual(external.read_text(encoding="utf-8"), "keep")
+        self.assertTrue((self.root / name).is_symlink())
+        self.assertEqual(self.finals(), [self.root / name])
 
 
 if __name__ == "__main__":
