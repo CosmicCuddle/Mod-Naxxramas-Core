@@ -31,7 +31,7 @@ NOT_TESTED_CLAIMS = (
 )
 
 OWNER_LOOKUP = (
-    "        Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);"
+    "        Player* owner = ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer);"
 )
 
 # Each snippet is a fail-open permit. Denial (return false) must come later.
@@ -491,6 +491,18 @@ class QuestLootProtectionContract(unittest.TestCase):
         self.assertTrue(modeled_pickup(
             owner_in_world=False, owner_same_map=False,
             owner_same_instance=False))
+
+    def test_legacy_owner_lookup_is_same_map_only(self):
+        # Backport the reviewed #132 safety correction, without
+        # altering the separately gated ordinary-slot policy.
+        self.assertEqual(CPP.count(
+            "ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer)"), 2)
+        self.assertNotIn("ObjectAccessor::FindPlayer(", CPP)
+        self.assertEqual(CPP.count(OWNER_LOOKUP), 1)
+        legacy = CPP[CPP.index(OWNER_LOOKUP):]
+        self.assertIn("if (!owner || owner->GetGroup() != group)", legacy)
+        self.assertIn("if (!owner->IsInWorld())", legacy)
+        self.assertTrue(presence_fail_open(CPP))
 
     def test_presence_guards_are_fail_open_in_source(self):
         self.assertTrue(presence_fail_open(CPP))
