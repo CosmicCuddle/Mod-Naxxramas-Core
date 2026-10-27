@@ -113,8 +113,8 @@ class TwoNativePetAutocastRoutes(unittest.TestCase):
             with self.subTest(opcode=opcode):
                 line = re.compile(
                     r"(?m)^\s*/\*0x[0-9a-fA-F]+\*/\s*DEFINE_HANDLER\("
-                    + opcode + r",\s*STATUS_LOGGEDIN,\s*" + processing +
-                    r",\s*&WorldSession::" + handler + r"\);"
+                    + opcode + r"\s*,\s*STATUS_LOGGEDIN\s*,\s*" + processing +
+                    r"\s*,\s*&WorldSession::" + handler + r"\s*\);"
                 )
                 self.assertEqual(len(line.findall(self.opcodes)), 1)
 
