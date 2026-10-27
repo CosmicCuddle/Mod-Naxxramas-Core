@@ -11,6 +11,17 @@ from pathlib import Path
 
 PIN = "8daffdabe9202c228e45d833c9a1d399597a15cd"
 ROOT = Path(os.environ.get("A02_PINNED_CORE", "acore"))
+PLAYERBOTS_ROOT = Path(os.environ.get("A02_PINNED_PLAYERBOTS", "playerbots"))
+PLAYERBOTS_PIN = "d750b4b3a50effdf22bedc8032f0e8e5f7cb8091"
+PLAYERBOTS_FILES = {
+    "scripts": "src/Script/Playerbots.cpp",
+    "secure": "src/Script/PlayerbotsSecureLogin.cpp",
+    "afk": "src/Script/PlayerbotsSelfBotAfk.cpp",
+    "manager": "src/Bot/PlayerbotMgr.cpp",
+    "manager_h": "src/Bot/PlayerbotMgr.h",
+    "ai": "src/Bot/PlayerbotAI.cpp",
+}
+
 FILES = {
     "dispatch": "src/server/game/Server/WorldSession.cpp",
     "opcodes": "src/server/game/Server/Protocol/Opcodes.cpp",
@@ -46,6 +57,13 @@ def source(name):
     path = ROOT / FILES[name]
     if not path.is_file():
         raise AssertionError("pinned source missing: " + str(path))
+    return path.read_text(encoding="utf-8")
+
+
+def playerbots_source(name):
+    path = PLAYERBOTS_ROOT / PLAYERBOTS_FILES[name]
+    if not path.is_file():
+        raise AssertionError("pinned public Playerbots source missing: " + str(path))
     return path.read_text(encoding="utf-8")
 
 
@@ -182,6 +200,78 @@ class PinnedStartupAndDatabaseContract(unittest.TestCase):
         self.assertIn("_hiPetNumber = fields[0].Get<uint32>() + 1;", s)
         self.assertIn("return ++_hiPetNumber;", s)
 
+
+class PinnedPlayerbotsC1C3Limitations(unittest.TestCase):
+    def test_three_known_playerbots_packet_hooks_are_explicitly_registered(self):
+        scripts = playerbots_source("scripts")
+        self.assertIn(
+            'SERVERHOOK_CAN_PACKET_RECEIVE', scripts
+        )
+        self.assertIn("new PlayerbotsServerScript();", scripts)
+        self.assertIn("AddPlayerbotsSecureLoginScripts();", scripts)
+        self.assertIn("AddPlayerbotsSelfBotAfkScripts();", scripts)
+        for path, name, opcode in (
+            ("secure", "PlayerbotsSecureLoginServerScript", "CMSG_PLAYER_LOGIN"),
+            ("afk", "PlayerbotsSelfBotAfkServerScript", "CMSG_LOGOUT_REQUEST"),
+        ):
+            with self.subTest(script=name):
+                body = playerbots_source(path)
+                self.assertIn("class " + name + " : public ServerScript", body)
+                self.assertIn("SERVERHOOK_CAN_PACKET_RECEIVE", body)
+                self.assertIn("packet.GetOpcode() != " + opcode, body)
+        # Known source registrations, NOT a complete installed module registry.
+
+    def test_playerbots_prehandler_may_forward_packet_before_native_handler(self):
+        scripts = compact(playerbots_source("scripts"))
+        at = scripts.find("bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override")
+        self.assertGreaterEqual(at, 0)
+        section = scripts[at:at + 350]
+        self.assertTrue(ordered(section,
+            "if (Player* player = session->GetPlayer())",
+            "if (PlayerbotMgr* playerbotMgr = GET_PLAYERBOT_MGR(player))",
+            "playerbotMgr->HandleMasterIncomingPacket(packet);",
+            "return true;"))
+        manager = compact(playerbots_source("manager"))
+        self.assertIn("void PlayerbotMgr::HandleMasterIncomingPacket(WorldPacket const& packet)", manager)
+        ai = compact(playerbots_source("ai"))
+        self.assertIn("masterIncomingPacketHandlers.AddPacket(packet);", ai)
+        # It may enqueue bot work BEFORE native handling. This is not
+        # proof that a bot wrote to the human Hunter's pet.
+
+    def test_realplayer_lookup_is_not_positive_threadsafe_human_proof(self):
+        manager = compact(playerbots_source("manager"))
+        head = manager.index("PlayerbotAI* PlayerbotsMgr::GetPlayerbotAI(Player* player)")
+        end = manager.index("PlayerbotMgr* PlayerbotsMgr::GetPlayerbotMgr(", head)
+        body = manager[head:end]
+        self.assertIn("if (!(sPlayerbotAIConfig.Enabled) || !player)", body)
+        self.assertIn("return nullptr;", body)
+        self.assertIn("_playerbotsAIMap.find(player->GetGUID());", body)
+        self.assertNotIn("lock_guard", body)
+        self.assertNotIn("shared_lock", body)
+        self.assertIn("std::unordered_map<ObjectGuid, PlayerbotAIBase*> _playerbotsAIMap;",
+                      compact(playerbots_source("manager_h")))
+        ai = compact(playerbots_source("ai"))
+        self.assertIn("return player && !GET_PLAYERBOT_AI(player);", ai)
+        self.assertIn("return botAI && botAI->GetMaster() == player;", ai)
+        # Null may also mean Playerbots.Enabled=false. No safe arbitrary
+        # map-worker read or positive attested human mode follows.
+
+    def test_selfbot_can_attach_and_detach_while_client_player_exists(self):
+        manager = compact(playerbots_source("manager"))
+        at = manager.index('if (!strcmp(cmd, "self"))')
+        end = manager.index('if (!strcmp(cmd, "lookup"))', at)
+        self_command = manager[at:end]
+        self.assertTrue(ordered(self_command,
+            "if (GET_PLAYERBOT_AI(master))",
+            "delete GET_PLAYERBOT_AI(master);",
+            "else if (sPlayerbotAIConfig.SelfBotLevel == 0)",
+            "PlayerbotsMgr::instance().AddPlayerbotData(master, true);",
+            "GET_PLAYERBOT_AI(master)->SetMaster(master);"))
+        self.assertIn("ASSERT(_playerbotsAIMap.emplace(player->GetGUID(), botAI).second);", manager)
+        ai = compact(playerbots_source("ai"))
+        self.assertIn("PlayerbotsMgr::instance().RemovePlayerBotData(bot->GetGUID(), true);", ai)
+        # Config only gates attachment when no AI exists; neither normal
+        # client login nor a config value proves no attached SelfBot.
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
