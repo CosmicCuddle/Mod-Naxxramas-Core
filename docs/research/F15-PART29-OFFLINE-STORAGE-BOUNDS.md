@@ -1,0 +1,19 @@
+# F15 Part29 — bounded offline report storage and lock acquisition
+
+**ISOLATED DRAFT — DO NOT MERGE, DEPLOY, EXECUTE AGAINST SERVERS OR APPLY TO /root.** This patch is stacked on unchanged S4c DRAFT #141, and does not enable any monitor. Both Worldserver and Authserver remain **NOT OPERATIONAL** for F15.
+
+## Change and safety contract
+
+- Previously S2/S4c report publishing could emit an unlimited new finalized file and scan an ever-growing directory each time; blocking `flock(LOCK_EX)` could hang if another writer never released its lock. This child adds **pre-write backpressure**, not retention or a cleanup agent.
+- A single shared exclusive lock protects quota decisions for both synthetic crash and warning/error publishers. The default limits are **256 reports total**, **128 of each kind**, **64 of each kind per daemon**, and **2 MiB of finalized crash/error report bytes**. Thus synthetic warning floods cannot consume the reserved crash lane, nor can Worldserver flood Authserver's per-kind allotment.
+- At capacity a new unique report fails visibly with `OverflowError`. Existing finalized reports are never deleted, overwritten or silently evicted. Duplicate publication still returns `False` when the original is valid. The scanner counts even malformed files with a recognized finalized-report-shaped name conservatively, preventing invalid files from being ignored for capacity accounting. Quotas are not a disk-wide filesystem quota; unrelated files, indexes, restart sidecars and stale temporaries need separately reviewed bounds.
+- Shared lock uses `LOCK_EX|LOCK_NB`, a monotonic **5-second maximum wait** and short sleeps; it raises `TimeoutError` without creating a report when unavailable. Safety checks now also verify lock-file owner UID. No external process is stopped or signaled.
+- This is a **no-deletion** stopgap: on a full store, diagnostics cannot be published until a later owner-approved retention/archive design. No silent rotation can discard evidence. Additional events should be counted in a separate, authenticated overflow channel in an eventual approved design.
+- The scan is now bounded *for new stores governed by these limits*, but legacy over-capacity directories can still incur scans on explicitly requested index rebuilds or duplicate attempts. There is no migration or cleanup of old data. Rebuilding history and publication are still O(N) in the number of existing named files; these caps keep N finite for a newly initialized store.
+- Unkeyed SHA-256 remains **integrity only**, not provenance. Synthetic `verified` booleans do not bind service/identity. The owner-required R0 private launcher/permission facts, authenticated event source, least-privilege broker, format unification (#171 versus text), failover/retention policy and real fault-injected staging all remain unsolved.
+
+## Source and tests
+
+Touches only `tools/f15/offline_store.py`, `tools/f15/offline_error_reports.py`, additive `tests/test_f15_store_bounds_r4.py`, this note and a dedicated exact-head GitHub workflow. New isolated tests exercise both daemons, reserved report kinds, aggregate bytes, invalid named files, replay at full capacity, and a deliberately held disposable file lock. Existing S2/S3/S4b/S4c suites run unchanged.
+
+No real Worldserver/Authserver process, root path, journal, log content, launcher, service configuration, SQL, DBC, gameplay, Playerbots, IP, or owner-installed source is touched. No changes to protected combined PR #160. An exact-head test pass is **offline source evidence only**, never an S5/S6 operational claim.
