@@ -200,9 +200,22 @@ class IncidentStore:
                     st.st_uid != os.geteuid()):
                 raise PermissionError("existing private directory must be owned by writer")
             self._fd = fd
+            # Process-local, best-effort visibility only. These counts cannot
+            # authenticate events or survive a restart and never hit disk.
+            self._offline_rejections = {"capacity": 0, "lock_timeout": 0}
         except BaseException:
             os.close(fd)
             raise
+
+    def offline_rejections(self):
+        """Untrusted, bounded in-memory counters; NOT report provenance."""
+        return dict(self._offline_rejections)
+
+    def _count_rejection(self, reason: str):
+        # Counters saturate instead of growing indefinitely under floods.
+        self._offline_rejections[reason] = min(
+            255, self._offline_rejections[reason] + 1
+        )
 
     @staticmethod
     def _validate_ancestor(st):
@@ -257,6 +270,7 @@ class IncidentStore:
                 kind_count >= MAX_REPORTS_PER_KIND or
                 service_kind >= MAX_REPORTS_PER_SERVICE_KIND or
                 byte_count + new_bytes > MAX_TOTAL_REPORT_BYTES):
+            self._count_rejection("capacity")
             raise OverflowError(
                 "F15 offline report capacity reached; immutable records "
                 "preserved, new report refused"
@@ -281,6 +295,7 @@ class IncidentStore:
                         raise
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
+                        self._count_rejection("lock_timeout")
                         raise TimeoutError(
                             "F15 offline lock deadline exceeded without a write"
                         ) from exc
