@@ -199,7 +199,7 @@ class TwoNativePetAutocastRoutes(unittest.TestCase):
     def test_stock_pet_spell_save_is_not_a_causal_human_receipt(self):
         source = self.pet_core
         start = source.index("void Pet::_SaveSpells(CharacterDatabaseTransaction trans)")
-        end = source.index("void Pet::_LoadAuras(PreparedQueryResult result)", start)
+        end = source.index("void Pet::_LoadAuras(", start)
         s = concise(source[start:end])
         self.assertIn("pet numbers are recycled", s)
         self.assertIn("CHAR_DEL_PET_SPELLS", s)
