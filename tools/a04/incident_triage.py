@@ -36,7 +36,8 @@ class Incident:
     objective: str = UNKNOWN
     inventory: str = UNKNOWN
     shared_one_copy: str = UNKNOWN
-    effective_guard: str = UNKNOWN
+    legacy_quest_guard: str = UNKNOWN
+    hidden_ordinary_guard: str = UNKNOWN
 
     def __post_init__(self):
         allowed = {
@@ -45,7 +46,8 @@ class Incident:
             "friend_eligible": BOOL3, "award_to_friend": BOOL3,
             "sparkle": BOOL3, "denied": BOOL3, "slot": SLOT,
             "objective": NEED, "inventory": NEED,
-            "shared_one_copy": BOOL3, "effective_guard": GUARD,
+            "shared_one_copy": BOOL3,
+            "legacy_quest_guard": GUARD, "hidden_ordinary_guard": GUARD,
         }
         for name, options in allowed.items():
             value = getattr(self, name)
@@ -92,8 +94,17 @@ def assess(x: Incident) -> Assessment:
         missing.append("loot bucket: quest/ordinary")
     if x.method == UNKNOWN:
         missing.append("group loot method")
-    if x.effective_guard == UNKNOWN:
-        missing.append("installed effective A04 flags and exact binary (privately)")
+    # These two default-OFF guards are INDEPENDENT. A quest-bucket row is
+    # not an ordinary hidden slot, so do not classify the wrong switch as
+    # a possible cause of this particular H2 item.
+    if x.bucket == "quest":
+        if x.legacy_quest_guard == UNKNOWN:
+            missing.append("effective legacy quest-turn guard and installed binary (privately)")
+    elif x.bucket == "ordinary":
+        if x.hidden_ordinary_guard == UNKNOWN:
+            missing.append("effective hidden-ordinary-slot guard and installed binary (privately)")
+    else:
+        missing.append("both independent effective A04 flags and installed binary (privately)")
     if x.kind == "H1":
         if x.award_to_friend == UNKNOWN:
             missing.append("verified friend inventory/mail award (not merely click/window)")
@@ -141,8 +152,10 @@ def assess(x: Incident) -> Assessment:
                 and x.objective == "short" and x.inventory == "met"):
             h.append("H2_SHARED_WINDOW_COUNTER_DRIFT_SOURCE_CANDIDATE")
             missing.append("confirm mismatch existed BEFORE first loot window; other eligible viewer and count")
-        if x.effective_guard == "on":
-            h.append("H2_ENABLED_CUSTOM_GUARD_COULD_CHANGE_NATIVE_RESULT")
+        if x.bucket == "quest" and x.legacy_quest_guard == "on":
+            h.append("H2_LEGACY_QUEST_TURN_GUARD_CANDIDATE")
+        if x.bucket == "ordinary" and x.hidden_ordinary_guard == "on":
+            h.append("H2_HIDDEN_ORDINARY_SLOT_GUARD_CANDIDATE")
         if not h:
             h.append("H2_SOURCE_PATH_UNDETERMINED")
     return Assessment(x.kind, tuple(h), tuple(dict.fromkeys(missing)))
@@ -155,7 +168,7 @@ def blank_checklist() -> str:
         "Which bucket/method/turn and who released? Was it shared or personal?\n"
         "H2: Was corpse sparkling? Was row locked/hidden/allow/rolling? "
         "What exact client denial? Were objective counter and held count each "
-        "short/met *before* loot window? Shared non-FFA? Effective module flags?\n"
+        "short/met *before* loot window? Shared non-FFA? Effective legacy quest-turn and hidden-ordinary guard switches separately?\n"
         "For both: privately confirm installed pinned versions/source, "
         "never put actual account, quest, item, creature or log identifiers in "
         "the PUBLIC repository. Maintain separate written owner staging/backup approval."
