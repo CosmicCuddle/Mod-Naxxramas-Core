@@ -14,6 +14,16 @@ class GuardContract(unittest.TestCase):
         for key in ("Enabled", "RestrictHiddenOrdinarySlots"):
             self.assertRegex(CONF, rf"(?m)^NaxxramasCore\.QuestLootProtection\.{key} = 0$")
 
+    def test_all_live_options_are_immutable_after_startup(self):
+        self.assertIn("struct LootConfig", CPP)
+        self.assertIn("bool enabled = false;", CPP)
+        self.assertIn("bool debug = false;", CPP)
+        self.assertIn("bool restrictHiddenOrdinarySlots = false;", CPP)
+        self.assertIn("WORLDHOOK_ON_AFTER_CONFIG_LOAD", CPP)
+        self.assertIn("new NaxxramasQuestLootProtectionConfig();", CPP)
+        self.assertIn("return StartupConfig.restrictHiddenOrdinarySlots;", CPP)
+        self.assertNotIn("sConfigMgr->GetOption", CPP[CPP.index("bool PermitPickup("):])
+
     def test_separate_missing_option_defaults_off(self):
         self.assertIn(
             '"NaxxramasCore.QuestLootProtection.RestrictHiddenOrdinarySlots", false',

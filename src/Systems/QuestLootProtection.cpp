@@ -25,24 +25,45 @@
 
 namespace NaxxramasQuestLootProtection
 {
-    bool Enabled()
+    struct LootConfig
     {
-        return sConfigMgr->GetOption<bool>(
+        bool enabled = false;
+        bool debug = false;
+        bool restrictHiddenOrdinarySlots = false;
+    };
+
+    // ONLY the world-thread config-load callback calls ConfigMgr.
+    // Pinned ConfigMgr::GetValueDefault reads an unordered_map without
+    // taking _configLock; its reload writer takes that lock. In a
+    // PROCESS_INPLACE receive hook at MapUpdate.Threads=8, use the
+    // immutable startup snapshot instead of live map reads.
+    LootConfig ReadConfig()
+    {
+        LootConfig settings;
+        settings.enabled = sConfigMgr->GetOption<bool>(
             "NaxxramasCore.QuestLootProtection.Enabled", false);
-    }
-
-    bool Debug()
-    {
-        return sConfigMgr->GetOption<bool>(
+        settings.debug = sConfigMgr->GetOption<bool>(
             "NaxxramasCore.QuestLootProtection.Debug", false);
+        settings.restrictHiddenOrdinarySlots = sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.QuestLootProtection.RestrictHiddenOrdinarySlots", false);
+        return settings;
     }
 
-    // Separately gated experimental stock-loot visibility/award parity.
-    // Remains OFF even when the existing QuestLootProtection master is ON.
+    bool SameConfig(LootConfig const& a, LootConfig const& b)
+    {
+        return a.enabled == b.enabled && a.debug == b.debug &&
+            a.restrictHiddenOrdinarySlots == b.restrictHiddenOrdinarySlots;
+    }
+
+    // Written once before packet/map workers start. Defaults all OFF.
+    // A .reload config is advisory only; settings require a restart.
+    LootConfig StartupConfig;
+
+    bool Enabled() { return StartupConfig.enabled; }
+    bool Debug() { return StartupConfig.debug; }
     bool RestrictHiddenOrdinarySlots()
     {
-        return sConfigMgr->GetOption<bool>(
-            "NaxxramasCore.QuestLootProtection.RestrictHiddenOrdinarySlots", false);
+        return StartupConfig.restrictHiddenOrdinarySlots;
     }
 
     // Return true to leave this request to normal AzerothCore validation.
@@ -287,6 +308,35 @@ namespace NaxxramasQuestLootProtection
     }
 }
 
+// World-thread startup snapshot; reload changes are deliberately ignored
+// until the next approved Worldserver restart, matching F12/F13 config gates.
+class NaxxramasQuestLootProtectionConfig final : public WorldScript
+{
+public:
+    NaxxramasQuestLootProtectionConfig()
+        : WorldScript("NaxxramasQuestLootProtectionConfig",
+            {WORLDHOOK_ON_AFTER_CONFIG_LOAD}) { }
+
+    void OnAfterConfigLoad(bool reload) override
+    {
+        using namespace NaxxramasQuestLootProtection;
+        LootConfig const loaded = ReadConfig();
+        if (!reload)
+        {
+            StartupConfig = loaded;
+            return;
+        }
+
+        if (!SameConfig(loaded, StartupConfig))
+            LOG_WARN("module",
+                "QuestLootProtection: .reload config changes are ignored until "
+                "Worldserver restart; current Enabled={} Debug={} "
+                "RestrictHiddenOrdinarySlots={}.",
+                StartupConfig.enabled, StartupConfig.debug,
+                StartupConfig.restrictHiddenOrdinarySlots);
+    }
+};
+
 class NaxxramasQuestLootProtectionScript final : public ServerScript
 {
 public:
@@ -326,5 +376,6 @@ public:
 
 void AddQuestLootProtectionScripts()
 {
+    new NaxxramasQuestLootProtectionConfig();
     new NaxxramasQuestLootProtectionScript();
 }
