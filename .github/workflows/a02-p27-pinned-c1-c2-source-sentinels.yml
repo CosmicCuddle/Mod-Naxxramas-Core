@@ -1,0 +1,66 @@
+name: A02 P27 C1/C2 pinned source sentinels (offline, no server)
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tests/test_a02_p27_pinned_c1_c2_source_sentinels.py'
+      - '.github/workflows/a02-p27-pinned-c1-c2-source-sentinels.yml'
+      - 'docs/research/A02-PART27-PINNED-C1-C2-SOURCE-SENTINELS.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a02-source-sentinels-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-contract-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact module source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify HEAD and unmodified fail-closed production blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD:src/Systems/HunterPetAutocast.cpp)" = d722112f19bb167e93cc35d56fbe8f580e56f0df
+          test "$(git rev-parse HEAD:src/NaxxramasCore_loader.cpp)" = 72f235241b3494ba3b824049b3f805a5bb91d7f0
+          test "$(git rev-parse HEAD:conf/mod_naxxramas_core.conf.dist)" = 730391a5d84516a4f80f768a216b4e218c727b4f
+      - name: Checkout immutable public AzerothCore source snippets, no build
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Server/WorldSession.cpp
+            src/server/game/Scripting/ScriptMgrMacros.h
+            src/server/game/Scripting/ScriptMgr.h
+            src/server/game/Scripting/ScriptDefines/ServerScript.cpp
+            src/server/game/Scripting/ScriptDefines/ServerScript.h
+            src/server/game/Scripting/ScriptDefines/WorldScript.h
+            src/server/game/World/World.cpp
+            src/server/apps/worldserver/Main.cpp
+            src/server/database/Database/DatabaseWorkerPool.cpp
+            src/server/game/Entities/Pet/Pet.cpp
+            src/server/game/Globals/ObjectMgr.cpp
+          persist-credentials: false
+      - name: Verify exact pinned core and source-only C1/C2 assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          A02_PINNED_CORE=acore python3 -m unittest discover -s tests -p 'test_a02_p27_pinned_c1_c2_source_sentinels.py' -v
+      - name: Proof limitations
+        run: |
+          echo 'PASS means only that pinned PUBLIC core source resembles the reviewed contract.'
+          echo 'It does NOT prove last registered hook, installed build, atomic DB commit, human choice or gameplay.'
+          echo 'No module hook, worldserver/authserver binary, private SQL, host, DB, deployment or install performed.'
