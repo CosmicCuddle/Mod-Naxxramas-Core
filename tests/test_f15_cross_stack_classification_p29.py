@@ -18,7 +18,11 @@ CANON = Path(os.environ.get(
 
 sys.path.insert(0, str(OFFLINE))
 from offline_store import Incident, report_bytes, SCHEMA, MAX_REPORT, UNKNOWN
-from offline_error_reports import ERROR_SCHEMA
+from offline_error_reports import ERROR_SCHEMA, ErrorBurstObservation
+from offline_error_bursts import (
+    OfflineBurstTracker, LogEvidence, BurstAlert, LEVELS, STREAMS,
+    SOURCE as FIXTURE_SOURCE,
+)
 
 
 def load_pinned_schema():
@@ -171,6 +175,134 @@ class CrossStackSemanticProof(unittest.TestCase):
         # current crash+error-burst legacy record is specified or tested.
         self.assertFalse(hasattr(self.canonical, "publish"))
         self.assertFalse(hasattr(self.canonical, "publish_error"))
+
+
+class WarningErrorBoundaryProof(unittest.TestCase):
+    """Canonical line classification is NOT S4b's multi-event burst policy."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.canonical = load_pinned_schema()
+
+    @staticmethod
+    def line_events(levels):
+        # Source-shaped call to actual canonical derivation helper;
+        # deliberately NOT a complete validated/attested schema document.
+        return load_pinned_schema().derive_event_types({
+            "exit": {"classification": "normal_exit"},
+            "streams": {
+                "stdout": {
+                    "source_incomplete": False,
+                    "records": [{"severity": x} for x in levels],
+                },
+                "stderr": {"source_incomplete": False, "records": []},
+            },
+        })
+
+    @staticmethod
+    def event(*, level="WARN", code="fictional-category", seq=1, uptime=0,
+              stream="stdout", source=FIXTURE_SOURCE, verified=True):
+        return LogEvidence(
+            service="worldserver", instance="fictional-incarnation",
+            stream=stream, level=level, code=code, seq=seq,
+            uptime_ms=uptime, source=source, verified_stream=verified,
+        )
+
+    def test_single_declared_warn_line_is_not_a_s4b_burst(self):
+        self.assertEqual(self.line_events(["WARN"]), ["declared_warning_lines"])
+        tracker = OfflineBurstTracker(threshold=3, window_ms=60_000)
+        decision = tracker.observe(self.event())
+        self.assertEqual(decision.status, "ignored")
+        self.assertIsNone(decision.alert)
+
+    def test_three_same_code_warn_lines_make_one_fixture_burst(self):
+        self.assertEqual(
+            self.line_events(["WARN", "WARN", "WARN"]),
+            ["declared_warning_lines"],
+        )
+        tracker = OfflineBurstTracker(threshold=3, window_ms=60_000)
+        result = [
+            tracker.observe(self.event(seq=i + 1, uptime=i * 1000))
+            for i in range(4)
+        ]
+        self.assertEqual([x.status for x in result],
+                         ["ignored", "ignored", "alert", "ignored"])
+        self.assertEqual(result[2].alert.level, "WARN")
+        self.assertEqual(result[2].alert.threshold, 3)
+        self.assertEqual(result[2].alert.window_ms, 60_000)
+
+    def test_three_different_categories_do_not_form_one_burst(self):
+        self.assertEqual(self.line_events(["ERROR"] * 3),
+                         ["declared_error_lines"])
+        tracker = OfflineBurstTracker(threshold=3)
+        decisions = [
+            tracker.observe(self.event(
+                level="ERROR", code=f"category-{i}", seq=i + 1,
+                uptime=i * 1000))
+            for i in range(3)
+        ]
+        self.assertEqual([x.status for x in decisions], ["ignored"] * 3)
+        self.assertEqual(tracker.counts(), (1, 3))
+
+    def test_fatal_line_is_canonical_error_but_legacy_burst_rejects_fatal(self):
+        self.assertEqual(self.line_events(["FATAL"]),
+                         ["declared_error_lines"])
+        self.assertIn("FATAL", self.canonical.RECORD_SEVERITIES)
+        self.assertNotIn("FATAL", LEVELS)
+        with self.assertRaisesRegex(ValueError, "not a warning or error"):
+            self.event(level="FATAL").checked()
+
+    def test_unknown_severity_is_not_a_declared_warning_or_burst(self):
+        self.assertEqual(self.line_events(["unknown"]), [])
+        self.assertIn("unknown", self.canonical.RECORD_SEVERITIES)
+        with self.assertRaisesRegex(ValueError, "not a warning or error"):
+            self.event(level="unknown").checked()
+
+    def test_fixture_stream_claim_is_not_positive_provenance(self):
+        tracker = OfflineBurstTracker(threshold=3)
+        missing = tracker.observe(self.event(verified=False))
+        self.assertEqual(missing.status, "unverified")
+        forged = tracker.observe(self.event(source="unverified-text"))
+        self.assertEqual(forged.status, "unverified")
+        self.assertEqual(tracker.counts(), (0, 0))
+        # Fixture source token and Boolean can be minted by a caller.
+        self.assertEqual(FIXTURE_SOURCE, "verified-stream-fixture")
+
+    def test_legacy_file_log_stream_has_no_canonical_pipe_equivalent(self):
+        self.assertEqual(set(self.canonical.ATTEST_STREAMS),
+                         {"stdout", "stderr"})
+        self.assertTrue({"world-log", "auth-log"}.issubset(STREAMS))
+        self.assertNotIn("world-log", self.canonical.KEYS["streams"])
+        self.assertNotIn("auth-log", self.canonical.KEYS["streams"])
+
+    def test_burst_sequence_and_uptime_cannot_be_inferred_from_line_number(self):
+        tracker = OfflineBurstTracker(threshold=3)
+        self.assertEqual(
+            tracker.observe(self.event(seq=5, uptime=12345)).status, "ignored")
+        self.assertEqual(
+            tracker.observe(self.event(seq=5, uptime=12346)).status, "rejected")
+        self.assertEqual(
+            tracker.observe(self.event(seq=6, uptime=12344)).status, "rejected")
+        self.assertEqual(tracker.counts(), (1, 1))
+        self.assertNotIn("uptime_ms", self.canonical.KEYS["record"])
+        self.assertNotIn("code", self.canonical.KEYS["record"])
+        self.assertNotIn("seq", self.canonical.KEYS["record"])
+        self.assertIn("line", self.canonical.KEYS["record"])
+
+    def test_s4c_accepts_caller_verified_fixture_with_no_trusted_adapter(self):
+        alert = BurstAlert(
+            "worldserver", "fictional-incarnation", "stdout", "WARN",
+            "fictional-category", 3, 60_000, 3000,
+        )
+        obs = ErrorBurstObservation(alert, "2026-10-27T12:00:00Z", True)
+        self.assertIs(obs.checked(), obs)
+        meta = obs.info()
+        self.assertTrue(meta["verified"])
+        self.assertEqual(meta["threshold"], 3)
+        self.assertEqual(meta["window_ms"], 60_000)
+        self.assertNotIn("producer", meta)
+        self.assertNotIn("incarnation", meta)
+        self.assertNotIn("attestation", meta)
 
 
 if __name__ == "__main__":
