@@ -106,11 +106,38 @@ class SafetyAndSeparation(unittest.TestCase):
                     "H2_SHARED_WINDOW_COUNTER_DRIFT_SOURCE_CANDIDATE",
                     r.hypothesis_codes)
 
-    def test_enabled_custom_guard_is_its_own_unverified_cause(self):
-        r = assess(Incident("H2", effective_guard="on"))
-        self.assertIn("H2_ENABLED_CUSTOM_GUARD_COULD_CHANGE_NATIVE_RESULT",
+    def test_legacy_quest_guard_does_not_masquerade_as_ordinary_guard(self):
+        r = assess(Incident("H2", bucket="quest", legacy_quest_guard="on",
+                            hidden_ordinary_guard="off"))
+        self.assertIn("H2_LEGACY_QUEST_TURN_GUARD_CANDIDATE",
                       r.hypothesis_codes)
+        self.assertNotIn("H2_HIDDEN_ORDINARY_SLOT_GUARD_CANDIDATE",
+                         r.hypothesis_codes)
         self.assertFalse(r.can_enable_a04)
+
+    def test_hidden_ordinary_guard_does_not_masquerade_as_quest_guard(self):
+        r = assess(Incident("H2", bucket="ordinary",
+                            legacy_quest_guard="off",
+                            hidden_ordinary_guard="on"))
+        self.assertIn("H2_HIDDEN_ORDINARY_SLOT_GUARD_CANDIDATE",
+                      r.hypothesis_codes)
+        self.assertNotIn("H2_LEGACY_QUEST_TURN_GUARD_CANDIDATE",
+                         r.hypothesis_codes)
+        self.assertFalse(r.can_enable_a04)
+
+    def test_guard_for_other_bucket_cannot_make_a_false_h2_cause(self):
+        for bucket, quest_flag, ordinary_flag in (
+            ("quest", "off", "on"),
+            ("ordinary", "on", "off"),
+        ):
+            with self.subTest(bucket=bucket):
+                r = assess(Incident("H2", bucket=bucket,
+                                    legacy_quest_guard=quest_flag,
+                                    hidden_ordinary_guard=ordinary_flag))
+                self.assertNotIn("H2_LEGACY_QUEST_TURN_GUARD_CANDIDATE",
+                                 r.hypothesis_codes)
+                self.assertNotIn("H2_HIDDEN_ORDINARY_SLOT_GUARD_CANDIDATE",
+                                 r.hypothesis_codes)
 
     def test_schema_refuses_arbitrary_id_password_or_sql_as_fields(self):
         for keyword in ("item_id", "character_guid", "quest_id", "host",
