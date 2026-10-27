@@ -516,7 +516,9 @@ class QuestLootProtectionContract(unittest.TestCase):
         self.assertIn("changes are ignored until", CPP)
         self.assertIn("new NaxxramasQuestLootProtectionConfig();", CPP)
         self.assertIn("new NaxxramasQuestLootProtectionScript();", CPP)
-        packet_path = CPP[\n            CPP.index("bool PermitPickup("):CPP.index("// World-thread startup snapshot")\n        ]
+        packet_path = CPP[
+            CPP.index("bool PermitPickup("):CPP.index("// World-thread startup snapshot")
+        ]
         self.assertNotIn("sConfigMgr->GetOption", packet_path)
         self.assertNotIn("StartupConfig =", packet_path)
         self.assertIn("bool Enabled() { return StartupConfig.enabled; }", CPP)
