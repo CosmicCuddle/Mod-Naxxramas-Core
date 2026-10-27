@@ -38,6 +38,9 @@ MAX_REPORTS_PER_SERVICE_KIND = 64
 MAX_TOTAL_REPORT_BYTES = 2 * 1024 * 1024
 LOCK_WAIT_SECONDS = 5.0
 LOCK_POLL_SECONDS = 0.01
+# Hard per-operation scan budget; applies to ALL files, not only final reports.
+# Does not cap disk usage: hostile/legacy excess fails closed without cleanup.
+MAX_DIRECTORY_SCAN_ENTRIES = 4096
 ERROR_CAPACITY_REPORT = re.compile(
     r"^error-burst-(worldserver|authserver)-[0-9a-f-]{36}\.txt$"
 )
@@ -237,6 +240,26 @@ class IncidentStore:
         with contextlib.suppress(OSError):
             self.close()
 
+    def _dir_names_bounded(self):
+        """Snapshot at most N names from the already pinned directory FD.
+
+        scandir is lazy: oversized legacy/hostile directories fail before
+        allocating an unbounded list of names. Called only under shared
+        writer flock by quota/rebuild/sidecar/error consumers. Refuse safely
+        without deleting or mutating reports at the exceeded boundary.
+        """
+        names = []
+        with os.scandir(self._fd) as entries:
+            for entry in entries:
+                if len(names) >= MAX_DIRECTORY_SCAN_ENTRIES:
+                    self._count_rejection("capacity")
+                    raise OverflowError(
+                        "F15 offline directory scan budget exceeded; "
+                        "existing reports preserved, indexing/publish refused"
+                    )
+                names.append(entry.name)
+        return names
+
     def _admit_report_locked(self, kind: str, service: str, new_bytes: int):
         """Bound all finalized crash/error report lanes while holding flock.
 
@@ -249,7 +272,7 @@ class IncidentStore:
                 type(new_bytes) is not int or new_bytes < 0):
             raise ValueError("invalid offline report quota request")
         total = kind_count = service_kind = byte_count = 0
-        for name in os.listdir(self._fd):
+        for name in self._dir_names_bounded():
             crash = REPORT.fullmatch(name)
             error = ERROR_CAPACITY_REPORT.fullmatch(name)
             if not crash and not error:
@@ -395,7 +418,7 @@ class IncidentStore:
     def _reports(self):
         items = {}
         invalid = []
-        for name in os.listdir(self._fd):
+        for name in self._dir_names_bounded():
             if not REPORT.fullmatch(name):
                 continue
             info = self._read_valid(name)
@@ -414,7 +437,7 @@ class IncidentStore:
     def _reject_legacy_restart_projection(self):
         """Never let an S2-only writer silently discard an S3 restart index."""
         if any(name.startswith("restart-") and name.endswith(".txt")
-               for name in os.listdir(self._fd)):
+               for name in self._dir_names_bounded()):
             raise RuntimeError(
                 "restart sidecars present: legacy S2 index would erase restart "
                 "statuses; use RestartSidecarStore and rebuild with S3")
