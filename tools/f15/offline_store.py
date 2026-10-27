@@ -19,6 +19,7 @@ import os
 import re
 import secrets
 import stat
+import time
 import uuid
 
 SCHEMA = "F15-S2-OFFLINE-1"
@@ -27,6 +28,19 @@ NAMESPACE = uuid.UUID("86816d59-6d4f-43ad-8f4d-df60b13298ef")
 NAME = re.compile(r"^[a-zA-Z0-9_.-]{1,128}$")
 REPORT = re.compile(r"^(worldserver|authserver)-crash-[0-9]{8}T[0-9]{6}Z-([0-9a-f-]{36})\.txt$")
 MAX_REPORT = 16_384
+
+# OFFLINE safety ceilings, not owner-approved retention policy. Separate
+# crash/error and world/auth lanes prevent a burst of warnings from consuming
+# every future crash slot. Never delete an immutable report to make room.
+MAX_TOTAL_REPORTS = 256
+MAX_REPORTS_PER_KIND = 128
+MAX_REPORTS_PER_SERVICE_KIND = 64
+MAX_TOTAL_REPORT_BYTES = 2 * 1024 * 1024
+LOCK_WAIT_SECONDS = 5.0
+LOCK_POLL_SECONDS = 0.01
+ERROR_CAPACITY_REPORT = re.compile(
+    r"^error-burst-(worldserver|authserver)-[0-9a-f-]{36}\.txt$"
+)
 
 
 def utc(value: str) -> str:
@@ -210,15 +224,67 @@ class IncidentStore:
         with contextlib.suppress(OSError):
             self.close()
 
+    def _admit_report_locked(self, kind: str, service: str, new_bytes: int):
+        """Bound all finalized crash/error report lanes while holding flock.
+
+        Invalid or inaccessible names matching a report shape still consume
+        space conservatively. Prior reports are neither evicted nor modified.
+        This is a fixture quota, not an authenticated production rate limit.
+        """
+        if (kind not in ("crash", "error") or
+                service not in ("worldserver", "authserver") or
+                type(new_bytes) is not int or new_bytes < 0):
+            raise ValueError("invalid offline report quota request")
+        total = kind_count = service_kind = byte_count = 0
+        for name in os.listdir(self._fd):
+            crash = REPORT.fullmatch(name)
+            error = ERROR_CAPACITY_REPORT.fullmatch(name)
+            if not crash and not error:
+                continue
+            item_kind = "crash" if crash else "error"
+            item_service = crash.group(1) if crash else error.group(1)
+            try:
+                st = os.stat(name, dir_fd=self._fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            total += 1
+            byte_count += max(0, st.st_size)
+            if item_kind == kind:
+                kind_count += 1
+                if item_service == service:
+                    service_kind += 1
+        if (total >= MAX_TOTAL_REPORTS or
+                kind_count >= MAX_REPORTS_PER_KIND or
+                service_kind >= MAX_REPORTS_PER_SERVICE_KIND or
+                byte_count + new_bytes > MAX_TOTAL_REPORT_BYTES):
+            raise OverflowError(
+                "F15 offline report capacity reached; immutable records "
+                "preserved, new report refused"
+            )
+
     @contextlib.contextmanager
     def _locked(self):
         flags = os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW
         fd = os.open(".f15.offline.lock", flags, 0o600, dir_fd=self._fd)
         try:
             st = os.fstat(fd)
-            if not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077 or st.st_nlink != 1:
+            if (not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077 or
+                    st.st_nlink != 1 or st.st_uid != os.geteuid()):
                 raise PermissionError("unsafe offline lock")
-            fcntl.flock(fd, fcntl.LOCK_EX)
+            deadline = time.monotonic() + LOCK_WAIT_SECONDS
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as exc:
+                    if exc.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                        raise
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(
+                            "F15 offline lock deadline exceeded without a write"
+                        ) from exc
+                    time.sleep(min(LOCK_POLL_SECONDS, remaining))
             try:
                 yield
             finally:
@@ -392,7 +458,9 @@ class IncidentStore:
                     raise FileExistsError("final filename conflict/corruption")
                 self._rebuild_locked()
                 return False
-            temp = self._temp(report_bytes(info))
+            report = report_bytes(info)
+            self._admit_report_locked("crash", info["service"], len(report))
+            temp = self._temp(report)
             try:
                 # Hard-link is atomic no-clobber (EEXIST), anchored under FD.
                 os.link(temp, name, src_dir_fd=self._fd,
