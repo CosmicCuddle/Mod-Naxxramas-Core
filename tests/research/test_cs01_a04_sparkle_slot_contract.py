@@ -18,6 +18,7 @@ PATHS = {
     "player": "src/server/game/Entities/Player/Player.cpp",
     "loot": "src/server/game/Loot/LootMgr.cpp",
     "handler": "src/server/game/Handlers/LootHandler.cpp",
+    "loot_header": "src/server/game/Loot/LootMgr.h",
 }
 
 
@@ -82,6 +83,7 @@ class SourceContracts(unittest.TestCase):
         cls.loot = read("loot")
         cls.player = read("player")
         cls.handler = read("handler")
+        cls.loot_header = read("loot_header")
 
     def test_corpse_sparkle_checks_cached_quest_item_not_live_objective(self):
         s = between(self.storage,
@@ -165,6 +167,123 @@ class SourceContracts(unittest.TestCase):
         # inventory award, and these returns have different diagnostics.
 
 
+    def test_shared_nonffa_quest_row_is_counted_once_during_fill(self):
+        fill = between(self.loot,
+                       "QuestItemList* Loot::FillQuestLoot(Player* player)",
+                       "QuestItemList* Loot::FillNonQuestNonFFAConditionalLoot(")
+        self.assertIn("item.AllowedForPlayer(player, sourceWorldObjectGUID)", fill)
+        self.assertIn("ql->push_back(QuestItem(i));", fill)
+        self.assertIn("if (item.freeforall)", fill)
+        self.assertIn("else if (!item.is_counted)", fill)
+        self.assertIn("++unlootedCount;", fill)
+        self.assertIn("item.is_counted = true;", fill)
+        self.assertIn("PlayerQuestItems[player->GetGUID()] = ql;", fill)
+        # For a shared non-FFA item whose two viewer lists were filled
+        # while eligible, the counter is incremented once, not twice.
+
+    def test_window_shared_looted_mutation_has_no_count_reconciliation(self):
+        # The exact pinned quest-window hide branch is a data mutation,
+        # with no balancing decrement of the global outstanding count.
+        start = self.loot.index("bool showInLoot = true;")
+        end = self.loot.index(
+            "b << uint8(l.items.size() + (qi - q_list->begin()));", start)
+        hidden = compact(self.loot[start:end])
+        self.assertIn("const_cast<QuestItem*>(&(*qi))->is_looted = true;", hidden)
+        self.assertIn("if (!item.freeforall)", hidden)
+        self.assertIn("item.is_looted = true;", hidden)
+        self.assertIn("continue;", hidden)
+        self.assertNotIn("--unlootedCount;", hidden)
+        self.assertNotIn("--l.unlootedCount;", hidden)
+        self.assertNotIn("unlootedCount--;", hidden)
+
+    def test_second_viewer_cached_slot_reuses_shared_is_looted_flag(self):
+        view = self.loot[self.loot.index("QuestItemMap const& lootPlayerQuestItems = l.GetPlayerQuestItems();"):]
+        self.assertIn("if (!qi->is_looted && !item.is_looted)", compact(view))
+        has = between(self.loot, "bool Loot::hasItemFor(Player* player) const",
+                      "bool Loot::hasOverThresholdItem() const")
+        self.assertIn("if (!qi->is_looted && !item.is_looted) return true;",
+                      compact(has))
+        slot = between(self.loot, "LootItem* Loot::LootItemInSlot(",
+                       "uint32 Loot::GetMaxSlotInLootFor(")
+        self.assertIn("item = &quest_items[qitem2->index];", compact(slot))
+        award = between(self.player, "LootItem* Player::StoreLootItem(",
+                        "uint32 Player::CalculateTalentsPoints() const")
+        self.assertIn("if (!item || item->is_looted)", compact(award))
+
+    def test_islooted_depends_on_count_and_loot_release_uses_islooted(self):
+        self.assertIn(
+            "[[nodiscard]] bool isLooted() const { return gold == 0 && unlootedCount == 0; }",
+            compact(self.loot_header))
+        release = between(self.handler, "void WorldSession::DoLootRelease(",
+                          "void WorldSession::HandleLootMasterGiveOpcode(")
+        self.assertIn("if (loot->isLooted())", release)
+        self.assertIn("creature->RemoveDynamicFlag(UNIT_DYNFLAG_LOOTABLE);", release)
+        self.assertIn("loot->roundRobinPlayer.Clear();", release)
+        # A nonzero stale unlootedCount takes the NOT fully-looted
+        # branch on creature release, even if the shared item is flagged.
+
+    def test_native_award_has_separate_count_decrement(self):
+        award = between(self.player, "LootItem* Player::StoreLootItem(",
+                        "uint32 Player::CalculateTalentsPoints() const")
+        self.assertIn("Item* newitem = StoreNewItem(", award)
+        self.assertIn("if (!item->freeforall) item->is_looted = true;",
+                      compact(award))
+        self.assertIn("--loot->unlootedCount;", award)
+        # A real award and serialization-side suppression use different
+        # count transitions: never treat one as evidence of the other.
+
+@dataclass
+class TwoViewerSharedQuest:
+    """Minimal same-corpse state, not a simulation of a running Worldserver.
+
+    For shared quest loot, FillQuestLoot counted one item once, with a
+    separately mapped quest entry for two eligible humans at spawn.
+    """
+    shared_looted: bool = False
+    owner_slot_looted: bool = False
+    friend_slot_looted: bool = False
+    unlooted_count: int = 1
+    round_robin_owner: bool = True
+
+    def show(self, viewer, objective_short=True, bag_short=True):
+        local = self.owner_slot_looted if viewer == "owner" else self.friend_slot_looted
+        result = source_shaped_quest_view(QuestWindowCase(
+            True, not self.shared_looted and not local,
+            objective_short, bag_short, freeforall=False,
+        ))
+        if result[2]:
+            if viewer == "owner":
+                self.owner_slot_looted = True
+            else:
+                self.friend_slot_looted = True
+        if result[3]:
+            self.shared_looted = True
+        # Pinned LootView hide path has NO decrement, regardless of who
+        # viewed the source.
+        return result[1]
+
+    def store(self, viewer):
+        local = self.owner_slot_looted if viewer == "owner" else self.friend_slot_looted
+        if self.shared_looted or local:
+            return False
+        self.shared_looted = True
+        self.unlooted_count -= 1
+        if viewer == "owner":
+            self.owner_slot_looted = True
+        else:
+            self.friend_slot_looted = True
+        return True
+
+    def release_owner(self):
+        # Only the turn is cleared for a NOT-fully-looted corpse.
+        # The model never clears or re-counts this shared item.
+        if self.unlooted_count:
+            self.round_robin_owner = False
+
+    def is_looted(self):
+        return self.unlooted_count == 0
+
+
 class SyntheticQuestWindowWitnesses(unittest.TestCase):
     def test_still_eligible_slot_can_be_shown(self):
         self.assertEqual(
@@ -208,6 +327,59 @@ class SyntheticQuestWindowWitnesses(unittest.TestCase):
         self.assertTrue(all(x[0] for x in results))
         self.assertEqual([x[1] for x in results],
                          ["ALLOW", "LOCKED", "HIDDEN"])
+
+
+    def test_mismatch_viewed_first_strands_other_eligible_quest_viewer(self):
+        corpse = TwoViewerSharedQuest()
+        self.assertEqual(corpse.show("owner", objective_short=True, bag_short=False),
+                         "HIDDEN")
+        self.assertTrue(corpse.shared_looted)
+        self.assertTrue(corpse.owner_slot_looted)
+        self.assertFalse(corpse.friend_slot_looted)
+        self.assertEqual(corpse.unlooted_count, 1)  # stale counter
+        self.assertEqual(corpse.show("friend"), "NO_QUEST_ROW")
+        self.assertFalse(corpse.store("friend"))
+        self.assertFalse(corpse.is_looted())
+
+    def test_releasing_owner_does_not_reopen_suppressed_shared_copy(self):
+        corpse = TwoViewerSharedQuest()
+        corpse.show("owner", objective_short=True, bag_short=False)
+        corpse.release_owner()
+        self.assertFalse(corpse.round_robin_owner)
+        self.assertTrue(corpse.shared_looted)
+        self.assertEqual(corpse.unlooted_count, 1)
+        self.assertFalse(corpse.is_looted())
+        self.assertFalse(corpse.store("friend"))
+
+    def test_other_eligible_viewer_can_collect_before_mismatch_view(self):
+        corpse = TwoViewerSharedQuest()
+        self.assertEqual(corpse.show("friend"), "ALLOW")
+        self.assertTrue(corpse.store("friend"))
+        self.assertEqual(corpse.unlooted_count, 0)
+        self.assertTrue(corpse.is_looted())
+        # Stock shared one-copy loot is now genuinely consumed; this
+        # reference behaviour must not be mistaken for duplication.
+        self.assertFalse(corpse.store("owner"))
+
+    def test_objective_completed_locked_row_does_not_suppress_friend(self):
+        corpse = TwoViewerSharedQuest()
+        self.assertEqual(corpse.show("owner", objective_short=False, bag_short=True),
+                         "LOCKED")
+        self.assertFalse(corpse.shared_looted)
+        self.assertEqual(corpse.unlooted_count, 1)
+        self.assertEqual(corpse.show("friend"), "ALLOW")
+        self.assertTrue(corpse.store("friend"))
+        self.assertTrue(corpse.is_looted())
+
+    def test_no_unapproved_reconciliation_or_extra_copy_in_model(self):
+        corpse = TwoViewerSharedQuest()
+        self.assertEqual(corpse.show("owner", True, False), "HIDDEN")
+        self.assertFalse(corpse.store("owner"))
+        self.assertFalse(corpse.store("friend"))
+        self.assertEqual(corpse.unlooted_count, 1)
+        # A future policy repair must separately define whether stale
+        # counts or inventory mismatch should be corrected, with
+        # approval and controlled staging. This model changes neither.
 
 
 if __name__ == "__main__":
