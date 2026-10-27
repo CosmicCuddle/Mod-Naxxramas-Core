@@ -1,0 +1,46 @@
+name: "A04 Part29 private-evidence gates (synthetic, no owner data)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - "tools/a04/incident_triage.py"
+      - "tests/test_a04_incident_triage_part29.py"
+      - "docs/pilots/A04-PART29-OWNER-PRIVATE-INCIDENT-EVIDENCE-GATE.md"
+      - ".github/workflows/a04-part29-private-evidence-gates.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naxx-a04-evidence-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-no-write-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Pin exact code head
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Validate H1/H2 conservative classifier with synthetic categories only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I -B tests/test_a04_incident_triage_part29.py -v 2>&1 | tee /tmp/a04-evidence-tests.txt
+          grep -Eq '^Ran 19 tests in [0-9.]+s$' /tmp/a04-evidence-tests.txt
+          grep -qx 'OK' /tmp/a04-evidence-tests.txt
+          ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/a04-evidence-tests.txt
+      - name: Explicitly reject owner-data / gameplay acceptance interpretation
+        shell: bash
+        run: |
+          echo 'Synthetic enum categories only, no owner case, credentials, SQL, logs, host or installed binaries.'
+          echo 'No gameplay fix, no permission to inspect or stage, no module configuration or loot-policy change.'
+          echo 'NO_WRITE and not accepted remain invariant.'
