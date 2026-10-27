@@ -128,7 +128,7 @@ class RestartSidecarStore(IncidentStore):
 
     def _sidecars(self, valid_incidents):
         attached, invalid = {}, []
-        for name in os.listdir(self._fd):
+        for name in self._dir_names_bounded():
             if not SIDECAR_PATTERN.fullmatch(name):
                 continue
             info = self._read_sidecar(name)
