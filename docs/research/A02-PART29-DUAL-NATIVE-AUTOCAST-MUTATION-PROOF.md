@@ -26,3 +26,15 @@ The new `tests/test_a02_p29_dual_native_autocast_paths.py` reads the **exact pin
 ## Architecture choice still needed
 
 A safe native accepted manual receipt *and* real positive SelfBot mode (plus durable pet birth) require an installed-compatible authoritative event/source beyond the module's existing exposed pre-handler; otherwise a module-only diagnostic candidate cannot be promoted to automatic restoration without the owner explicitly electing a separately labelled weaker policy. Leave A02 disabled, and prefer proving a future source seam over implementing a C1 mirror that appears functional while its causal provenance is unknown.
+
+## Follow-on public-core finding — packet-independent pet autocast mutations
+
+With the same exact pinned core, `Pet.cpp` independently calls `Pet::ToggleAutocast` in at least two distinct lifecycle contexts:
+
+- `Pet::addSpell` (~1766–1900) toggles previous spell/rank state when a spell is loaded or learned; on a stock higher-rank replacement it explicitly copies `petSpell.active` from the old rank, disables old-rank autocast if enabled, then toggles the new rank based on that copied state. This is a meaningful **stock preservation attempt**, not proof that all owner-installed IP/custom ranks or asynchronous operations preserve state.
+- `Pet::CleanupActionBar` (~2027–2038) re-evaluates a known action-bar spell and directly calls `ToggleAutocast(spellInfo, ab->GetType() == ACT_ENABLED)` without any incoming human autocast packet. A matching final ON/OFF value following a pre-handler packet is therefore causally ambiguous even if BOTH packet handlers have been observed.
+- `Pet::ToggleAutocast` (~2247–2287) mutates `m_autospells` and `PetSpellMap::active` conditionally, without a manual receipt or origin field. `Pet::_SaveSpells` (~1572–1602) rewrites recycled-number spell rows and stores final `active` state, not the human responsible for that state. This is existing core pet persistence, not a module-approved new table.
+
+Four new **source-only pinned** tests check these exact code paths and the absence of invented positive human provenance. They read `Pet.cpp`, already present in #173's sparse core checkout, so no new API or runtime instrumentation is introduced. In total, the enhanced test suite now guards the two explicit native packet routes PLUS distinct pet-lifecycle writers, but still cannot prove the complete transitive installed/custom call graph.
+
+**Design consequence:** Do not equate `observedState == requestedState` with `NativeAcceptedHumanChoice`. A future safely permitted receipt must identify the exact native validation branch, receive/apply generation, action-bar and rank mutation sequencing, positive human origin, actual birth identity and any independent post-mutation writer. Default policy remains NoWrite. No actual owner IP or Playerbots instrumentation or server change.
