@@ -171,6 +171,30 @@ class PinnedDirectoryFlock(unittest.TestCase):
                              os.fstat(a._fd).st_ino)
         self.assertTrue(self.store.publish(crash(1)))
 
+    def test_legacy_lock_open_failure_releases_directory_flock(self):
+        # After the directory lock is acquired, failure to open the old
+        # named lock must close the directory FD even on exception.
+        original_open = os.open
+
+        def reject_legacy(path, flags, *args, **kwargs):
+            if path == ".f15.offline.lock":
+                raise OSError(errno.EACCES, "synthetic legacy lock denied")
+            return original_open(path, flags, *args, **kwargs)
+
+        with patch("offline_store.os.open", side_effect=reject_legacy):
+            with self.assertRaises(OSError) as caught:
+                self.store.publish(crash(1))
+            self.assertEqual(caught.exception.errno, errno.EACCES)
+        self.assertEqual(self.crash_names(), [])
+        # A leaked directory lock would cause the next independent opener
+        # to time out rather than succeeding immediately.
+        other = IncidentStore(self.root)
+        try:
+            with patch("offline_store.LOCK_WAIT_SECONDS", 0.08):
+                self.assertTrue(other.publish(crash(1)))
+        finally:
+            other.close()
+
     def test_positive_serialization_with_intact_legacy_path(self):
         with self.store._locked():
             self.assertEqual(self.crash_names(), [])
