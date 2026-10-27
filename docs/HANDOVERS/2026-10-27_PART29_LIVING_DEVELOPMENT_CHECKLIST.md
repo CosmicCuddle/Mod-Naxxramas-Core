@@ -6,10 +6,10 @@
 
 ## Startup / integrity
 
-- [ ] **Part29 new conversation:** read both Part29 handover/checklist IN FULL; then refresh live GitHub branch heads, all relevant comments/peer review threads and exact-head CI before using this checkpoint. Keep a real distinction between source tests, full link, installed runtime and owner game acceptance.
+- [x] **Part29 conversation initialized (27 Oct):** read handover/checklist in full; refreshed live GitHub PR heads, draft state, comments, #175 peer review, exact-head hosted CI and original #175 S4 job log. S4 is not installed S5 or owner gameplay S6. Keep a real distinction between source tests, full link, installed runtime and owner game acceptance.
 - [x] Part28 handover creation baseline verified **main `80e9de1c39a6dc995188a80c31a5e785d0f2a6f9`** and protected unmerged DRAFT **#160 `a7523ebb823169edc969d971d00aa293119f2f05`**, still unchanged. Check again in new chat.
 - [x] Previous [#174](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/174) last confirmed `b4f3f1edaea6b58e5ec91a31b16b1d87077bc9c0` includes a **ready but UNEXECUTED** [GFPP/F12/F13 owner-staging worksheet](../pilots/PART28-THREE-FEATURE-OWNER-STAGING-ACCEPTANCE.md). Handover creates only a stacked docs child; #174 and #160 not rewritten.
-- [ ] Verify new handover/checklist DRAFT branch remains unmerged and document-only. Do not ready/merge without owner.
+- [x] Verified [Part29 DRAFT #176](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/176) OPEN, unmerged, originally exactly two added Markdown files relative to #174 `b4f3f1ed`. This checklist remains its continuing documentation-only update; do not merge or ready without owner.
 
 ## How much actual work remains — mandatory five, **0/5 owner signed together**
 
@@ -42,13 +42,13 @@
 - [ ] H1: identify whether friend was on quest, still eligible, visible loot slot/category, group's selected loot method/turn, whether owner closed/released loot, and actual inventory award. Source-only hypotheses cannot decide.
 - [ ] H2: independently verify sparkle vs actual displayed quest slot vs native loot error, source/turn/eligibility, active module flags and installed binary. Do not conflate with H1.
 - [ ] No owner raw item/quest/loot SQL, IDs or private server data in the PUBLIC repository. Only privately controlled evidence when explicitly authorised; do not enable ordinary or legacy guard to “see if it works”.
-- [ ] CS02/Grok independent current #129/#175 exact-head review, particularly WorldScript startup/reload correctness and default-off policy separation.
+- [x] **CS02/Grok #175 exact `5fd773b` source-only review** [6443951976](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/175#issuecomment-6443951976): PASS source-only; independently confirms pin's startup callback ordering and 46/46 local source tests, and notes minor internal linkage/whitespace-test improvements. Not an installed/runtime review and not an A04 H1/H2 fix. #129 runtime/actual human evidence still open.
 
 ## F15 separate Worldserver AND Authserver objective — NOT OPERATIONAL
 
 - [x] [#170](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/170) 51/51 disposable two-stream producer PASS, and [#171](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/171) 43 text-free schema + 51 producer PASS. No real reporting.
 - [x] Claude source-only [#143 R4 review](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143#issuecomment-6441959927) found #141 unbounded crash-loop files/quadratic rebuild, blocking flock, forged `verified` provenance, service role and /root permission/format issues.
-- [ ] Claude source-only separate-session [authorized scope](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143#issuecomment-6442414290): disposable bounded-store and nonblocking lock-timeout DRAFT child of #141; no automated agent has started by comment alone, no verified new PR at handover.
+- [ ] **PAUSED — Claude unavailable at owner's request (Part29).** The earlier [source-only R4 bounded-store scope](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143#issuecomment-6442414290) remains a potential CS01 isolated task, not an outstanding demand on Claude. No implied separate session, automated Claude agent or owner host approval.
 - [ ] R0 per daemon owner launcher, exit witness, stream/log/journal, privilege/storage and binary facts are **UNKNOWN** until separate owner approval/private channel. No systemd, real process, host, /root, log, service action or world/auth crash testing.
 - [ ] Genuine authenticated World/Auth child death, warnings/errors, private secure durable store, bounded volumes and recovery, owner-approved staged fault injection and rollback before claim F15 operational.
 
@@ -59,3 +59,10 @@
 - [ ] Keep both A04 flags OFF, A02 restore OFF/NoWrite, optional F14 OFF. Do not modify MapUpdate.Threads=8, upstream AzerothCore, Playerbots, IP, N-Core or owner data.
 - [ ] **Before owner-approved testing** require exact installed build/config/DBC compatibility, isolated staging scope, restorable backup and rollback proof, positive/negative case plan and explicit separate authorisation.
 - [ ] No merge, deployment, SQL/schema/DBC, real World/Auth, secrets or private loot/item/progression relationships in this PUBLIC repo. **5 mandatory gameplay features: still 0/5 signed together.**
+
+## Part29 checkpoint 1 — 27 October 2026 (source-only)
+
+- **Current protected state rechecked:** main `80e9de1c39a6dc995188a80c31a5e785d0f2a6f9`; combined [#160](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/160) `a7523ebb823169edc969d971d00aa293119f2f05` DRAFT/UNMERGED. A04 parent #129 `b9f2605` and child #175 `5fd773b` DRAFT/UNMERGED, unchanged. Part29 docs-only #176 DRAFT/UNMERGED.
+- **A04 independently verified exact-head S4** [40508607931](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40508607931) job `122204273820`: original job log independently fetched in Part29; 32 source/model tests, changed QuestLootProtection.cpp compiled, `[1892/1892]` final Worldserver link, final binary/archive module symbol checks and all job steps SUCCESS. Peer CS02 source-only PASS [6443951976](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/175#issuecomment-6443951976). This establishes S4 at the public pin, not a player observed H1/H2 correction. Two minor nonblocking suggestions do not justify rebuilding the protected parent just to generate new logs.
+- **Five owner gameplay conditions: 0/5 accepted.** Three build-prepared features (GFPP 120s, F12 Scarlet physical doors, F13 Atiesh exterior) have an *unexecuted* staging worksheet; two (A02 trusted human autocast and A04 two distinct human loot observations) remain genuinely blocked. F15 is separate, BOTH daemons not operational.
+- **Staffing update:** owner says Claude is taking a break; CS01 continues bounded source verification/engineering without scheduling, requesting or attributing new work to CS03. Comments are not active agent sessions. All flags OFF, NoWrite, MapUpdate.Threads=8 preserved. No merges, SQL, world/auth host activity, private inputs or gameplay testing.
