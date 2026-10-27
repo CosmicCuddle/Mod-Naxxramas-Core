@@ -153,6 +153,13 @@ public:
                 break;
         }
 
+        // The portal may be owned by its clicker. TeleportTo can remove that
+        // player's old-world objects (or interrupt a summoning aura), so an
+        // owned GO cannot safely be dereferenced after the teleport succeeds.
+        // For other-owner and unowned GOs the clicker's removal does not own
+        // their lifecycle; preserve their native successful-use accounting.
+        bool const clickerOwnsPortal = go->GetOwnerGUID() == player->GetGUID();
+
         // Mount parity with the native path (GameObject.cpp L1524-1526).
         if (!go->GetGOInfo()->IsUsableMounted())
             player->RemoveAurasByType(SPELL_AURA_MOUNTED);
@@ -160,7 +167,12 @@ public:
         // Fail closed: a refused request never falls back to the inside cast.
         if (player->TeleportTo(row->target_mapId, row->target_X, row->target_Y,
                 row->target_Z, row->target_Orientation))
-            go->AddUse();
+        {
+            // Owner portals can be deleted by the successful move itself;
+            // their use count no longer has a live owner-side purpose.
+            if (!clickerOwnsPortal)
+                go->AddUse();
+        }
         else
             Tell(player);
 

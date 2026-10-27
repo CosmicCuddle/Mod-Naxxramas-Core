@@ -12,6 +12,7 @@ on:
       - 'tests/test_p29_gfpp_atomic_config.py'
       - 'tests/test_scarlet_monastery_exits.py'
       - 'tests/test_atiesh_karazhan_portal.py'
+      - 'tests/test_p29_f13_owned_go_lifetime.py'
       - 'tests/test_f14_who_listing_s2.py'
       - 'docs/research/PART25-P0-F12-F13-F14-SOURCE-ASSEMBLY.md'
       - '.github/workflows/part25-p0-f12-f13-f14-assembly.yml'
@@ -77,12 +78,23 @@ jobs:
           sparse-checkout: |
             src/server/game/Handlers/MiscHandler.cpp
             src/server/game/Server/Protocol/Opcodes.cpp
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Entities/Unit/Unit.cpp
+            src/server/game/Entities/GameObject/GameObject.cpp
+            src/server/game/Maps/Map.cpp
           sparse-checkout-cone-mode: false
       - name: Confirm source handler fingerprint at exact core SHA
         run: |
           set -euo pipefail
           test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
           python3 scripts/check_f14_who_handler_fingerprint.py acore --print
+      - name: Pin F13 owner portal cleanup to native far teleport and GO removal
+        run: |
+          set -euo pipefail
+          F13_CORE_PIN_ROOT=acore python3 -I -B tests/test_p29_f13_owned_go_lifetime.py -v 2>&1 | tee /tmp/p29-f13-lifetime.txt
+          grep -Eq 'Ran 6 tests in [0-9.]+s' /tmp/p29-f13-lifetime.txt
+          grep -qx 'OK' /tmp/p29-f13-lifetime.txt
+          ! grep -Eq '^FAILED|^ERROR:|^FAIL:|skipped' /tmp/p29-f13-lifetime.txt
 
   full-pinned-worldserver-link:
     needs: exact-source-and-native
