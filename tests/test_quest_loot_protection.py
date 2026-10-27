@@ -504,6 +504,25 @@ class QuestLootProtectionContract(unittest.TestCase):
         self.assertIn("if (!owner->IsInWorld())", legacy)
         self.assertTrue(presence_fail_open(CPP))
 
+    def test_live_packet_path_uses_restart_only_config_snapshot(self):
+        # ConfigMgr::GetValueDefault at pinned core 8daffdabe reads the
+        # mutable config options map without _configLock. The area trigger
+        # and gossip implementations F12/F13 already avoid map-thread reads.
+        self.assertIn("struct LootConfig", CPP)
+        self.assertIn("LootConfig StartupConfig;", CPP)
+        self.assertIn("WORLDHOOK_ON_AFTER_CONFIG_LOAD", CPP)
+        self.assertIn("if (!reload)\n        {\n            StartupConfig = loaded;", CPP)
+        self.assertIn("if (!SameConfig(loaded, StartupConfig))", CPP)
+        self.assertIn("changes are ignored until", CPP)
+        self.assertIn("new NaxxramasQuestLootProtectionConfig();", CPP)
+        self.assertIn("new NaxxramasQuestLootProtectionScript();", CPP)
+        packet_path = CPP[CPP.index("bool PermitPickup("):]
+        self.assertNotIn("sConfigMgr->GetOption", packet_path)
+        self.assertNotIn("StartupConfig =", packet_path)
+        self.assertIn("bool Enabled() { return StartupConfig.enabled; }", CPP)
+        self.assertIn("bool Debug() { return StartupConfig.debug; }", CPP)
+        self.assertIn("return StartupConfig.restrictHiddenOrdinarySlots;", CPP)
+
     def test_presence_guards_are_fail_open_in_source(self):
         self.assertTrue(presence_fail_open(CPP))
         start = CPP.index(OWNER_LOOKUP)
