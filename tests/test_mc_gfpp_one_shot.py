@@ -84,7 +84,9 @@ int main()
         self.assertEqual(config.count(FLAG + " = 0"), 1)
         self.assertIn('"' + FLAG + '"', source)
         self.assertIn("GetOption<bool>", source)
-        self.assertIn("false) || !spellId", source)
+        self.assertIn("!IsGreaterFireProtectionOneShotEnabled() || !spellId", source)
+        self.assertEqual(source.count('"' + FLAG + '"'), 1)
+        self.assertIn("GreaterFireProtectionOneShotEnabled.store(", source)
 
     def test_only_molten_core_preparation_schedules_fire_protection(self):
         source = SOURCE.read_text(encoding="utf-8")
@@ -142,11 +144,12 @@ int main()
         source = SOURCE.read_text(encoding="utf-8")
         section = source.split("void ProcessOneShotFireProtections(", 1)[1].split(
             "// =========================================================", 1)[0]
-        self.assertIn('"' + FLAG + '"', section)
+        self.assertIn("!IsGreaterFireProtectionOneShotEnabled()", section)
+        self.assertNotIn("sConfigMgr", section)
         self.assertIn("!bot->AddAura(pending.SpellId, bot)", section)
         self.assertIn("one-time refresh failed", section)
         self.assertLess(section.index("pending.Timer.ConsumeIfDue(diff)"),
-                        section.index("GetOption<bool>("))
+                        section.index("!IsGreaterFireProtectionOneShotEnabled()"))
         self.assertLess(section.index("pending.Timer.ConsumeIfDue(diff)"),
                         section.index("!bot->AddAura(pending.SpellId, bot)"))
 
