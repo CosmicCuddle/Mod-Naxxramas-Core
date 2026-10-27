@@ -8,6 +8,8 @@ on:
       - 'tests/research/a04_turn_model.py'
       - 'src/Systems/QuestLootProtection.cpp'
       - 'tests/research/test_cs03_a04_q6b_roll_timing.py'
+      - 'tests/research/test_cs01_a04_sparkle_slot_contract.py'
+      - 'docs/research/A04-PART29-SPARKLE-SLOT-RECHECK-RESEARCH.md'
       - 'scripts/check_a04_roll_fingerprint.py'
       - 'docs/research/A04-Q6B-ROLL-TIMING.md'
       - '.github/workflows/a04-q6b-roll-timing.yml'
@@ -38,7 +40,7 @@ jobs:
           grep -qx "Ran 33 tests in [0-9.]*s" /tmp/q6b.txt
           grep -qx "OK" /tmp/q6b.txt
           ! grep -q "skipped" /tmp/q6b.txt
-      - name: Checkout pinned core (seven files only)
+      - name: Checkout pinned core (eight files only)
         uses: actions/checkout@v4
         with:
           repository: Grimfeather/azerothcore-wotlk
@@ -51,6 +53,7 @@ jobs:
             src/server/game/Entities/Player/PlayerQuest.cpp
             src/server/game/Entities/Player/PlayerStorage.cpp
             src/server/game/Loot/LootMgr.cpp
+            src/server/game/Loot/LootMgr.h
             src/server/game/Entities/Unit/Unit.cpp
             src/server/game/Handlers/LootHandler.cpp
           sparse-checkout-cone-mode: false
@@ -58,3 +61,15 @@ jobs:
         run: test "$(git -C acore rev-parse HEAD)" = "8daffdabe9202c228e45d833c9a1d399597a15cd"
       - name: Loot function fingerprint (model must be re-reviewed on any change)
         run: python3 -I -B scripts/check_a04_roll_fingerprint.py acore --print
+      - name: Part29 corpse sparkle, viewer quest-slot and inventory-award source witnesses
+        run: |
+          set -euo pipefail
+          A04_PINNED_CORE=acore python3 -I -B tests/research/test_cs01_a04_sparkle_slot_contract.py -v 2>&1 | tee /tmp/a04-p29-sparkle.txt
+          grep -Eq 'Ran 34 tests in [0-9.]+s' /tmp/a04-p29-sparkle.txt
+          grep -qx 'OK' /tmp/a04-p29-sparkle.txt
+          ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/a04-p29-sparkle.txt
+      - name: Assert offline evidence only
+        run: |
+          echo 'Source and synthetic cases only: no owner character, creature, item, quest or installed config'
+          echo 'No Worldserver, DB, SQL, loot inventory mutation, live process, staged gameplay or policy change'
+
