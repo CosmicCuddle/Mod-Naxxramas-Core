@@ -5,6 +5,7 @@ These tests use only the exact PUBLIC Grimfeather AzerothCore source pin.
 The synthetic references distinguish possible stock paths, not H1/H2 proof.
 """
 import os
+import re
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
@@ -282,6 +283,152 @@ class TwoViewerSharedQuest:
 
     def is_looted(self):
         return self.unlooted_count == 0
+
+
+
+def player_method(text, signature):
+    """Exact public-source method slice up to next top-level Player method."""
+    i = text.index(signature)
+    next_method = re.search(
+        r"(?m)^(?:void|bool|Item\*|uint8|uint16|uint32|int|InventoryResult)"
+        r"\s+Player::[A-Za-z_]+\(",
+        text[i + len(signature):],
+    )
+    if next_method is None:
+        raise AssertionError("next Player method sentinel not found: " + signature)
+    return compact(text[i:i + len(signature) + next_method.start()])
+
+
+@dataclass
+class QuestCounterAtReceipt:
+    """Synthetic deliver-quest counter model; not a player or owner DB."""
+    needed: int
+    counted: int = 0
+    carried: int = 0
+
+    def accept_existing(self, held):
+        self.carried = held
+        self.counted = min(held, self.needed)
+
+    def receive_normal(self, count):
+        # Source-shaped: ItemAddedQuestCheck updates still-incomplete
+        # delivery objectives while StoreNewItem increases actual bags.
+        if self.counted < self.needed:
+            self.counted = min(self.counted + count, self.needed)
+        self.carried += count
+
+    def reload_saved(self, saved_counter, loaded_bags):
+        # Deliberately inconsistent persisted state is injected by a test.
+        # This does not assert stock normal gameplay creates such rows.
+        self.counted = saved_counter
+        self.carried = loaded_bags
+
+    def remaining(self):
+        return (self.counted < self.needed, self.carried < self.needed)
+
+
+class PinnedCounterLifecycleContracts(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.storage = read("player_storage")
+        cls.quest = read("player_quest")
+
+    def test_quest_accept_reconciles_existing_delivery_items(self):
+        add = player_method(self.quest, "void Player::AddQuest(")
+        adj = player_method(self.quest, "void Player::AdjustQuestReqItemCount(")
+        self.assertIn("AdjustQuestReqItemCount(quest, questStatusData);", add)
+        self.assertIn("GetItemCount(quest->RequiredItemId[i], true)", adj)
+        self.assertIn("questStatusData.ItemCount[i] = std::min(curitemcount, reqitemcount);", adj)
+
+    def test_ordinary_item_store_calls_quest_check_before_storeitem(self):
+        store = player_method(
+            self.storage,
+            "Item* Player::StoreNewItem(ItemPosCountVec const& dest, "
+            "uint32 item, bool update, int32 randomPropertyId, "
+            "AllowedLooterSet& allowedLooters, bool refund)"
+        )
+        self.assertIn("ItemAddedQuestCheck(item, count);", store)
+        self.assertIn("pItem = StoreItem(dest, pItem, update);", store)
+        self.assertLess(store.index("ItemAddedQuestCheck(item, count);"),
+                        store.index("pItem = StoreItem(dest, pItem, update);"))
+
+    def test_item_added_check_updates_counter_and_completes_as_needed(self):
+        added = player_method(self.quest, "void Player::ItemAddedQuestCheck(")
+        self.assertIn("q_status.Status != QUEST_STATUS_INCOMPLETE", added)
+        self.assertIn("qInfo->HasSpecialFlag(QUEST_SPECIAL_FLAGS_DELIVER)", added)
+        self.assertIn("q_status.ItemCount[j] = std::min<uint16>(", added)
+        self.assertIn("q_status.ItemCount[j] + count, reqitemcount", added)
+        self.assertIn("if (CanCompleteQuest(questid)) CompleteQuest(questid);", added)
+
+    def test_inventory_move_in_and_out_use_quest_counter_hooks(self):
+        arrive = player_method(self.storage, "Item* Player::MoveItemToInventory(")
+        depart = player_method(self.storage, "void Player::MoveItemFromInventory(")
+        self.assertIn("ItemAddedQuestCheck(pItem->GetEntry(), pItem->GetCount());", arrive)
+        self.assertIn("ItemRemovedQuestCheck(it->GetEntry(), it->GetCount());", depart)
+
+    def test_quest_login_restores_saved_count_without_direct_reconciliation(self):
+        loaded = player_method(self.storage, "void Player::_LoadQuestStatus(")
+        inventory = player_method(self.storage, "void Player::_LoadInventory(")
+        self.assertIn("questStatusData.ItemCount[i] = fields[8 + i].Get<uint16>();", loaded)
+        self.assertNotIn("AdjustQuestReqItemCount(", loaded)
+        self.assertNotIn("ItemAddedQuestCheck(", loaded)
+        self.assertNotIn("ItemAddedQuestCheck(", inventory)
+        self.assertNotIn("AdjustQuestReqItemCount(", inventory)
+        # Scope limited to these two functions. Other login hooks and
+        # custom IP additions have not been excluded.
+
+    def test_quest_need_check_is_counter_gated_before_inventory(self):
+        src = player_method(self.quest, "bool Player::HasQuestForItem(")
+        self.assertIn("q_status.ItemCount[j] < qinfo->RequiredItemCount[j]", src)
+        self.assertIn("if (showInLoot)", src)
+        self.assertIn("GetItemCount(itemid, true) < qinfo->RequiredItemCount[j]", src)
+        self.assertIn("*showInLoot = false;", src)
+
+
+class SyntheticCounterFreshnessCases(unittest.TestCase):
+    def test_ordinary_completion_does_not_create_short_counter_full_bags(self):
+        q = QuestCounterAtReceipt(needed=2)
+        q.receive_normal(2)
+        self.assertEqual(q.remaining(), (False, False))
+        self.assertEqual(
+            source_shaped_quest_view(QuestWindowCase(True, True, *q.remaining())),
+            (True, "LOCKED", False, False),
+        )
+
+    def test_prior_inventory_at_quest_accept_is_counted(self):
+        q = QuestCounterAtReceipt(needed=2)
+        q.accept_existing(held=2)
+        self.assertEqual(q.remaining(), (False, False))
+
+    def test_partial_normal_receipt_keeps_counter_and_bags_in_step(self):
+        q = QuestCounterAtReceipt(needed=2)
+        q.receive_normal(1)
+        self.assertEqual(q.remaining(), (True, True))
+        self.assertEqual(
+            source_shaped_quest_view(QuestWindowCase(True, True, *q.remaining())),
+            (True, "ALLOW", False, False),
+        )
+
+    def test_an_injected_prior_stale_saved_counter_reaches_hidden_case(self):
+        q = QuestCounterAtReceipt(needed=2)
+        q.reload_saved(saved_counter=1, loaded_bags=2)
+        self.assertEqual(q.remaining(), (True, False))
+        self.assertEqual(
+            source_shaped_quest_view(QuestWindowCase(True, True, *q.remaining())),
+            (True, "HIDDEN", True, True),
+        )
+
+    def test_fresh_counter_and_stale_counter_same_bags_diverge(self):
+        fresh = QuestCounterAtReceipt(needed=1)
+        fresh.receive_normal(1)
+        stale = QuestCounterAtReceipt(needed=1)
+        stale.reload_saved(saved_counter=0, loaded_bags=1)
+        self.assertEqual(fresh.carried, stale.carried)
+        self.assertNotEqual(fresh.remaining(), stale.remaining())
+        self.assertEqual(source_shaped_quest_view(
+            QuestWindowCase(True, True, *fresh.remaining()))[1], "LOCKED")
+        self.assertEqual(source_shaped_quest_view(
+            QuestWindowCase(True, True, *stale.remaining()))[1], "HIDDEN")
 
 
 class SyntheticQuestWindowWitnesses(unittest.TestCase):
