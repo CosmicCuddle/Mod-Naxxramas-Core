@@ -69,13 +69,14 @@ class OfflineStoreBounds(unittest.TestCase):
                 patch("offline_store.MAX_REPORTS_PER_SERVICE_KIND", 2):
             self.assertTrue(self.store.publish_error(burst(1)))
             self.assertTrue(self.store.publish_error(burst(2)))
-            first = self.finals()[0].read_bytes()
+            first_path = self.finals()[0]
+            first = first_path.read_bytes()
             with self.assertRaisesRegex(OverflowError, "capacity"):
                 self.store.publish_error(burst(3))
             self.assertTrue(self.store.publish(crash(1)))
             self.assertTrue(self.store.publish(crash(2, "authserver")))
             self.assertEqual(len(self.finals()), 4)
-            self.assertEqual(self.finals()[0].read_bytes(), first)
+            self.assertEqual(first_path.read_bytes(), first)
             with self.assertRaisesRegex(OverflowError, "capacity"):
                 self.store.publish_error(burst(4, "authserver"))
             self.assertIn("Total bursts: 2", (self.root / "Error-History.txt").read_text())
