@@ -42,6 +42,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             src/server/game/Server/WorldSession.cpp
+            src/server/game/Server/Protocol/Opcodes.cpp
             src/server/game/Scripting/ScriptMgrMacros.h
             src/server/game/Scripting/ScriptMgr.h
             src/server/game/Scripting/ScriptDefines/ServerScript.cpp
