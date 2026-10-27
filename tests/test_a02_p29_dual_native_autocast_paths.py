@@ -11,6 +11,7 @@ from pathlib import Path
 
 CORE = Path(os.environ.get("A02_PINNED_CORE", "acore"))
 PET = CORE / "src/server/game/Handlers/PetHandler.cpp"
+PET_CORE = CORE / "src/server/game/Entities/Pet/Pet.cpp"
 OPCODES = CORE / "src/server/game/Server/Protocol/Opcodes.cpp"
 SCRIPT_MGR = CORE / "src/server/game/Scripting/ScriptMgr.h"
 
@@ -45,6 +46,7 @@ class TwoNativePetAutocastRoutes(unittest.TestCase):
                             "HandlePetCastSpellOpcode")
         cls.actionbar = body(pet, "HandlePetSetAction", "HandlePetRename")
         cls.opcodes = source(OPCODES)
+        cls.pet_core = source(PET_CORE)
         cls.scripts = source(SCRIPT_MGR)
 
     def test_explicit_opcode_mutates_spell_and_pet_action_flags(self):
@@ -141,6 +143,71 @@ class TwoNativePetAutocastRoutes(unittest.TestCase):
         mutation2 = explicit.replace("spellInfo->IsAutocastable()",
                                      "true /* validation removed */", 1)
         self.assertNotIn("spellInfo->IsAutocastable()", mutation2)
+
+    def test_pet_rank_replacement_mutates_autocast_without_client_packet(self):
+        # Pet::addSpell is a pet-lifecycle method, independent of either
+        # handler. In stock core it copies old spell active state to a new
+        # higher rank, removes an old auto-spell and installs the new one.
+        source = self.pet_core
+        start = source.index("bool Pet::addSpell(uint32 spellId,")
+        end = source.index("bool Pet::learnSpell(uint32 spell_id)", start)
+        s = concise(source[start:end])
+        for token in (
+            "if (spellInfo->IsDifferentRankOf(oldRankSpellInfo))",
+            "if (spellInfo->IsHighRankOf(oldRankSpellInfo))",
+            "newspell.active = petSpell.active;",
+            "ToggleAutocast(oldRankSpellInfo, false);",
+            "unlearnSpell(spellID, false, false);",
+            "ToggleAutocast(spellInfo, (newspell.active == ACT_ENABLED));",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, s)
+        self.assertNotIn("CMSG_PET_SPELL_AUTOCAST", s)
+        self.assertNotIn("CMSG_PET_SET_ACTION", s)
+
+    def test_pet_actionbar_cleanup_is_another_server_mutation_origin(self):
+        source = self.pet_core
+        start = source.index("void Pet::CleanupActionBar()")
+        end = source.index("void Pet::InitPetCreateSpells()", start)
+        s = concise(source[start:end])
+        self.assertIn("if (!HasSpell(ab->GetAction()))", s)
+        self.assertIn("m_charmInfo->SetActionBar(i, 0, ACT_PASSIVE);", s)
+        self.assertIn("ToggleAutocast(spellInfo, ab->GetType() == ACT_ENABLED);", s)
+        self.assertNotIn("CMSG_PET_SET_ACTION", s)
+
+    def test_pet_autocast_mutation_is_guarded_by_spell_state_not_human_receipt(self):
+        source = self.pet_core
+        start = source.index("void Pet::ToggleAutocast(SpellInfo const* spellInfo, bool apply)")
+        end = source.index("bool Pet::IsPermanentPetFor(Player* owner) const", start)
+        s = concise(source[start:end])
+        for token in (
+            "if (!spellInfo->IsAutocastable()) return;",
+            "PetSpellMap::iterator itr = m_spells.find(spellInfo->Id);",
+            "if (itr == m_spells.end()) return;",
+            "m_autospells.push_back(spellInfo->Id);",
+            "itr->second.active = ACT_ENABLED;",
+            "m_autospells.erase(autospellItr);",
+            "itr->second.active = ACT_DISABLED;",
+            "itr->second.state = PETSPELL_CHANGED;",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, s)
+        # No author, packet or positive human receipt is accepted here.
+        self.assertNotIn("WorldSession", s)
+        self.assertNotIn("CanPacketReceive", s)
+
+    def test_stock_pet_spell_save_is_not_a_causal_human_receipt(self):
+        source = self.pet_core
+        start = source.index("void Pet::_SaveSpells(CharacterDatabaseTransaction trans)")
+        end = source.index("void Pet::_LoadAuras(PreparedQueryResult result)", start)
+        s = concise(source[start:end])
+        self.assertIn("pet numbers are recycled", s)
+        self.assertIn("CHAR_DEL_PET_SPELLS", s)
+        self.assertIn("CHAR_INS_PET_SPELL", s)
+        self.assertIn("stmt->SetData(2, itr->second.active);", s)
+        # Existing core pet persistence records a final active value only:
+        # it is not a durable attestation of WHO caused that state.
+        self.assertNotIn("TrustedManualReceipt", s)
 
     def test_synthetic_same_final_state_cannot_prove_causal_origin(self):
         # This is an intentionally simple logical collision, not an
