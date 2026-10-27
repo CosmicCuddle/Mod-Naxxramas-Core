@@ -67,10 +67,30 @@ class Hook(unittest.TestCase):
         self.assertIn("case Action::Ignore:\n                return true;", self.BODY)
         self.assertIn("case Action::FailClosed:\n                Tell(player);\n                return true;", self.BODY)
 
-    def test_add_use_only_after_accepted_teleport(self):
+    def test_add_use_only_after_accepted_teleport_of_non_clicker_owned_go(self):
         tail = self.BODY[self.BODY.index("player->TeleportTo("):]
-        self.assertRegex(tail, r"TeleportTo\([^;]*\)\)\s*\n\s*go->AddUse\(\);\s*\n\s*else\s*\n\s*Tell\(player\);\s*\n\s*return true;")
+        self.assertRegex(
+            tail,
+            r"TeleportTo\([^;]*\)\)\s*\{\s*"
+            r"(?:/\/[^\n]*\n\s*)*if \(!clickerOwnsPortal\)\s*"
+            r"go->AddUse\(\);\s*\}\s*else\s*Tell\(player\);\s*"
+            r"return true;",
+        )
         self.assertEqual(CPP.count("AddUse()"), 1)
+
+    def test_clicker_ownership_captured_before_teleport(self):
+        ownership = "bool const clickerOwnsPortal = go->GetOwnerGUID() == player->GetGUID();"
+        self.assertIn(ownership, self.BODY)
+        self.assertLess(self.BODY.index(ownership), self.BODY.index("player->TeleportTo("))
+        self.assertLess(self.BODY.index(ownership),
+                        self.BODY.index("player->RemoveAurasByType(SPELL_AURA_MOUNTED)"))
+
+    def test_clicker_owned_go_not_accessed_after_teleport(self):
+        tail = self.BODY[self.BODY.index("player->TeleportTo("):]
+        self.assertIn("if (!clickerOwnsPortal)\n                go->AddUse();", tail)
+        self.assertEqual(tail.count("go->"), 1)
+        self.assertNotIn("go->GetOwnerGUID()", tail)
+        self.assertNotIn("go->GetGOInfo()", tail)
 
     def test_mount_parity_only_when_not_usable_mounted(self):
         self.assertIn("if (!go->GetGOInfo()->IsUsableMounted())\n            player->RemoveAurasByType(SPELL_AURA_MOUNTED);", self.BODY)
