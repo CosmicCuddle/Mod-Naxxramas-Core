@@ -36,6 +36,21 @@
 
 Use Part28's original owner checklist for F12 (Cathedral 610→604 and Armory 612→606, Graveyard/Library and Dungeon Finder negatives, real physical location/facing) and F13 (real Atiesh GO, correct Vanilla exterior gate position, stock negative cases, safe failed teleport). Their controls are **startup snapshot** flags: do **not** infer they change via `.reload config` from the GFPP test. **F12 additional conditional GO/NO-GO:** prior to enabling its 604/606 interception, privately verify whether the installed build registers a global `ALEScript::CanAreaTrigger` callback relevant to those exits. Native `ScriptMgr::OnAreaTrigger` calls that global layer before a bound `AreaTriggerScript`, while F12's `BoundScript` check only tests the bound trigger ID; a consumed packet skips the global callback. Read the [Part29 F12 ALEScript parity research](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/blob/docs/cs01-part28-to-part29-handover-20261027/docs/research/PART29-F12-GLOBAL-AREATRIGGER-HOOK-PARITY.md). Installed relevance is UNKNOWN: do not assume a regression or attempt a speculative hook call. With unknown or relevant callbacks, leave F12 OFF until a separately reviewed and approved compatibility plan exists. An F13 source audit found no missing native spellcaster cooldown gate; it did NOT verify the owner's GO template, SQL, IP stage or world geometry.
 
+
+### F13 owned-portal lifetime extra gate — draft #187, NOT RUN
+
+Independent source review after the first #186 link found a **potential post-despawn object access** in F13: pinned AzerothCore's successful cross-map `Player::TeleportTo` removes the player from their old map; `Unit::RemoveFromWorld` can delete game objects that **the clicker owns**, before the custom hook's old `go->AddUse()` ran. Isolated [DRAFT #187](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/187) therefore snapshots clicker ownership **before** teleport and, after success, uses `AddUse()` only for a portal **not owned by the clicker**. The original protected #160 and previous #186 are untouched. Native ownership and a successful **same-map** transfer can differ; a clicker-owned portal that remains live on the same map will conservatively not increment use count. This tradeoff must be assessed on approved staging, not called exact native parity.
+
+| F13 controlled scenario — only after separately approved, backed-up staging | Expected safety observation | Owner result |
+| --- | --- | --- |
+| Original clicker owns the active Atiesh portal, uses it during Vanilla IP stage | Exterior gate arrival (if valid), no crash/ghost/invalid post-teleport GO access; owner portal may despawn with clicker | NOT RUN |
+| A different eligible party member clicks someone else's active portal | Owner's GO is not destroyed by the *clicker's* teleport; successful use accounting remains present | NOT RUN |
+| Ownerless/static portal (only if installed template genuinely has one) | Successful teleport preserves use counting, no new access restriction | NOT RUN |
+| Invalid/disabled exterior destination or a refused teleport | No inside fallback, no counted successful use, no unrelated aura/portal loss | NOT RUN |
+| Same-map clicker-owned portal case (only if reproducible on private staging) | Record whether the portal persists; if so, skip-after-success use-count deviation requires a deliberate owner decision before acceptance | NOT RUN |
+
+**Critical:** #187 is a later candidate layered on #186; green earlier #186 native Worldserver build does NOT validate #187. Require its own exact-head source checks, complete link, independently confirmed installed core/IP/Playerbots/GO details, owner consent and restore rehearsals first. All flags stay OFF and no tests are authorised here.
+
 ## Final acceptance
 
 GFPP #186 native link: **PASS**. GFPP actual in-game acceptance: **NOT RUN**. F12 actual in-game acceptance: **NOT RUN**. F13 actual in-game acceptance: **NOT RUN**. Combined mandatory gameplay acceptance: **0/5** (A02 native manual hunter pet and A04 H1/H2 separately blocked). F15 R0 still blocked and non-operational. No owner staging is authorised by these notes, no merge/deployment occurred, and Claude remains on break.
