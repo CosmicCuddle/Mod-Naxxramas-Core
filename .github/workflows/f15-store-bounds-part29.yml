@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   synthetic-only:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout exact draft PR head
@@ -25,36 +25,27 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Verify exact PR head
-        if: github.event_name == 'pull_request'
-        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Compile offline Python only
         run: python3 -m py_compile tools/f15/offline_store.py tools/f15/offline_restart.py tools/f15/offline_error_reports.py tests/test_f15_store_bounds_r4.py
       - name: New timeout, bounded quota and bounded scan regressions
         run: |
           set -euo pipefail
           python3 -m unittest -v tests.test_f15_store_bounds_r4 2>&1 | tee /tmp/f15-p29-directory-tests.txt
-          grep -Eq '^Ran 16 tests in [0-9.]+s
-      - name: Preserve S2 S3 S4b and S4c offline contracts
-        run: |
-          python3 -m unittest -v \
-            tests.test_f15_offline_store_s2 \
-            tests.test_f15_restart_sidecar_s3 \
-            tests.test_f15_error_bursts_s4b \
-            tests.test_f15_error_reports_s4c
-      - name: Assert this remains an offline test workflow
-        run: |
-          test ! -e tools/f15/live_supervisor.py
-          echo "PASS - only disposable tests, no service or game binary"
- /tmp/f15-p29-directory-tests.txt
+          grep -Eq 'Ran 16 tests in [0-9.]+s' /tmp/f15-p29-directory-tests.txt
           grep -qx 'OK' /tmp/f15-p29-directory-tests.txt
           ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/f15-p29-directory-tests.txt
       - name: Preserve S2 S3 S4b and S4c offline contracts
         run: |
+          set -euo pipefail
           python3 -m unittest -v \
             tests.test_f15_offline_store_s2 \
             tests.test_f15_restart_sidecar_s3 \
             tests.test_f15_error_bursts_s4b \
-            tests.test_f15_error_reports_s4c
+            tests.test_f15_error_reports_s4c 2>&1 | tee /tmp/f15-inherited-tests.txt
+          grep -Eq 'Ran 135 tests in [0-9.]+s' /tmp/f15-inherited-tests.txt
+          grep -qx 'OK' /tmp/f15-inherited-tests.txt
+          ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/f15-inherited-tests.txt
       - name: Assert this remains an offline test workflow
         run: |
           test ! -e tools/f15/live_supervisor.py
