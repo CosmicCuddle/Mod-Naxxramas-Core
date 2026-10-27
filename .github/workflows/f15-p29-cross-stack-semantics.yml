@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           F15_CANONICAL_PIN_ROOT=canonical-pin python3 -I -B tests/test_f15_cross_stack_classification_p29.py -v 2>&1 | tee /tmp/f15-cross-stack.txt
-          grep -Eq 'Ran 12 tests in [0-9.]+s' /tmp/f15-cross-stack.txt
+          grep -Eq 'Ran 21 tests in [0-9.]+s' /tmp/f15-cross-stack.txt
           grep -qx 'OK' /tmp/f15-cross-stack.txt
           ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/f15-cross-stack.txt
       - name: Preserve offline writer lock, bounds and S2/S3/S4b/S4c compatibility
