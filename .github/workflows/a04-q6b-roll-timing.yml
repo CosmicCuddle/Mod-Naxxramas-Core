@@ -65,7 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           A04_PINNED_CORE=acore python3 -I -B tests/research/test_cs01_a04_sparkle_slot_contract.py -v 2>&1 | tee /tmp/a04-p29-sparkle.txt
-          grep -Eq 'Ran 23 tests in [0-9.]+s' /tmp/a04-p29-sparkle.txt
+          grep -Eq 'Ran 34 tests in [0-9.]+s' /tmp/a04-p29-sparkle.txt
           grep -qx 'OK' /tmp/a04-p29-sparkle.txt
           ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/a04-p29-sparkle.txt
       - name: Assert offline evidence only
