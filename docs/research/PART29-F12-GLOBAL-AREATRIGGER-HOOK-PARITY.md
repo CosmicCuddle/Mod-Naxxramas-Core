@@ -1,0 +1,28 @@
+# Part29 F12 — native global ALEScript area-trigger hook parity check
+
+**SOURCE-ONLY COMPATIBILITY FINDING · OWNER STAGING NOT RUN · NO PERMISSION TO INSPECT PRIVATE SERVER · NO CHANGE TO PROTECTED #160.** This is a bounded integration note, **not a proved current owner problem, fix, exploit, or reason to modify AzerothCore's packet path without further evidence**.
+
+## Exact pinned source evidence (27 October 2026)
+
+Public native core: `Grimfeather/azerothcore-wotlk@8daffdabe9202c228e45d833c9a1d399597a15cd`. Protected custom module: `CosmicCuddle/Mod-Naxxramas-Core@a7523ebb823169edc969d971d00aa293119f2f05`; isolated config-atomic GFPP child #186 at `ea16700710698ca0515925838f3274c2da3760b8` leaves the F12 source unchanged.
+
+1. **Opcode dispatch:** `src/server/game/Server/Protocol/Opcodes.cpp:311` declares `CMSG_AREATRIGGER` as `STATUS_LOGGEDIN, PROCESS_INPLACE`. `WorldSession.cpp:66–106,438–465` invokes `sScriptMgr->CanPacketReceive(this,*packet)` **before** `HandleAreaTriggerOpcode` when the player is in-world. A map or world session update can process `PROCESS_INPLACE`; do not assert exclusively one thread on every path.
+2. **Native handler order:** `src/server/game/Handlers/MiscHandler.cpp:691–730` reads trigger ID, checks flight, trigger existence and physical radius, emits the GM debug message, then calls `sScriptMgr->OnAreaTrigger(player,atEntry)` for a non-GM or debug GM. If script returns true, it stops; otherwise it proceeds with quest credit, tavern/PvP and native teleport handling.
+3. **Two-layer core scripting:** `src/server/game/Scripting/ScriptDefines/AreaTriggerScript.cpp:24–40` invokes a **global registered `ALEScript::CanAreaTrigger(player,trigger)` BEFORE** resolving a trigger-specific `AreaTriggerScript` via `sObjectMgr->GetAreaTriggerScriptId(trigger->entry)`. The ALE result can alter whether the trigger-specific script is called. `ALEScript.h:38–39` has default `false`; installed custom overrides are unknown. The `ALEScript` callback is **not by itself** a native unconditional teleport permission check: `OnAreaTrigger` returns false on certain ALE responses, allowing the remaining native handler to continue.
+4. **F12 interception:** `src/Systems/ScarletMonasteryExits.cpp:117,148–170,209–227` checks **only** `GetAreaTriggerScriptId(triggerId) != 0` in `Facts.BoundScript`. When the target is eligible, `Handle()` teleports to the validated door and causes `CanPacketReceive` to return false. That suppresses native `HandleAreaTriggerOpcode` entirely, so **global ALEScript callback invocation is skipped**. The conservative 'bound script' check does **not** establish the absence of `ALEScript` callbacks.
+
+## Confidence and impact
+
+**Verified against code:** the two hook layers differ; successful CI C++ compilation, source pins and geometry tests cannot reveal whether a runtime global ALEScript does useful work for 604 or 606. **Not verified:** whether any installed public or owner's private module registers an ALEScript; whether any callback reacts to these triggers; whether any gameplay, anti-cheat, achievement or state side effect is actually lost. Do **not** describe the source difference as a demonstrated security bypass or as a failed F12 gameplay trial.
+
+**Important negatives already preserved by F12:** zone/trigger radius, flight, native DBC presence, specific bound area-trigger script, quest-trigger mapping, tavern, battleground and conservative outdoor PvP, LFG default OFF. Entrances 610/612 remain stock and are not intercepted. This finding concerns the **global** callback layer only, after the relevant packet is consumed.
+
+## Safe Go/No-Go before approving F12 staging
+
+- [ ] **Separate owner permission, private R0 (read-only):** identify effective installed core/module/plugin registration for `ALEScript` and other global trigger hooks; privately determine if the callback(s) are relevant to **604 Cathedral** or **606 Armory**. Avoid putting plugin inventories, proprietary hooks, real identifiers or logs on PUBLIC GitHub.
+- [ ] **Conservative NO-GO if unknown:** do not enable `NaxxramasCore.ScarletExits.Enabled` merely because a full Worldserver linked. If an installed ALEScript depends on the exit trigger, design an explicit **source-reviewed compatibility policy** before staged execution; do not call `OnAreaTrigger` manually from the pre-handler because it can invoke scripts and quest-related side effects twice if native later handles the packet.
+- [ ] **After separate nonproduction approval and verified recoverable snapshots:** test F12 OFF against ON for a human exiting 604/606, owner-approved global hook side effects, correct physical exterior landing/facing, no immediate bounce, unaffected Graveyard/Library and stock Dungeon Finder routes; keep unrelated module flags OFF. Record only private evidence. Any hook mismatch or unexpected state effect = STOP F12 and roll back.
+
+## Engineering disposition
+
+**No patch committed to protected #160 or child #186.** This source review reveals a **conditional extension parity gate**, not an established failing implementation. Because `CanAreaTrigger` has no proven safe check-only dispatch contract in these pinned sources, adding a speculative call or bypass would risk changing native behavior. Leave F12 default OFF and carry the global-hook compatibility question explicitly into the owner's private staging eligibility review. Owner gameplay GFPP/F12/F13 **NOT RUN**; overall mandatory gameplay **0/5 accepted**. F15 BLOCKED_AT_R0, A02 NoWrite and A04 H1/H2 unverified. No main/host/SQL/config/DBC/Playerbots/IP/N-Core edits; Claude remains on break.
