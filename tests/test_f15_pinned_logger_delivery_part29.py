@@ -157,7 +157,7 @@ class PinnedLoggingSourceContracts(unittest.TestCase):
         a = slim(self.p["appender"])
         self.assertIn("if (!level || level < message->level || message->text.empty())", p)
         self.assertIn("if (!level || level < message->level)", a)
-        self.assertIn("Appender* appender", p)
+        self.assertIn("for (std::pair<uint8 const, Appender*> const& appender : appenders)", p)
         self.assertIn("appender.second->write(message);", p)
         self.assertIn('for (std::string_view appendName : Acore::Tokenize(tokens[1],', self.p["log"])
         # Finding an open file does not mean all filtered events reached it.
