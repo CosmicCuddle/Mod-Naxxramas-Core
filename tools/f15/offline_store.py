@@ -301,20 +301,31 @@ class IncidentStore:
 
     @contextlib.contextmanager
     def _locked(self):
-        flags = os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW
-        fd = os.open(".f15.offline.lock", flags, 0o600, dir_fd=self._fd)
-        try:
-            st = os.fstat(fd)
-            if (not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077 or
-                    st.st_nlink != 1 or st.st_uid != os.geteuid()):
-                raise PermissionError("unsafe offline lock")
-            deadline = time.monotonic() + LOCK_WAIT_SECONDS
+        """Serialize cooperating F15 writers on a pinned directory inode.
+
+        A named-file flock alone can split into two locking domains if a
+        same-UID process renames/replaces its pathname. Linux flock on a
+        NEW open file description for the pinned directory survives that
+        name replacement and also serializes threads sharing this store.
+        Continue taking the named lock for compatibility with older F15
+        offline writers which only flock the path. The overall timeout is
+        shared by both acquisitions. This is NOT hostile-UID protection.
+        """
+        dir_fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                         dir_fd=self._fd)
+        lock_fd = None
+        deadline = time.monotonic() + LOCK_WAIT_SECONDS
+
+        def take_lock(fd):
             while True:
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
+                    return
                 except OSError as exc:
                     if exc.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                        # EOPNOTSUPP/ENOSYS or other unsupported directory
+                        # flock MUST fail closed; never fallback to a weak
+                        # path-only lock without an explicit design review.
                         raise
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -323,13 +334,36 @@ class IncidentStore:
                             "F15 offline lock deadline exceeded without a write"
                         ) from exc
                     time.sleep(min(LOCK_POLL_SECONDS, remaining))
-            try:
-                yield
-            finally:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-        finally:
-            os.close(fd)
 
+        try:
+            opened = os.fstat(dir_fd)
+            pinned = os.fstat(self._fd)
+            if (not stat.S_ISDIR(opened.st_mode) or
+                    (opened.st_dev, opened.st_ino) !=
+                    (pinned.st_dev, pinned.st_ino)):
+                raise PermissionError("offline directory lock inode differs from pinned root")
+
+            take_lock(dir_fd)
+
+            flags = os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW
+            lock_fd = os.open(".f15.offline.lock", flags, 0o600,
+                              dir_fd=self._fd)
+            st = os.fstat(lock_fd)
+            if (not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077 or
+                    st.st_nlink != 1 or st.st_uid != os.geteuid()):
+                raise PermissionError("unsafe offline legacy compatibility lock")
+
+            take_lock(lock_fd)
+            yield
+        finally:
+            # Linux flock is released by closing these *independently opened*
+            # descriptors. Nested cleanup ensures the pinned directory lock
+            # is also released if closing the legacy file descriptor fails.
+            try:
+                if lock_fd is not None:
+                    os.close(lock_fd)
+            finally:
+                os.close(dir_fd)
     def _durable(self):
         os.fsync(self._fd)
 

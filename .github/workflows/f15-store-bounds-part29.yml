@@ -7,7 +7,9 @@ on:
       - "tools/f15/offline_error_reports.py"
       - "tools/f15/offline_restart.py"
       - "tests/test_f15_store_bounds_r4.py"
+      - "tests/test_f15_directory_inode_flock_p29.py"
       - "docs/research/F15-PART29-OFFLINE-STORAGE-BOUNDS.md"
+      - "docs/research/F15-PART29-DIRECTORY-INODE-LOCK-PROOF.md"
       - ".github/workflows/f15-store-bounds-part29.yml"
   workflow_dispatch:
 
@@ -27,7 +29,7 @@ jobs:
       - name: Verify exact PR head
         run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Compile offline Python only
-        run: python3 -m py_compile tools/f15/offline_store.py tools/f15/offline_restart.py tools/f15/offline_error_reports.py tests/test_f15_store_bounds_r4.py
+        run: python3 -m py_compile tools/f15/offline_store.py tools/f15/offline_restart.py tools/f15/offline_error_reports.py tests/test_f15_store_bounds_r4.py tests/test_f15_directory_inode_flock_p29.py
       - name: New timeout, bounded quota and bounded scan regressions
         run: |
           set -euo pipefail
@@ -35,6 +37,14 @@ jobs:
           grep -Eq 'Ran 16 tests in [0-9.]+s' /tmp/f15-p29-directory-tests.txt
           grep -qx 'OK' /tmp/f15-p29-directory-tests.txt
           ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/f15-p29-directory-tests.txt
+      - name: Directory-inode lock split-domain and legacy-compatibility regressions
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests.test_f15_directory_inode_flock_p29 2>&1 | tee /tmp/f15-directory-flock-tests.txt
+          grep -Eq 'Ran 7 tests in [0-9.]+s' /tmp/f15-directory-flock-tests.txt
+          grep -qx 'OK' /tmp/f15-directory-flock-tests.txt
+          ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/f15-directory-flock-tests.txt
+
       - name: Preserve S2 S3 S4b and S4c offline contracts
         run: |
           set -euo pipefail
