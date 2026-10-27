@@ -1,0 +1,61 @@
+# Mod-Naxxramas-Core — Part 29 Living Development Checklist
+
+**Created 27 October 2026 (UTC), CS01.** Maintain this exact document throughout Part 29. Review-only documentation on stacked DRAFT; cannot authorise merge, implementation, SQL, live testing or deployment.
+
+**Read first:** [COMPLETE Part28→Part29 handover](2026-10-27_PART28_TO_PART29.md), then this whole checklist; original [Part28 checklist](2026-10-27_PART28_LIVING_DEVELOPMENT_CHECKLIST.md) for older exact sources. Public [master #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28), [team #48](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48), [A04 #109](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109), [F15 #143](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143).
+
+## Startup / integrity
+
+- [ ] **Part29 new conversation:** read both Part29 handover/checklist IN FULL; then refresh live GitHub branch heads, all relevant comments/peer review threads and exact-head CI before using this checkpoint. Keep a real distinction between source tests, full link, installed runtime and owner game acceptance.
+- [x] Part28 handover creation baseline verified **main `80e9de1c39a6dc995188a80c31a5e785d0f2a6f9`** and protected unmerged DRAFT **#160 `a7523ebb823169edc969d971d00aa293119f2f05`**, still unchanged. Check again in new chat.
+- [x] Previous [#174](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/174) last confirmed `b4f3f1edaea6b58e5ec91a31b16b1d87077bc9c0` includes a **ready but UNEXECUTED** [GFPP/F12/F13 owner-staging worksheet](../pilots/PART28-THREE-FEATURE-OWNER-STAGING-ACCEPTANCE.md). Handover creates only a stacked docs child; #174 and #160 not rewritten.
+- [ ] Verify new handover/checklist DRAFT branch remains unmerged and document-only. Do not ready/merge without owner.
+
+## How much actual work remains — mandatory five, **0/5 owner signed together**
+
+- [ ] **GFPP**: approved staging, private installed-source/binary verification, restorable backups, one stopwatch witness for **120 seconds** after actual successful consumption, one refresh at next eligible tick, no early/repeated refresh; negative bot controls. Source/build in protected draft #160; no owner runtime evidence.
+- [ ] **F12**: physical Cathedral **610↔604**, Armory **612↔606**, outdoor safe landing/facing, unrelated wings/DF stock, restart-only configuration and rollback. Source/build #160; 0 owner in-game tests.
+- [ ] **F13**: real Atiesh game object under Vanilla IP-stage, outside main Karazhan gate via 4436 row, safe coordinates; negative non-Vanilla/GM/other GO, no direct spell-cast substitute, rollback. Source/build #160; 0 owner in-game tests.
+- [ ] **A02 Hunter human ON/OFF**: **NOT FUNCTIONAL**, must prove native human manual-choice acceptance, dynamic SelfBot exclusion, birth identity, current IP-allowed rank, latest revision/cumulative behavior, reboot-surviving preference and positive NoWrite gates before any install/enable. No reliable restoration source.
+- [ ] **A04 human quest loot**: one mandatory feature but **TWO separately owner-observed cases**: H1 human friend apparently obtained item owner calls quest loot; H2 sparkle/visible yet denied. Actual item category, quest eligibility, group method/turn, release and native errors UNKNOWN. Do not count stock group behavior as bug or claim #129/#175 fixes H1/H2.
+- [ ] **F14** Vanilla /who OPTIONAL, OFF. Not a sixth condition. **F15** both World/Auth crash and warning/error reporting is a separate NOT OPERATIONAL objective, not part of the five.
+
+## Completed S3/S4 source engineering inherited from Part28
+
+- [x] [A04 DRAFT #129](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/129) `b9f2605fe8854543bea51345c59019c87370ecac`: integrated reviewed [#132](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/132) map-scoped legacy `GetPlayer(*player,...)`; separate default-OFF ordinary/quest guards. [Full pinned S4 CI 40500520266](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40500520266) **SUCCESS** after real A04 unit compile, `[1892/1892]` Worldserver link and final module symbols, all 18 job steps, original log read. This is NOT a proven owner human-loot fix.
+- [x] [Stacked A04 DRAFT #175](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/175) `5fd773b6301198f86788d7df313ef4a9bcf6d8ed`: three independently default-OFF flags captured in immutable startup snapshot rather than `ConfigMgr` getter inside map/world packet handling. `.reload config` warns and requires restart. [Source/native 40508609301](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40508609301) **14/14 + C++17/20** PASS; [P2/P3/P4 40508607962](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40508607962) **32/32** PASS. **NEW [full pinned S4 Worldserver 40508607931](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40508607931) COMPLETED SUCCESS** exact job `122204273820`, original full log `Ran 32 tests`, `[1892/1892] Linking CXX executable ...worldserver`, all registration checks SUCCESS. Parent and child distinct commits/runs. Neither installed/activated.
+- [x] A04 source-level causal boundary [#109](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109#issuecomment-6443082507): stock `LootView` hides **ordinary items** from some group members, whereas quest slots use per-viewer `PlayerQuestItems`. Hidden ordinary-slot packet spoof guard #129 is NOT equivalent to fixing a visible legitimate human quest-loot click or sparkle. Prior H1/H2 remain open, no private item/quest IDs public.
+- [x] [A02 DRAFT #165](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/165) pinned full Worldserver link PASS for fail-closed v1 module guard; **NoWrite** and both flags OFF, no genuine manual-choice restoration.
+- [x] [A02 source sentinel DRAFT #173](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/173) `8b35ae4023f1bfd14c199379056a928d86117065`, [18/18 exact pinned core/Playerbots source checks 40497891982](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40497891982) PASS. This is lexical source-only, not owner-installed state or positive human/birth proof.
+- [x] [Three-feature owner-ready staging worksheet](../pilots/PART28-THREE-FEATURE-OWNER-STAGING-ACCEPTANCE.md) written (GFPP/F12/F13), **not run**, [protected combined pinned full S4 40229204745](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40229204745) PASS. No owner approval, staging binary, backup or gameplay assumed.
+
+## A02 hard blockers — no speculative automatic writer
+
+- [ ] C1 `CMSG_PET_SPELL_AUTOCAST`: module prehandler mirror+later snapshot cannot prove the native handler accepted actual human packet; later script veto, Playerbots/IP write, packet order can mimic state. Only trusted receipt grants capability, never `CandidateMatched`.
+- [ ] C3 `SelfBotLevel=0` only blocks new attachment, not existing AI after config reload; config-masked unguarded Playerbots bot map cannot supply a synchronized positive human attestation at receipt/apply. [Peer correction](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/173#issuecomment-6442499468). Maintain eight map threads and never call unsafe getters across workers.
+- [ ] C2 owner-selected *new table* is DESIGN, not SQL permission. Need canonical durable birth identity and verified lifecycle/backup-recovery writer exclusivity beyond owner+PetNumber, `COUNT(*)=1`, orphan sweep. Separate stock async pet saves, stable slot DML, GM writers and dynamic PlayerDump import/remap defeat simplistic proof. [Independent pinned source note](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/168#issuecomment-6441853403). NoWrite until accepted birth source and owner-private architecture/rollback.
+- [ ] IP Policy A: use only currently known/allowed rank; deferred rank work not a 200ms completion certificate. Latest accepted OFF supersedes older ON only with same verified pet birth/chain.
+- [ ] Ask for explicit **separate** owner decisions on any C1 implementation, C2 schema/SQL/backup, stronger Playerbots/core hook, lower-assurance mode, staging and activation. Do not infer approval from owner saying “please continue”.
+
+## A04 two owner-private incident gates
+
+- [ ] H1: identify whether friend was on quest, still eligible, visible loot slot/category, group's selected loot method/turn, whether owner closed/released loot, and actual inventory award. Source-only hypotheses cannot decide.
+- [ ] H2: independently verify sparkle vs actual displayed quest slot vs native loot error, source/turn/eligibility, active module flags and installed binary. Do not conflate with H1.
+- [ ] No owner raw item/quest/loot SQL, IDs or private server data in the PUBLIC repository. Only privately controlled evidence when explicitly authorised; do not enable ordinary or legacy guard to “see if it works”.
+- [ ] CS02/Grok independent current #129/#175 exact-head review, particularly WorldScript startup/reload correctness and default-off policy separation.
+
+## F15 separate Worldserver AND Authserver objective — NOT OPERATIONAL
+
+- [x] [#170](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/170) 51/51 disposable two-stream producer PASS, and [#171](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/171) 43 text-free schema + 51 producer PASS. No real reporting.
+- [x] Claude source-only [#143 R4 review](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143#issuecomment-6441959927) found #141 unbounded crash-loop files/quadratic rebuild, blocking flock, forged `verified` provenance, service role and /root permission/format issues.
+- [ ] Claude source-only separate-session [authorized scope](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143#issuecomment-6442414290): disposable bounded-store and nonblocking lock-timeout DRAFT child of #141; no automated agent has started by comment alone, no verified new PR at handover.
+- [ ] R0 per daemon owner launcher, exit witness, stream/log/journal, privilege/storage and binary facts are **UNKNOWN** until separate owner approval/private channel. No systemd, real process, host, /root, log, service action or world/auth crash testing.
+- [ ] Genuine authenticated World/Auth child death, warnings/errors, private secure durable store, bounded volumes and recovery, owner-approved staged fault injection and rollback before claim F15 operational.
+
+## Release and team safety
+
+- [ ] CS01 maintain single master #28 and this Part29 checklist; only narrow concrete source work; protect both #160 and main.
+- [ ] CS02 comments-only source peer review (not a coding request/paid overage); CS03 F15 primary in separately initiated Claude session, A02/A04 backup. GitHub comments are *handoffs* not self-executing agents.
+- [ ] Keep both A04 flags OFF, A02 restore OFF/NoWrite, optional F14 OFF. Do not modify MapUpdate.Threads=8, upstream AzerothCore, Playerbots, IP, N-Core or owner data.
+- [ ] **Before owner-approved testing** require exact installed build/config/DBC compatibility, isolated staging scope, restorable backup and rollback proof, positive/negative case plan and explicit separate authorisation.
+- [ ] No merge, deployment, SQL/schema/DBC, real World/Auth, secrets or private loot/item/progression relationships in this PUBLIC repo. **5 mandatory gameplay features: still 0/5 signed together.**
