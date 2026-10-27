@@ -85,11 +85,13 @@ class GuardContract(unittest.TestCase):
         self.assertIn("ownerMap == requesterMap", pilot)
         self.assertIn("ownerMap == sourceMap", pilot)
         self.assertIn("facts.OwnerPresentInSameGroupAndMap = ownerLiveHere;", pilot)
-        # The historical independently gated quest-only guard is preserved
-        # pending its own risk review, NOT implicitly enabled by the pilot.
+        # The separately gated legacy guard remains intact in behaviour.
+        # Its unsafe global lookup is independently corrected by #132's
+        # map-scoped, default-OFF source-reviewed change.
         self.assertIn(
-            "Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);",
+            "Player* owner = ObjectAccessor::GetPlayer(*player, loot.roundRobinPlayer);",
             CPP[stop:])
+        self.assertNotIn("ObjectAccessor::FindPlayer(", CPP)
         self.assertIn("if (!legacyQuestTurnEnabled)\n            return true;", CPP)
 
     def test_per_player_and_roll_paths_fail_open(self):
