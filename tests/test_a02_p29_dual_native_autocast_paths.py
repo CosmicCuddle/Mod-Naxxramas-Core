@@ -73,8 +73,8 @@ class TwoNativePetAutocastRoutes(unittest.TestCase):
             "if (act_state == ACT_DISABLED)",
             "((Pet*)pet)->ToggleAutocast(spellInfo, true)",
             "((Pet*)pet)->ToggleAutocast(spellInfo, false)",
-            "charmInfo->ToggleCreatureAutocast(spellInfo, true)",
-            "charmInfo->ToggleCreatureAutocast(spellInfo, false)",
+            "->ToggleCreatureAutocast(spellInfo, true)",
+            "->ToggleCreatureAutocast(spellInfo, false)",
             "charmInfo->SetActionBar(position[i], spell_id, ActiveStates(act_state))",
         ):
             with self.subTest(token=token):
