@@ -1,0 +1,63 @@
+name: "F15 Part29 canonical versus legacy event meanings (NO HOST)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - "tests/test_f15_cross_stack_classification_p29.py"
+      - "docs/research/F15-PART29-CANONICAL-VS-LEGACY-EVENT-CLASSIFICATION.md"
+      - ".github/workflows/f15-p29-cross-stack-semantics.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-stack-source-witness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact draft PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact draft head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Sparse checkout exact separate public #171 canonical schema
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/Mod-Naxxramas-Core
+          ref: 62c3df25beda397f52635f84edc195441f0253f4
+          path: canonical-pin
+          persist-credentials: false
+          sparse-checkout: |
+            tools/f15/report_schema.py
+          sparse-checkout-cone-mode: false
+      - name: Verify exact canonical version
+        run: test "$(git -C canonical-pin rev-parse HEAD)" = "62c3df25beda397f52635f84edc195441f0253f4"
+      - name: Source-only semantic mismatch checks with fictional events
+        run: |
+          set -euo pipefail
+          F15_CANONICAL_PIN_ROOT=canonical-pin python3 -I -B tests/test_f15_cross_stack_classification_p29.py -v 2>&1 | tee /tmp/f15-cross-stack.txt
+          grep -Eq 'Ran 21 tests in [0-9.]+s' /tmp/f15-cross-stack.txt
+          grep -qx 'OK' /tmp/f15-cross-stack.txt
+          ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/f15-cross-stack.txt
+      - name: Preserve offline writer lock, bounds and S2/S3/S4b/S4c compatibility
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v \
+            tests.test_f15_directory_inode_flock_p29 \
+            tests.test_f15_store_bounds_r4 \
+            tests.test_f15_offline_store_s2 \
+            tests.test_f15_restart_sidecar_s3 \
+            tests.test_f15_error_bursts_s4b \
+            tests.test_f15_error_reports_s4c 2>&1 | tee /tmp/f15-inherited-compat.txt
+          grep -Eq 'Ran 158 tests in [0-9.]+s' /tmp/f15-inherited-compat.txt
+          grep -qx 'OK' /tmp/f15-inherited-compat.txt
+          ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/f15-inherited-compat.txt
+      - name: Explicit non-operational gate
+        run: |
+          test ! -e tools/f15/live_supervisor.py
+          echo 'No server launch, journal access, owner configuration, SQL, deployment or schema adapter'
+          echo 'Source mismatch proof only; both daemon monitoring channels NOT OPERATIONAL'
