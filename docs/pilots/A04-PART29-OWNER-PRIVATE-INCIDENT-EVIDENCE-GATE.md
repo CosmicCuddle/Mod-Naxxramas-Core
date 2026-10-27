@@ -40,13 +40,13 @@ Use `yes / no / unknown`, not real private identifiers, in a public discussion. 
 | Were *their bags already holding enough* of that objective item at that instant? (`GetItemCount(..., true)` includes bank where applicable) | ___ |
 | Was the drop a *shared non-FFA one-copy quest bucket* item? Was another eligible human mapped to that exact item? | ___ |
 | Did the first viewer open the window before the second? Who released? Was `unlootedCount` still positive, and was the underlying item set `is_looted`? | ___ |
-| Were effective A04 flags actually ON/OFF in the installed restarted Worldserver at the moment? | ___ |
+| Were **both separate** effective A04 switches actually ON/OFF in the installed restarted Worldserver (`QuestLootProtection.Enabled` legacy quest-turn versus `RestrictHiddenOrdinarySlots` ordinary slot)? | ___ |
 
-**Decision gate:** Sparkle + LOCKED can be consistent with a cached stock quest row and later recheck. A **specific shared-item side-effect candidate** needs all: quest bucket, shared one-copy/non-FFA, first viewer `ItemCount` short **AND** current inventory count sufficient, another eligible viewer, and ordering/count evidence. **Without these, never classify H2 as that source defect**. AON/OFF flag or native inventory/roll error is a different branch.
+**Decision gate:** Sparkle + LOCKED can be consistent with a cached stock quest row and later recheck. A **specific shared-item side-effect candidate** needs all: quest bucket, shared one-copy/non-FFA, first viewer `ItemCount` short **AND** current inventory count sufficient, another eligible viewer, and ordering/count evidence. **Without these, never classify H2 as that source defect**. An active legacy quest-turn guard for a quest row, or active hidden-ordinary-slot guard for an ordinary row, is a different possible branch; the two switches are independent. Native inventory/roll errors are also different branches.
 
 ## Safe pure-function optional triage
 
-`tools/a04/incident_triage.py` accepts **only generic finite-choice categories** in an in-memory `Incident` object; no database, CLI prompt, host, log, network or identifier input and no output file. `assess()` returns *hypothesis codes and missing evidence categories*, not a diagnosis. `Assessment` always remains `bug_proven=False`, `accepted=False`, `can_enable_a04=False`, `can_change_shared_loot=False`, `write_policy=NO_WRITE` for every combination. No filled incident is ever used in GitHub Actions: tests generate only synthetic values.
+`tools/a04/incident_triage.py` accepts **only generic finite-choice categories** in an in-memory `Incident` object; no database, CLI prompt, host, log, network or identifier input and no output file. `assess()` returns *hypothesis codes and missing evidence categories*, not a diagnosis. It never attributes a quest-row denial to the ordinary-slot switch or an ordinary-row denial to the legacy quest-turn switch. `Assessment` always remains `bug_proven=False`, `accepted=False`, `can_enable_a04=False`, `can_change_shared_loot=False`, `write_policy=NO_WRITE` for every combination. No filled incident is ever used in GitHub Actions: tests generate only synthetic values.
 
 **Example for a purely invented scenario** (do not paste owner private identifiers into code or CI):
 
