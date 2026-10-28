@@ -54,3 +54,31 @@ Independent source review after the first #186 link found a **potential post-des
 ## Final acceptance
 
 GFPP #186 native link: **PASS**. GFPP actual in-game acceptance: **NOT RUN**. F12 actual in-game acceptance: **NOT RUN**. F13 actual in-game acceptance: **NOT RUN**. Combined mandatory gameplay acceptance: **0/5** (A02 native manual hunter pet and A04 H1/H2 separately blocked). F15 R0 still blocked and non-operational. No owner staging is authorised by these notes, no merge/deployment occurred, and Claude remains on break.
+
+## Part30 dated source/build verification addendum — 28 October 2026 UTC (NOT RUN)
+
+**This is documentation only. It does not authorise nonproduction testing, use of a private host, a configuration change, deployment, SQL/DBC editing, restarting services, or merging a pull request.** The original Part28 and Part29 staged worksheets remain unfilled. Preserve the eight map threads and all unrelated OFF switches. For any later owner-approved staged work, first privately verify installed AzerothCore/Playerbots/IP/module/build and world/DBC compatibility; make and **verify a restorable backup and recovery/rollback plan** before changing anything.
+
+### Public CI compilation gate resolved — not owner acceptance
+
+- [DRAFT #187](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/187) exact `de6816a1e3f94f2e530fca093dd596c11903b8d3`, on unmodified #186 (GFPP) and protected #160, independently passed [full five-feature linked assembly 40584203475](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40584203475): exact pinned core/Playerbots/IP/module SHAs, 1,896/1,896 Worldserver native link and five registered symbols. Source/native job confirmed 25 F13 source checks and six pinned GO-lifetime source assertions. No Worldserver was launched.
+- The distinct [legacy combined CI 40584203450](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40584203450) also passed its own exact #187 1,896/1,896 Worldserver build and three registration checks but had a **Python test fixture** failure (missing checked-out public core files), not an identified C++/gameplay failure.
+- [DRAFT #189](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/189), exact `fbecdf223eb0a5e4970573eda482aeed161a0f5c`, is an isolated **one-file GitHub Actions workflow fix** stacked on unmodified #187; original [run 40599644891](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40599644891) verified **both jobs SUCCESS**, 498 Python tests executed (six unrelated EP checks skipped because of missing adjacent upstream checkout layout), all six F13 lifetime tests PASS, Golemagg native C++17/20 PASS, pinned 1,896/1,896 Worldserver link and all three old workflow registration checks PASS. Its workflow-only commit does not establish or alter owner gameplay.
+
+### New owner-private F12 controls — source-only finding, NO-GO until permission
+
+Native pinned `MiscHandler.cpp` intentionally skips area-trigger **script** callbacks for non-debug GMs (not the native teleport), whereas the frozen F12 packet hook checks debug mode only and may route a non-debug GM to the custom exit if every other guard passes. This is **possible deliberate behaviour**, not a verified server defect. Read F12's global ALEScript parity gate above independently; a relevant or unknown installed global callback still means **F12 OFF**.
+
+| Separately authorised F12 witness | Question to observe privately | Result |
+| --- | --- | --- |
+| Non-GM, normal walk-out via Cathedral 604 / Armory 606 | Correct own door and real location/facing, no bounce or wing swap | NOT RUN |
+| GM without area-trigger debug | Does the agreed product requirement allow the custom door, or require stock? Record actual path and obtain explicit acceptance decision | NOT RUN |
+| GM with area-trigger debug ON | Native debug message / stock path maintained; no accidental custom packet interception | NOT RUN |
+| Relevant/global ALEScript installed callbacks affecting 604/606 | **Read-only, privately approved** registration/relevance inspection before enabling; if unknown/relevant, no F12 pilot without separately approved compatibility design | NOT RUN |
+| Ordinary Dungeon Finder and Graveyard/Library negatives | Stock behaviour retained; no change to unrelated wing exits | NOT RUN |
+
+### F13 accepted request is not physical arrival
+
+The pinned `Player::TeleportTo` may return true for a **deferred** transfer or before far-map worldport acknowledgement. The new #187 clicker-owned GO guard avoids post-teleport access for that ownership case, but counts `AddUse()` on other-owned/ownerless GO after an *accepted request*, not proven arrival. A future separately authorised, backed-up, nonproduction test must capture **independent arrival location/facing, GO existence/ownership, use count and no crash**, and confirm negative invalid/refused/delayed and same-map clicker-owned variants when legitimately reproducible. Do not manufacture unsafe rows or modify production data for negative tests.
+
+**Gate remains CLOSED:** no installed compatibility facts verified, no owner approval to stage, no backup/restore witness, and GFPP/F12/F13 actual gameplay results all **NOT RUN**. Five mandatory owner-accepted gameplay cases **0/5**; A02 NoWrite, A04 H1/H2 owner-private evidence missing, F15 BLOCKED_AT_R0, Claude still on break.
