@@ -180,7 +180,7 @@ def instrument(src: str) -> str:
 
 def execute(folder: Path, header: str, std: str, expected: str, label: str) -> None:
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / "TouchOfTheGraveSettings.h").write_text(instrument(header))
+    (folder / "TouchOfTheGraveSettings.h").write_text(header)
     (folder / "witness.cpp").write_text(HARNESS)
     target = folder / "witness"
     subprocess.run([
@@ -205,11 +205,12 @@ def execute(folder: Path, header: str, std: str, expected: str, label: str) -> N
 
 def main() -> None:
     original = HEADER.read_text(encoding="utf-8")
+    base = instrument(original)  # Instrument BEFORE mutating exact source conditions.
     cases = [
-        ("current", original, "green"),
-        ("missing-odd-guard", original.replace(ODD, "if (false && (before & 1u))", 1), "w-red"),
-        ("missing-final-recheck", original.replace(RECHECK, "if (true)", 1), "r-red"),
-        ("writer-never-odd", original.replace(ODD_STORE, "_sequence.store(seq, std::memory_order_relaxed);", 1), "w-red"),
+        ("current", base, "green"),
+        ("missing-odd-guard", base.replace(ODD, "if (false && (before & 1u))", 1), "w-red"),
+        ("missing-final-recheck", base.replace(RECHECK, "if (true)", 1), "r-red"),
+        ("writer-never-odd", base.replace(ODD_STORE, "_sequence.store(seq, std::memory_order_relaxed);", 1), "w-red"),
     ]
     with tempfile.TemporaryDirectory(prefix="p6-peer-no-sleep-") as tmp:
         root = Path(tmp)
