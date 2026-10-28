@@ -612,10 +612,21 @@ namespace
             return false;
         }
 
-        stats.ItemsAdded += amountToAdd;
+        // Player::AddItem stores only what fits and still returns true for a
+        // partial grant, so count what actually arrived in the bags, never
+        // more than requested and never negative.
+        uint32 const afterCount =
+            bot->GetItemCount(itemId, false);
+
+        uint32 const added =
+            afterCount > currentCount
+                ? std::min<uint32>(afterCount - currentCount, amountToAdd)
+                : 0;
+
+        stats.ItemsAdded += added;
 
         if (raidReagent)
-            stats.ReagentsAdded += amountToAdd;
+            stats.ReagentsAdded += added;
 
         return true;
     }

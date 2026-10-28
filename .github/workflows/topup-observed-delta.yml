@@ -1,0 +1,145 @@
+name: "P11 TopUpToCount observed-delta accounting (real source, pinned link)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'tests/topup_observed_delta_tests.py'
+      - 'tests/topup_observed_delta_mutants.py'
+      - 'tests/test_topup_observed_delta_scope.py'
+      - '.github/workflows/topup-observed-delta.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: topup-delta-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+  PLAYERBOTS_SHA: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+  IP_SHA: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: "Child of main; only P11 paths change"
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_MAIN" HEAD
+          git diff --name-only "$BASE_MAIN" HEAD | while read -r path; do
+            case "$path" in
+              src/Systems/BotRaidConsumables.cpp|tests/topup_observed_delta_tests.py|\
+              tests/topup_observed_delta_mutants.py|tests/test_topup_observed_delta_scope.py|\
+              .github/workflows/topup-observed-delta.yml) ;;
+              *) echo "unexpected changed path: $path"; exit 1 ;;
+            esac
+          done
+      - name: Scope contract (only TopUpToCount accounting changes)
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest tests/test_topup_observed_delta_scope.py -v 2>&1 | tee /tmp/c.txt
+          grep -Eq '^Ran 3 tests in [0-9.]+s$' /tmp/c.txt
+          grep -qx 'OK' /tmp/c.txt
+      - name: Real TopUpToCount (C++17/20 strict, ASan+UBSan)
+        run: |
+          set -euo pipefail
+          python3 -I tests/topup_observed_delta_tests.py /tmp/topup | tee /tmp/t.txt
+          test "$(grep -c '^c++.*: PASS: TopUpToCount observed delta, 41 checks$' /tmp/t.txt)" = 3
+      - name: Unfixed main reports the requested amount (exactly the 6 delta checks fail)
+        run: |
+          set -euo pipefail
+          set +e
+          python3 -I tests/topup_observed_delta_tests.py /tmp/topupmain --main > /tmp/m.txt
+          code=$?
+          set -e
+          cat /tmp/m.txt
+          test "$code" -ne 0
+          test "$(grep -c '^FAILED: 6 of 41 checks$' /tmp/m.txt)" = 3
+          grep -q 'FAIL line [0-9]*: s.ItemsAdded == 2$' /tmp/m.txt
+      - name: Must-fail mutants (5)
+        run: |
+          set -euo pipefail
+          python3 -I tests/topup_observed_delta_mutants.py /tmp/topupmut | tee /tmp/mu.txt
+          grep -qx '5/5 mutants caught' /tmp/mu.txt
+
+  pinned-tu-and-link:
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: acore
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: ${{ env.PLAYERBOTS_SHA }}
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: ${{ env.IP_SHA }}
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify all source revisions
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "$CORE_SHA"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "$PLAYERBOTS_SHA"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "$IP_SHA"
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file binutils \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile the real BotRaidConsumables TU
+        run: |
+          set -euo pipefail
+          obj=modules/CMakeFiles/modules.dir/mod-naxxramas-core/src/Systems/BotRaidConsumables.cpp.o
+          ninja -C acore-build "$obj"
+          nm -C "acore-build/$obj" | grep -q 'T AddBotRaidConsumablesScripts()'
+      - name: Link full Worldserver without launching it
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Confirm the script in the linked binary
+        run: |
+          set -euo pipefail
+          binary="$(find acore-build -type f -name worldserver -print -quit)"
+          test -s "$binary"
+          grep -aFq "NaxxramasCoreBotRaidConsumables" "$binary"
+      - name: Scope of proof
+        if: always()
+        run: |
+          echo 'Build-only. Same AddItem call and results; only the supplied-item counts in the chat summary change.'
+          echo 'No server start, item grant change, SQL, DBC, config, core, Playerbots or IP change.'
