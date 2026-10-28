@@ -34,4 +34,5 @@ jobs:
           set -euo pipefail
           timeout 180s python3 -I tests/peer/test_honor_reset_interval_progression.py | tee /tmp/honor.log
           grep -qx 'PASS: isolated source-bound scheduler regression witness (no DB, SQL or live server)' /tmp/honor.log
-          test "$(grep -c 'EXPECTED-RED: original GetLatestScheduledReset' /tmp/honor.log)" -eq 2
+          test "$(grep -c 'PASS: 10 normal weekly interval cases across DST boundary dates' /tmp/honor.log)" -eq 4
+          test "$(grep -c 'EXPECTED-RED: original GetLatestScheduledReset' /tmp/honor.log)" -eq 4
