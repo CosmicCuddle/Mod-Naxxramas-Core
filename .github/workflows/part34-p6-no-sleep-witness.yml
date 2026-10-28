@@ -1,0 +1,39 @@
+name: Part34 P6 no-sleep seqlock peer coherence witness
+
+on:
+  push:
+    branches:
+      - cs01/part34-p6-seqlock-no-sleep-witness-20261028
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cv-gated-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Source parent and exact two-path test-only scope
+        env:
+          P6_SHA: 2cea46c7c7fea6fe23f48edcb2a2e2aac844e951
+        run: |
+          set -euo pipefail
+          git cat-file -e "$P6_SHA^{commit}"
+          test "$(git merge-base "$P6_SHA" HEAD)" = "$P6_SHA"
+          git diff --name-only "$P6_SHA" HEAD | sort > /tmp/actual
+          printf '%s\n' \
+            '.github/workflows/part34-p6-no-sleep-witness.yml' \
+            'tests/peer/test_p6_no_sleep_coherence.py' | sort > /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+      - name: Exact peer source CV gates C++17 C++20 and negative controls
+        run: |
+          set -euo pipefail
+          timeout 180s python3 -I tests/peer/test_p6_no_sleep_coherence.py | tee /tmp/p6-peer.log
+          grep -qx 'PASS: source-backed P6 CV-gated no-sleep coherence proof + 3 RED controls' /tmp/p6-peer.log
+          test "$(grep -Ec 'c[+]\\+1[70] current PASS 0' /tmp/p6-peer.log)" -eq 2
+          test "$(grep -c 'EXPECTED-RED 23' /tmp/p6-peer.log)" -eq 4
+          test "$(grep -c 'EXPECTED-RED 26' /tmp/p6-peer.log)" -eq 2
