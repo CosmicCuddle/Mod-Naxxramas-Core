@@ -1,0 +1,168 @@
+name: "F14 P5 identity facts adapter (unwired; pinned TU + Worldserver link)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/PlayerIdentityFacts.h'
+      - 'src/Systems/PlayerIdentityFacts.cpp'
+      - 'src/Systems/PlayerIdentityPolicy.h'
+      - 'tests/f14_identity_facts_adapter_tests.cpp'
+      - 'tests/f14_identity_facts_no_grant.cpp'
+      - 'tests/f14_identity_facts_mutants.py'
+      - 'tests/test_f14_identity_facts_adapter.py'
+      - 'tests/f14_facts_stubs/**'
+      - 'docs/research/F14-PLAYER-IDENTITY-FACTS-ADAPTER.md'
+      - '.github/workflows/f14-identity-facts-adapter.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f14-facts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_197: b44029da7bc857512400cbb0aaa5eebeafd81586
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+  PLAYERBOTS_SHA: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+  IP_SHA: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: "Child of #197; policy header unchanged; only P5 paths added"
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_197" HEAD
+          git diff --quiet "$BASE_197" HEAD -- src/Systems/PlayerIdentityPolicy.h conf src/NaxxramasCore_loader.cpp
+          git diff --name-only "$BASE_197" HEAD | while read -r path; do
+            case "$path" in
+              src/Systems/PlayerIdentityFacts.h|src/Systems/PlayerIdentityFacts.cpp|\
+              tests/f14_identity_facts_adapter_tests.cpp|tests/f14_identity_facts_no_grant.cpp|\
+              tests/f14_identity_facts_mutants.py|tests/test_f14_identity_facts_adapter.py|\
+              tests/f14_facts_stubs/core/*.h|tests/f14_facts_stubs/playerbots/*.h|\
+              docs/research/F14-PLAYER-IDENTITY-FACTS-ADAPTER.md|\
+              .github/workflows/f14-identity-facts-adapter.yml) ;;
+              *) echo "unexpected changed path: $path"; exit 1 ;;
+            esac
+          done
+      - name: Source contracts
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest tests/test_f14_identity_facts_adapter.py -v 2>&1 | tee /tmp/c.txt
+          grep -Eq '^Ran 10 tests in [0-9.]+s$' /tmp/c.txt
+          grep -qx 'OK' /tmp/c.txt
+      - name: Real adapter source, with and without Playerbots (C++17/20, ASan+UBSan)
+        run: |
+          set -euo pipefail
+          F="-Wall -Wextra -Werror -pedantic -Wshadow -pthread -Isrc/Systems -Itests/f14_facts_stubs/core"
+          for std in 17 20; do
+            g++ -std=c++$std $F -Itests/f14_facts_stubs/playerbots tests/f14_identity_facts_adapter_tests.cpp -o /tmp/w$std
+            /tmp/w$std | tee /tmp/w$std.txt
+            grep -qx 'PASS: F14 facts adapter with Playerbots, 37 checks' /tmp/w$std.txt
+            g++ -std=c++$std $F -DEXPECT_NO_PLAYERBOTS tests/f14_identity_facts_adapter_tests.cpp -o /tmp/n$std
+            /tmp/n$std | tee /tmp/n$std.txt
+            grep -qx 'PASS: F14 facts adapter without Playerbots, 6 checks' /tmp/n$std.txt
+          done
+          g++ -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $F \
+            -Itests/f14_facts_stubs/playerbots tests/f14_identity_facts_adapter_tests.cpp -o /tmp/asan
+          /tmp/asan
+      - name: World-thread token cannot be forged (must NOT compile)
+        run: |
+          set -euo pipefail
+          for std in 17 20; do
+            g++ -std=c++$std -fsyntax-only -Isrc/Systems -DVARIANT=0 tests/f14_identity_facts_no_grant.cpp
+            for v in 1 2 3 4 5; do
+              if g++ -std=c++$std -fsyntax-only -Isrc/Systems -DVARIANT=$v tests/f14_identity_facts_no_grant.cpp 2>/dev/null; then
+                echo "c++$std variant $v compiled: token forgeable"; exit 1
+              fi
+            done
+          done
+      - name: Must-fail mutants (12)
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_identity_facts_mutants.py /tmp/f14p5mut | tee /tmp/m.txt
+          grep -qx '12/12 mutants caught' /tmp/m.txt
+      - name: Inherited #197 classifier still passes
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic -pthread -Isrc/Systems \
+            tests/f14_player_identity_policy_tests.cpp -o /tmp/p197
+          /tmp/p197 | grep -qx 'PASS: F14 identity classifier, 2936 checks'
+
+  pinned-tu-and-link:
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: acore
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: ${{ env.PLAYERBOTS_SHA }}
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: ${{ env.IP_SHA }}
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify all source revisions
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "$CORE_SHA"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "$PLAYERBOTS_SHA"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "$IP_SHA"
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file binutils \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile the real adapter TU and prove the Playerbots path was taken
+        run: |
+          set -euo pipefail
+          obj=modules/CMakeFiles/modules.dir/mod-naxxramas-core/src/Systems/PlayerIdentityFacts.cpp.o
+          ninja -C acore-build "$obj"
+          nm -C "acore-build/$obj" | tee /tmp/syms.txt
+          grep -q 'U PlayerbotsMgr::GetPlayerbotAI(Player\*)' /tmp/syms.txt
+          grep -q 'U RandomPlayerbotMgr::IsRandomBot(Player\*)' /tmp/syms.txt
+          grep -q 'U WorldSession::IsSocketClosed() const' /tmp/syms.txt
+          grep -q 'T NaxxramasPlayerIdentity::SampleFacts' /tmp/syms.txt
+      - name: Link full Worldserver without launching it
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Scope of proof
+        if: always()
+        run: |
+          echo 'Unwired adapter: no hook, registration, snapshot, /who or world wiring; F14 stays OFF.'
+          echo 'Build-only. No server start, gameplay, SQL, DBC, config, core, Playerbots or IP change.'
