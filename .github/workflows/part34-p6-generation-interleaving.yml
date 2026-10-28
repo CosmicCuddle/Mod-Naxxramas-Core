@@ -1,0 +1,39 @@
+name: Part34 P6 independent six-field generation witness (source only)
+
+on:
+  push:
+    branches:
+      - 'cs01/part34-p6-generation-witness-20261028'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-witness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify isolated child of exact peer P6
+        shell: bash
+        env:
+          P6_BASE: 20767b49f4a89da3cc46986305f1b32f880c01c5
+        run: |
+          set -euo pipefail
+          git cat-file -e "$P6_BASE^{commit}"
+          test "$(git merge-base "$P6_BASE" HEAD)" = "$P6_BASE"
+          test -f src/Racials/Forsaken/TouchOfTheGraveSettings.h
+          test -f tests/peer/test_p6_atomic_generation_interleaving.py
+          git diff --name-only "$P6_BASE" HEAD | sort | tee /tmp/changes.txt
+          printf '%s\n' \
+            '.github/workflows/part34-p6-generation-interleaving.yml' \
+            'tests/peer/test_p6_atomic_generation_interleaving.py' | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/changes.txt
+      - name: Execute controlled C++17 and C++20 mixed-generation witnesses
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 120s python3 -I tests/peer/test_p6_atomic_generation_interleaving.py | tee /tmp/p6-generation.log
+          grep -qx 'PASS: P6 controlled generation interleaving; no production header modified' /tmp/p6-generation.log
+          test "$(grep -c 'EXPECTED-RED strict coherence assertion' /tmp/p6-generation.log)" -eq 2
