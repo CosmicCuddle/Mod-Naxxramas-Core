@@ -1,0 +1,37 @@
+name: Part34 P10 exact-source multi-year old/new calendar parity
+
+on:
+  push:
+    branches:
+      - cs01/part34-p10-long-calendar-parity-20261028
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  calendar-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify immutable P10 author head and exactly two test-only paths
+        env:
+          AUTHOR_SHA: e3fe22bfec18c55be0bf60fc459f19c3f940f5ae
+        run: |
+          set -euo pipefail
+          git cat-file -e "$AUTHOR_SHA^{commit}"
+          test "$(git merge-base "$AUTHOR_SHA" HEAD)" = "$AUTHOR_SHA"
+          git diff --name-only "$AUTHOR_SHA" HEAD | sort > /tmp/changed
+          printf '%s\n' \
+            '.github/workflows/part34-p10-multiyear-calendar-parity.yml' \
+            'tests/peer/test_p10_multiyear_calendar_parity.py' | sort > /tmp/expected
+          diff -u /tmp/expected /tmp/changed
+      - name: C++17/C++20 real old/new sources, UTC and Europe London, normal + edge
+        run: |
+          set -euo pipefail
+          timeout 180s python3 -I tests/peer/test_p10_multiyear_calendar_parity.py | tee /tmp/out
+          grep -qx 'PASS: exact-source P10 multi-year old-vs-new schedule parity and extreme bounds; no production changes' /tmp/out
+          test "$(grep -c '14,175 old/new ordinary reset dates identical; 25 fail-closed edge checks' /tmp/out)" -eq 4
