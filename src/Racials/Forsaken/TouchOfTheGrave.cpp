@@ -26,6 +26,7 @@
 #include "SpellInfo.h"
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
+#include "TouchOfTheGraveSettings.h"
 #include "Unit.h"
 
 #include <cmath>
@@ -34,8 +35,6 @@ namespace NaxxramasTouchOfTheGrave
 {
     constexpr uint32 SPELL_TOUCH_OF_THE_GRAVE_DAMAGE = 90053;
 
-    constexpr uint8 PROGRESSION_PRE_TBC = 8;
-    constexpr uint8 PROGRESSION_TBC_TIER_5 = 13;
 
     uint8 GetProgression(Player* player)
     {
@@ -59,134 +58,35 @@ namespace NaxxramasTouchOfTheGrave
         return progression;
     }
 
-    bool HasPassedProgression(
-        uint8 progression,
-        uint8 requiredProgression,
-        uint8 progressionLimit)
-    {
-        if (!requiredProgression)
-            return false;
+    // Published by NaxxramasTouchOfTheGraveConfig on the world thread.
+    SettingsSnapshot Settings;
 
-        if (progressionLimit &&
-            requiredProgression > progressionLimit)
-        {
-            return false;
-        }
-
-        return progression >= requiredProgression;
-    }
-
-    float GetProgressionMultiplier(
-        Player* player,
-        float vanillaAdjustment,
-        float tbcAdjustment)
+    float GetMultiplier(Player* player, bool healing)
     {
         if (!player)
             return 1.0f;
 
-        /*
-         * Individual Progression itself defaults Enable to true,
-         * so we mirror that behaviour here.
-         */
-        bool enabled =
-            sConfigMgr->GetOption<bool>(
-                "IndividualProgression.Enable",
-                true);
-
-        if (!enabled)
+        IpSettings const s = Settings.Load();
+        if (!s.enabled)
             return 1.0f;
 
-        uint8 progressionLimit =
-            sConfigMgr->GetOption<uint8>(
-                "IndividualProgression.ProgressionLimit",
-                0);
-
-        uint8 progression =
-            GetProgression(player);
-
-        /*
-         * Vanilla progression
-         */
-        if (!HasPassedProgression(
-                progression,
-                PROGRESSION_PRE_TBC,
-                progressionLimit))
-        {
-            uint8 level = player->GetLevel();
-
-            if (level <= 10)
-                return 1.0f;
-
-            /*
-             * Same Vanilla adjustment formula used by
-             * Individual Progression:
-             *
-             * adjustmentApplyPercent =
-             *     (level - 10) / 50
-             *
-             * result =
-             *     1 - ((1 - configuredAdjustment)
-             *     * adjustmentApplyPercent)
-             */
-            float adjustmentApplyPercent =
-                (float(level) - 10.0f) / 50.0f;
-
-            return 1.0f -
-                ((1.0f - vanillaAdjustment) *
-                 adjustmentApplyPercent);
-        }
-
-        /*
-         * TBC progression
-         */
-        if (!HasPassedProgression(
-                progression,
-                PROGRESSION_TBC_TIER_5,
-                progressionLimit))
-        {
-            return tbcAdjustment;
-        }
-
-        /*
-         * WotLK progression
-         */
-        return 1.0f;
+        return ProgressionMultiplier(
+            s.enabled,
+            s.progressionLimit,
+            GetProgression(player),
+            player->GetLevel(),
+            healing ? s.vanillaHealing : s.vanillaPower,
+            healing ? s.tbcHealing : s.tbcPower);
     }
 
     float GetPowerMultiplier(Player* player)
     {
-        float vanillaAdjustment =
-            sConfigMgr->GetOption<float>(
-                "IndividualProgression.VanillaPowerAdjustment",
-                1.0f);
-
-        float tbcAdjustment =
-            sConfigMgr->GetOption<float>(
-                "IndividualProgression.TBCPowerAdjustment",
-                1.0f);
-
-        return GetProgressionMultiplier(
-            player,
-            vanillaAdjustment,
-            tbcAdjustment);
+        return GetMultiplier(player, false);
     }
 
     float GetHealingMultiplier(Player* player)
     {
-        float vanillaAdjustment =
-            sConfigMgr->GetOption<float>(
-                "IndividualProgression.VanillaHealingAdjustment",
-                1.0f);
-
-        float tbcAdjustment =
-            sConfigMgr->GetOption<float>(
-                "IndividualProgression.TBCHealingAdjustment",
-                1.0f);
-
-        return GetProgressionMultiplier(
-            player,
-            vanillaAdjustment,
-            tbcAdjustment);
+        return GetMultiplier(player, true);
     }
 
     int32 GetDesiredDamage(uint8 level)
@@ -360,8 +260,45 @@ public:
     }
 };
 
+// =========================================================
+// Individual Progression settings, read on the world thread
+// =========================================================
+
+class NaxxramasTouchOfTheGraveConfig : public WorldScript
+{
+public:
+    NaxxramasTouchOfTheGraveConfig()
+        : WorldScript(
+            "NaxxramasTouchOfTheGraveConfig",
+            { WORLDHOOK_ON_AFTER_CONFIG_LOAD })
+    {
+    }
+
+    // Startup and every .reload config; same keys, types and defaults as
+    // the per-cast reads this replaces.
+    void OnAfterConfigLoad(bool /*reload*/) override
+    {
+        NaxxramasTouchOfTheGrave::IpSettings s;
+        s.enabled = sConfigMgr->GetOption<bool>(
+            "IndividualProgression.Enable", true);
+        s.progressionLimit = sConfigMgr->GetOption<uint8>(
+            "IndividualProgression.ProgressionLimit", 0);
+        s.vanillaPower = sConfigMgr->GetOption<float>(
+            "IndividualProgression.VanillaPowerAdjustment", 1.0f);
+        s.tbcPower = sConfigMgr->GetOption<float>(
+            "IndividualProgression.TBCPowerAdjustment", 1.0f);
+        s.vanillaHealing = sConfigMgr->GetOption<float>(
+            "IndividualProgression.VanillaHealingAdjustment", 1.0f);
+        s.tbcHealing = sConfigMgr->GetOption<float>(
+            "IndividualProgression.TBCHealingAdjustment", 1.0f);
+        NaxxramasTouchOfTheGrave::Settings.Store(s);
+    }
+};
+
 void AddTouchOfTheGraveScripts()
 {
+    new NaxxramasTouchOfTheGraveConfig();
+
     RegisterSpellScript(
         spell_naxxramas_touch_of_the_grave);
 
