@@ -76,6 +76,42 @@ int main() {
     Require(next > now, "ordinary next reset not after fixture now");
     std::cout << "PASS: original two-week progression reaches the last scheduled reset\n";
 
+    // Ordinary schedules must remain monotonic and preserve local reset hour
+    // across both spring-forward and fall-back transitions. This is a
+    // regression guard for a future author-owned safety fix, not a fix itself.
+    for (char const* anchorText : {"2026-03-04", "2026-10-07"}) {
+        HonorResetAnchorDate = anchorText;
+        Require(BuildAnchorTime(anchor), "DST fixture anchor not accepted");
+        std::tm later = {};
+        later.tm_year = 2026 - 1900;
+        later.tm_mon = anchorText[5] == '0' ? 3 : 10; // April or November
+        later.tm_mday = anchorText[5] == '0' ? 8 : 11;
+        later.tm_hour = 7;
+        later.tm_isdst = -1;
+        std::time_t afterTransition = std::mktime(&later);
+        Require(afterTransition > anchor, "DST fixture order");
+        for (uint32 weeks : {1u, 2u, 3u, 4u, 52u}) {
+            HonorResetIntervalWeeks = weeks;
+            std::time_t previous = GetLatestScheduledReset(afterTransition);
+            Require(previous >= anchor && previous <= afterTransition,
+                    "normal interval calendar is out of range");
+            std::time_t following = AddWeeks(previous, weeks);
+            Require(following > afterTransition && following > previous,
+                    "normal interval must make forward progress");
+            std::tm displayed = {};
+            Require(GetLocalTime(previous, displayed),
+                    "normal interval cannot be represented as local time");
+            Require(displayed.tm_hour == 6 && displayed.tm_min == 0 &&
+                    displayed.tm_wday == 3,
+                    "normal interval changed Wednesday local clock");
+        }
+    }
+    std::cout << "PASS: 10 normal weekly interval cases across DST boundary dates\\n";
+
+    // Reset the anchor for the original extreme-value edge witness.
+    HonorResetAnchorDate = "2026-10-07";
+    Require(BuildAnchorTime(anchor), "restored October fixture anchor missing");
+
     // Current config validation only enforces a minimum of one, not a maximum.
     HonorResetIntervalWeeks = std::numeric_limits<uint32>::max();
     std::time_t backwards = AddWeeks(anchor, HonorResetIntervalWeeks);
@@ -133,12 +169,14 @@ def main() -> None:
                  "-Werror", "-pedantic", "-Wconversion", str(cpp), "-o", str(exe)],
                 check=True, capture_output=True, text=True, timeout=40,
             )
-            env = dict(os.environ, TZ="UTC")
-            r = subprocess.run([str(exe)], capture_output=True, text=True,
-                               env=env, check=True, timeout=20)
-            assert "WITNESS: UINT32_MAX interval moves AddWeeks backwards" in r.stdout
-            assert "EXPECTED-RED: original GetLatestScheduledReset fails to terminate within 20 steps" in r.stdout
-            print(std + ": " + r.stdout.strip().replace("\n", "\n" + std + ": "))
+            for tz in ("UTC", "Europe/London"):
+                env = dict(os.environ, TZ=tz)
+                r = subprocess.run([str(exe)], capture_output=True, text=True,
+                                   env=env, check=True, timeout=20)
+                assert "PASS: 10 normal weekly interval cases across DST boundary dates" in r.stdout
+                assert "WITNESS: UINT32_MAX interval moves AddWeeks backwards" in r.stdout
+                assert "EXPECTED-RED: original GetLatestScheduledReset fails to terminate within 20 steps" in r.stdout
+                print(std + "/" + tz + ": " + r.stdout.strip().replace("\n", "\n" + std + "/" + tz + ": "))
     print("PASS: isolated source-bound scheduler regression witness (no DB, SQL or live server)")
 
 if __name__ == "__main__":
