@@ -170,13 +170,31 @@ def assess(x: Incident) -> Assessment:
             h.append("H2_CACHED_SPARKLE_LOCKED_ROW_STOCK_POSSIBLE")
         if x.sparkle == "yes" and x.denied == "yes" and x.slot != "locked":
             h.append("H2_SPARKLE_AND_DENIAL_NEED_NATIVE_ERROR_CAUSE")
-        if (x.bucket == "quest" and x.shared_one_copy == "yes"
+        # H2 is the corpse-sparkle incident. A generic item container or
+        # GO must not inherit this *creature-corpse* shared-window cause.
+        # Even for a creature this remains a source hypothesis, not a
+        # demonstrated persisted counter/bag mismatch or gameplay proof.
+        if (x.source == "creature" and x.bucket == "quest"
+                and x.shared_one_copy == "yes"
                 and x.objective == "short" and x.inventory == "met"):
             h.append("H2_SHARED_WINDOW_COUNTER_DRIFT_SOURCE_CANDIDATE")
             missing.append("confirm mismatch existed BEFORE first loot window; other eligible viewer and count")
-        if x.bucket == "quest" and x.legacy_quest_guard == "on":
+        # A guard merely being ON is not a denial. Pinned module's
+        # PermitPickup only checks creature corpses under these three group
+        # loot methods; all other sources/methods pass native handling.
+        guard_path_possible = (
+            x.source == "creature" and
+            x.method in ("group", "round_robin", "need_before_greed") and
+            x.denied == "yes"
+        )
+        if (guard_path_possible and x.bucket == "quest"
+                and x.legacy_quest_guard == "on"):
             h.append("H2_LEGACY_QUEST_TURN_GUARD_CANDIDATE")
-        if x.bucket == "ordinary" and x.hidden_ordinary_guard == "on":
+        # The ordinary guard rejects ONLY genuinely hidden ordinary rows.
+        # A visible, locked, rolling or unknown row cannot implicate it.
+        if (guard_path_possible and x.bucket == "ordinary"
+                and x.slot == "hidden"
+                and x.hidden_ordinary_guard == "on"):
             h.append("H2_HIDDEN_ORDINARY_SLOT_GUARD_CANDIDATE")
         if not h:
             h.append("H2_SOURCE_PATH_UNDETERMINED")
