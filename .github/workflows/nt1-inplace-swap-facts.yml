@@ -1,0 +1,100 @@
+name: "A03 NT1 in-place swap facts (pinned sources, read-only)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'scripts/check_nt1_inplace_swap_facts.py'
+      - 'tests/test_nt1_inplace_swap_facts.py'
+      - 'docs/research/A03-NT1-INPLACE-TALENT-SWAP-FEASIBILITY.md'
+      - '.github/workflows/nt1-inplace-swap-facts.yml'
+      - 'src/Systems/BotTalentImport.cpp'
+      - 'src/Systems/BotTalentCompletion.cpp'
+      - 'src/Systems/BotTalentExpansionLimits.cpp'
+      - 'src/Class/Shaman/ShamanRockbiter.cpp'
+      - 'src/Class/Warlock/WarlockWrack.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nt1-inplace-facts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+  PLAYERBOTS_SHA: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+  IP_SHA: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+
+jobs:
+  facts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: module
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: core
+          sparse-checkout: src/server/game
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: ${{ env.PLAYERBOTS_SHA }}
+          path: playerbots
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: ${{ env.IP_SHA }}
+          path: ip
+          persist-credentials: false
+      - name: Verify exact revisions
+        run: |
+          set -euo pipefail
+          test "$(git -C module rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C core rev-parse HEAD)" = "$CORE_SHA"
+          test "$(git -C playerbots rev-parse HEAD)" = "$PLAYERBOTS_SHA"
+          test "$(git -C ip rev-parse HEAD)" = "$IP_SHA"
+      - name: "Child of main; research paths only; no runtime source changed"
+        working-directory: module
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_MAIN" HEAD
+          allowed='scripts/check_nt1_inplace_swap_facts.py
+          tests/test_nt1_inplace_swap_facts.py
+          docs/research/A03-NT1-INPLACE-TALENT-SWAP-FEASIBILITY.md
+          .github/workflows/nt1-inplace-swap-facts.yml'
+          git diff --name-only "$BASE_MAIN" HEAD | while read -r path; do
+            printf '%s\n' "$allowed" | sed 's/^ *//' | grep -Fxq "$path" \
+              || { echo "unexpected changed path: $path"; exit 1; }
+          done
+      - name: Fact checker at the exact pins
+        run: |
+          set -euo pipefail
+          python3 -I -B module/scripts/check_nt1_inplace_swap_facts.py \
+            --core core --playerbots playerbots --ip ip --module module | tee /tmp/facts.txt
+          grep -qx 'changed_build_altbot_apply_safe=false (no such path is implemented)' /tmp/facts.txt
+      - name: Negative tests (mutated real pinned text)
+        env:
+          NT1_PIN_CORE: ${{ github.workspace }}/core
+          NT1_PIN_PLAYERBOTS: ${{ github.workspace }}/playerbots
+          NT1_PIN_IP: ${{ github.workspace }}/ip
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest module/tests/test_nt1_inplace_swap_facts.py -v 2>&1 | tee /tmp/t.txt
+          grep -Eq '^Ran 23 tests in [0-9.]+s$' /tmp/t.txt
+          grep -qx 'OK' /tmp/t.txt
+      - name: Scope of proof
+        run: |
+          echo 'Source facts only. No talent, gear, pet, SQL or server change; no swap implemented.'
+          echo 'Alt Bot changed-build Apply stays fail-closed (#18).'
