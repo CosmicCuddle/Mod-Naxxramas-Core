@@ -15,11 +15,16 @@ import os
 import re
 import uuid
 
+import offline_store as _store
 from offline_store import IncidentStore, NAMESPACE, SCHEMA, MAX_REPORT, utc, safe_name
 
 SIDECAR_SCHEMA = "F15-S3-OFFLINE-RESTART-1"
 SIDECAR_PATTERN = re.compile(r"^restart-([0-9a-f-]{36})-([0-9a-f-]{36})\.txt$")
 SIDECAR_LIMIT = 4096
+# P30 offline TEST-FIXTURE ceilings, NOT owner-approved retention policy.
+MAX_RESTART_SIDECARS_PER_INCIDENT = 8
+MAX_RESTART_SIDECARS_PER_SERVICE = 128
+MAX_TOTAL_RESTART_SIDECARS = 256
 MAX_FUTURE_CLOCK_SKEW = timedelta(minutes=5)
 
 
@@ -191,6 +196,45 @@ class RestartSidecarStore(IncidentStore):
             self._unlink(temp)
         return world, auth
 
+    def _admit_restart_locked(self, incident_id: str, service: str,
+                              valid, new_bytes: int):
+        """P30: bound S3 restart sidecars while holding the verified lock.
+
+        One bounded scan counts this incident's sidecars, sidecars of the
+        same daemon (via the finalized incident's service), ALL
+        restart-shaped names (malformed, orphaned or symlinked ones too,
+        conservatively) and the one byte budget shared with finalized
+        crash/error reports. Nothing is evicted, renamed or overwritten.
+        Limits are offline TEST FIXTURES, not an owner retention policy,
+        and a refusal is an untrusted diagnostic, not a real daemon event.
+        """
+        if (service not in ("worldserver", "authserver") or
+                type(new_bytes) is not int or new_bytes < 0):
+            raise ValueError("invalid offline restart quota request")
+        owner = {info["incident_id"]: info["service"] for _, info in valid}
+        total = per_incident = per_service = byte_count = 0
+        for name in self._dir_names_bounded():
+            if _store.RESTART_SHAPED.fullmatch(name):
+                total += 1
+                byte_count += self._lstat_size(name)
+                match = SIDECAR_PATTERN.fullmatch(name)
+                if match:
+                    if match.group(1) == incident_id:
+                        per_incident += 1
+                    if owner.get(match.group(1)) == service:
+                        per_service += 1
+            elif (_store.REPORT.fullmatch(name) or
+                    _store.ERROR_CAPACITY_REPORT.fullmatch(name)):
+                byte_count += self._lstat_size(name)
+        if (per_incident >= MAX_RESTART_SIDECARS_PER_INCIDENT or
+                per_service >= MAX_RESTART_SIDECARS_PER_SERVICE or
+                total >= MAX_TOTAL_RESTART_SIDECARS or
+                byte_count + new_bytes > _store.MAX_TOTAL_REPORT_BYTES):
+            self._count_rejection("capacity")
+            raise OverflowError(
+                "F15 offline restart sidecar capacity reached; immutable "
+                "records preserved, new sidecar refused")
+
     def publish_restart(self, observation: RestartObservation):
         """Atomic immutable sidecar; True new, False duplicate/not verified."""
         observation.checked()
@@ -225,7 +269,11 @@ class RestartSidecarStore(IncidentStore):
                     raise FileExistsError("restart attempt sidecar conflict")
                 self._rebuild_locked()
                 return False
-            temp = self._temp(sidecar_bytes(observation.info()))
+            payload = sidecar_bytes(observation.info())
+            # P30: bounded AFTER duplicate idempotence, BEFORE any write.
+            self._admit_restart_locked(observation.incident_id,
+                                       original["service"], valid, len(payload))
+            temp = self._temp(payload)
             try:
                 os.link(temp, name, src_dir_fd=self._fd,
                         dst_dir_fd=self._fd, follow_symlinks=False)

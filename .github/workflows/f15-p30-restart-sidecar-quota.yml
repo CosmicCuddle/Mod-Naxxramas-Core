@@ -1,0 +1,75 @@
+name: "F15 P30 restart sidecar quota (offline, NO HOST)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tools/f15/offline_store.py'
+      - 'tools/f15/offline_restart.py'
+      - 'tests/test_f15_restart_sidecar_quota_p30.py'
+      - 'docs/research/F15-P30-RESTART-SIDECAR-QUOTA.md'
+      - '.github/workflows/f15-p30-restart-sidecar-quota.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f15-p30-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_185: ce8c85ec9ee6ed61bd44b4ef92d6737c03fd0b1e
+
+jobs:
+  offline-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: "Child of exact #185; only the five P30 paths differ"
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_185" HEAD
+          git diff --quiet "$BASE_185" HEAD -- src conf
+          allowed='tools/f15/offline_store.py
+          tools/f15/offline_restart.py
+          tests/test_f15_restart_sidecar_quota_p30.py
+          docs/research/F15-P30-RESTART-SIDECAR-QUOTA.md
+          .github/workflows/f15-p30-restart-sidecar-quota.yml'
+          git diff --name-only "$BASE_185" HEAD | while read -r path; do
+            printf '%s\n' "$allowed" | sed 's/^ *//' | grep -Fxq "$path" \
+              || { echo "unexpected changed path: $path"; exit 1; }
+          done
+      - name: P30 sidecar quota tests (disposable temp directories)
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_restart_sidecar_quota_p30.py -v 2>&1 | tee /tmp/p30.txt
+          grep -Eq '^Ran 16 tests in [0-9.]+s$' /tmp/p30.txt
+          grep -qx 'OK' /tmp/p30.txt
+          ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/p30.txt
+      - name: Inherited offline suites unchanged
+        run: |
+          set -euo pipefail
+          check() {
+            python3 -I -B -W error "$1" 2>&1 | tee /tmp/suite.txt
+            grep -Eq "^Ran $2 tests in [0-9.]+s$" /tmp/suite.txt
+            grep -qx 'OK' /tmp/suite.txt
+          }
+          check tests/test_f15_store_bounds_r4.py 16
+          check tests/test_f15_directory_inode_flock_p29.py 7
+          check tests/test_f15_offline_store_s2.py 43
+          check tests/test_f15_restart_sidecar_s3.py 30
+          check tests/test_f15_exit_evidence_s4.py 25
+          check tests/test_f15_error_bursts_s4b.py 38
+          check tests/test_f15_error_reports_s4c.py 24
+      - name: Scope of proof
+        run: |
+          echo 'Offline Python store on disposable temp directories only.'
+          echo 'No Worldserver/Authserver, host, root path, service, log, SQL or config. F15 BLOCKED_AT_R0.'
