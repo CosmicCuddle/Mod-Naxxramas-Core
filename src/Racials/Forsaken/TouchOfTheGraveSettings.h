@@ -32,10 +32,12 @@ namespace NaxxramasTouchOfTheGrave
 
     // One writer (the world thread's config hook), any number of readers.
     // A sequence lock keeps the six values coherent: Load() never returns a
-    // mix of two config loads. Readers stay lock-free and retry only if a
-    // Store overlapped them. In the server a Store (config load, world
-    // thread) never overlaps map-thread Loads anyway, so a retry is not
-    // expected there; this makes coherence hold for any caller.
+    // mix of two config loads. Readers take no mutex: they retry if a Store
+    // overlapped them and spin while one is in progress, so a reader is not
+    // lock-free if the writer stalls mid-Store. In the server a Store (config
+    // load, world thread) never overlaps map-thread Loads (map workers are
+    // idle then), so neither case is expected; this keeps coherence for any
+    // caller.
     class SettingsSnapshot
     {
     public:
