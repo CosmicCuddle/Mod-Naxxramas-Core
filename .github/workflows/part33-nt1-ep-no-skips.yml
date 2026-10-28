@@ -114,32 +114,7 @@ jobs:
           python3 -B -m unittest tests/test_nt1_inplace_swap_facts.py -v 2>&1 | tee /tmp/part33-nt1.txt
           grep -Eq '^Ran 23 tests in [0-9.]+s$' /tmp/part33-nt1.txt
           grep -Fxq 'OK' /tmp/part33-nt1.txt
-          test "$(grep -Ec '^test_.*\.\.\. ok
-
-      - name: Execute ALL six historical EP source cases with zero skips
-        shell: bash
-        working-directory: acore/modules/mod-naxxramas-core
-        run: |
-          set -euo pipefail
-          python3 -I -B -W error tests/test_ep_tower_module_only.py \
-            ModuleOnlySourceContract.test_pinned_northpass_spawn_callback_and_stock_faction \
-            ModuleOnlySourceContract.test_pinned_outdoor_pvp_handler_is_selected_only_by_world_db \
-            ModuleOnlySourceContract.test_pinned_real_core_late_loaded_spawn_metadata_contract \
-            ModuleOnlySourceContract.test_pinned_real_core_restart_order_and_graceful_db_drain \
-            ModuleOnlySourceContract.test_pinned_tower_timer_updates_without_nearby_players_or_loaded_grid \
-            ModuleOnlySourceContract.test_pinned_updater_requires_manual_ep_sql_location \
-            -v 2>&1 | tee /tmp/part33-ep.txt
-          grep -Eq '^Ran 6 tests in [0-9.]+s$' /tmp/part33-ep.txt
-          grep -Fxq 'OK' /tmp/part33-ep.txt
-          ! grep -Eqi '(^FAILED|^ERROR:|^FAIL:|skipped|^OK \(skipped)' /tmp/part33-ep.txt
-
-      - name: Evidence scope
-        if: always()
-        run: |
-          echo 'Only 29 pinned PUBLIC source/negative tests; no gameplay integration or production code.'
-          echo 'No character, pet, gear, SQL, DBC, host, server, client, build artifact, install, merge or config change.'
-          echo 'NT1 changed-build AltBot Apply remains NO-GO, EP runtime not accepted; mandatory owner gameplay 0/5.'
- /tmp/part33-nt1.txt)" -eq 23
+          test "$(grep -Ec '^test_.*\.\.\. ok$' /tmp/part33-nt1.txt)" -eq 23
           ! grep -Eqi '(^FAILED|^ERROR: test_|^FAIL: test_|\.\.\. (skipped|FAIL|ERROR)|^OK \(skipped)' /tmp/part33-nt1.txt
 
       - name: Execute ALL six historical EP source cases with zero skips
