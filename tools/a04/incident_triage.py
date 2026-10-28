@@ -118,7 +118,18 @@ def assess(x: Incident) -> Assessment:
         if x.award_to_friend != "yes":
             h.append("H1_AWARD_NOT_VERIFIED")
         elif x.friend_eligible == "no":
-            h.append("H1_UNEXPECTED_AWARD_REQUIRES_PRIVATE_NATIVE_AUDIT")
+            # A missing quest objective does not itself prohibit an
+            # ordinary-bucket award. Native conditions, faction, loot
+            # method/turn and custom hooks may still make it legal.
+            # Similarly, an unknown bucket cannot justify a quest-specific
+            # unexpected-award label. Require bucket classification first.
+            if x.bucket == "quest":
+                h.append("H1_UNEXPECTED_AWARD_REQUIRES_PRIVATE_NATIVE_AUDIT")
+            elif x.bucket == "ordinary":
+                h.append("H1_ORDINARY_ENTITLEMENT_UNDETERMINED")
+                missing.append("friend's native ordinary-loot entitlement, not quest status alone")
+            else:
+                h.append("H1_BUCKET_REQUIRED_BEFORE_ELIGIBILITY_JUDGMENT")
         elif x.friend_eligible == "yes" and x.shared_one_copy == "yes":
             h.append("H1_POSSIBLE_LEGITIMATE_SHARED_AWARD")
             # This includes friend and reporter loot turns: quest-specific
