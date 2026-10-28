@@ -52,6 +52,15 @@ Published CI core `8daffdabe9202c228e45d833c9a1d399597a15cd`, Playerbots `d750b4
 - [ ] **F13 actual Atiesh game object:** qualifying Vanilla-stage real GO click, verified final exterior Karazhan landing/facing, owner/other-owner/ownerless use-count and lifetime, wrong progression/GM/foreign-GO/failed request negatives, same-map owned GO tradeoff where legitimate; accepted `TeleportTo(true)` alone is **not** arrival proof; rollback OFF. Owner result **NOT RUN**.
 - [ ] Record all staged observations and incident identifiers PRIVATELY. PUBLIC only non-identifying yes/no, high-level outcome and verified authorisation status. Owner approval, not CS01, determines acceptance.
 
+## 4A. Additional pinned F13 GO script and AI dispatch gate — source-only review, NOT RUN
+
+- [x] Native `GameObject::Use` checks `ScriptMgr::OnGossipHello` and then `AI()->GossipHello` **before** stock GO spellcaster handling; `OnGossipHello` checks `AllGameObjectScript` callbacks first and returns on a handled `true` **before** the bound template `GameObjectScript`. Exact #187 F13's handled global hook returns true for `Teleport`, `Ignore` and `FailClosed`. Thus eligible F13 clicks intentionally do not run any GO-specific bound script or native GO AI gossip logic. Installed owner GO 181146 binding/AI and other global callback ordering are **UNKNOWN**. This is not an observed failure or justification for an unreviewed patch.
+- [x] Pinned stock OutdoorPvP check: native `GameObject::Use` would call `OutdoorPvPMgr::HandleCustomSpell` after resolving valid spell, while handled F13 bypasses stock. The stock Silithus and Nagrand handlers inspected recognised **29518** and **32059/32068/32075/32081**, **not Atiesh 28147**; other stock outdoor PvP scripts examined did not override it. This reduces public-stock concern, **not** private custom callback uncertainty.
+- [ ] **F13 stays OFF / NO-GO until separate owner-private read-only compatibility review**, verifying effective installed source/binary, actual GO template script/AI binding and global AllGameObjectScript behavior, as well as original owner/party/era/world destination facts. If any relevant side effects or hook ordering remain unknown, obtain a separately reviewed design **before** any backed-up nonproduction staging.
+- [ ] **No GO/owner in-game scenario was run.** Later real positive/negative arrival, facing and GO count/lifetime observations require separate written permission, tested restorable backup/rollback and private recorded results. Never manually invoke bound GO script or AI from the pre-hook without correctness proof.
+
+See [full F13 dispatch review in the handover](2026-10-28_PART30_TO_PART31.md#5a-subsequent-f13-pinned-native-go-use-dispatch-review--28-october-2026-utc).
+
 ## 5. Other mandatory gates (independent of F12/F13 CI)
 
 - [ ] **A02 Hunter pet manual autocast — NoWrite.** Needs actual human accepted preference click distinction, excluding SelfBot automation, IP legal rank changes, pet birth identity and durable writer/revision evidence. Protected default OFF, no SQL/schema/writer authorisation.
