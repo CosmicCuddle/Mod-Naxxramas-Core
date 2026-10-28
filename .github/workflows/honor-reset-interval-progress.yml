@@ -1,0 +1,160 @@
+name: "P10 HonorReset interval bound + progress guard (real source, pinned link)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/HonorReset.cpp'
+      - 'tests/honor_reset_schedule_tests.cpp'
+      - 'tests/honor_reset_stubs/**'
+      - 'tests/honor_reset_mutants.py'
+      - 'tests/test_honor_reset_interval_scope.py'
+      - '.github/workflows/honor-reset-interval-progress.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: honor-reset-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+  PLAYERBOTS_SHA: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+  IP_SHA: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: "Child of main; only P10 paths change"
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_MAIN" HEAD
+          git diff --name-only "$BASE_MAIN" HEAD | while read -r path; do
+            case "$path" in
+              src/Systems/HonorReset.cpp|tests/honor_reset_schedule_tests.cpp|tests/honor_reset_stubs/*.h|\
+              tests/honor_reset_mutants.py|tests/test_honor_reset_interval_scope.py|\
+              .github/workflows/honor-reset-interval-progress.yml) ;;
+              *) echo "unexpected changed path: $path"; exit 1 ;;
+            esac
+          done
+      - name: Scope contract (only the bound and guard added; config untouched)
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest tests/test_honor_reset_interval_scope.py -v 2>&1 | tee /tmp/c.txt
+          grep -Eq '^Ran 2 tests in [0-9.]+s$' /tmp/c.txt
+          grep -qx 'OK' /tmp/c.txt
+      - name: tzdata present
+        run: test -f /usr/share/zoneinfo/Europe/London
+      - name: Real HonorReset source (C++17/20 strict, ASan+UBSan)
+        run: |
+          set -euo pipefail
+          expected=$(grep -oP 'EXPECTED_CHECKS = \K[0-9]+' tests/honor_reset_schedule_tests.cpp)
+          test "$expected" -ge 48
+          for std in 17 20; do
+            g++ -std=c++$std -Wall -Wextra -Werror -Itests/honor_reset_stubs -Isrc/Systems \
+              tests/honor_reset_schedule_tests.cpp -Wl,--wrap=time -o /tmp/h$std
+            timeout 60 /tmp/h$std | tee /tmp/h$std.txt
+            grep -qx "PASS: Honor reset schedule, $expected checks" /tmp/h$std.txt
+          done
+          g++ -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
+            -Itests/honor_reset_stubs -Isrc/Systems tests/honor_reset_schedule_tests.cpp \
+            -Wl,--wrap=time -o /tmp/hasan
+          timeout 120 /tmp/hasan
+      - name: Unfixed main source does not terminate (killed by timeout)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/mainsrc
+          git show "$BASE_MAIN:src/Systems/HonorReset.cpp" > /tmp/mainsrc/HonorReset.cpp
+          g++ -std=c++17 -DP10_OLD_SOURCE -Itests/honor_reset_stubs -I/tmp/mainsrc \
+            tests/honor_reset_schedule_tests.cpp -Wl,--wrap=time -o /tmp/hmain
+          set +e
+          timeout 20 /tmp/hmain
+          code=$?
+          set -e
+          echo "main exit=$code"
+          test "$code" -eq 124
+      - name: Must-fail mutants (5)
+        run: |
+          set -euo pipefail
+          python3 -I tests/honor_reset_mutants.py /tmp/honormut | tee /tmp/m.txt
+          grep -qx '5/5 mutants caught' /tmp/m.txt
+
+  pinned-tu-and-link:
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: acore
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: ${{ env.PLAYERBOTS_SHA }}
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: ${{ env.IP_SHA }}
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify all source revisions
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "$CORE_SHA"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "$PLAYERBOTS_SHA"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "$IP_SHA"
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file binutils \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile the real HonorReset TU
+        run: |
+          set -euo pipefail
+          obj=modules/CMakeFiles/modules.dir/mod-naxxramas-core/src/Systems/HonorReset.cpp.o
+          ninja -C acore-build "$obj"
+          nm -C "acore-build/$obj" | grep -q 'T AddHonorResetScripts()'
+      - name: Link full Worldserver without launching it
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Confirm the script in the linked binary
+        run: |
+          set -euo pipefail
+          binary="$(find acore-build -type f -name worldserver -print -quit)"
+          test -s "$binary"
+          grep -aFq "NaxxramasCoreHonorReset" "$binary"
+      - name: Scope of proof
+        if: always()
+        run: |
+          echo 'Build-only. HonorReset stays default OFF; valid intervals behave exactly as before.'
+          echo 'No server start, DB reset, SQL, DBC, config, core, Playerbots or IP change.'
