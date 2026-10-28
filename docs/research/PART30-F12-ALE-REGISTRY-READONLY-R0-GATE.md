@@ -1,0 +1,75 @@
+# Part30 F12 — global ALEScript registration and Scarlet exit R0 evidence gate
+
+**Public source-only research and private R0 inspection PLAN, NOT RUN · 28 October 2026 UTC.** This document is **not permission** to access a host, inspect private code/data, enable F12, restart a service, merge, install, test gameplay, or change SQL/DBC/config. It does not claim an actual installed callback, security bypass or gameplay failure. The project repository is PUBLIC: **never post private source inventories, callback bodies, usernames, paths, realm identifiers, logs, SQL or test character facts.**
+
+## Source pins and evidence
+
+| Component | Immutable reviewed revision |
+| --- | --- |
+| Public AzerothCore | `Grimfeather/azerothcore-wotlk@8daffdabe9202c228e45d833c9a1d399597a15cd` |
+| Frozen F12 combined candidate | Mod-Naxxramas-Core protected DRAFT #160 `a7523ebb823169edc969d971d00aa293119f2f05` |
+| GFPP/F13/CI children, F12 unchanged | DRAFT #186 `ea167007...`; #187 `de6816a1...`; #189 `fbecdf22...` |
+
+1. **Global script registration:** pinned `src/server/game/Scripting/ScriptDefines/ALEScript.cpp` constructs `ALEScript(char const* name)` and registers with `ScriptRegistry<ALEScript>::AddScript(this)`. Pinned `ALEScript.h` defines `virtual bool CanAreaTrigger(Player*, AreaTrigger const*) { return false; }` by default. A subclass may override the method; a registered script need not require a specific `areatrigger_scripts` row.
+2. **Global callback iteration:** pinned `src/server/game/Scripting/ScriptMgrMacros.h`, `IsValidBoolScript<ALEScript>`: with no registrations it returns an empty optional; otherwise it visits registered scripts, **stopping when the first callback returns true**, and returns false if none do. Thus even a `false` callback can have side effects before later dispatch. Do not assume a static list of trigger IDs or that every registered callback always runs.
+3. **Dispatch semantics:** pinned `src/server/game/Scripting/ScriptDefines/AreaTriggerScript.cpp` calls global `IsValidBoolScript<ALEScript>(...CanAreaTrigger...)` first. When its optional is true, `ScriptMgr::OnAreaTrigger` returns **false**, bypassing the bound `AreaTriggerScript` lookup **but allowing the native area-trigger handler to continue**. Otherwise the bound-specific script (if any) can handle the trigger. A global `true` is **not an unconditional native teleport denial**.
+4. **Packet/GM distinction:** pinned `src/server/game/Handlers/MiscHandler.cpp` checks radius then calls `OnAreaTrigger` only if `!player->IsGameMaster() || player->isDebugAreaTriggers`. Native non-debug GMs skip that script layer but still reach later native teleports. The frozen F12 packet intercept consumes only eligible **604 Cathedral / 606 Armory** CMSG_AREATRIGGER messages before native handling. It returns Stock if debug-trigger mode is ON, or a bound `GetAreaTriggerScriptId` is nonzero; it does **not** gather the presence/relevance of any registered global ALE callback, and it does **not** separately exclude a non-debug GM. Consequently an eligible non-debug GM may receive the F12 custom door location rather than native stock destination. This is a **source-level behavioral difference**, not a proved owner error.
+5. **Scope:** default F12 master switch OFF; private installed plugin/script inventory, actual area-trigger rows, player state and runtime behavior **UNKNOWN**. Public pinned full Worldserver links for #187 and #189 and passing geometry tests establish compile feasibility only, not callback relevance, physical landing, or owner acceptance.
+
+## Future PRIVATE read-only R0 inspection — each item NOT RUN
+
+**Required preliminary gate:** the owner separately approves a bounded read-only examination of specific already-installed sources/config/build metadata. A written approval must identify the exact nonproduction or private scope, what may be read, who may see the results, and that nothing will be uploaded to PUBLIC GitHub. Do **not** run a search or install a tool before that approval. This gate does **not** require a restart, runtime hook, SQL query or gameplay action.
+
+1. [ ] Privately identify the **effective installed** core revision, exact compiled module set, custom Playerbots/IP revisions and the source/build registration path. Public CI pins are **not** substitutes for those facts. If the compiled source cannot be reconciled to the running binary, stop with **UNKNOWN**.
+2. [ ] On only the authorised **read-only installed-source tree**, inspect subclasses and registrations involving `ALEScript`, `ScriptRegistry<ALEScript>` and `CanAreaTrigger`. A source-text search is merely a **candidate inventory**: aliases, generated sources, alternate module entrypoints, version mismatch, or a missing installed source may make it incomplete. Confirm actual registration via the effective build/loader code; do not blindly assume file presence means enabled at runtime.
+3. [ ] Privately review each registered callback's possible effect on 604 or 606, including callbacks without explicit numeric ID comparisons (generic player/area/quest/instance effects), and the order/early-return behavior. Record classifications only: **not registered**, **registered but provably irrelevant**, **relevant**, or **uncertain**. Do not post callback source, private item/quest/character IDs, module inventories or logs publicly.
+4. [ ] Separately determine the desired product rule for **non-debug GMs** (stock vs custom destination) and for **debug-GMs** (stock with normal debug logging), since the native script skip condition and F12 routing are distinct issues.
+5. [ ] Record a private YES/NO/UNKNOWN evidence result with reviewer, effective installed commit identity and a short private reason. If the callback status or GM expectation is **UNKNOWN** or relevant, do not enable F12. Propose an isolated reviewed compatibility design only after actual evidence; never call `sScriptMgr->OnAreaTrigger` recursively from the packet intercept without a proof of side-effect/double-dispatch safety.
+
+## Bounded pinned PUBLIC repository source inventory — 28 October 2026 UTC
+
+**Read-only public GitHub content review; not an installed-server inventory.** For reproducibility, GitHub's exact pinned Git trees were enumerated, and every selected `.cpp` / `.h` file was retrieved from that same commit. File text was checked for literal `ALEScript`, a `CanAreaTrigger(` call/override, or an explicit `ScriptRegistry<ALEScript>` reference (allowing whitespace around the template argument). This is a **textual audit**, not a compiler/linker proof or runtime registration inspection.
+
+| Public, exact pinned source scope | Files inspected | Direct matching references | Coverage limitation |
+| --- | ---: | ---: | --- |
+| `Grimfeather/mod-individual-progression@dd96f2b77e3ebfa2a4726bf785525ba133f1ab61`, **all** `src/**` C++ `.cpp/.h` (tree `d88ef2a4d5a3c9be1d296203734bee0862eca817`) | **65/65** | **0** | Public IP revision and this source subtree only; not private installed IP patches, other modules, generated code or binary-level evidence |
+| `mod-playerbots/mod-playerbots@d750b4b3a50effdf22bedc8032f0e8e5f7cb8091`, **only** `src/Script/**` C++ `.cpp/.h` (tree `63c519aaf7ef06b1c829fbf82424b5985dcf2735`) | **13/13** | **0** | Does **not** inspect all Playerbots `src/Ai`, `src/Bot`, `src/Mgr`, `src/Db` or `src/Util` sources, nor the owner's custom Playerbots |
+| `CosmicCuddle/Mod-Naxxramas-Core@fbecdf223eb0a5e4970573eda482aeed161a0f5c` (CI-only child on unmodified #187), **all** `src/**` C++ `.cpp/.h` (tree `d034a3f2becefbc40dff0044b771e15578fc3d73`) | **48/48** | **0** | Only this public module's C++ `src` tree, not other compiled modules, alternate source trees or private installed edits |
+| **Total explicitly scoped C++ text review** | **126/126** | **0** | This total cannot be interpreted as an exhaustive installed AzerothCore-plus-all-modules callback inventory |
+
+Each of the three file audits finished with **zero fetch errors** and zero matching direct symbols under the stated scope. The public AzerothCore `src/server/scripts/World/areatrigger_scripts.cpp` was also inspected separately at pin `8daffdabe9202c228e45d833c9a1d399597a15cd`: it uses trigger-specific `AreaTriggerScript` classes (not a direct `ALEScript` registration in that file). That one file is **not** a scan of all core scripts. The pinned Playerbots `src/Script/Playerbots.cpp` entrypoint registers assorted other script types and delegates to additional script loaders; a negative match in that file is not proof that every delegate or other directory lacks a callback.
+
+**What this improves:** the reviewed public Individual Progression `src` implementation and the complete reviewed module `src` implementation show no explicit global ALE callback declaration/registration, while the registered Playerbots script entrypoint subtree is also negative. This **narrows** public candidate sources, so a future, owner-approved R0 reviewer can prioritise *effective private/local changes, other loaded modules, custom core scripts and binary/build registration* instead of assuming the public IP module itself registers the callback.
+
+**What remains unproven:** inherited/aliased/generated implementations, files outside these C++ scopes, the remainder of public Playerbots `src`, core scripts outside the single inspected world area-trigger file, loaded custom modules, private patches, actual compiled registries and effects on exit 604/606. **A textual absence is not a native/runtime no-hook proof.** The installed R0 classification remains **UNKNOWN → F12 OFF / NO-GO** until separately authorised, privately reviewed.
+
+## Follow-up pinned public source expansion — Part30, 28 October 2026 UTC
+
+**Method identical to initial 126-file audit:** obtained exact pinned Git tree by SHA, enumerated each in-scope `.cpp` / `.h` file, retrieved each file, and checked source lines for direct `ALEScript`, `CanAreaTrigger(` or `ScriptRegistry<ALEScript>` references. This is a textual source-only audit with neither build/runtime proof nor a claim about installed owner modules. The second pass adds **172 distinct files** to the preceding **126**, for **298 distinct scoped public C++ files**.
+
+| Additional pinned public scope | Newly reviewed | Direct matches | Critical limitation |
+| --- | ---: | ---: | --- |
+| `mod-playerbots/mod-playerbots@d750b4b3a50effdf22bedc8032f0e8e5f7cb8091` `src/**` files **excluding** already-reviewed `src/Script/**` and **excluding `src/Ai/**`**, tree `cf2b9e925e9929d09ec1947e2a9edb6940cf843e` | **110/110** | **0** | `src/Ai/**` has **1,299** additional C++ files **not reviewed** in this audit; private custom Playerbots may differ |
+| `Grimfeather/azerothcore-wotlk@8daffdabe9202c228e45d833c9a1d399597a15cd` `src/server/scripts/{World,OutdoorPvP,Events,Custom}/**` `.cpp/.h`, scripts Git tree `2b6b042dcb02be3207060c10e2961bfde91686c2` | **60/60** | **0** | Does not cover the remaining stock core scripts in Northrend/EasternKingdoms/Outland/Kalimdor/Commands/Spells/Pet |
+| Same exact AzerothCore pin, `src/server/scripts/EasternKingdoms/ScarletMonastery/{instance_scarlet_monastery.cpp,scarletmonastery.h}` | **2/2** | **0** | No direct `ALEScript` or `CanAreaTrigger` reference in these two files; does not prove no other core or owner plugin handles 604/606 |
+| **New files in second pass** | **172/172** | **0** | No errors in the completed selected-file fetches |
+| **Combined distinct files, both passes** | **298/298** | **0 direct source-symbol matches** | **Not** all Playerbots code, all native core scripts, or any installed owner source/binary registration |
+
+The previous 126-file audit already included `src/server/scripts/World/areatrigger_scripts.cpp` as an **additional inspected file**; it is counted **only once** in this 60-file expansion. The Scarlet Monastery pair are outside the 60 directories and therefore are **two additional distinct** files.
+
+**Interpretation:** in the specifically reviewed source locations, no direct callback implementation/registration was found. This is useful negative evidence for the public pinned build, but registration could still be implemented in unreviewed script directories, alternate/generated source, indirectly via another class, custom owner patches or modules. The global `ALEScript` dispatcher **exists** and F12 can skip it regardless of whether these particular in-scope modules implement a callback. Do not declare the owner-installed hook registry empty, do not infer an R0 GO and do not enable or patch F12.
+
+**Source gate remains unchanged:** private installed build and module callback relevance, including any 604/606-specific or generic side effects, **UNKNOWN**; GM destination policy likewise unresolved. R0 **NOT AUTHORISED/NOT RUN**; F12 **OFF / NO-GO**. Any future owner staging is separate and requires explicitly authorised nonproduction scope plus verified restorable backups/rollback.
+
+## Decision table — documentation gate, NOT staging approval
+
+| Evidence state | F12 R0 decision |
+| --- | --- |
+| Effective installed sources/binary mismatch or unavailable; registration relevance uncertain | **NO-GO. Keep F12 OFF.** |
+| Relevant installed global callback for 604/606, or GM destination disagreement | **NO-GO.** Investigate an isolated source-reviewed design; do not silently suppress hooks. |
+| Full, private, reviewed effective registration inventory proves no relevant callback; GM behavior explicitly decided | **R0 compatibility question may be closed only for those reviewed facts.** Still no permission to run F12. |
+| Any unknown actual trigger row, coordinate/height, grouping/LFG, installed dependency or rollback | **Staging remains blocked.** |
+
+**Only after separate owner staging approval:** privately verify installed compatibility, make and **prove a restorable nonproduction backup/rollback**, keep unrelated switches OFF and `MapUpdate.Threads=8`, then run the existing [Part28 owner three-feature acceptance worksheet](../pilots/PART28-THREE-FEATURE-OWNER-STAGING-ACCEPTANCE.md) with the [Part29/Part30 addendum](../pilots/PART29-GFPP-ATOMIC-OWNER-STAGING-ADDENDUM.md). F12 startup switch changes need an approved restart, **not** `.reload config`. Require human normal exit 604/606 with correct exterior location/facing and no bounce, non-debug/debug GM agreed expectations, unrelated wing/quest and Dungeon Finder negatives, and any approved hook-side effect checks. Keep actual observations PRIVATE. Stop and restore immediately on mismatch.
+
+**Current disposition (28 Oct 2026):** R0 owner read-only inspection NOT AUTHORISED/NOT RUN. F12 **OFF / NO-GO**. No C++ modification to protected #160 or children; no host/SQL/config/DBC/Playerbots/IP changes; zero owner gameplay acceptances (0/5), A02 NoWrite, A04 H1/H2 unverified, F15 `BLOCKED_AT_R0`, Claude on break.
