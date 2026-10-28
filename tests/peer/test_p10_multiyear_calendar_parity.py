@@ -67,7 +67,6 @@ void Check(bool value, char const* reason) { if (!value) Fail(reason); }
 int main(int argc, char** argv) {
     Check(argc == 2, "expected ordinary or edge");
     std::string mode = argv[1];
-    std::uint64_t const FNV = 1099511628211ULL;
     std::uint64_t total = 0;
     for (char const* date : {"2010-01-06", "2020-01-01", "2024-01-03",
                              "2026-10-07", "2030-01-02"}) {
@@ -77,7 +76,6 @@ int main(int argc, char** argv) {
         if (mode == "ordinary") {
             for (uint32 weeks : {1u, 2u, 3u, 4u, 7u, 13u, 26u, 52u, 104u}) {
                 HonorResetIntervalWeeks = weeks;
-                std::uint64_t digest = 14695981039346656037ULL;
                 for (int day = 0; day <= 2200; day += 7) {
                     std::time_t now = anchor + std::time_t(day) * 86400 + 123;
                     std::time_t prior = GetLatestScheduledReset(now);
@@ -91,12 +89,10 @@ int main(int argc, char** argv) {
                           "ordinary scheduled time cannot be converted");
                     Check(wall.tm_wday == 3 && wall.tm_hour == 6 &&
                           wall.tm_min == 0, "Wednesday 06:00 local parity");
-                    digest ^= static_cast<std::uint64_t>(prior);
-                    digest *= FNV;
+                    std::cout << date << "/" << weeks << "/" << day
+                              << "=" << static_cast<long long>(prior) << "\n";
                     ++total;
                 }
-                std::cout << date << " / " << weeks << " : "
-                          << digest << "\n";
             }
         } else if (mode == "edge") {
             // This mode is run against revised P10 only.
