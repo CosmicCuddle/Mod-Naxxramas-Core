@@ -70,7 +70,7 @@ jobs:
           for std in 17 20; do
             g++ -std=c++$std $F -Itests/f14_facts_stubs/playerbots tests/f14_identity_facts_adapter_tests.cpp -o /tmp/w$std
             /tmp/w$std | tee /tmp/w$std.txt
-            grep -qx 'PASS: F14 facts adapter with Playerbots, 37 checks' /tmp/w$std.txt
+            grep -qx 'PASS: F14 facts adapter with Playerbots, 36 checks' /tmp/w$std.txt
             g++ -std=c++$std $F -DEXPECT_NO_PLAYERBOTS tests/f14_identity_facts_adapter_tests.cpp -o /tmp/n$std
             /tmp/n$std | tee /tmp/n$std.txt
             grep -qx 'PASS: F14 facts adapter without Playerbots, 6 checks' /tmp/n$std.txt

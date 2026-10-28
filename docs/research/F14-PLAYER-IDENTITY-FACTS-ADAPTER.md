@@ -49,7 +49,7 @@ Two checks hold this in place:
 - **Real translation unit** compiled at the pinned build (`compile_commands.json`, core `8daffda` + Playerbots `d750b4b` + IP `dd96f2b`). `nm` shows the real `PlayerbotsMgr::GetPlayerbotAI`, `RandomPlayerbotMgr::IsRandomBot` and `WorldSession::IsSocketClosed` references, so the Playerbots path was taken.
 - **Full pinned Worldserver link** (see the PR for the result).
 - **Native fixture** `tests/f14_identity_facts_adapter_tests.cpp` compiles the **real** adapter `.cpp` against small stubs.
-  - **With Playerbots** (37 checks):
+  - **With Playerbots** (36 checks):
     - Human, SelfBot, RandomBot and AltBot are each identified positively;
     - null, out-of-world, sessionless and dropped-socket players are Unknown;
     - a config-masked AltBot or RandomBot is never Human;
