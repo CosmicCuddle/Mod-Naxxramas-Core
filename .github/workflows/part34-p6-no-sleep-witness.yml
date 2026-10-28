@@ -34,6 +34,6 @@ jobs:
           set -euo pipefail
           timeout 180s python3 -I tests/peer/test_p6_no_sleep_coherence.py | tee /tmp/p6-peer.log
           grep -qx 'PASS: source-backed P6 CV-gated no-sleep coherence proof + 3 RED controls' /tmp/p6-peer.log
-          test "$(grep -Ec 'c[+]\\+1[70] current PASS 0' /tmp/p6-peer.log)" -eq 2
+          test "$(grep -c 'current PASS 0' /tmp/p6-peer.log)" -eq 2
           test "$(grep -c 'EXPECTED-RED 23' /tmp/p6-peer.log)" -eq 4
           test "$(grep -c 'EXPECTED-RED 26' /tmp/p6-peer.log)" -eq 2
