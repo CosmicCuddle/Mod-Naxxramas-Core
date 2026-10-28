@@ -1,0 +1,63 @@
+# Mod-Naxxramas-Core — Part 34 Living Development Checklist
+
+**Opened:** 28 October 2026 UTC. **PUBLIC / DOCS ONLY / NONAUTHORISING.**
+
+**Before any engineering:** Read the **ENTIRE** [Part33→Part34 Complete Engineering Handover](2026-10-28_PART33_TO_PART34.md) **and** this checklist. Part33 historical record remains in [Part33 living checklist](2026-10-28_PART33_LIVING_DEVELOPMENT_CHECKLIST.md). Confirm all current exact branch heads and hosted jobs; older statuses are snapshots.
+
+## A. Permanent owner rules — every task
+
+- [ ] **Never touch protected main or frozen #160** without new explicit permission. Part34 entry protected Mod main `80e9de1c39a6dc995188a80c31a5e785d0f2a6f9`; N-Core main `74e45933454385b3b1168bf2c03da34ee1027985`.
+- [ ] No merge, staging/deployment/install/release builds, live Worldserver/real client tests, owner host/DB, SQL/DBC, private character/bot/account data, core/Playerbots/IP dependency or config changes without separate owner consent and verified restorable backup/rollback.
+- [ ] All features DEFAULT OFF; **`MapUpdate.Threads=8`** remains unchanged; native A02 **NoWrite**, addon relay **OFF**, legacy v1 automatic resend unsafe; R0 private evidence not disclosed publicly.
+- [ ] Mandatory **actual owner-accepted gameplay 0/5** until the owner reports tested, accepted outcomes. Passing public-source/native/Worldserver link does not make an in-game outcome accepted.
+- [ ] CS03/Claude ~60% substantive C++ engineering, CS02/Grok ~20% N-Core A02 source research, CS01 ~20% targeted independent A04/test integration. Confirm peers actually ACK/respond; a GitHub comment is not a background running session.
+- [ ] Prefer concrete source code and test progress over long redundant audit loops. No change to peers' existing DRAFT branches; new work uses exact-base **isolated DRAFT** and tested minimal scope.
+
+## B. Required first live GitHub refresh
+
+- [ ] Verify live [master #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28), [team #48](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48), [Claude #143](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143), [owner H1/H2 #109](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109), [Part33 docs #201](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/201) and newest PR heads; don't assume author messages caused code.
+- [ ] Verify exact PUBLIC core `Grimfeather@8daffdabe9202c228e45d833c9a1d399597a15cd`, Playerbots `d750b4b3a50effdf22bedc8032f0e8e5f7cb8091`, Individual Progression `dd96f2b77e3ebfa2a4726bf785525ba133f1ab61` before interpreting pinned tests.
+- [ ] [F14 #202](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/202) latest `205d958c3fddc8943c8eeef9822213f810e47c2d`, **hosted run [40710438920](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40710438920) was in progress at handover**. Read exact run HEAD, native and **pinned-tu-and-link** jobs and original logs before success claim. Prior [40710137849](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40710137849) at older `c79eb02` passed native and **real full Worldserver**; not latest-head proof.
+- [ ] [Touch of the Grave P6 #206](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/206) latest `20767b49f4a89da3cc46986305f1b32f880c01c5`. [Hosted 40717429763](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40717429763) native job `122918812424` passed; pinned TU + full-link job `122919062341` in progress at handover. Read original end-state.
+- [ ] [CS02 N-Core author source branch](https://github.com/CosmicCuddle/N-Core/tree/research/cs02-spellbook-rightclick-fix) head `438678e51418c86a0a53306e345b86e8f88f86ff` at handover; inspect newer Grok comments and potential **owner-approved** commits only. Do not mutate the branch.
+
+## C. Claude CS03 lead C++ engineering
+
+- [ ] **F14 P5:** After actual latest-hosted #202 result, record verified test, drift-guard source mutant, pinned real-TU Playerbots symbol references and full Worldserver result separately. `WorldThreadSampling` adapter remains **unwired / OFF**; no `/who`/physical phasing, owner human exemption or SelfBot policy activation. F14 P1 pure classifier [#197](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/197) previously passed 2,936 hosted source cases.
+- [ ] **P6 coherence question:** [exact #206 review](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/206#issuecomment-6474087761) observed six sequential independent relaxed atomic fields may expose mixed generations at config reload. TSAN cannot prove logical snapshot coherence. Request/inspect author-controlled old/new sentinel interleaving test and explicit contract: per-field race freedom vs coherent six-field publication. No independent peer edits; no claim mixed generation is a *new* gameplay defect until compared to old source semantics.
+- [ ] Keep existing GFPP `OneShotEnabled` map-thread atomic fix scoped separately, no duplicate author effort. New author work only where source-backed, owner scope and tangible tests are available.
+- [x] **P2 A01 Golemagg #198** `c56e69f` four hosted full linked Worldserver results [40697604608](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40697604608), [40697604436](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40697604436), [40697604454](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40697604454), [40697604474](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40697604474) **SUCCESS**. Audit trace bound only; not movement/oscillation solution.
+- [x] **P3 B09 #199** `80649c2` pinned hosted full Worldserver [40698630741](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40698630741) **SUCCESS**, calendar 267,904 checks; feature OFF.
+- [x] **P4 A03 #200** `fde9771` 23 pinned source facts SUCCESS; **changed-build AltBot Apply HARD NO-GO**.
+
+## D. Grok CS02 N-Core Hunter secure action
+
+- [x] Latest source-approved `84b321b` D17-9a/9b old-RED/new-GREEN at [CS01 independent N-Core #10](https://github.com/CosmicCuddle/N-Core/pull/10), [hosted 40707407250](https://github.com/CosmicCuddle/N-Core/actions/runs/40707407250): six old expected fails, 12 new passes, 334 inherited Lua cases, 13 relay-default. Source only.
+- [x] `438678e` combat-init source correction independently tested [40714063028](https://github.com/CosmicCuddle/N-Core/actions/runs/40714063028): new 20/20 vs old eight expected fails; three **new deliberately expected BOOT-3 RED** (missing getters, preseeded state, guard API absent). No real protected click test.
+- [x] Direct historical client source experiments: [N-Core 40719966906](https://github.com/CosmicCuddle/N-Core/actions/runs/40719966906): **39/39 real `SecureStateDriver.lua` manager + 28/28 real `SecureHandlers.lua` / exact `438678e` guard body under mocked transport**, source-only.
+- [ ] **BOOT-3 authority:** Grok ACK [#48/6473940990](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6473940990), CS01 decision [#48/6474093114](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6474093114). Missing getter/guard and unproven registration cannot authorise arming. Driver `state-pak` alone is NOT proof. Keep arming **HELD** and ask for owner decision/source-backed readiness gate before any new source correction.
+- [ ] **D18 combat pet A→B HARD NO-GO**: sampled `UNIT_PET`/state-manager timing is pet-presence-only, not identity-aware. Macro may remain armed under synthetic continuously present or transient missing pet schedule. NO inferred safe combat handoff.
+- [ ] **W1** two first-click source REDs, protected hook/taint, actual in-client load-in-combat, old v1 irreversible sent chunks, native A02 NoWrite and relay OFF all held.
+
+## E. CS01 A04 human shared loot — active independent test lane
+
+- [x] Source-only [DRAFT #204](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/204) `043f213` verified [40709620342](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40709620342) **14/14 direct `StoreLootItem` source boundary mutants + 30/30 inherited H1/H2 no-write**. Packet/click NOT actual positive in-memory receipt; direct successful `OnPlayerLootItem` follows `StoreNewItem`.
+- [x] Source-only [DRAFT #205](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/205) `4d98d48` verified [40713019714](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40713019714): **18/18 group Need/Greed roll source mutants + 14/14 direct source + 30/30 triage = 62/62 pass**. Direct item, group winner callback and conditional full-inventory mail are **different evidence channels**; no final mail/durable receipt proven.
+- [x] Source-only [DRAFT #203](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/203) `c16b8d1` verified hosted [40706184407](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40706184407), **23 NT1 + 6 EP, no skips**. No AltBot Apply.
+- [ ] **H1** real friend inventory/mail award and eligibility/slot/turn/roll remains **unverified**; **H2** corpse sparkle/denial and at-time quest objective vs bag counters remains **unverified**. Do not conflate H1 and H2. Ordinary quest-related loot is not automatically personal.
+- [ ] Private owner R0, installed version/flags and separate incident records require **explicit permission** and verified recoverable backup before touching host/realm. Never post filled worksheets/logs/IDs publicly. Until owner-private proof, NO speculative gameplay loot fix or instrumentation.
+- [ ] New independent code must have a **new real source defect** and executable old-RED/new-GREEN target, not more hypothetical false positives in the no-write diagnostic. Keep source fixture & CI bounded, no installed hook or entitlement edits.
+
+## F. Integration, documentation and release
+
+- [ ] Periodically update [master #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28), [team #48](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48) and actual peer-owned #143/#109 only for meaningful new code, success/failure, blockers, owner choices. Use exact PR/HEAD/run/job and distinguish source from native/gameplay. Avoid noise.
+- [ ] Check final [Part 34 Complete Engineering Handover](2026-10-28_PART33_TO_PART34.md) and this file before generating a new chat Part 35 handover. Never rewrite older milestones as currently pending when jobs have finished.
+- [ ] Source/build release gates are not owner acceptance. **No merge or release decision has been granted.** Protected main/#160 and N-Core main unchanged, defaults OFF, eight threads, NO_WRITE, relay OFF, 0/5 accepted.
+
+## G. Part 34 first working pass
+
+1. Refresh #202 latest `205d958` and #206 `20767b4` original hosted **individual** jobs; record exact conclusions and peer comments.
+2. If Claude has replied to #206 cross-generation review, handle the one concrete concurrency question, then allocate next eligible substantial C++ task—no redundant passive status loops.
+3. Keep Grok active on **owner-facing nonmutating BOOT-3/D18 readiness design**, never auto-authorize a Core.lua patch or real secure client use.
+4. Continue one independent CS01 source code/test package only if supported by a real public-source need and no overlap with #205. No owner H1/H2 gameplay fix without private consent.
+5. Post verifiable checkpoint with immutable SHA and update this checklist; actual gameplay **0/5** until separately completed and accepted.
