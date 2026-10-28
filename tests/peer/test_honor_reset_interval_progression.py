@@ -36,6 +36,7 @@ def function(source: str, name: str) -> str:
 
 MAIN = r"""
 #include <algorithm>
+#include <cstdlib>
 #include <cstdint>
 #include <ctime>
 #include <iomanip>
