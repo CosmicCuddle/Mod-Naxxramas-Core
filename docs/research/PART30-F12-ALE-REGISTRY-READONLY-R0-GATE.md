@@ -26,6 +26,23 @@
 4. [ ] Separately determine the desired product rule for **non-debug GMs** (stock vs custom destination) and for **debug-GMs** (stock with normal debug logging), since the native script skip condition and F12 routing are distinct issues.
 5. [ ] Record a private YES/NO/UNKNOWN evidence result with reviewer, effective installed commit identity and a short private reason. If the callback status or GM expectation is **UNKNOWN** or relevant, do not enable F12. Propose an isolated reviewed compatibility design only after actual evidence; never call `sScriptMgr->OnAreaTrigger` recursively from the packet intercept without a proof of side-effect/double-dispatch safety.
 
+## Bounded pinned PUBLIC repository source inventory — 28 October 2026 UTC
+
+**Read-only public GitHub content review; not an installed-server inventory.** For reproducibility, GitHub's exact pinned Git trees were enumerated, and every selected `.cpp` / `.h` file was retrieved from that same commit. File text was checked for literal `ALEScript`, a `CanAreaTrigger(` call/override, or an explicit `ScriptRegistry<ALEScript>` reference (allowing whitespace around the template argument). This is a **textual audit**, not a compiler/linker proof or runtime registration inspection.
+
+| Public, exact pinned source scope | Files inspected | Direct matching references | Coverage limitation |
+| --- | ---: | ---: | --- |
+| `Grimfeather/mod-individual-progression@dd96f2b77e3ebfa2a4726bf785525ba133f1ab61`, **all** `src/**` C++ `.cpp/.h` (tree `d88ef2a4d5a3c9be1d296203734bee0862eca817`) | **65/65** | **0** | Public IP revision and this source subtree only; not private installed IP patches, other modules, generated code or binary-level evidence |
+| `mod-playerbots/mod-playerbots@d750b4b3a50effdf22bedc8032f0e8e5f7cb8091`, **only** `src/Script/**` C++ `.cpp/.h` (tree `63c519aaf7ef06b1c829fbf82424b5985dcf2735`) | **13/13** | **0** | Does **not** inspect all Playerbots `src/Ai`, `src/Bot`, `src/Mgr`, `src/Db` or `src/Util` sources, nor the owner's custom Playerbots |
+| `CosmicCuddle/Mod-Naxxramas-Core@fbecdf223eb0a5e4970573eda482aeed161a0f5c` (CI-only child on unmodified #187), **all** `src/**` C++ `.cpp/.h` (tree `d034a3f2becefbc40dff0044b771e15578fc3d73`) | **48/48** | **0** | Only this public module's C++ `src` tree, not other compiled modules, alternate source trees or private installed edits |
+| **Total explicitly scoped C++ text review** | **126/126** | **0** | This total cannot be interpreted as an exhaustive installed AzerothCore-plus-all-modules callback inventory |
+
+Each of the three file audits finished with **zero fetch errors** and zero matching direct symbols under the stated scope. The public AzerothCore `src/server/scripts/World/areatrigger_scripts.cpp` was also inspected separately at pin `8daffdabe9202c228e45d833c9a1d399597a15cd`: it uses trigger-specific `AreaTriggerScript` classes (not a direct `ALEScript` registration in that file). That one file is **not** a scan of all core scripts. The pinned Playerbots `src/Script/Playerbots.cpp` entrypoint registers assorted other script types and delegates to additional script loaders; a negative match in that file is not proof that every delegate or other directory lacks a callback.
+
+**What this improves:** the reviewed public Individual Progression `src` implementation and the complete reviewed module `src` implementation show no explicit global ALE callback declaration/registration, while the registered Playerbots script entrypoint subtree is also negative. This **narrows** public candidate sources, so a future, owner-approved R0 reviewer can prioritise *effective private/local changes, other loaded modules, custom core scripts and binary/build registration* instead of assuming the public IP module itself registers the callback.
+
+**What remains unproven:** inherited/aliased/generated implementations, files outside these C++ scopes, the remainder of public Playerbots `src`, core scripts outside the single inspected world area-trigger file, loaded custom modules, private patches, actual compiled registries and effects on exit 604/606. **A textual absence is not a native/runtime no-hook proof.** The installed R0 classification remains **UNKNOWN → F12 OFF / NO-GO** until separately authorised, privately reviewed.
+
 ## Decision table — documentation gate, NOT staging approval
 
 | Evidence state | F12 R0 decision |
