@@ -1,0 +1,63 @@
+name: P13-R6 pinned C++20 RandomBot AddClass membership fallback
+
+on:
+  push:
+    branches:
+      - 'test/cs01-p13-membership-fallback-20261028'
+  pull_request:
+    paths:
+      - 'tests/test_p13_bot_membership_fallback_source.py'
+      - '.github/workflows/naxx-p13-bot-membership-fallback.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-source-cxx20:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Exact P13-R6 scope: immutable parent and only two test/CI paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=8ccf3f480eecd70490631f6268845fc5e1bac897
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --name-only "$BASE" HEAD >/tmp/changed
+          printf '%s\n' \
+            '.github/workflows/naxx-p13-bot-membership-fallback.yml' \
+            'tests/test_p13_bot_membership_fallback_source.py' >/tmp/allowed
+          diff -u /tmp/allowed /tmp/changed
+          for path in \
+            src/Systems/HonorOverflow.cpp \
+            conf/mod_naxxramas_core.conf.dist \
+            tests/test_p13_identity_helpers_config_mask_source.py \
+            tests/test_p13_headless_identity_source.py; do
+            test "$(git show "$BASE":"$path" | sha256sum | cut -d' ' -f1)" = \
+                 "$(sha256sum "$path" | cut -d' ' -f1)"
+          done
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          path: pinned-playerbots
+          fetch-depth: 1
+          sparse-checkout: |
+            src/Bot/PlayerbotMgr.cpp
+            src/Bot/RandomPlayerbotMgr.cpp
+            src/Bot/PlayerbotAI.cpp
+            src/PlayerbotAIConfig.cpp
+            src/Db/PlayerbotsDatabase.cpp
+          sparse-checkout-cone-mode: false
+      - name: Execute pinned member classification C++20 UBSan corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-playerbots rev-parse HEAD)" = \
+               d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          python3 -m py_compile tests/test_p13_bot_membership_fallback_source.py
+          python3 tests/test_p13_bot_membership_fallback_source.py
