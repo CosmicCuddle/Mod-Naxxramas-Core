@@ -1,0 +1,55 @@
+name: P13 HonorOverflow masked Playerbots getter source witness
+
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/HonorOverflow.cpp'
+      - 'tests/test_honoroverflow_masked_bot_source_witness.py'
+      - '.github/workflows/naxx-p13-honor-masked-bot-source.yml'
+  push:
+    branches:
+      - 'test/cs01-p13-honoroverflow-masked-bot-20261028'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-source-negative:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify test-only exact 2-path child scope and protected source
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAIN=80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+          git merge-base --is-ancestor "$MAIN" HEAD
+          test "$(git diff --name-only "$MAIN" HEAD | wc -l)" -eq 2
+          git diff --name-only "$MAIN" HEAD > /tmp/p13-paths
+          printf '%s\n' \
+            '.github/workflows/naxx-p13-honor-masked-bot-source.yml' \
+            'tests/test_honoroverflow_masked_bot_source_witness.py' > /tmp/p13-expected-paths
+          diff -u /tmp/p13-expected-paths /tmp/p13-paths
+          test "$(git show "$MAIN":src/Systems/HonorOverflow.cpp | sha256sum | cut -d' ' -f1)" = \
+               "$(sha256sum src/Systems/HonorOverflow.cpp | cut -d' ' -f1)"
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          path: pinned-playerbots
+          fetch-depth: 1
+          sparse-checkout: |
+            src/Bot/PlayerbotMgr.cpp
+          sparse-checkout-cone-mode: false
+      - name: Compile and run unchanged HonorOverflow + pinned getter in C++17/C++20
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-playerbots rev-parse HEAD)" = "d750b4b3a50effdf22bedc8032f0e8e5f7cb8091"
+          test -f pinned-playerbots/src/Bot/PlayerbotMgr.cpp
+          python3 -m py_compile tests/test_honoroverflow_masked_bot_source_witness.py
+          python3 tests/test_honoroverflow_masked_bot_source_witness.py
