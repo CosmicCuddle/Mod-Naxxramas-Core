@@ -25,8 +25,8 @@ MUTANTS = [
     ("divisor 60", "(float(level) - 10.0f) / 50.0f", "(float(level) - 10.0f) / 60.0f", False),
     ("default disabled", "bool enabled = true;", "bool enabled = false;", False),
     ("default adjustment 0.9", "float vanillaHealing = 1.0f;", "float vanillaHealing = 0.9f;", False),
-    ("healing not stored", "            _vanillaHealing.store(s.vanillaHealing, std::memory_order_relaxed);\n", "", False),
-    ("limit not loaded", "            s.progressionLimit = _progressionLimit.load(std::memory_order_relaxed);\n", "", False),
+    ("healing not stored", "            _vanillaHealing.store(s.vanillaHealing, std::memory_order_release);\n", "", False),
+    ("limit not loaded", "                s.progressionLimit = _progressionLimit.load(std::memory_order_acquire);\n", "", False),
     ("plain float (race)", "        std::atomic<float> _vanillaPower{IpSettings{}.vanillaPower};",
      "        float _vanillaPower{IpSettings{}.vanillaPower};", True),
 ]
@@ -35,9 +35,9 @@ for name, old, new, tsan in MUTANTS:
     assert SRC.count(old) == 1, name
     text = SRC.replace(old, new)
     if tsan:
-        text = (text.replace("_vanillaPower.store(s.vanillaPower, std::memory_order_relaxed);",
+        text = (text.replace("_vanillaPower.store(s.vanillaPower, std::memory_order_release);",
                              "_vanillaPower = s.vanillaPower;")
-                    .replace("s.vanillaPower = _vanillaPower.load(std::memory_order_relaxed);",
+                    .replace("s.vanillaPower = _vanillaPower.load(std::memory_order_acquire);",
                              "s.vanillaPower = _vanillaPower;"))
     work = OUT / "m"
     if work.exists():

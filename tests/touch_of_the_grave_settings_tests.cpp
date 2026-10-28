@@ -156,36 +156,45 @@ namespace
         CHECK(std::atomic<bool>{}.is_lock_free());
     }
 
+    bool Same(IpSettings const& x, IpSettings const& y)
+    {
+        return x.enabled == y.enabled && x.progressionLimit == y.progressionLimit &&
+               x.vanillaPower == y.vanillaPower && x.tbcPower == y.tbcPower &&
+               x.vanillaHealing == y.vanillaHealing && x.tbcHealing == y.tbcHealing;
+    }
+
     // One world-thread writer, eight map-thread readers (MapUpdate.Threads=8).
-    // Under -fsanitize=thread this proves there is no data race; every read
-    // value must be one that was written.
+    // Under -fsanitize=thread this proves there is no data race, and every
+    // Load must be one whole generation: all six fields from A or all from B.
     void TestConcurrentReloadAndReads()
     {
         SettingsSnapshot snap;
+        IpSettings a;                              // differs from b in every field
+        IpSettings b;
+        b.enabled = false;
+        b.progressionLimit = 12;
+        b.vanillaPower = 0.5f;
+        b.tbcPower = 0.6f;
+        b.vanillaHealing = 0.7f;
+        b.tbcHealing = 0.8f;
         std::atomic<bool> stop{false};
-        std::atomic<int> bad{0};
+        std::atomic<int> mixed{0};
         std::vector<std::thread> readers;
         for (int r = 0; r < 8; ++r)
             readers.emplace_back([&] {
                 while (!stop.load(std::memory_order_acquire))
                 {
                     IpSettings const s = snap.Load();
-                    if (s.vanillaPower != 1.0f && s.vanillaPower != 0.5f)
-                        bad.fetch_add(1);
-                    if (s.progressionLimit != 0 && s.progressionLimit != 12)
-                        bad.fetch_add(1);
+                    if (!Same(s, a) && !Same(s, b))
+                        mixed.fetch_add(1);
                 }
             });
-        IpSettings a;
-        IpSettings b;
-        b.vanillaPower = 0.5f;
-        b.progressionLimit = 12;
         for (int i = 0; i < 20000; ++i)
             snap.Store(i % 2 ? a : b);
         stop.store(true, std::memory_order_release);
         for (auto& t : readers)
             t.join();
-        CHECK(bad.load() == 0);
+        CHECK(mixed.load() == 0);
     }
 }
 

@@ -9,6 +9,7 @@ on:
       - 'tests/touch_of_the_grave_settings_tests.cpp'
       - 'tests/touch_of_the_grave_mutants.py'
       - 'tests/test_touch_of_the_grave_config_snapshot.py'
+      - 'tests/touch_of_the_grave_coherence_witness.py'
       - '.github/workflows/touch-of-the-grave-config-snapshot.yml'
   workflow_dispatch:
 
@@ -46,6 +47,7 @@ jobs:
           tests/touch_of_the_grave_settings_tests.cpp
           tests/touch_of_the_grave_mutants.py
           tests/test_touch_of_the_grave_config_snapshot.py
+          tests/touch_of_the_grave_coherence_witness.py
           .github/workflows/touch-of-the-grave-config-snapshot.yml'
           git diff --name-only "$BASE_MAIN" HEAD | while read -r path; do
             printf '%s\n' "$allowed" | sed 's/^ *//' | grep -Fxq "$path" \
@@ -78,6 +80,12 @@ jobs:
           set -euo pipefail
           python3 -I tests/touch_of_the_grave_mutants.py /tmp/gravemut | tee /tmp/m.txt
           grep -qx '13/13 mutants caught' /tmp/m.txt
+
+      - name: Six-field coherence witness (green now; red on original P6 and 3 seqlock mutants)
+        run: |
+          set -euo pipefail
+          python3 -I tests/touch_of_the_grave_coherence_witness.py /tmp/gravecoh | tee /tmp/coh.txt
+          grep -qx 'PASS: coherence witness green on current, red on original P6 and 3 mutants' /tmp/coh.txt
 
   pinned-tu-and-link:
     needs: native

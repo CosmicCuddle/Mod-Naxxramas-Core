@@ -30,34 +30,53 @@ namespace NaxxramasTouchOfTheGrave
         float tbcHealing = 1.0f;              // IndividualProgression.TBCHealingAdjustment
     };
 
-    // Written only from the world thread's config hook; read from any
-    // thread. Each value is its own lock-free atomic.
+    // One writer (the world thread's config hook), any number of readers.
+    // A sequence lock keeps the six values coherent: Load() never returns a
+    // mix of two config loads. Readers stay lock-free and retry only if a
+    // Store overlapped them. In the server a Store (config load, world
+    // thread) never overlaps map-thread Loads anyway, so a retry is not
+    // expected there; this makes coherence hold for any caller.
     class SettingsSnapshot
     {
     public:
         void Store(IpSettings const& s)
         {
-            _enabled.store(s.enabled, std::memory_order_relaxed);
-            _progressionLimit.store(s.progressionLimit, std::memory_order_relaxed);
-            _vanillaPower.store(s.vanillaPower, std::memory_order_relaxed);
-            _tbcPower.store(s.tbcPower, std::memory_order_relaxed);
-            _vanillaHealing.store(s.vanillaHealing, std::memory_order_relaxed);
-            _tbcHealing.store(s.tbcHealing, std::memory_order_relaxed);
+            unsigned const seq = _sequence.load(std::memory_order_relaxed);
+            _sequence.store(seq + 1, std::memory_order_relaxed); // odd: writing
+            // Release stores: a reader that sees any new value also sees the
+            // odd sequence above, so its final check fails and it retries.
+            _enabled.store(s.enabled, std::memory_order_release);
+            _progressionLimit.store(s.progressionLimit, std::memory_order_release);
+            _vanillaPower.store(s.vanillaPower, std::memory_order_release);
+            _tbcPower.store(s.tbcPower, std::memory_order_release);
+            _vanillaHealing.store(s.vanillaHealing, std::memory_order_release);
+            _tbcHealing.store(s.tbcHealing, std::memory_order_release);
+            _sequence.store(seq + 2, std::memory_order_release); // even: done
         }
 
         IpSettings Load() const
         {
-            IpSettings s;
-            s.enabled = _enabled.load(std::memory_order_relaxed);
-            s.progressionLimit = _progressionLimit.load(std::memory_order_relaxed);
-            s.vanillaPower = _vanillaPower.load(std::memory_order_relaxed);
-            s.tbcPower = _tbcPower.load(std::memory_order_relaxed);
-            s.vanillaHealing = _vanillaHealing.load(std::memory_order_relaxed);
-            s.tbcHealing = _tbcHealing.load(std::memory_order_relaxed);
-            return s;
+            for (;;)
+            {
+                unsigned const before = _sequence.load(std::memory_order_acquire);
+                if (before & 1u)
+                    continue;                                    // write in progress
+
+                IpSettings s;
+                s.enabled = _enabled.load(std::memory_order_acquire);
+                s.progressionLimit = _progressionLimit.load(std::memory_order_acquire);
+                s.vanillaPower = _vanillaPower.load(std::memory_order_acquire);
+                s.tbcPower = _tbcPower.load(std::memory_order_acquire);
+                s.vanillaHealing = _vanillaHealing.load(std::memory_order_acquire);
+                s.tbcHealing = _tbcHealing.load(std::memory_order_acquire);
+
+                if (_sequence.load(std::memory_order_relaxed) == before)
+                    return s;                                    // no Store overlapped
+            }
         }
 
     private:
+        std::atomic<unsigned> _sequence{0};
         std::atomic<bool> _enabled{IpSettings{}.enabled};
         std::atomic<std::uint8_t> _progressionLimit{IpSettings{}.progressionLimit};
         std::atomic<float> _vanillaPower{IpSettings{}.vanillaPower};
