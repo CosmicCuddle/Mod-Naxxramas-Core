@@ -12,7 +12,7 @@
 - [ ] **Five mandatory gameplay features stay 0/5 owner accepted** unless a real, authorised private in-game test proves both positive and negative behavior and the owner signs off. Source/native tests and 1,896/1,896 link are **NOT** gameplay.
 - [ ] Preserve `MapUpdate.Threads=8`; F12/F13 startup-snapshot flags and GFPP's distinct atomic reload behavior are not interchangeable.
 - [ ] Any future owner-approved nonproduction trial requires **privately verified installed dependency/DB/DBC parity, tested restorable backups and rollback, precise feature scope, isolated negative controls and private evidence** before any change.
-- [ ] PUBLIC GitHub: no owner-private module/build inventory, SQL IDs, logs, host/user/account/creature/quest/item identifiers, personal data or secrets. Claude remains on break: do not assign or assume tasks.
+- [ ] PUBLIC GitHub: no owner-private module/build inventory, SQL IDs, logs, host/user/account/creature/quest/item identifiers, personal data or secrets. **Claude returned 28 Oct; new CS03 tasks are assigned but NOT presumed acknowledged/executing in any separate assistant session.**
 
 ## 1. Current immutable snapshot — verify, do not assume
 
@@ -76,11 +76,21 @@ See [full F13 dispatch review in the handover](2026-10-28_PART30_TO_PART31.md#5a
 - [ ] **F15 BOTH World/Auth crash and WARN/ERROR — BLOCKED_AT_R0, NOT OPERATIONAL.** Requires separately approved private read-only launcher/parent/stdio/log/kernel provenance. No speculative automation, false crash injection or service modification.
 - [ ] **F14 optional Vanilla /who** remains OFF and outside the five required gameplay acceptance items.
 
+## 5A. Return-to-work team allocation — 28 October 2026 (not automatic execution)
+
+- [x] **Owner reports CS03/Claude returned**; actual completed [F15 #177 peer review](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/177#issuecomment-6467422929) and [CS03 issue #143 check-in](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143#issuecomment-6467426951) independently seen. End break-only CS01/CS02 temporary cover prospectively.
+- [x] **CS01 restored the earlier 60% CS03 / 20% CS02 / 20% CS01 planned hands-on trial** in [coordination directive #48](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6467467057). PM, integration, approvals, peer safety review remain CS01 outside these effort targets. Numbers are not a time sheet, deadline, paid overage instruction or agent-control mechanism.
+- [ ] **CS03 P1 PRIMARY — F15 S3 restart-sidecar cap**: narrow offline, new isolated DRAFT child after ACK/ref review; **1,500 sidecars for one capped report** reproduced in #177 review. Latest #185 still lacks per-incident S3 budget; existing outer 4,096 directory-entry guard alone is insufficient. Target duplicate-before-limit, shared-lock byte/entry budgets, test-only per-incident boundary, cross-daemon fairness, immutable report preservation, red/green fault and concurrent synthetic tests plus exact-head offline CI. **ASSIGNED / NOT STARTED BY THIS DIRECTIVE**; if not safe/narrow, report BLOCKED. CS01 [should-fix decision on #177](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/177#issuecomment-6467475135). F15 remains owner-private R0 BLOCKED for both World/Auth service crash and WARN/ERROR.
+- [ ] **CS03 P2 — F13 independent safety critique:** pinned #187/#189 and the §5A/§5B handover; GO global→bound→AI skip, `OnPlayerBeforeTeleport` veto/pre-veto aura effects, owned charged same-map GO use accounting, accepted request vs real arrival. Comments/test matrix first, no protected branch edit. **ASSIGNED / NO ACCEPTANCE**.
+- [ ] **CS03 P3 — F12 conditional global ALE + GM review:** use existing scoped 298-file audit, verify reasoning not another unbounded scan, flag private installed script evidence/GM policy questions. **ASSIGNED / NO ACCEPTANCE**; F12 OFF.
+- [ ] **CS02/Grok** retains A02/N-Core addon research specialist with separate owner/branch permission and optional peer review; native A02 NoWrite until authentic server/IP/birth/COMMIT/SelfBot contracts. **CS01** retains A04 H1/H2 source and all integration/owner stages. No developer edits another's branch, no assumption of immediate external agent work.
+- [ ] CS03 must post a **new scoped ACK** and capacity/branch/head plan before any claimed work on the new offline child; subsequent exact-source/CI evidence must be independently reviewed by CS01. Owner gameplay acceptance remains 0/5, staging permissions/backup obligations unchanged.
+
 ## 6. Working practice, review and future handover
 
 - [ ] Choose one **source-backed** engineering issue at a time, with exact-commit evidence and isolated DRAFT scope. If installed/private facts are essential, explicitly mark **BLOCKED**; don't pad progress with redundant scans, unknown “fixes”, automatic staging or unnecessary full CI.
 - [ ] Prefer confirming a meaningful existing run over rerunning unchanged expensive full-link CI. Treat EP six upstream-layout skips as not executed at #189; older EP workflows use DIFFERENT pinned dependencies and cannot close that claim.
-- [ ] Keep only this Part31 checklist current during Part31, retain Part30/earlier docs as history. Update [master issue #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28) only for substantive verified milestones. No Claude work assignments.
+- [ ] Keep only this Part31 checklist current during Part31, retain Part30/earlier docs as history. Update [master issue #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28) only for substantive verified milestones. **Claude's resumed bounded assignments are in team #48**, not automatic background work.
 - [ ] After genuine Part31 progress, prepare a complete Part31→Part32 handover with exact SHAs, source evidence, stage acceptance outcomes (or NOT RUN), owner approvals and explicit blockers **before** a new chat is needed.
 
 **Opening state (28 October 2026, before Part31 work): FIVE mandatory owner-accepted gameplay outcomes = 0/5; GFPP/F12/F13 pilot tests NOT RUN; F12 public-source risk documented but installed R0 unknown and master OFF; F13 #187 and CI #189 pinned native links PASS; A02 NoWrite; A04 H1/H2 unverified; F15 BLOCKED_AT_R0. No server, SQL/DBC, owner config or protected code change.**
