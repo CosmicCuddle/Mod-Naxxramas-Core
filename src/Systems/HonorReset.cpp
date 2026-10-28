@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <ctime>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <string>
 
@@ -79,8 +80,17 @@ namespace
         return true;
     }
 
+    // Largest interval whose day count still fits tm_mday (at most 31)
+    // without int overflow. A longer interval has no representable next
+    // reset, so it is reported like any other unrepresentable time.
+    constexpr uint32 MAX_INTERVAL_WEEKS =
+        static_cast<uint32>((std::numeric_limits<int>::max() - 31) / 7);
+
     std::time_t AddWeeks(std::time_t baseTime, uint32 weeks)
     {
+        if (weeks > MAX_INTERVAL_WEEKS)
+            return static_cast<std::time_t>(-1);
+
         std::tm local = {};
 
         if (!GetLocalTime(baseTime, local))
@@ -110,6 +120,11 @@ namespace
                 AddWeeks(scheduledReset, HonorResetIntervalWeeks);
 
             if (nextReset == static_cast<std::time_t>(-1))
+                return scheduledReset;
+
+            // The schedule must move forward; otherwise this loop could
+            // never reach now. Treat it like an unrepresentable next reset.
+            if (nextReset <= scheduledReset)
                 return scheduledReset;
 
             if (nextReset > now)
