@@ -1,0 +1,61 @@
+name: P13-R2 pinned Playerbots config-masked destruct cleanup source
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_p13_playerbots_masked_destruction_source.py'
+      - '.github/workflows/naxx-p13-masked-destruct-source.yml'
+  push:
+    branches:
+      - 'test/cs01-p13-playerbots-masked-destruction-20261028'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-lifetime-witness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Enforce exact test-only child of P13-R1
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=ef2292bb7bb8b48962e8fc1df1f7561cddb5fe84
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --name-only "$BASE" HEAD > /tmp/p13-r2-changed
+          printf '%s\n' \
+            '.github/workflows/naxx-p13-masked-destruct-source.yml' \
+            'tests/test_p13_playerbots_masked_destruction_source.py' > /tmp/p13-r2-allowed
+          diff -u /tmp/p13-r2-allowed /tmp/p13-r2-changed
+          for path in \
+            src/Systems/HonorOverflow.cpp \
+            conf/mod_naxxramas_core.conf.dist \
+            tests/test_honoroverflow_masked_bot_source_witness.py \
+            tests/test_p13_playerbots_reload_transition_source.py; do
+            test "$(git show "$BASE":"$path" | sha256sum | cut -d' ' -f1)" = \
+                 "$(sha256sum "$path" | cut -d' ' -f1)"
+          done
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+          path: pinned-playerbots
+          fetch-depth: 1
+          sparse-checkout: |
+            src/Bot/PlayerbotMgr.cpp
+            src/Bot/PlayerbotAI.cpp
+            src/Script/Playerbots.cpp
+          sparse-checkout-cone-mode: false
+      - name: Execute literal pinned Playerbots getter and registered destruction handler
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-playerbots rev-parse HEAD)" = \
+               "d750b4b3a50effdf22bedc8032f0e8e5f7cb8091"
+          python3 -m py_compile tests/test_p13_playerbots_masked_destruction_source.py
+          python3 tests/test_p13_playerbots_masked_destruction_source.py
