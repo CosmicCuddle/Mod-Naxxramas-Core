@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""P11: compile the unchanged production TopUpToCount and test-only controls.
+"""P11 source-extracted C++17/20 witness: partial AddItem overstates grant counters.
 
-The pinned module source remains unchanged. Three variants are compiled:
-  ORIGINAL: actual module function; expected to over-report a partial grant.
-  UNGUARDED: test-only observed-delta fix that wraps if count unexpectedly falls.
-  GUARDED: test-only bounded observed-delta accounting reference.
+Both binaries compile the real, unchanged TopUpToCount body from the checked-out
+module. The alternative is TEST-ONLY accounting arithmetic, never a module patch.
 
-The C++ mock models the pinned core's *possible* partial-success AddItem
-behavior. "anomalous_loss" is a separate artificial fault injection, NOT a
-claim that stock AzerothCore loses items during AddItem.
+A PASS means the original defect was reproduced and controls behaved as
+expected. It is not a gameplay or production-correction acceptance test.
 """
 from __future__ import annotations
 
@@ -23,12 +20,12 @@ SOURCE = ROOT / "src/Systems/BotRaidConsumables.cpp"
 
 def extract_top_up(source: str) -> str:
     signature = "    bool TopUpToCount("
+    if source.count(signature) != 1:
+        raise AssertionError("Expected exactly one production TopUpToCount declaration")
     start = source.find(signature)
-    if start < 0:
-        raise AssertionError("Production TopUpToCount signature absent")
     opening = source.find("{", start)
-    if opening < 0:
-        raise AssertionError("Function has no opening brace")
+    if opening == -1:
+        raise AssertionError("Function opening brace missing")
     depth = 0
     for index in range(opening, len(source)):
         if source[index] == "{":
@@ -37,29 +34,24 @@ def extract_top_up(source: str) -> str:
             depth -= 1
             if depth == 0:
                 return source[start:index + 1]
-    raise AssertionError("Unterminated production function")
+    raise AssertionError("Unclosed production TopUpToCount")
 
 
-def delta_control(original: str, guarded: bool) -> str:
-    items = "        stats.ItemsAdded += amountToAdd;"
-    reagents = "            stats.ReagentsAdded += amountToAdd;"
-    if original.count(items) != 1 or original.count(reagents) != 1:
-        raise AssertionError("Source accounting contract drift; do not transform")
-    if guarded:
-        delta = (
-            "        uint32 const afterCount = bot->GetItemCount(itemId, false);\n"
-            "        uint32 const actualAdded = afterCount > currentCount\n"
-            "            ? std::min<uint32>(afterCount - currentCount, amountToAdd)\n"
-            "            : 0;\n"
-        )
-    else:
-        delta = (
-            "        uint32 const actualAdded = "
-            "bot->GetItemCount(itemId, false) - currentCount;\n"
-        )
-    return original.replace(items, delta + "        stats.ItemsAdded += actualAdded;").replace(
-        reagents, "            stats.ReagentsAdded += actualAdded;"
+def make_delta_control(original: str) -> str:
+    """Test-only bounded positive inventory delta, no source changes."""
+    source_assignment = "        stats.ItemsAdded += amountToAdd;"
+    reagent_assignment = "            stats.ReagentsAdded += amountToAdd;"
+    if original.count(source_assignment) != 1 or original.count(reagent_assignment) != 1:
+        raise AssertionError("Accounting statements changed; inspect source first")
+    guarded_delta = (
+        "        uint32 const observedCount = bot->GetItemCount(itemId, false);\n"
+        "        uint32 const actualAdded = observedCount > currentCount\n"
+        "            ? std::min<uint32>(observedCount - currentCount, amountToAdd)\n"
+        "            : 0;\n"
+        "        stats.ItemsAdded += actualAdded;"
     )
+    changed = original.replace(source_assignment, guarded_delta, 1)
+    return changed.replace(reagent_assignment, "            stats.ReagentsAdded += actualAdded;", 1)
 
 
 HARNESS = r"""
@@ -67,37 +59,37 @@ HARNESS = r"""
 #include <cstdint>
 #include <iostream>
 using uint32 = std::uint32_t;
-struct ItemTemplate { int MaxCount = 100; };
+
+struct ItemTemplate {
+    int MaxCount = 100;
+};
 struct FakeObjectMgr {
     ItemTemplate item;
-    bool available = true;
+    bool valid = true;
     ItemTemplate const* GetItemTemplate(uint32) const {
-        return available ? &item : nullptr;
+        return valid ? &item : nullptr;
     }
 };
 FakeObjectMgr manager;
 FakeObjectMgr* sObjectMgr = &manager;
+
 struct PreparationStats {
     uint32 ItemFailures = 0;
     uint32 ItemsAdded = 0;
     uint32 ReagentsAdded = 0;
 };
 struct Player {
-    uint32 count = 0;
-    uint32 freeSpace = 0;
-    bool failStore = false;
-    bool injectedLoss = false;
+    uint32 count;
+    uint32 freeSpace;
+    bool forceFailure;
     uint32 addCalls = 0;
     uint32 GetItemCount(uint32, bool) const { return count; }
     bool AddItem(uint32, uint32 requested) {
         ++addCalls;
-        if (failStore)
+        if (forceFailure)
             return false;
-        if (injectedLoss) {
-            if (count)
-                --count;
-            return true;
-        }
+        // Matches pinned core's ability to return true after storing a
+        // reduced count when the bags cannot fit the entire request.
         uint32 const added = std::min(requested, freeSpace);
         count += added;
         freeSpace -= added;
@@ -107,120 +99,140 @@ struct Player {
 void RecordItemFailure(PreparationStats&, Player*, uint32, char const*) {}
 __FUNCTION__
 
-void Scenario(char const* name, uint32 owned, uint32 freeSpace,
-              uint32 target, bool isReagent = true,
-              int maxCount = 100, bool hasTemplate = true,
-              bool failStore = false, bool injectedLoss = false,
-              bool repeat = false) {
+void Scenario(char const* name, uint32 owned, uint32 space, uint32 target,
+              bool reagent, int maxCount, bool hasTemplate,
+              bool forceFailure, unsigned repeats) {
     manager.item.MaxCount = maxCount;
-    manager.available = hasTemplate;
-    Player bot{owned, freeSpace, failStore, injectedLoss, 0};
+    manager.valid = hasTemplate;
+    Player bot{owned, space, forceFailure, 0};
     PreparationStats stats;
-    uint32 const before = bot.GetItemCount(17030, false);
-    bool const first = TopUpToCount(&bot, 17030, target, stats, isReagent);
-    bool const second = repeat
-        ? TopUpToCount(&bot, 17030, target, stats, isReagent) : false;
-    uint32 const observed = bot.count > before ? bot.count - before : 0;
-    std::cout << name << " " << int(first) + (second ? 2 : 0)
-              << " " << observed << " " << stats.ItemsAdded
-              << " " << stats.ReagentsAdded << " " << stats.ItemFailures
-              << " " << bot.count << " " << bot.addCalls << "\n";
+    uint32 const before = bot.GetItemCount(17030, false); // Ankh fixture
+    bool success = false;
+    for (unsigned i = 0; i < repeats; ++i)
+        success = TopUpToCount(&bot, 17030, target, stats, reagent);
+    uint32 const delta = bot.GetItemCount(17030, false) - before;
+    std::cout << name << " " << success << " " << delta
+              << " " << stats.ItemsAdded << " " << stats.ReagentsAdded
+              << " " << stats.ItemFailures << " " << bot.count
+              << " " << bot.addCalls << "\n";
+}
+void NullBot() {
+    manager.valid = true;
+    PreparationStats stats;
+    bool const success = TopUpToCount(nullptr, 17030, 5, stats, true);
+    std::cout << "null_bot " << success << " 0 "
+              << stats.ItemsAdded << " " << stats.ReagentsAdded
+              << " " << stats.ItemFailures << " 0 0\n";
 }
 int main() {
-    Scenario("full", 1, 10, 5);
-    Scenario("partial", 1, 2, 5);
-    Scenario("no_space", 1, 0, 5);
-    Scenario("sufficient", 5, 0, 5);
-    Scenario("nonreagent_partial", 1, 2, 5, false);
-    Scenario("nonreagent_full", 1, 10, 5, false);
-    Scenario("maxcount", 1, 10, 5, true, 3);
-    Scenario("no_template", 1, 10, 5, true, 100, false);
-    Scenario("failed_store", 1, 10, 5, true, 100, true, true);
-    Scenario("zero_target", 1, 10, 0);
-    Scenario("repeat_partial", 1, 3, 5, true, 100, true, false, false, true);
-    Scenario("anomalous_loss", 1, 10, 5, true, 100, true, false, true);
+    Scenario("full_reagent",         1, 10, 5, true, 100, true, false, 1);
+    Scenario("partial_reagent",      1,  2, 5, true, 100, true, false, 1);
+    Scenario("partial_nonreagent",   1,  2, 5, false,100, true, false, 1);
+    Scenario("full_nonreagent",      1, 10, 5, false,100, true, false, 1);
+    Scenario("no_space",            1,  0, 5, true, 100, true, false, 1);
+    Scenario("sufficient",          5,  0, 5, true, 100, true, false, 1);
+    Scenario("max_clamp_partial",    1,  2,10, true,   4, true, false, 1);
+    Scenario("max_clamp_full",       1, 10,10, true,   4, true, false, 1);
+    Scenario("max_clamp_sufficient", 5, 10,10, true,   4, true, false, 1);
+    Scenario("missing_template",    1, 10, 5, true, 100, false,false, 1);
+    Scenario("zero_target",         1, 10, 0, true, 100, true, false, 1);
+    Scenario("add_failure",         1, 10, 5, true, 100, true, true,  1);
+    Scenario("repeat_partial",      1,  2, 5, true, 100, true, false, 2);
+    Scenario("repeat_full",         1, 10, 5, true, 100, true, false, 2);
+    Scenario("huge_partial",        1,  2,4294967295u,true,0,true,false,1);
+    NullBot();
 }
 """
 
-EXPECTED_COMMON = {
-    "full": (1, 4, 4, 4, 0, 5, 1),
-    "no_space": (0, 0, 0, 0, 1, 1, 1),
-    "sufficient": (1, 0, 0, 0, 0, 5, 0),
-    "nonreagent_full": (1, 4, 4, 0, 0, 5, 1),
-    "maxcount": (1, 2, 2, 2, 0, 3, 1),
-    "no_template": (0, 0, 0, 0, 1, 1, 0),
-    "failed_store": (0, 0, 0, 0, 1, 1, 1),
-    "zero_target": (0, 0, 0, 0, 0, 1, 0),
+# Tuple: (last call success, actual inventory delta, ItemsAdded,
+#         ReagentsAdded, ItemFailures, final inventory count, AddItem calls)
+COMMON = {
+    "full_reagent":          (1, 4, 4, 4, 0, 5, 1),
+    "full_nonreagent":       (1, 4, 4, 0, 0, 5, 1),
+    "no_space":              (0, 0, 0, 0, 1, 1, 1),
+    "sufficient":            (1, 0, 0, 0, 0, 5, 0),
+    "max_clamp_full":        (1, 3, 3, 3, 0, 4, 1),
+    "max_clamp_sufficient":  (1, 0, 0, 0, 0, 5, 0),
+    "missing_template":      (0, 0, 0, 0, 1, 1, 0),
+    "zero_target":           (0, 0, 0, 0, 0, 1, 0),
+    "add_failure":           (0, 0, 0, 0, 1, 1, 1),
+    "repeat_full":           (1, 4, 4, 4, 0, 5, 1),
+    "null_bot":              (0, 0, 0, 0, 0, 0, 0),
 }
-EXPECTED_DIFFERENCES = {
-    "partial": ((1, 2, 4, 4, 0, 3, 1), (1, 2, 2, 2, 0, 3, 1)),
-    "nonreagent_partial": ((1, 2, 4, 0, 0, 3, 1), (1, 2, 2, 0, 0, 3, 1)),
-    "repeat_partial": ((1, 3, 4, 4, 1, 4, 2), (1, 3, 3, 3, 1, 4, 2)),
-    "anomalous_loss": ((1, 0, 4, 4, 0, 0, 1), (1, 0, 0, 0, 0, 0, 1)),
+LEGACY_EXPECTED_RED = {
+    "partial_reagent":       (1, 2, 4, 4, 0, 3, 1),
+    "partial_nonreagent":    (1, 2, 4, 0, 0, 3, 1),
+    "max_clamp_partial":     (1, 2, 3, 3, 0, 3, 1),
+    "repeat_partial":        (0, 2, 4, 4, 1, 3, 2),
+    "huge_partial":          (1, 2, 4294967294, 4294967294, 0, 3, 1),
+}
+DELTA_CONTROL = {
+    "partial_reagent":       (1, 2, 2, 2, 0, 3, 1),
+    "partial_nonreagent":    (1, 2, 2, 0, 0, 3, 1),
+    "max_clamp_partial":     (1, 2, 2, 2, 0, 3, 1),
+    "repeat_partial":        (0, 2, 2, 2, 1, 3, 2),
+    "huge_partial":          (1, 2, 2, 2, 0, 3, 1),
 }
 
 
-def run_variant(workdir: pathlib.Path, label: str, function: str, standard: str):
-    source_file = workdir / f"{label}_{standard}.cpp"
-    executable = workdir / f"{label}_{standard}"
+def run_variant(directory: pathlib.Path, label: str,
+                function: str, standard: str) -> dict[str, tuple[int, ...]]:
+    source_file = directory / f"{label}_{standard}.cpp"
+    binary = directory / f"{label}_{standard}"
     source_file.write_text(HARNESS.replace("__FUNCTION__", function), encoding="utf-8")
     subprocess.run(
-        ["g++", f"-std={standard}", "-Wall", "-Wextra", "-Werror",
-         "-pedantic", "-O1", str(source_file), "-o", str(executable)],
+        ["g++", f"-std={standard}", "-Wall", "-Wextra", "-Werror", "-pedantic",
+         "-O1", "-fsanitize=undefined", "-fno-sanitize-recover=all",
+         str(source_file), "-o", str(binary)],
         check=True,
     )
-    out = subprocess.check_output([str(executable)], text=True)
+    output = subprocess.check_output([str(binary)], text=True)
     cases = {}
-    for row in out.splitlines():
-        match = re.fullmatch(r"(\w+) ([0-3]) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+)", row)
+    for line in output.splitlines():
+        match = re.fullmatch(r"(\w+) ([01]) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+)", line)
         if not match:
-            raise AssertionError(f"{label}/{standard} unexpected C++ output: {row!r}")
-        name, *values = match.groups()
-        cases[name] = tuple(map(int, values))
-    expected_names = set(EXPECTED_COMMON) | set(EXPECTED_DIFFERENCES)
-    if set(cases) != expected_names:
-        raise AssertionError(f"{label}/{standard}: cases mismatch: {set(cases) ^ expected_names}")
+            raise AssertionError(f"Unexpected output: {line!r}")
+        name, *numbers = match.groups()
+        if name in cases:
+            raise AssertionError(f"Duplicated test scenario: {name}")
+        cases[name] = tuple(map(int, numbers))
     return cases
 
 
-def main():
+def check(label: str, cases: dict[str, tuple[int, ...]],
+          expected_negatives: dict[str, tuple[int, ...]]) -> None:
+    expected = COMMON | expected_negatives
+    if cases.keys() != expected.keys():
+        raise AssertionError(
+            f"{label}: expected {sorted(expected)} but got {sorted(cases)}"
+        )
+    for name, value in expected.items():
+        if cases[name] != value:
+            raise AssertionError(f"{label} {name}: expected {value}, got {cases[name]}")
+    print(f"PASS: {label}: {len(cases)} exact source-extracted C++ fixture cases")
+
+
+def main() -> None:
     original = extract_top_up(SOURCE.read_text(encoding="utf-8"))
-    required_contracts = (
-        "bot->GetItemCount(itemId, false)",
-        "if (!bot->AddItem(itemId, amountToAdd))",
-        "if (itemTemplate->MaxCount > 0)",
-        "targetCount - currentCount",
-    )
-    for needle in required_contracts:
-        if needle not in original:
-            raise AssertionError(f"Production contract drift: {needle}")
-    with tempfile.TemporaryDirectory(prefix="naxx-p11-") as folder:
-        for std in ("c++17", "c++20"):
-            actual = run_variant(pathlib.Path(folder), "original", original, std)
-            unchecked = run_variant(
-                pathlib.Path(folder), "unchecked", delta_control(original, False), std
-            )
-            guarded = run_variant(
-                pathlib.Path(folder), "guarded", delta_control(original, True), std
-            )
-            for name, row in EXPECTED_COMMON.items():
-                if any(c[name] != row for c in (actual, unchecked, guarded)):
-                    raise AssertionError(f"{std}: {name} must preserve existing semantics")
-            for name, (bad, good) in EXPECTED_DIFFERENCES.items():
-                if actual[name] != bad or guarded[name] != good:
-                    raise AssertionError(f"{std}: {name} mismatch in original/guarded")
-            for name in ("partial", "nonreagent_partial", "repeat_partial"):
-                if unchecked[name] != guarded[name]:
-                    raise AssertionError(f"{std}: normal observed deltas must agree")
-            assert unchecked["anomalous_loss"] == (
-                1, 0, 4294967295, 4294967295, 0, 0, 1
-            ), "Unsigned-underflow mutation must be detected"
-            print(f"PASS {std}: 12 source-extracted cases x 3 variants, 8 shared and "
-                  "4 original-vs-guarded negative/positive pairs")
-    print("EXPECTED SOURCE RED: partial AddItem grants 2/4 but original reports 4")
-    print("EXPECTED FAULT RED: artificial inventory loss makes unchecked delta wrap")
-    print("PASS: test-only guarded actual deltas are bounded and non-negative")
-    print("NO PRODUCTION FIX: all changes are isolated test/CI code, not live inventory")
+    if original.count("bot->GetItemCount(itemId, false)") != 1:
+        raise AssertionError("Inventory-count read contract changed")
+    if original.count("if (!bot->AddItem(itemId, amountToAdd))") != 1:
+        raise AssertionError("AddItem return contract changed")
+    if original.count("stats.ItemsAdded += amountToAdd;") != 1:
+        raise AssertionError("Legacy defect no longer present; reassess this test")
+    control = make_delta_control(original)
+    with tempfile.TemporaryDirectory(prefix="naxx-p11-witness-") as temp:
+        directory = pathlib.Path(temp)
+        for standard in ("c++17", "c++20"):
+            original_cases = run_variant(directory, "original", original, standard)
+            corrected_cases = run_variant(directory, "delta_only_control", control, standard)
+            check(f"{standard} unchanged original / EXPECTED mismatches",
+                  original_cases, LEGACY_EXPECTED_RED)
+            check(f"{standard} test-only observed-delta control",
+                  corrected_cases, DELTA_CONTROL)
+    print("PASS: five original partial-success accounting discrepancies reproduced")
+    print("PASS: bounded positive-delta TEST-ONLY control, no grant/return behavior changed")
+    print("NO production C++, owner client, Worldserver, inventory or SQL was changed")
 
 
 if __name__ == "__main__":
