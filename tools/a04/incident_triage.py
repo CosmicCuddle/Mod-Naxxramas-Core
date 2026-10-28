@@ -134,7 +134,18 @@ def assess(x: Incident) -> Assessment:
             h.append("H1_POSSIBLE_LEGITIMATE_SHARED_AWARD")
             # This includes friend and reporter loot turns: quest-specific
             # visibility need not always match the ordinary turn holder.
-            if x.turn == "friend" or x.turn == "released":
+            # A turn/release *explanation* is grounded only for the
+            # stock creature-loot group path traced in the pinned core.
+            # FREE_FOR_ALL bypasses Group::UpdateLooterGuid, and unknown
+            # sources/methods must not be diagnosed as stock turn behavior.
+            # Quest-item eligibility is separate: this remains only a
+            # possible explanation, never a verified award or permission.
+            turn_explanation_supported = (
+                x.source == "creature"
+                and x.method in ("group", "round_robin",
+                                 "need_before_greed", "master")
+            )
+            if turn_explanation_supported and x.turn in ("friend", "released"):
                 h.append("H1_TURN_RELEASE_STOCK_CONSISTENT_CANDIDATE")
         else:
             h.append("H1_AWARD_OR_ENTITLEMENT_UNDETERMINED")
