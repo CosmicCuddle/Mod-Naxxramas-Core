@@ -1,0 +1,107 @@
+name: "Part33 A04 positive direct receipt source contract (OFF, no owner data)"
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - "scripts/check_a04_positive_receipt_contract.py"
+      - "tests/test_a04_positive_receipt_contract.py"
+      - ".github/workflows/a04-part33-positive-receipt-source.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a04-part33-receipt-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  A04_BASE: 3ddf82943c5574885c3d2c41b4fc88f9debee7f8
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+  A04_PIN_CORE: ${{ github.workspace }}/acore
+
+jobs:
+  exact-public-source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout PINNED public AzerothCore source only
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: acore
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Handlers/LootHandler.cpp
+            src/server/game/Scripting/ScriptDefines/PlayerScript.h
+            src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
+            src/server/game/Scripting/ScriptMgr.h
+
+      - name: Checkout exact isolated A04 DRAFT candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: module
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact source SHA and ONLY added offline contract paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "$CORE_SHA"
+          test "$(git -C module rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git -C module merge-base --is-ancestor "$A04_BASE" HEAD
+          git -C module diff --quiet "$A04_BASE" HEAD -- src conf sql
+          git -C module diff --name-only "$A04_BASE" HEAD | sort >/tmp/actual-paths.txt
+          printf '%s\n' \
+            .github/workflows/a04-part33-positive-receipt-source.yml \
+            scripts/check_a04_positive_receipt_contract.py \
+            tests/test_a04_positive_receipt_contract.py | sort | diff -u - /tmp/actual-paths.txt
+          for p in \
+            src/server/game/Entities/Player/Player.cpp \
+            src/server/game/Handlers/LootHandler.cpp \
+            src/server/game/Scripting/ScriptDefines/PlayerScript.h \
+            src/server/game/Scripting/ScriptDefines/PlayerScript.cpp \
+            src/server/game/Scripting/ScriptMgr.h; do
+            test -s "acore/$p"
+          done
+
+      - name: Exact native positive-receipt source contract
+        shell: bash
+        working-directory: module
+        run: |
+          set -euo pipefail
+          python3 -I -B scripts/check_a04_positive_receipt_contract.py --core "$A04_PIN_CORE" | tee /tmp/receipt-contract.txt
+          grep -Fxq 'A04 POSITIVE DIRECT RECEIPT SOURCE CONTRACT: PASS (no runtime)' /tmp/receipt-contract.txt
+
+      - name: Fourteen executable pinned-source negative mutation tests
+        shell: bash
+        working-directory: module
+        run: |
+          set -euo pipefail
+          python3 -I -B tests/test_a04_positive_receipt_contract.py -v 2>&1 | tee /tmp/a04-receipt-tests.txt
+          grep -Eq '^Ran 14 tests in [0-9.]+s$' /tmp/a04-receipt-tests.txt
+          grep -Fxq 'OK' /tmp/a04-receipt-tests.txt
+          ! grep -Eq '^FAILED|^ERROR:|^FAIL:|skipped' /tmp/a04-receipt-tests.txt
+
+      - name: Inherited original A04 no-write synthetic classifier
+        shell: bash
+        working-directory: module
+        run: |
+          set -euo pipefail
+          python3 -I -B tests/test_a04_incident_triage_part29.py -v 2>&1 | tee /tmp/a04-inherited.txt
+          grep -Eq '^Ran 30 tests in [0-9.]+s$' /tmp/a04-inherited.txt
+          grep -Fxq 'OK' /tmp/a04-inherited.txt
+          ! grep -Eq '^FAILED|^ERROR:|^FAIL:|skipped' /tmp/a04-inherited.txt
+
+      - name: Scope: positive hook is NOT gameplay acceptance
+        if: always()
+        run: |
+          echo 'Native direct StoreLootItem: callback AFTER in-memory StoreNewItem; no claim of later durable DB save.'
+          echo 'No evidence of mail/roll, two-human entitlement, actual quest bucket or H1/H2 incident.'
+          echo 'No runtime listener/packet hook, SQL/DBC, host, game, client, character data or deploy.'
+          echo 'A04 default OFF, protected main/#160 unchanged, 0/5 accepted gameplay.'
