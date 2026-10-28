@@ -8,6 +8,7 @@
 #include "AiObjectContext.h"
 #include "Config.h"
 #include "GolemaggActionAuditAllowlist.h"
+#include "GolemaggActionAuditTrace.h"
 #include "Log.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -223,6 +224,11 @@ namespace
             // This text is an observation sentinel, NOT a bot action.
             if (trace.empty())
                 trace = "(no recent action)";
+            // Bound and normalise BEFORE the duplicate check and the cache:
+            // lastTrace never holds more than MAX_ACTION_TEXT bytes, and a
+            // tail that differs only in text the log would drop does not
+            // spend one of the 24 samples on an identical-looking line.
+            NaxxramasGolemaggActionAudit::BoundActionTrace(trace, MAX_ACTION_TEXT);
             if (trace == state->lastTrace &&
                 lookupPresent == state->lastLookupPresent &&
                 !thresholdChanged)
@@ -233,10 +239,6 @@ namespace
             state->hasLastSample = true;
             state->lastAtRetreatStacks = atRetreatStacks;
             state->lastInsideRetreatDistance = insideRetreatDistance;
-            if (trace.size() > MAX_ACTION_TEXT)
-                trace.erase(0, trace.size() - MAX_ACTION_TEXT);
-            std::replace(trace.begin(), trace.end(), '\n', ' ');
-            std::replace(trace.begin(), trace.end(), '\r', ' ');
             std::string target = ai->HandleRemoteCommand("target");
             if (target.size() > 64)
                 target.resize(64);
