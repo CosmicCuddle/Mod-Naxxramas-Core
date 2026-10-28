@@ -29,6 +29,15 @@ Public core pin **8daffdabe9202c228e45d833c9a1d399597a15cd**, Playerbots **d750b
 
 ## 2. CODING-FIRST active ownership — do not duplicate
 
+### Part32 owner-requested CS03 coding-first expanded queue — ACTIVE ASSIGNMENTS (ACK PENDING)
+
+- [x] **New four-package coding-first queue issued and registered:** [#143 active queue](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143), [team #48 checkpoint](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6469977271), [master #28 checkpoint](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28#issuecomment-6469978653). 60/20/20 planned lead lane; **no CS03 personal ACK/new F14 source** observed as of this checkpoint; no automatic execution. Excluded completed source candidates #100/#116/#144/#99 instead of assigning duplicate fixes.
+- [ ] **CS03 P1 F14 first:** positive shared human/RandomBot/AltBot/Unknown identity feasible for both /who and observer world? If yes source-only standalone C++ dual-policy classifier and tests. If no positive safe API, write precise BLOCKED then switch immediately to P2. Owner human-player exemption still provisional, existing /who hides both humans and bots, no physical world implementation.
+- [ ] **CS03 P2 ready genuine code issue — A01 Golemagg bounded trace cache:** actual main `80e9de1` and #144 `da99ff3` store `state->lastTrace = trace` before suffix 320-byte cap; compare/cache can retain raw long text and duplicate displayed-identical suffix. [Registered #27 source issue](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/27#issuecomment-6469975147). New independent DRAFT child of unchanged #144; bounded normalized cache/compare/output; 24 cap, unchanged OFF, no movement mutation, synthetic negatives, real pinned C++/full-link tests. **Assignment, not implementation complete.**
+- [ ] **CS03 P3 ready source-test task — B09 Elemental Invasions:** isolated real-source C++ date-window/zone/DST/month boundary harness and event13/no-write gates; fix only with old-RED/new-GREEN demonstrated defect. No SQL/event launch/live changes.
+- [ ] **CS03 P4 conditional research+executable coding — A03 NT1:** new source-backed gear/pet/dual-spec-safe changed-build atomicity contract or explicit blocker; don't repeat #62 proof, don't weaken #18 fail-closed change guard.
+- [ ] **CS03 NEXT:** receive new-session ACK, then an actual new isolated source PR/CI (not another checklist/review); complete one or record blocker, advance immediately to next unblocked task. Keep all private R0/owner staging and five 0/5 gameplay approvals unchanged.
+
 ### CS03 / Claude — F14 human-vs-bot classifier FIRST
 
 - [ ] Check for actual ACK from Claude on [team #48 P1 assignment](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6469287886). User explicitly wants Claude majority engineering, not repeated F15/F12/F13 review.
