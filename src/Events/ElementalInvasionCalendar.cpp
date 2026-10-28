@@ -90,6 +90,7 @@ public:
     {
         _checkTimer = 0;
         _reportedSetupError = false;
+        _reportedWindowError = false;
         _reportedStartError = false;
     }
 
@@ -112,6 +113,7 @@ public:
 private:
     uint32 _checkTimer = 0;
     bool _reportedSetupError = false;
+    bool _reportedWindowError = false;
     bool _reportedStartError = false;
 
     void SynchronizeInvasion()
@@ -135,14 +137,18 @@ private:
         bool shouldBeActive = false;
         if (!InMonthlyWindow(std::time(nullptr), shouldBeActive))
         {
-            if (!_reportedSetupError)
+            // Own latch: the setup latch above was just reset, so sharing it
+            // logged this error every minute instead of once.
+            if (!_reportedWindowError)
             {
                 LOG_ERROR("module", "NaxxramasCore: Could not calculate the local "
                     "Elemental Invasions calendar window.");
-                _reportedSetupError = true;
+                _reportedWindowError = true;
             }
             return;
         }
+
+        _reportedWindowError = false;
 
         bool isActive = sGameEventMgr->IsActiveEvent(ELEMENTAL_INVASIONS_EVENT_ID);
         if (shouldBeActive && !isActive)
