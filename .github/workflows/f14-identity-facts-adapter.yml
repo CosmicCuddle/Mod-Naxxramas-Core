@@ -66,18 +66,39 @@ jobs:
       - name: Real adapter source, with and without Playerbots (C++17/20, ASan+UBSan)
         run: |
           set -euo pipefail
+          # Expected counts come from the fixture itself (it fails on drift);
+          # the floors stop coverage from shrinking silently.
+          with=$(grep -oP 'EXPECTED_CHECKS_WITH_PLAYERBOTS = \K[0-9]+' tests/f14_identity_facts_adapter_tests.cpp)
+          without=$(grep -oP 'EXPECTED_CHECKS_WITHOUT_PLAYERBOTS = \K[0-9]+' tests/f14_identity_facts_adapter_tests.cpp)
+          test "$with" -ge 36
+          test "$without" -ge 6
           F="-Wall -Wextra -Werror -pedantic -Wshadow -pthread -Isrc/Systems -Itests/f14_facts_stubs/core"
           for std in 17 20; do
             g++ -std=c++$std $F -Itests/f14_facts_stubs/playerbots tests/f14_identity_facts_adapter_tests.cpp -o /tmp/w$std
             /tmp/w$std | tee /tmp/w$std.txt
-            grep -qx 'PASS: F14 facts adapter with Playerbots, 36 checks' /tmp/w$std.txt
+            grep -qx "PASS: F14 facts adapter with Playerbots, $with checks" /tmp/w$std.txt
             g++ -std=c++$std $F -DEXPECT_NO_PLAYERBOTS tests/f14_identity_facts_adapter_tests.cpp -o /tmp/n$std
             /tmp/n$std | tee /tmp/n$std.txt
-            grep -qx 'PASS: F14 facts adapter without Playerbots, 6 checks' /tmp/n$std.txt
+            grep -qx "PASS: F14 facts adapter without Playerbots, $without checks" /tmp/n$std.txt
           done
           g++ -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $F \
             -Itests/f14_facts_stubs/playerbots tests/f14_identity_facts_adapter_tests.cpp -o /tmp/asan
           /tmp/asan
+      - name: Count drift is caught (drop one check -> must fail)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/drift
+          python3 - <<'PY'
+          import pathlib, re
+          src = pathlib.Path("tests/f14_identity_facts_adapter_tests.cpp").read_text()
+          first = re.search(r"(?m)^\s+CHECK\(Of\(&human\.player\) == Identity::Human\);\n", src)
+          assert first, "anchor check missing"
+          pathlib.Path("/tmp/drift/t.cpp").write_text(src[:first.start()] + src[first.end():])
+          PY
+          g++ -std=c++20 -Isrc/Systems -Itests/f14_facts_stubs/core -Itests/f14_facts_stubs/playerbots \
+            -Itests /tmp/drift/t.cpp -o /tmp/drift/t
+          if /tmp/drift/t > /tmp/drift/out.txt; then echo "dropped check not detected"; exit 1; fi
+          grep -q '^COUNT DRIFT (with Playerbots): ran 35 checks, expected 36$' /tmp/drift/out.txt
       - name: World-thread token cannot be forged (must NOT compile)
         run: |
           set -euo pipefail

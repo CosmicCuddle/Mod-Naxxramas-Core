@@ -21,6 +21,12 @@ using namespace NaxxramasPlayerIdentity;
 
 namespace
 {
+    // Expected CHECK executions per build. The binary fails if the count
+    // drifts, so adding or removing a check must update these in the same
+    // diff; the workflow reads them from here and also enforces a floor.
+    constexpr int EXPECTED_CHECKS_WITH_PLAYERBOTS = 36;
+    constexpr int EXPECTED_CHECKS_WITHOUT_PLAYERBOTS = 6;
+
     int failures = 0;
     int checks = 0;
 
@@ -257,10 +263,17 @@ int main()
     TestReadOnlyAndNoRetainedPointer();
     TestBoardIntegration();
     char const* mode = "with Playerbots";
+    int const expected = EXPECTED_CHECKS_WITH_PLAYERBOTS;
 #else
     TestNoPlayerbotsBuildIsAlwaysUnknown();
     char const* mode = "without Playerbots";
+    int const expected = EXPECTED_CHECKS_WITHOUT_PLAYERBOTS;
 #endif
+    if (checks != expected)
+    {
+        std::printf("COUNT DRIFT (%s): ran %d checks, expected %d\n", mode, checks, expected);
+        return 1;
+    }
     if (failures != 0)
     {
         std::printf("FAILED (%s): %d of %d checks\n", mode, failures, checks);
