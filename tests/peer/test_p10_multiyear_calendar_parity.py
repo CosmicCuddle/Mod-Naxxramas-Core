@@ -153,10 +153,13 @@ def build(src, output, fixed, std):
     code = CPP.replace("@EXTRA@", extra).replace("@FUNCTIONS@", "\n\n".join(exact))
     file = output.with_suffix(".cpp")
     file.write_text(code)
-    subprocess.run(["g++", f"-std={std}", "-O1", "-Wall", "-Wextra",
-                    "-Werror", "-pedantic", "-Wconversion",
-                    str(file), "-o", str(output)],
-                   check=True, capture_output=True, text=True, timeout=50)
+    compile_result = subprocess.run(["g++", f"-std={std}", "-O1", "-Wall", "-Wextra",
+                                     "-Werror", "-pedantic", "-Wconversion",
+                                     str(file), "-o", str(output)],
+                                    capture_output=True, text=True, timeout=50)
+    assert compile_result.returncode == 0, (
+        f"source test compile failed for {std}: {compile_result.stderr}"
+    )
 
 def run(exe, mode, tz):
     result = subprocess.run([str(exe), mode], check=True, capture_output=True,
