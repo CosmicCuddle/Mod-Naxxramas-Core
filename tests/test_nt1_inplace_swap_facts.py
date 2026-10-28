@@ -5,7 +5,9 @@ environment) and expects the matching fact to fail. Needs:
   NT1_PIN_CORE        Grimfeather core checkout (8daffda)
   NT1_PIN_PLAYERBOTS  mod-playerbots checkout (d750b4b)
   NT1_PIN_IP          mod-individual-progression checkout (dd96f2b)
-Missing paths fail the suite; they are never skipped.
+Without them the module is skipped (so a broad local discover still runs);
+the dedicated workflow sets them and requires 'Ran 23' with a bare 'OK',
+so a skipped run can never pass there.
 """
 import os
 import shutil
@@ -23,7 +25,7 @@ import check_nt1_inplace_swap_facts as facts  # noqa: E402
 def pin(name):
     value = os.environ.get(name)
     if not value or not Path(value).is_dir():
-        raise RuntimeError(f"{name} must point at the pinned checkout")
+        raise unittest.SkipTest(f"{name} does not point at a pinned checkout")
     return Path(value)
 
 
