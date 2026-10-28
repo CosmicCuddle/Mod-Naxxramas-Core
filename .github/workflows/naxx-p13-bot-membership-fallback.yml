@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Exact P13-R6 scope: immutable parent and only two test/CI paths
+      - name: "Exact P13-R6 scope: immutable parent and only two test/CI paths"
         shell: bash
         run: |
           set -euo pipefail
