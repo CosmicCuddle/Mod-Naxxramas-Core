@@ -150,6 +150,9 @@ def build(src, output, fixed, std):
     else:
         assert "MAX_INTERVAL_WEEKS" not in src, "frozen source mismatch"
         assert "if (weeks > MAX_INTERVAL_WEEKS)" not in exact[2]
+        # Harness-only symbol for edge-mode code that is NEVER executed on
+        # baseline. The extracted four original functions remain untouched.
+        extra = "constexpr uint32 MAX_INTERVAL_WEEKS = 306783373u;"
     code = CPP.replace("@EXTRA@", extra).replace("@FUNCTIONS@", "\n\n".join(exact))
     file = output.with_suffix(".cpp")
     file.write_text(code)
