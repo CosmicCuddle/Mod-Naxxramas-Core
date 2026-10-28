@@ -35,16 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I -B tests/test_a04_incident_triage_part29.py -v 2>&1 | tee /tmp/a04-evidence-tests.txt
-          grep -Eq '^Ran 24 tests in [0-9.]+s
-          grep -qx 'OK' /tmp/a04-evidence-tests.txt
-          ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/a04-evidence-tests.txt
-      - name: Explicitly reject owner-data / gameplay acceptance interpretation
-        shell: bash
-        run: |
-          echo 'Synthetic enum categories only, no owner case, credentials, SQL, logs, host or installed binaries.'
-          echo 'No gameplay fix, no permission to inspect or stage, no module configuration or loot-policy change.'
-          echo 'NO_WRITE and not accepted remain invariant.'
- /tmp/a04-evidence-tests.txt
+          grep -Eq '^Ran 24 tests in [0-9.]+s$' /tmp/a04-evidence-tests.txt
           grep -qx 'OK' /tmp/a04-evidence-tests.txt
           ! grep -Eq '^FAILED|^ERROR|^FAIL:|skipped' /tmp/a04-evidence-tests.txt
       - name: Explicitly reject owner-data / gameplay acceptance interpretation
