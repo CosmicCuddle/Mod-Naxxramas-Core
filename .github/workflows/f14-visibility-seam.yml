@@ -1,0 +1,137 @@
+name: "F14 P14 /who identity seam (test-only, native)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/PlayerIdentityPolicy.h'
+      - 'tests/f14_visibility_seam_tests.cpp'
+      - 'tests/f14_visibility_seam_extract.py'
+      - 'tests/f14_visibility_seam_facts.py'
+      - 'tests/f14_visibility_seam_mutants.py'
+      - 'docs/research/F14-P14-VISIBILITY-SEAM.md'
+      - '.github/workflows/f14-visibility-seam.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f14-p14-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_202: 205d958c3fddc8943c8eeef9822213f810e47c2d
+  WHO_145: 01c6b32a956b83dd92cb9d9b2f9103941497936b
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/World/World.cpp
+            src/server/game/Maps/MapMgr.cpp
+            src/server/game/Server/Protocol/Opcodes.cpp
+            src/server/game/Handlers/MiscHandler.cpp
+            src/server/game/Handlers/QueryHandler.cpp
+            src/server/game/Cache/WhoListCacheMgr.cpp
+            src/server/game/Cache/WhoListCacheMgr.h
+            src/server/game/Entities/Player/SocialMgr.h
+            src/server/game/Guilds/Guild.cpp
+            src/server/game/Server/Packets/GuildPackets.h
+            src/server/game/Scripting/ScriptDefines/ServerScript.h
+            src/server/game/Server/WorldSession.cpp
+          persist-credentials: false
+      - name: "Confirm exact heads and the #145 source commit"
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git cat-file -e "$WHO_145^{commit}"
+      - name: "Test-only child of #202: no src/conf change, only P14 paths added"
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_202" HEAD
+          git diff --quiet "$BASE_202" HEAD -- src conf tests/f14_facts_stubs
+          git diff --name-status "$BASE_202" HEAD | while read -r status path; do
+            test "$status" = "A" || { echo "not an addition: $status $path"; exit 1; }
+            case "$path" in
+              tests/f14_visibility_seam_tests.cpp|tests/f14_visibility_seam_extract.py|\
+              tests/f14_visibility_seam_facts.py|tests/f14_visibility_seam_mutants.py|\
+              docs/research/F14-P14-VISIBILITY-SEAM.md|.github/workflows/f14-visibility-seam.yml) ;;
+              *) echo "unexpected changed path: $path"; exit 1 ;;
+            esac
+          done
+      - name: Pinned core source facts (12, each with a negative fixture)
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_visibility_seam_facts.py pinned-core | tee /tmp/facts.txt
+          grep -qx '12/12 negative fixtures caught' /tmp/facts.txt
+          grep -qx 'PASS: 12 pinned core facts at 8daffda' /tmp/facts.txt
+      - name: "Extract #145's real /who writer and the five-line seam variant"
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_visibility_seam_extract.py . /tmp/seam | tee /tmp/extract.txt
+          grep -qx 'extracted src/Systems/WhoListingPolicy.h @ 01c6b32 (blob e66f72c); seam differs on lines \[1, 2, 17, 211, 233\]' /tmp/extract.txt
+      - name: "Seam vs #145 vs #197 policy (C++17/20, ASan+UBSan)"
+        run: |
+          set -euo pipefail
+          # The fixture fails on count drift; the floor stops coverage shrinking.
+          n=$(grep -oP 'constexpr int EXPECTED_CHECKS = \K[0-9]+' tests/f14_visibility_seam_tests.cpp)
+          test "$n" -ge 23
+          F="-Wall -Wextra -Werror -pedantic -Wshadow -pthread -I/tmp/seam -Isrc/Systems"
+          for std in 17 20; do
+            g++ -std=c++$std $F tests/f14_visibility_seam_tests.cpp -o /tmp/p14_$std
+            /tmp/p14_$std | tee /tmp/p14_$std.txt
+            grep -qx "PASS: F14 P14 /who identity seam, $n checks, 2000 random cases" /tmp/p14_$std.txt
+          done
+          g++ -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $F \
+            tests/f14_visibility_seam_tests.cpp -o /tmp/p14_san
+          /tmp/p14_san | grep -qx "PASS: F14 P14 /who identity seam, $n checks, 2000 random cases"
+      - name: Count drift is caught (drop one check -> must fail)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/drift
+          python3 - <<'PY'
+          import pathlib
+          src = pathlib.Path("tests/f14_visibility_seam_tests.cpp").read_text()
+          line = "    CHECK(aSame == CASES);\n"
+          assert src.count(line) == 1, "anchor check missing"
+          pathlib.Path("/tmp/drift/t.cpp").write_text(src.replace(line, ""))
+          PY
+          g++ -std=c++20 -I/tmp/seam -Isrc/Systems /tmp/drift/t.cpp -o /tmp/drift/t
+          if /tmp/drift/t > /tmp/drift/out.txt; then echo "dropped check not detected"; exit 1; fi
+          grep -q '^COUNT DRIFT: ran 22 checks, expected 23$' /tmp/drift/out.txt
+      - name: Must-fail mutants (9)
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_visibility_seam_mutants.py /tmp/seam /tmp/p14mut | tee /tmp/m.txt
+          grep -qx '9/9 mutants caught' /tmp/m.txt
+      - name: "Inherited #197 classifier and #202 adapter still pass"
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic -pthread -Isrc/Systems \
+            tests/f14_player_identity_policy_tests.cpp -o /tmp/p197
+          /tmp/p197 | grep -qx 'PASS: F14 identity classifier, 2936 checks'
+          with=$(grep -oP 'EXPECTED_CHECKS_WITH_PLAYERBOTS = \K[0-9]+' tests/f14_identity_facts_adapter_tests.cpp)
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic -pthread -Isrc/Systems -Itests/f14_facts_stubs/core \
+            -Itests/f14_facts_stubs/playerbots tests/f14_identity_facts_adapter_tests.cpp -o /tmp/p202
+          /tmp/p202 | grep -qx "PASS: F14 facts adapter with Playerbots, $with checks"
+      - name: Scope of proof
+        if: always()
+        run: |
+          echo 'Test-only: no src/, conf, SQL, DBC, core, Playerbots or IP change; #145 read, not edited.'
+          echo 'No hook, no wiring; F14 stays OFF. Source reading plus synthetic tests; no server run.'
