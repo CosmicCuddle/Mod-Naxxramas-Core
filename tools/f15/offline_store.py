@@ -41,6 +41,8 @@ LOCK_POLL_SECONDS = 0.01
 # Hard per-operation scan budget; applies to ALL files, not only final reports.
 # Does not cap disk usage: hostile/legacy excess fails closed without cleanup.
 MAX_DIRECTORY_SCAN_ENTRIES = 4096
+# Any restart-sidecar-shaped name, well-formed or not (P30 byte accounting).
+RESTART_SHAPED = re.compile(r"^restart-.*\.txt$", re.DOTALL)
 ERROR_CAPACITY_REPORT = re.compile(
     r"^error-burst-(worldserver|authserver)-[0-9a-f-]{36}\.txt$"
 )
@@ -260,6 +262,14 @@ class IncidentStore:
                 names.append(entry.name)
         return names
 
+    def _lstat_size(self, name: str) -> int:
+        """Size of a directory entry without following links; 0 if gone."""
+        try:
+            return max(0, os.stat(name, dir_fd=self._fd,
+                                  follow_symlinks=False).st_size)
+        except FileNotFoundError:
+            return 0
+
     def _admit_report_locked(self, kind: str, service: str, new_bytes: int):
         """Bound all finalized crash/error report lanes while holding flock.
 
@@ -276,6 +286,10 @@ class IncidentStore:
             crash = REPORT.fullmatch(name)
             error = ERROR_CAPACITY_REPORT.fullmatch(name)
             if not crash and not error:
+                if RESTART_SHAPED.fullmatch(name):
+                    # S3 restart sidecars share the ONE byte budget (P30);
+                    # their entry counts have separate lanes in S3.
+                    byte_count += self._lstat_size(name)
                 continue
             item_kind = "crash" if crash else "error"
             item_service = crash.group(1) if crash else error.group(1)
