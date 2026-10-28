@@ -1,0 +1,146 @@
+name: "A01 Golemagg audit trace cap (pinned 8daffda/d750b4b/dd96f2b link)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/BotGolemaggActionAudit.cpp'
+      - 'src/Systems/GolemaggActionAuditTrace.h'
+      - 'tests/golemagg_action_audit_trace.cpp'
+      - 'tests/test_golemagg_action_audit_trace_cap.py'
+      - '.github/workflows/golemagg-action-audit-trace-cap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: golemagg-trace-cap-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_144: da99ff3b16ef6b4203052c3de051dc8a696e5847
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+  PLAYERBOTS_SHA: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+  IP_SHA: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+
+jobs:
+  source-and-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: "Child of exact #144; only the five P2 paths differ"
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_144" HEAD
+          allowed='src/Systems/BotGolemaggActionAudit.cpp
+          src/Systems/GolemaggActionAuditTrace.h
+          tests/golemagg_action_audit_trace.cpp
+          tests/test_golemagg_action_audit_trace_cap.py
+          .github/workflows/golemagg-action-audit-trace-cap.yml'
+          git diff --name-only "$BASE_144" HEAD | while read -r path; do
+            printf '%s\n' "$allowed" | sed 's/^ *//' | grep -Fxq "$path" \
+              || { echo "unexpected changed path: $path"; exit 1; }
+          done
+          git diff --quiet "$BASE_144" HEAD -- conf
+      - name: Source contracts (existing 20 + new 6)
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests -p 'test_golemagg_action_audit*.py' -v 2>&1 | tee /tmp/py.txt
+          grep -Eq '^Ran 26 tests in [0-9.]+s$' /tmp/py.txt
+          grep -qx 'OK' /tmp/py.txt
+      - name: Native helper tests (C++17/20 strict, ASan+UBSan)
+        run: |
+          set -euo pipefail
+          for std in 17 20; do
+            g++ -std=c++$std -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion \
+              -Isrc/Systems tests/golemagg_action_audit_trace.cpp -o /tmp/trace_$std
+            /tmp/trace_$std | tee /tmp/trace_$std.txt
+            grep -qx 'PASS: Golemagg audit trace bound, 60 checks' /tmp/trace_$std.txt
+          done
+          g++ -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
+            -Isrc/Systems tests/golemagg_action_audit_trace.cpp -o /tmp/trace_asan
+          /tmp/trace_asan
+      - name: New contract is red on the unfixed #144 source
+        run: |
+          set -euo pipefail
+          git worktree add -q /tmp/base "$BASE_144"
+          cp tests/test_golemagg_action_audit_trace_cap.py /tmp/base/tests/
+          cp src/Systems/GolemaggActionAuditTrace.h /tmp/base/src/Systems/
+          if (cd /tmp/base && python3 -B -m unittest tests/test_golemagg_action_audit_trace_cap.py); then
+            echo "expected the new contract to fail on $BASE_144"; exit 1
+          fi
+
+  pinned-worldserver-link:
+    needs: source-and-native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: acore
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: ${{ env.PLAYERBOTS_SHA }}
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: ${{ env.IP_SHA }}
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify all source revisions
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "$CORE_SHA"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "$PLAYERBOTS_SHA"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "$IP_SHA"
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile the actual audit translation unit
+        run: |
+          python3 acore/modules/mod-naxxramas-core/scripts/check_golemagg_action_audit_pinned_compile.py \
+            --compile-commands acore-build/compile_commands.json --timeout 360
+      - name: Link full Worldserver without launching it
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Confirm observer registration in the linked binary
+        run: |
+          set -euo pipefail
+          binary="$(find acore-build -type f -name worldserver -print -quit)"
+          test -s "$binary"
+          grep -aFq "NaxxramasCoreGolemaggActionAudit" "$binary"
+      - name: Scope of proof
+        if: always()
+        run: |
+          echo 'Build-only. The audit stays default OFF with a single exact bot opt-in, 24 samples, 2.5 s.'
+          echo 'No server start, gameplay test, movement change, SQL, DBC or Playerbots/core/IP change.'
