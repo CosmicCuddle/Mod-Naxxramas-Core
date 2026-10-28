@@ -98,7 +98,7 @@ jobs:
           grep -Fxq 'OK' /tmp/a04-inherited.txt
           ! grep -Eq '^FAILED|^ERROR:|^FAIL:|skipped' /tmp/a04-inherited.txt
 
-      - name: Scope: positive hook is NOT gameplay acceptance
+      - name: "Scope: positive hook is NOT gameplay acceptance"
         if: always()
         run: |
           echo 'Native direct StoreLootItem: callback AFTER in-memory StoreNewItem; no claim of later durable DB save.'
