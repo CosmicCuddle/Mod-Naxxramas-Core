@@ -1,0 +1,142 @@
+name: "Part33 source integration: NT1 23 + EP six no-skips (pinned)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - ".github/workflows/part33-nt1-ep-no-skips.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: part33-nt1-ep-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_P4: fde9771afb35cc3c939f5b341b07c4e07115b335
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+  PB_SHA: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+  IP_SHA: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+  NT1_PIN_CORE: ${{ github.workspace }}/acore
+  NT1_PIN_PLAYERBOTS: ${{ github.workspace }}/acore/modules/mod-playerbots
+  NT1_PIN_IP: ${{ github.workspace }}/acore/modules/mod-individual-progression
+
+jobs:
+  pinned-no-skip-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pinned public AzerothCore source fixtures
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: acore
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game
+            src/server/database/Database/DatabaseWorkerPool.cpp
+            src/server/database/Updater/UpdateFetcher.cpp
+            src/server/scripts/OutdoorPvP/OutdoorPvPEP.cpp
+            src/server/scripts/OutdoorPvP/OutdoorPvPEP.h
+          persist-credentials: false
+
+      - name: Checkout pinned public Playerbots source
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: ${{ env.PB_SHA }}
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+
+      - name: Checkout pinned public Individual Progression source
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: ${{ env.IP_SHA }}
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+
+      - name: Checkout exact module child of P4 in native core/modules layout
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/Mod-Naxxramas-Core
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert four exact revisions and workflow-only child
+        shell: bash
+        run: |
+          set -euo pipefail
+          mod=acore/modules/mod-naxxramas-core
+          test "$(git -C acore rev-parse HEAD)" = "$CORE_SHA"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "$PB_SHA"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "$IP_SHA"
+          test "$(git -C "$mod" rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git -C "$mod" merge-base --is-ancestor "$BASE_P4" HEAD
+          changed="$(git -C "$mod" diff --name-only "$BASE_P4" HEAD)"
+          test "$changed" = ".github/workflows/part33-nt1-ep-no-skips.yml"
+          for p in \
+            src/server/game/Entities/Player/Player.cpp \
+            src/server/game/Entities/Player/Player.h \
+            src/server/game/Entities/GameObject/GameObject.cpp \
+            src/server/game/Entities/Object/Object.cpp \
+            src/server/game/OutdoorPvP/OutdoorPvPMgr.cpp \
+            src/server/game/OutdoorPvP/OutdoorPvP.cpp \
+            src/server/game/World/World.cpp \
+            src/server/game/World/WorldState.cpp \
+            src/server/database/Database/DatabaseWorkerPool.cpp \
+            src/server/database/Updater/UpdateFetcher.cpp \
+            src/server/scripts/OutdoorPvP/OutdoorPvPEP.cpp \
+            src/server/scripts/OutdoorPvP/OutdoorPvPEP.h; do
+            test -s "acore/$p" || { echo "Missing pinned fixture: $p"; exit 1; }
+          done
+
+      - name: Recheck actual NT1 fail-closed facts, no write
+        shell: bash
+        working-directory: acore/modules/mod-naxxramas-core
+        run: |
+          set -euo pipefail
+          python3 -I -B scripts/check_nt1_inplace_swap_facts.py \
+            --core "$NT1_PIN_CORE" --playerbots "$NT1_PIN_PLAYERBOTS" \
+            --ip "$NT1_PIN_IP" --module . | tee /tmp/nt1-facts.txt
+          grep -Fxq 'changed_build_altbot_apply_safe=false (no such path is implemented)' /tmp/nt1-facts.txt
+
+      - name: Execute ALL 23 inherited NT1 facts/negative tests with zero skips
+        shell: bash
+        working-directory: acore/modules/mod-naxxramas-core
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest tests/test_nt1_inplace_swap_facts.py -v 2>&1 | tee /tmp/part33-nt1.txt
+          grep -Eq '^Ran 23 tests in [0-9.]+s$' /tmp/part33-nt1.txt
+          grep -Fxq 'OK' /tmp/part33-nt1.txt
+          test "$(grep -Ec '^test_.*\.\.\. ok$' /tmp/part33-nt1.txt)" -eq 23
+          ! grep -Eqi '(^FAILED|^ERROR: test_|^FAIL: test_|\.\.\. (skipped|FAIL|ERROR)|^OK \(skipped)' /tmp/part33-nt1.txt
+
+      - name: Execute ALL six historical EP source cases with zero skips
+        shell: bash
+        working-directory: acore/modules/mod-naxxramas-core
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_ep_tower_module_only.py \
+            ModuleOnlySourceContract.test_pinned_northpass_spawn_callback_and_stock_faction \
+            ModuleOnlySourceContract.test_pinned_outdoor_pvp_handler_is_selected_only_by_world_db \
+            ModuleOnlySourceContract.test_pinned_real_core_late_loaded_spawn_metadata_contract \
+            ModuleOnlySourceContract.test_pinned_real_core_restart_order_and_graceful_db_drain \
+            ModuleOnlySourceContract.test_pinned_tower_timer_updates_without_nearby_players_or_loaded_grid \
+            ModuleOnlySourceContract.test_pinned_updater_requires_manual_ep_sql_location \
+            -v 2>&1 | tee /tmp/part33-ep.txt
+          grep -Eq '^Ran 6 tests in [0-9.]+s$' /tmp/part33-ep.txt
+          grep -Fxq 'OK' /tmp/part33-ep.txt
+          ! grep -Eqi '(^FAILED|^ERROR:|^FAIL:|skipped|^OK \(skipped)' /tmp/part33-ep.txt
+
+      - name: Evidence scope
+        if: always()
+        run: |
+          echo 'Only 29 pinned PUBLIC source/negative tests; no gameplay integration or production code.'
+          echo 'No character, pet, gear, SQL, DBC, host, server, client, build artifact, install, merge or config change.'
+          echo 'NT1 changed-build AltBot Apply remains NO-GO, EP runtime not accepted; mandatory owner gameplay 0/5.'
