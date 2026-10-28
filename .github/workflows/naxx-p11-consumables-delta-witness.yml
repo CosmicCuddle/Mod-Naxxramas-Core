@@ -1,0 +1,26 @@
+name: P11 Consumables partial-add source witness
+
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'tests/test_bot_consumables_partial_add_witness.py'
+      - '.github/workflows/naxx-p11-consumables-delta-witness.yml'
+  push:
+    branches:
+      - 'test/cs01-p11-consumables-actual-delta-witness-20261028'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-witness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python test syntax
+        run: python3 -m py_compile tests/test_bot_consumables_partial_add_witness.py
+      - name: Compile exact extracted TopUpToCount and positive delta control
+        run: python3 tests/test_bot_consumables_partial_add_witness.py
