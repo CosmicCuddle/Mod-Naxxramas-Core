@@ -279,7 +279,7 @@ def main() -> None:
         )
         actual = {}
         for line in subprocess.check_output([str(binary)], text=True).splitlines():
-            m = re.fullmatch(r"([a-z_]+)((?: [01]){8})", line)
+            m = re.fullmatch(r"([a-z][a-z_0-9]*)((?: [01]){8})", line)
             if m is None:
                 raise AssertionError(f"Unexpected source fixture output {line!r}")
             label = m.group(1)
