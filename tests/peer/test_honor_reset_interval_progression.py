@@ -106,7 +106,7 @@ int main() {
                     "normal interval changed Wednesday local clock");
         }
     }
-    std::cout << "PASS: 10 normal weekly interval cases across DST boundary dates\\n";
+    std::cout << "PASS: 10 normal weekly interval cases across DST boundary dates\n";
 
     // Reset the anchor for the original extreme-value edge witness.
     HonorResetAnchorDate = "2026-10-07";
