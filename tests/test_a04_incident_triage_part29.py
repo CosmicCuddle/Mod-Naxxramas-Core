@@ -146,8 +146,8 @@ class SafetyAndSeparation(unittest.TestCase):
         self.assertFalse(r.bug_proven)
 
     def test_exact_source_mismatch_requires_all_four_gates(self):
-        r = assess(Incident("H2", bucket="quest", shared_one_copy="yes",
-                            objective="short", inventory="met"))
+        r = assess(Incident("H2", source="creature", bucket="quest",
+                            shared_one_copy="yes", objective="short", inventory="met"))
         self.assertIn("H2_SHARED_WINDOW_COUNTER_DRIFT_SOURCE_CANDIDATE",
                       r.hypothesis_codes)
         self.assertTrue(any("BEFORE first loot window" in q
@@ -178,7 +178,8 @@ class SafetyAndSeparation(unittest.TestCase):
                     r.hypothesis_codes)
 
     def test_legacy_quest_guard_does_not_masquerade_as_ordinary_guard(self):
-        r = assess(Incident("H2", bucket="quest", legacy_quest_guard="on",
+        r = assess(Incident("H2", source="creature", method="group", denied="yes",
+                            bucket="quest", legacy_quest_guard="on",
                             hidden_ordinary_guard="off"))
         self.assertIn("H2_LEGACY_QUEST_TURN_GUARD_CANDIDATE",
                       r.hypothesis_codes)
@@ -187,7 +188,8 @@ class SafetyAndSeparation(unittest.TestCase):
         self.assertFalse(r.can_enable_a04)
 
     def test_hidden_ordinary_guard_does_not_masquerade_as_quest_guard(self):
-        r = assess(Incident("H2", bucket="ordinary",
+        r = assess(Incident("H2", source="creature", method="group",
+                            denied="yes", slot="hidden", bucket="ordinary",
                             legacy_quest_guard="off",
                             hidden_ordinary_guard="on"))
         self.assertIn("H2_HIDDEN_ORDINARY_SLOT_GUARD_CANDIDATE",
@@ -209,6 +211,68 @@ class SafetyAndSeparation(unittest.TestCase):
                                  r.hypothesis_codes)
                 self.assertNotIn("H2_HIDDEN_ORDINARY_SLOT_GUARD_CANDIDATE",
                                  r.hypothesis_codes)
+
+    def test_h2_guard_candidate_needs_recorded_denial(self):
+        # An enabled diagnostic guard is not itself evidence of denied H2.
+        for bucket, guard in (("quest", "legacy_quest_guard"),
+                              ("ordinary", "hidden_ordinary_guard")):
+            for denied in ("no", "unknown"):
+                with self.subTest(bucket=bucket, denied=denied):
+                    r = assess(Incident("H2", source="creature", method="group",
+                                        bucket=bucket, denied=denied,
+                                        slot="hidden", **{guard: "on"}))
+                    self.assertFalse(any(code.endswith("_GUARD_CANDIDATE")
+                                         for code in r.hypothesis_codes))
+                    self.assertFalse(r.bug_proven)
+
+    def test_h2_guard_candidate_needs_native_creature_group_scope(self):
+        # The module autostore hook passes item/GO/FFA/master to stock.
+        cases = (("item", "group"), ("gameobject", "group"),
+                 ("unknown", "group"), ("creature", "master"),
+                 ("creature", "free_for_all"), ("creature", "unknown"))
+        for source, method in cases:
+            for bucket, guard in (("quest", "legacy_quest_guard"),
+                                  ("ordinary", "hidden_ordinary_guard")):
+                with self.subTest(source=source, method=method, bucket=bucket):
+                    r = assess(Incident("H2", source=source, method=method,
+                                        bucket=bucket, denied="yes",
+                                        slot="hidden", **{guard: "on"}))
+                    self.assertFalse(any(code.endswith("_GUARD_CANDIDATE")
+                                         for code in r.hypothesis_codes))
+                    self.assertFalse(r.can_enable_a04)
+
+    def test_h2_ordinary_guard_cannot_explain_visible_or_unproven_slot(self):
+        # The candidate only blocks an ordinary row hidden by the stock
+        # per-viewer turn/threshold decision; visible/roll/locked rows differ.
+        for slot in ("allow", "locked", "roll_ongoing", "unknown"):
+            with self.subTest(slot=slot):
+                r = assess(Incident("H2", source="creature", method="group",
+                                    denied="yes", bucket="ordinary",
+                                    slot=slot, hidden_ordinary_guard="on"))
+                self.assertNotIn("H2_HIDDEN_ORDINARY_SLOT_GUARD_CANDIDATE",
+                                 r.hypothesis_codes)
+        supported = assess(Incident("H2", source="creature", method="group",
+                                    denied="yes", bucket="ordinary",
+                                    slot="hidden", hidden_ordinary_guard="on"))
+        self.assertIn("H2_HIDDEN_ORDINARY_SLOT_GUARD_CANDIDATE",
+                      supported.hypothesis_codes)
+        self.assertFalse(supported.bug_proven)
+
+    def test_h2_shared_corpse_window_candidate_needs_creature_source(self):
+        # H2 owner report is a creature-corpse sparkle incident.
+        for source in ("item", "gameobject", "unknown"):
+            with self.subTest(source=source):
+                r = assess(Incident("H2", source=source, bucket="quest",
+                                    shared_one_copy="yes", objective="short",
+                                    inventory="met"))
+                self.assertNotIn("H2_SHARED_WINDOW_COUNTER_DRIFT_SOURCE_CANDIDATE",
+                                 r.hypothesis_codes)
+        r = assess(Incident("H2", source="creature", bucket="quest",
+                            shared_one_copy="yes", objective="short",
+                            inventory="met"))
+        self.assertIn("H2_SHARED_WINDOW_COUNTER_DRIFT_SOURCE_CANDIDATE",
+                      r.hypothesis_codes)
+        self.assertFalse(r.accepted)
 
     def test_schema_refuses_arbitrary_id_password_or_sql_as_fields(self):
         for keyword in ("item_id", "character_guid", "quest_id", "host",
