@@ -13,6 +13,7 @@
  */
 
 #include "Config.h"
+#include "ConfigFlagSnapshot.h"
 #include "DBCStores.h"
 #include "Group.h"
 #include "Log.h"
@@ -81,10 +82,13 @@ namespace NaxxramasBotTalentCompletion
     std::unordered_map<ObjectGuid::LowType, PendingRespec> Pending;
     std::unordered_map<ObjectGuid::LowType, std::deque<CommandIntent>> Intents;
 
+    // Read on the world thread by NaxxramasCoreBotTalentCompletionConfig;
+    // Enabled() runs every OnPlayerBeforeUpdate on map threads.
+    NaxxramasConfigSnapshot::Flag EnabledSetting{false};
+
     bool Enabled()
     {
-        return sConfigMgr->GetOption<bool>(
-            "NaxxramasCore.BotTalentCompletion.Enabled", false);
+        return EnabledSetting.Load();
     }
 
     bool IsSupportedBot(Player* player)
@@ -891,7 +895,26 @@ private:
     }
 };
 
+// Startup and every .reload config; same key and default as before.
+class NaxxramasCoreBotTalentCompletionConfig final : public WorldScript
+{
+public:
+    NaxxramasCoreBotTalentCompletionConfig()
+        : WorldScript("NaxxramasCoreBotTalentCompletionConfig",
+            { WORLDHOOK_ON_AFTER_CONFIG_LOAD })
+    {
+    }
+
+    void OnAfterConfigLoad(bool /*reload*/) override
+    {
+        NaxxramasBotTalentCompletion::EnabledSetting.Store(
+            sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.BotTalentCompletion.Enabled", false));
+    }
+};
+
 void AddBotTalentCompletionScripts()
 {
+    new NaxxramasCoreBotTalentCompletionConfig();
     new NaxxramasCoreBotTalentCompletion();
 }
