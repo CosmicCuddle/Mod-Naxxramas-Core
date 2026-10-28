@@ -1,0 +1,73 @@
+# Mod-Naxxramas-Core — Part 32 Living Development Checklist
+
+**Created 28 October 2026 UTC. PUBLIC, nonauthorising, documentation-only.** This is the ACTIVE checklist for Part32; retain [complete Part31→32 historical handover](2026-10-28_PART31_TO_PART32.md), [Part31 checklist](2026-10-28_PART31_LIVING_DEVELOPMENT_CHECKLIST.md) and all older records without rewriting history. READ the complete Part31→32 handover and this file IN FULL before continuing.
+
+## 0. Safety and engineering style — always
+
+- [ ] **Latest live git refs and coordination:** refresh core/pins, main, related DRAFTs #160/#186/#187/#189/#190/#191/#192/#193, current A02 research branch and latest master #28, team #48, Claude #143, human quest loot #109 before edits. Never assume historical SHA is current.
+- [ ] **Development first / no unnecessary repeat reviews.** Focus meaningful code, exact test, regressions, necessary limited source reviews; avoid no-value research loops, redundant PRs, comprehensive recompilation for docs-only change, or broad unrequested changes.
+- [ ] **Team plan:** Claude/CS03 ~60% hands-on engineering lead, Grok/CS02 ~20% N-Core/A02 specialist, CS01 ~20% A04 engineering PLUS PM/integration/release/necessary QA. These are TARGETS, not running agents. New CS03 F14 assignment [#6469287886](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6469287886) still needs personal ACK, not assumed automatic.
+- [ ] **Permissions:** PUBLIC isolated DRAFT source work only unless separate owner approval. No protected #160/main edit/merge/release, actual World/Auth launcher/service, owner source/install/config, client, player/bot data, DB/SQL/DBC, core/PB/IP changes, feature activation, staging or production access. Native A02 NoWrite; keep config defaults OFF and MapUpdate.Threads=8.
+- [ ] **Owner nonproduction pilot prerequisites:** explicit precisely scoped permission, private actual installed binary/dependency/config/DBC verification, tested restorable backup+rollback and safe isolated scenario before any feature ON. Never expose actual private identifiers/logs/screenshots in public repo.
+- [ ] **Five mandatory gameplay signoffs = 0/5 until genuine owner-accepted tests**: GFPP 120 sec, F12 Scarlet doors, F13 Atiesh portal, A02 Hunter autocast, A04 quest loot. Source CI and full Worldserver link DO NOT count as in-game. F14 optional and F15 infrastructure separate.
+
+## 1. Immutable source snapshot at Part32 entry (REFRESH)
+
+| Candidate | Previously verified SHA | Gate |
+| --- | --- | --- |
+| Main | 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9 | Protected |
+| [#160](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/160) | a7523ebb823169edc969d971d00aa293119f2f05 | Combined F12/F13/GFPP/optional F14, DRAFT/unmerged |
+| [#186](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/186) | ea16700710698ca0515925838f3274c2da3760b8 | GFPP atomic, linked pinned source |
+| [#187](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/187) | de6816a1e3f94f2e530fca093dd596c11903b8d3 | Atiesh lifetime, linked pinned source |
+| [#189](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/189) | fbecdf223eb0a5e4970573eda482aeed161a0f5c | Combined CI original 498 tests, SIX EP skips |
+| [#192](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/192) | 9f33d2ca0924bbc34dea13dc8dda05f1b517f6c2 | Separate 6/6 EP source fixture green |
+| [#190](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/190) | 6815850693a6cfd76f8293e404d6d2935eb4ea94 | Previous Part31 Markdown files |
+| [#191](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/191) | a73b1aed7871da6ffdad7a33c73ce9a46cbdfaa3 | F15 offline 199/199 PASS, not operational |
+| [#193](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/193) | 1009a7e6ae524195acf118133226618f0733e25d | A04 no-write classifier **24/24 hosted**, not loot fix |
+
+Public core pin **8daffdabe9202c228e45d833c9a1d399597a15cd**, Playerbots **d750b4b3a50effdf22bedc8032f0e8e5f7cb8091**, IP **dd96f2b77e3ebfa2a4726bf785525ba133f1ab61**. None is proof of owner's actual installed version. Historical Part31 full source evidentiary references are in the linked handover and checklist.
+
+## 2. CODING-FIRST active ownership — do not duplicate
+
+### CS03 / Claude — F14 human-vs-bot classifier FIRST
+
+- [ ] Check for actual ACK from Claude on [team #48 P1 assignment](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6469287886). User explicitly wants Claude majority engineering, not repeated F15/F12/F13 review.
+- [ ] Verify exact PUBLIC source supports positive, inexpensive, safe **Human / Random Playerbot / AltBot / Unknown** discrimination in both observer-specific world visibility and /who cache context. **Do not** infer from race, name, guessed account range, remote Player pointer or private installed data.
+- [ ] If grounded, Claude owns ONE distinct isolated **DRAFT pure policy/classifier** with synthetic checks of BOTH tentative choices: prior hide ALL Blood Elf/Draenei, versus potential hide ONLY Blood Elf/Draenei bots; check Vanilla/TBC/WotLK observer, GM/self and Unknown default safe. No runtime hooking, packet replacement, config ON, core changes or authorisation to apply a new F14 policy.
+- [ ] If missing a safe source identity contract/seam: report concrete BLOCKED evidence and minimal requirement. Do not fabricate. Later actual world visibility/targeting/AoE/PvP/pets/groups/progression refresh still demand separate review and owner gameplay.
+
+### CS02 / Grok — A02 N-Core D17 two real regressions, D18 residual
+
+- [ ] Refresh owner-approved CS02 N-Core research branch from [3381a49ff2ff504c2614032162bbdfc50037db22](https://github.com/CosmicCuddle/N-Core/commit/3381a49ff2ff504c2614032162bbdfc50037db22); D15/D16 prior conditional source-fix 19978e6, relay default OFF, no addon release. No CS01 edit of CS02 branch.
+- [ ] **D17-8:** Lua 5.1 and/or fallback converts DisableSpellAutocast direction false into nil, own OFF misattributed as user. **D17-9:** nested 3.3.5 PetActionButton_OnClick → TogglePetAutocast hits both hooks, duplicates click. Direct [source evidence](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6469040869); [CS01 scratch before/after trial](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6469429049) is NOT a published peer fix or true client proof. CS02 needs its own independently justified exact-source correction, regression tests and future permitted client confirmation.
+- [ ] **D18:** source improved normal pet swap disarm and after-combat cleanup but in-combat pet A→B stale secure macro persists conditionally if no sampled nopet state. No reliable gameplay acceptance; no protected execution, no unreviewed core/client patch.
+- [ ] Separate native A02 remains NoWrite: valid human command/posthandler acceptance vs SelfBot, permanent pet birth/commit/recovery, IP rank settled, v2 authority, W1 ambiguous first click, real client secure state all outstanding. Never enable v1 auto-apply on source tests alone.
+
+### CS01 / CosmicScript01 — A04 code and integration
+
+- [x] **New Part31 isolated A04 source-classifier fix #193** 1009a7e, four paths, 24/24 hosted source tests [run 40690491136](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40690491136), not a loot grant correction. Quest bucket vs ordinary bucket vs unknown correctly separated.
+- [ ] Only pursue next **real source demonstrable** A04 bug/failing test; do not produce speculative gameplay guard. H1 actual friend inventory/mail receipt+eligibility+bucket+group turn/roll, H2 separate sparkle/denial+objective/bags before loot, effective flags, actual installed code all require **owner-private R0 and real evidence** before any functional patch.
+- [ ] PM/release integration and narrow necessary peer quality gates continue; do not repeatedly re-review no-change files/hosted runs. Coordinate actual Claude/Grok ACK and tasks without fabricating their time or autonomy.
+
+## 3. Mandatory outcomes and consent-gated verification
+
+- [ ] **GFPP 120 seconds:** #186 native S4 done; safe owner-approved stopwatch first successful MC aura, exactly one attempt after >=120 seconds, no early/repeat, reload/one-shot/party/dead/absent positive and negative tests; atomic flag rollback OFF. No gameplay run.
+- [ ] **F12 Cathedral/Armory:** exits 604/606 native source candidate; installed global ALE Lua prepacket path and non-debug GM stock route parity still UNKNOWN; source already reviewed, no more generic scans. OFF/NO-GO until permitted private installed R0 and separately approved pilot, physical exterior/facing/no bounce.
+- [ ] **F13 Atiesh outdoors:** physical actual landing vs TeleportTo(true) acceptance, owner vs ownerless/same-map charged GO lifetime, real custom GO/AI/global hook, pre-veto aura side effects and negatives. No blanket AddUse/dereference fixes. Type22 SPELLCASTER has no stock GetCooldown gate on pinned core; prior R5 not applicable. OFF/NO-GO, NOT RUN.
+- [ ] **A02 Hunter pet:** no native write, human and bot authority gates unresolved as above; no in-game acceptance.
+- [ ] **A04 two-human loot H1/H2:** source classifier not functional loot fix; owner-private evidence and genuine negative controls pending; no acceptance.
+
+## 4. Optional/infra work not to lose
+
+- [ ] **F14** real world racial visibility plus /who remains optional and default OFF. Owner tentatively exempts REAL HUMAN players, explicitly excludes Random Bots and AltBots from “players”; final policy STILL undecided. Existing /who #145/#160 hides humans AND bots; not revised, and open-world phase not implemented. One shared safe predicate for /who/world required, no global phase-mask shortcut.
+- [ ] **F15** separate real Worldserver+Authserver crash AND WARN/ERROR monitoring NOT OPERATIONAL. Claude #191 199/199 offline tests pass; actual daemon launcher/parent/log/retention permissions and private installed provenance **BLOCKED_AT_R0**. Do not enable/restart/probe owner services without separate consent.
+- [ ] All other [master #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28) active A/B/F backlog items (AltBot talents, Golemagg, ammo, EPL, Hallow's End, MC, etc.) remain registered; never mistake five urgent owner acceptances for all release scope.
+- [ ] #189 original **498 Python tests, 6 EP skips** remains historically accurate. #192 new distinct **six EP tests executed and passed**; neither proves owner EPL gameplay. No need to rerun expensive full C++ link on unchanged source.
+
+## 5. Logging, approvals, final handover
+
+- [ ] Log only **material completed source/CI/coding milestones** in master #28; coordination/task ACK in team #48 and Claude queue #143; quest incidents in #109. Link exact immutable SHA, verified hosted original job if claiming PASS, distinguish local vs peer/hosted vs owner.
+- [ ] Keep this Part32 checklist current; never rewrite Part31→32 historical handover or Part31/older checklists. Source changes get new narrow unmerged DRAFT branches with clear ancestry. Check actual HEAD just before any file update.
+- [ ] Prepare Part32→33 handover before the next new chat, including exact newer PRs/SHAs, actual team ACK, owner approvals, safety boundaries and **real 0/5 vs any proven acceptance**.
+
+**Part32 OPENING: 0/5 mandatory owner gameplay outcomes accepted; Claude F14 pure classifier P1 assignment awaits ACK; Grok A02 D17-8/9 source regressions and D18 combat identity issue pending; CS01 A04 triage classifier now source-fixed 24/24 but both incidents unverified; F12/F13 owner installed parity R0 unresolved; F15 not operational. Coding first.**
