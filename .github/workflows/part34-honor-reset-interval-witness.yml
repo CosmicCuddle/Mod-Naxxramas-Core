@@ -1,0 +1,37 @@
+name: Part34 HonorReset interval progression source witness (no DB)
+
+on:
+  push:
+    branches:
+      - cs01/part34-honor-reset-interval-progress-witness-20261028
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-calendar:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Exact parent and two-path test-only scope
+        env:
+          MAIN_SHA: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+        run: |
+          set -euo pipefail
+          git cat-file -e "$MAIN_SHA^{commit}"
+          test "$(git merge-base "$MAIN_SHA" HEAD)" = "$MAIN_SHA"
+          git diff --name-only "$MAIN_SHA" HEAD | sort > /tmp/actual.txt
+          printf '%s\n' \
+            '.github/workflows/part34-honor-reset-interval-witness.yml' \
+            'tests/peer/test_honor_reset_interval_progression.py' | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+      - name: C++17 and C++20 source-extracted normal and extreme interval
+        run: |
+          set -euo pipefail
+          timeout 180s python3 -I tests/peer/test_honor_reset_interval_progression.py | tee /tmp/honor.log
+          grep -qx 'PASS: isolated source-bound scheduler regression witness (no DB, SQL or live server)' /tmp/honor.log
+          test "$(grep -c 'EXPECTED-RED: original GetLatestScheduledReset' /tmp/honor.log)" -eq 2
