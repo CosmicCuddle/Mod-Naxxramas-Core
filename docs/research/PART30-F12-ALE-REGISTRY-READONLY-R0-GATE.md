@@ -43,6 +43,24 @@ Each of the three file audits finished with **zero fetch errors** and zero match
 
 **What remains unproven:** inherited/aliased/generated implementations, files outside these C++ scopes, the remainder of public Playerbots `src`, core scripts outside the single inspected world area-trigger file, loaded custom modules, private patches, actual compiled registries and effects on exit 604/606. **A textual absence is not a native/runtime no-hook proof.** The installed R0 classification remains **UNKNOWN → F12 OFF / NO-GO** until separately authorised, privately reviewed.
 
+## Follow-up pinned public source expansion — Part30, 28 October 2026 UTC
+
+**Method identical to initial 126-file audit:** obtained exact pinned Git tree by SHA, enumerated each in-scope `.cpp` / `.h` file, retrieved each file, and checked source lines for direct `ALEScript`, `CanAreaTrigger(` or `ScriptRegistry<ALEScript>` references. This is a textual source-only audit with neither build/runtime proof nor a claim about installed owner modules. The second pass adds **172 distinct files** to the preceding **126**, for **298 distinct scoped public C++ files**.
+
+| Additional pinned public scope | Newly reviewed | Direct matches | Critical limitation |
+| --- | ---: | ---: | --- |
+| `mod-playerbots/mod-playerbots@d750b4b3a50effdf22bedc8032f0e8e5f7cb8091` `src/**` files **excluding** already-reviewed `src/Script/**` and **excluding `src/Ai/**`**, tree `cf2b9e925e9929d09ec1947e2a9edb6940cf843e` | **110/110** | **0** | `src/Ai/**` has **1,299** additional C++ files **not reviewed** in this audit; private custom Playerbots may differ |
+| `Grimfeather/azerothcore-wotlk@8daffdabe9202c228e45d833c9a1d399597a15cd` `src/server/scripts/{World,OutdoorPvP,Events,Custom}/**` `.cpp/.h`, scripts Git tree `2b6b042dcb02be3207060c10e2961bfde91686c2` | **60/60** | **0** | Does not cover the remaining stock core scripts in Northrend/EasternKingdoms/Outland/Kalimdor/Commands/Spells/Pet |
+| Same exact AzerothCore pin, `src/server/scripts/EasternKingdoms/ScarletMonastery/{instance_scarlet_monastery.cpp,scarletmonastery.h}` | **2/2** | **0** | No direct `ALEScript` or `CanAreaTrigger` reference in these two files; does not prove no other core or owner plugin handles 604/606 |
+| **New files in second pass** | **172/172** | **0** | No errors in the completed selected-file fetches |
+| **Combined distinct files, both passes** | **298/298** | **0 direct source-symbol matches** | **Not** all Playerbots code, all native core scripts, or any installed owner source/binary registration |
+
+The previous 126-file audit already included `src/server/scripts/World/areatrigger_scripts.cpp` as an **additional inspected file**; it is counted **only once** in this 60-file expansion. The Scarlet Monastery pair are outside the 60 directories and therefore are **two additional distinct** files.
+
+**Interpretation:** in the specifically reviewed source locations, no direct callback implementation/registration was found. This is useful negative evidence for the public pinned build, but registration could still be implemented in unreviewed script directories, alternate/generated source, indirectly via another class, custom owner patches or modules. The global `ALEScript` dispatcher **exists** and F12 can skip it regardless of whether these particular in-scope modules implement a callback. Do not declare the owner-installed hook registry empty, do not infer an R0 GO and do not enable or patch F12.
+
+**Source gate remains unchanged:** private installed build and module callback relevance, including any 604/606-specific or generic side effects, **UNKNOWN**; GM destination policy likewise unresolved. R0 **NOT AUTHORISED/NOT RUN**; F12 **OFF / NO-GO**. Any future owner staging is separate and requires explicitly authorised nonproduction scope plus verified restorable backups/rollback.
+
 ## Decision table — documentation gate, NOT staging approval
 
 | Evidence state | F12 R0 decision |
