@@ -99,6 +99,41 @@ class SafetyAndSeparation(unittest.TestCase):
         self.assertNotIn("H1_TURN_RELEASE_STOCK_CONSISTENT_CANDIDATE",
                          r.hypothesis_codes)
 
+    def test_h1_turn_release_explanation_requires_creature_and_nonffa(self):
+        # Pinned Group::UpdateLooterGuid never rotates a FREE_FOR_ALL turn.
+        # Other loot-source turn semantics are not proven by this trace.
+        for source, method in (("creature", "free_for_all"),
+                               ("creature", "unknown"),
+                               ("gameobject", "group"),
+                               ("item", "round_robin"),
+                               ("unknown", "group")):
+            for turn in ("friend", "released"):
+                with self.subTest(source=source, method=method, turn=turn):
+                    r = assess(Incident("H1", source=source, method=method,
+                                        bucket="quest", turn=turn,
+                                        award_to_friend="yes",
+                                        friend_eligible="yes",
+                                        shared_one_copy="yes"))
+                    self.assertIn("H1_POSSIBLE_LEGITIMATE_SHARED_AWARD",
+                                  r.hypothesis_codes)
+                    self.assertNotIn("H1_TURN_RELEASE_STOCK_CONSISTENT_CANDIDATE",
+                                     r.hypothesis_codes)
+                    self.assertFalse(r.bug_proven)
+
+    def test_h1_turn_release_explanation_keeps_bounded_creature_cases(self):
+        for method in ("group", "round_robin", "need_before_greed", "master"):
+            for turn in ("friend", "released"):
+                with self.subTest(method=method, turn=turn):
+                    r = assess(Incident("H1", source="creature", method=method,
+                                        bucket="quest", turn=turn,
+                                        award_to_friend="yes",
+                                        friend_eligible="yes",
+                                        shared_one_copy="yes"))
+                    self.assertIn("H1_TURN_RELEASE_STOCK_CONSISTENT_CANDIDATE",
+                                  r.hypothesis_codes)
+                    self.assertFalse(r.accepted)
+                    self.assertFalse(r.can_change_shared_loot)
+
     def test_ordinary_quest_related_item_not_assumed_personal(self):
         r = assess(Incident("H1", bucket="ordinary"))
         self.assertIn("H1_ORDINARY_ITEM_IS_NOT_AUTOMATICALLY_PERSONAL",
