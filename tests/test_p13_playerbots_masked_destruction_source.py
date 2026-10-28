@@ -147,8 +147,8 @@ void Scenario(char const* name, bool haveAI, bool haveMgr, bool enabled,
     int deletedMgr = PlayerbotMgr::deleted;
 
     sPlayerbotAIConfig.Enabled = true;
-    bool stale = (ai && gManager.GetPlayerbotAI(&newPlayer) == ai) ||
-                 (mgr && gManager.GetPlayerbotMgr(&newPlayer) == mgr);
+    bool stale = (aiRows && ai && gManager.GetPlayerbotAI(&newPlayer) == ai) ||
+                 (mgrRows && mgr && gManager.GetPlayerbotMgr(&newPlayer) == mgr);
     std::cout << name << " " << aiRows << " " << mgrRows << " "
               << deletedAI << " " << deletedMgr << " " << stale << "\n";
 
