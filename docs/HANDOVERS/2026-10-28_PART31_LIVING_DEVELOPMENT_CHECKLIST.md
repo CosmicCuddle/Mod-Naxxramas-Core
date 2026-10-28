@@ -61,6 +61,14 @@ Published CI core `8daffdabe9202c228e45d833c9a1d399597a15cd`, Playerbots `d750b4
 
 See [full F13 dispatch review in the handover](2026-10-28_PART30_TO_PART31.md#5a-subsequent-f13-pinned-native-go-use-dispatch-review--28-october-2026-utc).
 
+## 4B. F13 owner same-map charged spellcaster lifetime — source-only NOT RUN
+
+- [x] **Pinned native charge mechanism verified:** `GameObject.h::AddUse` increments `m_usetimes`; `GameObjectData.h::GetCharges` reads `spellcaster.charges` for type 22; `GameObject.cpp::Update` deactivates a ready spawned object when a **positive** charge limit is reached. Stock successful spellcaster `CastSpell` increments use. Thus a skipped count can affect *charged portal lifetime*, not merely statistics.
+- [x] **Pinned native near teleport branch verified:** destination map of the F13 exterior gate policy is **map 0**. `Player::TeleportTo` uses its same-map near branch if the clicker starts on map 0 (and no new instance is requested), possibly accepting without old-map removal; pre-branch aura interruption **may still remove** a summoned portal. `TeleportTo(true)` is an accepted request, not proof of client arrival or GO survival.
+- [ ] **Conditional owner-owned GO parity:** #187 safely avoids post-return GO dereference for clicker-owned portal. **IF** a charged, owned portal survives same-map travel, it does not receive `AddUse`, potentially delaying the charge-threshold despawn. **Installed `spellcaster.charges`, actual GO ownership, source-map and survival are UNKNOWN**. Do not declare a game bug or alter protected #160/#187 without real source/data review and separate owner approval.
+- [ ] **Future separately authorised private staged matrix:** owned same-map charged/surviving, owned far-map or aura-removed, owned same-map uncharged, other-owned/ownerless, refused teleport. Privately observe charge/use/despawn plus actual physical landing/facing and non-teleporting click negative. Backups verified restorable first; all cases **NOT RUN**. No forced edits to real GO rows or unsafe test objects.
+- [ ] **No speculative shortcut:** pre-teleport `AddUse` can count refused requests, post-teleport `go` may be invalid. A safe alternative must first prove exact lifecycle and request/ACK/accounting semantics. See [full source review and decision matrix](2026-10-28_PART30_TO_PART31.md#5b-f13-spellcaster-charge-accounting-vs-same-map-owned-portal--exact-pinned-source-review-not-run).
+
 ## 5. Other mandatory gates (independent of F12/F13 CI)
 
 - [ ] **A02 Hunter pet manual autocast — NoWrite.** Needs actual human accepted preference click distinction, excluding SelfBot automation, IP legal rank changes, pet birth identity and durable writer/revision evidence. Protected default OFF, no SQL/schema/writer authorisation.
