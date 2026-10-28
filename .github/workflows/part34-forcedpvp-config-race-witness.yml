@@ -1,0 +1,40 @@
+name: Part34 ForcedPvP config reload source race witness (no production changes)
+
+on:
+  push:
+    branches:
+      - cs01/part34-forcedpvp-config-race-witness-20261028
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-main-tsan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Exact main parent and no-production-change scope
+        env:
+          MAIN_SHA: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$MAIN_SHA^{commit}"
+          test "$(git merge-base "$MAIN_SHA" HEAD)" = "$MAIN_SHA"
+          git diff --name-only "$MAIN_SHA" HEAD | sort > /tmp/actual.txt
+          printf '%s\n' \
+            '.github/workflows/part34-forcedpvp-config-race-witness.yml' \
+            'tests/peer/test_forcedpvp_config_race_witness.py' | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+      - name: Original source function + synthetic overlapping config reload TSAN
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 180s python3 -I tests/peer/test_forcedpvp_config_race_witness.py | tee /tmp/forcedpvp-witness.log
+          grep -qx 'EXPECTED-RED: original source bools trigger ThreadSanitizer data race' /tmp/forcedpvp-witness.log
+          grep -qx 'PASS: test-only atomic-bool control is ThreadSanitizer-clean' /tmp/forcedpvp-witness.log
+          grep -qx 'PASS: original ForcedPvP source race witness; no production files modified' /tmp/forcedpvp-witness.log
