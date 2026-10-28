@@ -46,6 +46,42 @@ class SafetyAndSeparation(unittest.TestCase):
                       r.hypothesis_codes)
         self.assertFalse(r.bug_proven)
 
+    def test_ordinary_loot_without_quest_requirement_is_not_wrong_award_proof(self):
+        # Ordinary loot can be related to someone's quest yet legitimately
+        # acquired by another group member lacking that quest.
+        r = assess(Incident("H1", source="creature", bucket="ordinary",
+                            method="group", turn="friend",
+                            award_to_friend="yes", friend_eligible="no",
+                            shared_one_copy="yes", hidden_ordinary_guard="off"))
+        self.assertIn("H1_ORDINARY_ENTITLEMENT_UNDETERMINED", r.hypothesis_codes)
+        self.assertIn("H1_ORDINARY_ITEM_IS_NOT_AUTOMATICALLY_PERSONAL",
+                      r.hypothesis_codes)
+        self.assertNotIn("H1_UNEXPECTED_AWARD_REQUIRES_PRIVATE_NATIVE_AUDIT",
+                         r.hypothesis_codes)
+        self.assertIn("friend's native ordinary-loot entitlement, not quest status alone",
+                      r.needed_categories)
+        self.assertFalse(r.bug_proven)
+        self.assertFalse(r.can_change_shared_loot)
+
+    def test_unknown_bucket_ineligible_friend_requires_bucket_before_judgment(self):
+        r = assess(Incident("H1", award_to_friend="yes",
+                            friend_eligible="no", bucket="unknown"))
+        self.assertIn("H1_BUCKET_REQUIRED_BEFORE_ELIGIBILITY_JUDGMENT",
+                      r.hypothesis_codes)
+        self.assertNotIn("H1_UNEXPECTED_AWARD_REQUIRES_PRIVATE_NATIVE_AUDIT",
+                         r.hypothesis_codes)
+        self.assertFalse(r.bug_proven)
+
+    def test_quest_bucket_ineligible_friend_still_flags_private_audit(self):
+        # Never call a quest-bucket award 'proved bug': conditions and the
+        # actual server-side receipt path still require private evidence.
+        r = assess(Incident("H1", award_to_friend="yes", friend_eligible="no",
+                            bucket="quest", legacy_quest_guard="off"))
+        self.assertIn("H1_UNEXPECTED_AWARD_REQUIRES_PRIVATE_NATIVE_AUDIT",
+                      r.hypothesis_codes)
+        self.assertFalse(r.bug_proven)
+        self.assertFalse(r.can_enable_a04)
+
     def test_eligible_friend_shared_award_is_not_classified_as_bug(self):
         for turn in ("friend", "reporter", "released", "unknown"):
             with self.subTest(turn=turn):
