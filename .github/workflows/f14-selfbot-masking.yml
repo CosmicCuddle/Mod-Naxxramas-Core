@@ -1,0 +1,120 @@
+name: "F14 P12 masked SelfBot (test-only, native)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/PlayerIdentityFacts.h'
+      - 'src/Systems/PlayerIdentityFacts.cpp'
+      - 'src/Systems/PlayerIdentityPolicy.h'
+      - 'tests/f14_selfbot_masking_tests.cpp'
+      - 'tests/f14_selfbot_masking_facts.py'
+      - 'tests/f14_selfbot_masking_mutants.py'
+      - 'tests/f14_facts_stubs/**'
+      - 'docs/research/F14-P12-SELFBOT-MASKING.md'
+      - '.github/workflows/f14-selfbot-masking.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f14-p12-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_202: 205d958c3fddc8943c8eeef9822213f810e47c2d
+  PLAYERBOTS_SHA: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: ${{ env.PLAYERBOTS_SHA }}
+          path: pinned-playerbots
+          sparse-checkout: src
+          persist-credentials: false
+      - name: Confirm exact heads
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-playerbots rev-parse HEAD)" = "$PLAYERBOTS_SHA"
+      - name: "Test-only child of #202: no src/conf change, only P12 paths added"
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_202" HEAD
+          git diff --quiet "$BASE_202" HEAD -- src conf tests/f14_facts_stubs
+          git diff --name-status "$BASE_202" HEAD | while read -r status path; do
+            test "$status" = "A" || { echo "not an addition: $status $path"; exit 1; }
+            case "$path" in
+              tests/f14_selfbot_masking_tests.cpp|tests/f14_selfbot_masking_facts.py|\
+              tests/f14_selfbot_masking_mutants.py|docs/research/F14-P12-SELFBOT-MASKING.md|\
+              .github/workflows/f14-selfbot-masking.yml) ;;
+              *) echo "unexpected changed path: $path"; exit 1 ;;
+            esac
+          done
+      - name: Pinned Playerbots source facts (13, each with a negative fixture)
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_selfbot_masking_facts.py pinned-playerbots | tee /tmp/facts.txt
+          grep -qx '13/13 negative fixtures caught' /tmp/facts.txt
+          grep -qx 'PASS: 13 pinned Playerbots facts at d750b4b' /tmp/facts.txt
+      - name: Real adapter + classifier, masked SelfBot matrix (C++17/20, ASan+UBSan)
+        run: |
+          set -euo pipefail
+          # The fixture fails on count drift; the floor stops coverage shrinking.
+          n=$(grep -oP 'constexpr int EXPECTED_CHECKS = \K[0-9]+' tests/f14_selfbot_masking_tests.cpp)
+          test "$n" -ge 27
+          F="-Wall -Wextra -Werror -pedantic -Wshadow -pthread -Isrc/Systems -Itests/f14_facts_stubs/core -Itests/f14_facts_stubs/playerbots"
+          for std in 17 20; do
+            g++ -std=c++$std $F tests/f14_selfbot_masking_tests.cpp -o /tmp/p12_$std
+            /tmp/p12_$std | tee /tmp/p12_$std.txt
+            grep -qx "PASS: F14 P12 masked SelfBot matrix, $n checks" /tmp/p12_$std.txt
+          done
+          g++ -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $F \
+            tests/f14_selfbot_masking_tests.cpp -o /tmp/p12_san
+          /tmp/p12_san | grep -qx "PASS: F14 P12 masked SelfBot matrix, $n checks"
+      - name: Count drift is caught (drop one check -> must fail)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/drift
+          python3 - <<'PY'
+          import pathlib
+          src = pathlib.Path("tests/f14_selfbot_masking_tests.cpp").read_text()
+          line = "    CHECK(Classify(maskedPlain) == Identity::Human);\n"
+          assert src.count(line) == 1, "anchor check missing"
+          pathlib.Path("/tmp/drift/t.cpp").write_text(src.replace(line, ""))
+          PY
+          g++ -std=c++20 -Isrc/Systems -Itests/f14_facts_stubs/core -Itests/f14_facts_stubs/playerbots \
+            /tmp/drift/t.cpp -o /tmp/drift/t
+          if /tmp/drift/t > /tmp/drift/out.txt; then echo "dropped check not detected"; exit 1; fi
+          grep -q '^COUNT DRIFT: ran 26 checks, expected 27$' /tmp/drift/out.txt
+      - name: Must-fail mutants, including decision options M2 and M3 (8)
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_selfbot_masking_mutants.py /tmp/p12mut | tee /tmp/m.txt
+          grep -qx '8/8 mutants caught' /tmp/m.txt
+      - name: "Inherited #197 classifier and #202 adapter still pass"
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic -pthread -Isrc/Systems \
+            tests/f14_player_identity_policy_tests.cpp -o /tmp/p197
+          /tmp/p197 | grep -qx 'PASS: F14 identity classifier, 2936 checks'
+          with=$(grep -oP 'EXPECTED_CHECKS_WITH_PLAYERBOTS = \K[0-9]+' tests/f14_identity_facts_adapter_tests.cpp)
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic -pthread -Isrc/Systems -Itests/f14_facts_stubs/core \
+            -Itests/f14_facts_stubs/playerbots tests/f14_identity_facts_adapter_tests.cpp -o /tmp/p202
+          /tmp/p202 | grep -qx "PASS: F14 facts adapter with Playerbots, $with checks"
+      - name: Scope of proof
+        if: always()
+        run: |
+          echo 'Test-only: no src/, conf, SQL, DBC, core, Playerbots or IP change. F14 stays unwired and OFF.'
+          echo 'Source reading plus a synthetic model; no server run, no gameplay acceptance.'
