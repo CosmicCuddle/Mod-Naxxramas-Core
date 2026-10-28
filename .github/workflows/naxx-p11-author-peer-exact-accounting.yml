@@ -1,0 +1,42 @@
+name: P11 independent exact-author C++ accounting cross-check
+
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/BotRaidConsumables.cpp'
+      - 'tests/test_p11_author_exact_peer_accounting.py'
+      - '.github/workflows/naxx-p11-author-peer-exact-accounting.yml'
+  push:
+    branches:
+      - 'test/cs01-p11-peer-author-exact-crosscheck-20261028'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  author-source-peer-crosscheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify pinned P11 author and peer two-path scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUTHOR=4e697e7863aff061bb7464865fb967db32804dd6
+          git merge-base --is-ancestor "$AUTHOR" HEAD
+          test "$(git diff --name-only "$AUTHOR" HEAD | wc -l)" -eq 2
+          git diff --name-only "$AUTHOR" HEAD > /tmp/p11-peer-paths
+          printf '%s\n' \
+            '.github/workflows/naxx-p11-author-peer-exact-accounting.yml' \
+            'tests/test_p11_author_exact_peer_accounting.py' > /tmp/p11-expected-paths
+          diff -u /tmp/p11-expected-paths /tmp/p11-peer-paths
+          test "$(git show "$AUTHOR":src/Systems/BotRaidConsumables.cpp | sha256sum | cut -d' ' -f1)" = \
+               "$(sha256sum src/Systems/BotRaidConsumables.cpp | cut -d' ' -f1)"
+      - name: Compile actual author production C++ against 16 independent inventory checks
+        run: |
+          python3 -m py_compile tests/test_p11_author_exact_peer_accounting.py
+          python3 tests/test_p11_author_exact_peer_accounting.py
