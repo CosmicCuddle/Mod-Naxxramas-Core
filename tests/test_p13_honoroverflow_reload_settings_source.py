@@ -205,18 +205,135 @@ def check_negative_guards(source: str, sources: dict[str, str]) -> None:
         raise AssertionError("Guard missed world callback removal")
 
 
+
+def check_standard_ingress(sources: dict[str, str]) -> None:
+    """Source-guard the standard pinned reload ingress paths and tick order.
+
+    These checks establish sequential callbacks for the IN-SCOPE standard
+    ingress paths; they do not establish that no other caller can invoke
+    World::LoadConfigSettings or prove owner-runtime behavior.
+    """
+    update = method(sources["world"], "void World::Update(uint32 diff)")
+    stages = (
+        "sWorldSessionMgr->UpdateSessions(diff);",
+        "sMapMgr->Update(diff);",
+        "ProcessCliCommands();",
+        "sScriptMgr->OnWorldUpdate(diff);",
+    )
+    positions = [update.index(token) for token in stages]
+    if positions != sorted(positions) or len(set(positions)) != len(positions):
+        raise AssertionError("World tick order drift: session -> map -> CLI -> world scripts")
+    mgr = method(sources["mapmgr"], "void MapMgr::Update(uint32 diff)")
+    schedule = mgr.index("m_updater.schedule_update(*iter->second")
+    done = mgr.index("m_updater.wait();")
+    if schedule >= done:
+        raise AssertionError("Map-worker completion/wait boundary drift")
+
+    config = method(sources["reload"], "static bool HandleReloadConfigCommand(ChatHandler* handler)")
+    if "sWorld->LoadConfigSettings(true);" not in config:
+        raise AssertionError("Registered config reload no longer calls World::LoadConfigSettings")
+    if '"config",                        HandleReloadConfigCommand' not in sources["reload"]:
+        raise AssertionError("Registered reload config command binding drift")
+    # .reload all intentionally DOES NOT call the config-reload handler.
+    reload_all = method(sources["reload"], "static bool HandleReloadAllCommand(ChatHandler* handler)")
+    if "HandleReloadConfigCommand" in reload_all or "LoadConfigSettings(" in reload_all:
+        raise AssertionError("Reload-all command now also reloads config; re-review timing")
+    world_cli = method(sources["world"], "void World::ProcessCliCommands()")
+    if "_cliCmdQueue.next(command)" not in world_cli or \
+       "handler.ParseCommands(command->m_command);" not in world_cli:
+        raise AssertionError("Queued CLI command dispatch drift")
+    for entry, marker in (
+        ("cli", "sWorld->QueueCliCommand(new CliCommandHolder("),
+        ("ra", "sWorld->QueueCliCommand(cmd);"),
+        ("soap", "sWorld->QueueCliCommand(new CliCommandHolder("),
+    ):
+        if marker not in sources[entry]:
+            raise AssertionError("Standard " + entry + " command queue drift")
+
+    # GM in-game messages are unsafe opcodes, handled during the world
+    # session update, rather than directly within the map-worker phase.
+    if "DEFINE_HANDLER(CMSG_MESSAGECHAT," not in sources["opcodes"]:
+        raise AssertionError("Missing chat opcode registration")
+    chat_registration = next(
+        line for line in sources["opcodes"].splitlines()
+        if "DEFINE_HANDLER(CMSG_MESSAGECHAT," in line
+    )
+    if "PROCESS_THREADUNSAFE" not in chat_registration or \
+       "&WorldSession::HandleMessagechatOpcode" not in chat_registration:
+        raise AssertionError("GM chat opcode processing-place drift")
+    map_filter = method(sources["session"], "bool MapSessionFilter::Process(WorldPacket* packet)")
+    if "if (opHandle->ProcessingPlace == PROCESS_THREADUNSAFE)" not in map_filter or \
+       "return false;" not in map_filter:
+        raise AssertionError("Map packet filter no longer excludes thread-unsafe chat")
+    world_filter = method(sources["session"], "bool WorldSessionFilter::Process(WorldPacket* packet)")
+    if "if (opHandle->ProcessingPlace == PROCESS_THREADUNSAFE)" not in world_filter or \
+       "return true;" not in world_filter:
+        raise AssertionError("World packet filter thread-unsafe processing drift")
+    sessions = method(sources["sessions"], "void WorldSessionMgr::UpdateSessions(uint32 const diff)")
+    if "WorldSessionFilter updater(pSession);" not in sessions or \
+       "pSession->Update(diff, updater)" not in sessions:
+        raise AssertionError("World-session packet-processing source drift")
+    map_update = method(sources["map"], "void Map::Update(const uint32 t_diff, const uint32 s_diff, bool  /*thread*/)")
+    if "MapSessionFilter updater(session);" not in map_update or \
+       "session->Update(s_diff, updater);" not in map_update:
+        raise AssertionError("Map-session packet filter use drift")
+    if "ChatHandler(this).ParseCommands(msg.c_str())" not in sources["chat_handler"]:
+        raise AssertionError("GM chat does not reach ChatHandler::ParseCommands")
+    # The main loop calls World::Update on its game-loop thread.
+    if "sWorld->Update(diff);" not in sources["main"] or \
+       "WorldUpdateLoop();" not in sources["main"]:
+        raise AssertionError("World update-loop root drift")
+
+    print("STANDARD ROUTES: in-game GM chat -> world session before map; CLI/RA/SOAP -> queued world CLI after map")
+    print("STANDARD TICK: MapUpdater waits for completion before queued config reload")
+    print("STANDARD RESULT: no map-worker/config reload overlap in inspected normal ingress")
+    print("LIMIT: direct/custom/other threads invoking reload not exhaustively audited")
+
+
+def check_standard_ingress_negative(sources: dict[str, str]) -> None:
+    edits = (
+        ("opcodes", "PROCESS_THREADUNSAFE", "PROCESS_THREADSAFE", "GM chat processing class"),
+        ("world", "ProcessCliCommands();", "/* unqueued */", "world CLI phase"),
+        ("mapmgr", "m_updater.wait();", "/* no wait */", "map worker join"),
+        ("reload", "sWorld->LoadConfigSettings(true);", "/* no reload */", "config command"),
+        ("ra", "sWorld->QueueCliCommand(cmd);", "/* direct RA */", "remote access queued command"),
+    )
+    for key, before, after, label in edits:
+        if before not in sources[key]:
+            raise AssertionError("Missing negative-test mutation anchor: " + label)
+        changed = dict(sources)
+        changed[key] = sources[key].replace(before, after, 1)
+        try:
+            check_standard_ingress(changed)
+        except (AssertionError, StopIteration, ValueError):
+            print("CAUGHT standard-route drift: " + label)
+        else:
+            raise AssertionError("Drift checker missed " + label)
+
+
 def main() -> None:
     module_source = MOD.read_text(encoding="utf-8")
     sources = {
         name: path.read_text(encoding="utf-8")
         for name, path in (
             ("world", WORLD), ("mapmgr", MAPMGR), ("updater", UPDATER),
-            ("map", MAP), ("player", PLAYER)
+            ("map", MAP), ("player", PLAYER),
+            ("reload", CORE / "src/server/scripts/Commands/cs_reload.cpp"),
+            ("cli", CORE / "src/server/apps/worldserver/CommandLine/CliRunnable.cpp"),
+            ("ra", CORE / "src/server/apps/worldserver/RemoteAccess/RASession.cpp"),
+            ("soap", CORE / "src/server/apps/worldserver/ACSoap/ACSoap.cpp"),
+            ("opcodes", CORE / "src/server/game/Server/Protocol/Opcodes.cpp"),
+            ("session", CORE / "src/server/game/Server/WorldSession.cpp"),
+            ("sessions", CORE / "src/server/game/Server/WorldSessionMgr.cpp"),
+            ("chat_handler", CORE / "src/server/game/Handlers/ChatHandler.cpp"),
+            ("main", CORE / "src/server/apps/worldserver/Main.cpp"),
         )
     }
     hook = check_module(module_source)
     check_core(sources)
     check_negative_guards(module_source, sources)
+    check_standard_ingress(sources)
+    check_standard_ingress_negative(sources)
     program = CPP.replace("__GLOBALS__", "\n".join(GLOBALS)).replace("__ORIGINAL_HOOK__", hook)
     with tempfile.TemporaryDirectory(prefix="p13-r8-config-") as directory:
         for standard in ("c++17", "c++20"):
