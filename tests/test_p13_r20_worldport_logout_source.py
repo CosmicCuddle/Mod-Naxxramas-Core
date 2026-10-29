@@ -166,7 +166,7 @@ def synthetic_branch_cases():
     # This is an illustrative conditional branch table, not a real callback execution.
     cases=[
         ("spurious_ack",False,False,False),
-        ("invalid_coords",True,False,True),
+        ("invalid_coords",True,True,True),
         ("map_refused",True,True,False),
         ("map_add_failed",True,True,False),
         ("map_add_success",True,True,False)
