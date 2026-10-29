@@ -43,6 +43,8 @@ jobs:
             src/server/game/Maps/Map.cpp
             src/server/game/Entities/Player/PlayerUpdates.cpp
             src/server/game/Server/WorldSession.cpp
+            src/server/game/Server/WorldSessionMgr.cpp
+            src/server/game/Handlers/CharacterHandler.cpp
             src/server/game/Battlegrounds/Battleground.cpp
             src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
           persist-credentials: false
@@ -111,6 +113,76 @@ jobs:
                   "CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_UPDATE",
                   "CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_LOGOUT")
           print("PASS: source-pinned original maps, worker hooks, BG callbacks and logout")
+          # Pinned reconnect is SAME Player object in a NEW socket/session;
+          # its resend helper deliberately does not call OnPlayerLogin.
+          character = require("pinned-core/src/server/game/Handlers/CharacterHandler.cpp",
+              "CONFIG_ENABLE_LOGIN_AFTER_DC",
+              "sess->SetPlayer(nullptr);",
+              "SetPlayer(p);",
+              "p->SetSession(this);",
+              "HandlePlayerLoginToCharInWorld(p);",
+              "sScriptMgr->OnPlayerLogin(pCurrChar);")
+          sessions = require("pinned-core/src/server/game/Server/WorldSessionMgr.cpp",
+              "_offlineSessions[pSession->GetAccountId()] = pSession;",
+              "pSession->GetOfflineTime() + 60 < currTime",
+              "delete pSession;")
+          wsession = require("pinned-core/src/server/game/Server/WorldSession.cpp",
+              "WorldSession::~WorldSession()",
+              "LogoutPlayer(true);",
+              "if (!redirecting)",
+              "sScriptMgr->OnPlayerLogout(_player);")
+          def validate_reconnect(ch, mgr, ws):
+              binding = ch.split(
+                  "if (WorldSession* sess = sWorldSessionMgr->FindOfflineSession(GetAccountId()))",
+                  1)[1].split("std::shared_ptr<LoginQueryHolder>", 1)[0]
+              for marker in ("CONFIG_ENABLE_LOGIN_AFTER_DC", "if (p->GetGUID() != playerGuid)",
+                             "sess->SetPlayer(nullptr);", "SetPlayer(p);",
+                             "p->SetSession(this);", "HandlePlayerLoginToCharInWorld(p);"):
+                  assert marker in binding, "offline reconnect rebind drift: " + marker
+              normal = ch.split(
+                  "void WorldSession::HandlePlayerLoginFromDB(LoginQueryHolder const& holder)",
+                  1)[1].split("void WorldSession::HandlePlayerLoginToCharInWorld(", 1)[0]
+              assert "sScriptMgr->OnPlayerLogin(pCurrChar);" in normal, "fresh DB login hook drift"
+              resend = ch.split(
+                  "void WorldSession::HandlePlayerLoginToCharInWorld(Player* pCurrChar)",
+                  1)[1].split("void WorldSession::HandlePlayerLoginToCharOutOfWorld(", 1)[0]
+              assert "OnPlayerLogin(" not in resend, "same Player reconnect unexpectedly calls login hook"
+              assert "_offlineSessions[pSession->GetAccountId()] = pSession;" in mgr, "offline session retention drift"
+              assert "pSession->GetOfflineTime() + 60 < currTime" in mgr, "offline lifetime timer drift"
+              assert "WorldSession::~WorldSession()" in ws and "LogoutPlayer(true);" in ws, "normal destructor logout drift"
+          validate_reconnect(character, sessions, wsession)
+          mutations = (
+              ("same Player rebind", character,
+               "            sess->SetPlayer(nullptr);", "            /* rebind removed */",
+               sessions, wsession),
+              ("normal DB login hook", character,
+               "    sScriptMgr->OnPlayerLogin(pCurrChar);", "    /* login hook removed */",
+               sessions, wsession),
+              ("reconnect no-login-hook", character,
+               "void WorldSession::HandlePlayerLoginToCharInWorld(Player* pCurrChar)\n{",
+               "void WorldSession::HandlePlayerLoginToCharInWorld(Player* pCurrChar)\n{\n    sScriptMgr->OnPlayerLogin(pCurrChar);",
+               sessions, wsession),
+          )
+          for label, original, before, after, mgr, ws in mutations:
+              assert original.count(before) == 1, "non-unique test source marker: " + label
+              try:
+                  validate_reconnect(original.replace(before, after, 1), mgr, ws)
+              except (AssertionError, IndexError):
+                  print("CAUGHT reconnect source drift: " + label)
+              else:
+                  raise AssertionError("unnoticed reconnect source drift: " + label)
+          mgr_drift = sessions.replace(
+              "_offlineSessions[pSession->GetAccountId()] = pSession;",
+              "/* offline map not retained */")
+          assert mgr_drift != sessions
+          try:
+              validate_reconnect(character, mgr_drift, wsession)
+          except (AssertionError, IndexError):
+              print("CAUGHT reconnect source drift: offline session retention")
+          else:
+              raise AssertionError("missed offline session drift")
+          print("PASS: pinned offline-socket-rebind vs DB-player-login hook; 4/4 source mutations caught")
+          print("LIMIT: no owner-host reconnect config or gameplay demonstrated")
           print("LIMIT: original-source anchors are not production race reproduction")
           PY
       - name: Strict C++17 and C++20 baseline
@@ -122,6 +194,7 @@ jobs:
             /tmp/p13r9_$std | tee /tmp/p13r9_$std.txt
             grep -q '^PASS: P13 R9 synthetic ownership, 8 workers' /tmp/p13r9_$std.txt
             grep -q '^PASS: bounded admission alternative, 8 stale workers, 1500 relogs' /tmp/p13r9_$std.txt
+            grep -q '^PASS: pinned reconnect counterexample, new socket != new Player lifetime' /tmp/p13r9_$std.txt
             grep -q '^LIMITATION: no Player' /tmp/p13r9_$std.txt
           done
       - name: ASan+UBSan; real threads, abstract queue only
@@ -137,7 +210,7 @@ jobs:
           g++ -std=c++20 -O1 -g -Wall -Wextra -Werror -Wshadow -pedantic -pthread \
             -fsanitize=thread tests/p13_r9_world_owner_queue_model.cpp -o /tmp/p13r9_tsan
           TSAN_OPTIONS='halt_on_error=1 exitcode=66' /tmp/p13r9_tsan | grep -q '^PASS: P13 R9 synthetic ownership, 8 workers'
-      - name: Seven negative mutants must compile and fail with expected reason
+      - name: Nine negative mutants must compile and fail with expected reason
         run: |
           set -euo pipefail
           for spec in \
@@ -147,7 +220,9 @@ jobs:
             'BG_BARRIER|BG summary closed before queue drained' \
             'POISON_SCOPE|new incarnation rejected by stale overflow quarantine' \
             'ADMISSION_STALE|stale workers consumed active queue capacity' \
-            'ADMISSION_PURGE|retired pending observations were not purged'; do
+            'ADMISSION_PURGE|retired pending observations were not purged' \
+            'RECONNECT_ROTATE|socket reconnect rotated live Player lifetime' \
+            'RECONNECT_CLEAR|socket reconnect erased pending BG summary without logout hook'; do
             IFS='|' read -r name expected <<< "$spec"
             g++ -std=c++20 -Wall -Wextra -Werror -Wshadow -pedantic -pthread \
               "-DP13_R9_MUTANT_$name" \
@@ -163,7 +238,7 @@ jobs:
             }
             echo "CAUGHT: $name ($expected)"
           done
-          echo "7/7 synthetic mutants caught"
+          echo "9/9 synthetic mutants caught"
       - name: Scope of proof
         if: always()
         run: |
@@ -172,4 +247,5 @@ jobs:
           echo 'ORIGINAL R9 candidate queue: epoch-keyed poison remains unbounded and stale epochs may fill it.'
           echo 'SEPARATE synthetic bounded admission gate: invented world-issued leases; no real core contract, no reward semantics.'
           echo 'No Player*, real currency awards, hooks or Worldserver gameplay.'
+          echo 'Same-Player reconnect reuses Player memory; a new socket is NOT proof of a new Player lifetime.'
           echo 'No owner policy selected, no merge, install, deployment or release.'
