@@ -59,7 +59,9 @@ public:
     {
         RequireWorldThread();
         Check(incarnation > 0, "unproven zero incarnation");
-        sessions[guid] = SessionState{incarnation};
+        SessionState state;
+        state.incarnation = incarnation;
+        sessions[guid] = state;
     }
 
     void Retire(std::uint32_t guid)
@@ -152,6 +154,7 @@ public:
             pending.begin(), pending.end(),
             [guid](Observation const& o) { return o.guid == guid; });
 #ifdef P13_R9_MUTANT_BG_BARRIER
+        (void)stillPending;
         if (false)
 #else
         if (stillPending)
