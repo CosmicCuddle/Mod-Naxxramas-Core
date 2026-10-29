@@ -114,17 +114,19 @@ public:
             if (it == sessions.end())
                 continue;
             SessionState& state = it->second;
-            if (blocked.count(QuarantineKey(sample.guid, sample.incarnation)) != 0)
-            {
-                state.invalid = true;
-                continue;
-            }
+            // Identity matching must PRECEDE applying a quarantine, or
+            // a queued poisoned old epoch can invalidate a fresh session.
 #ifdef P13_R9_MUTANT_EPOCH
             if (false)
 #else
             if (state.incarnation != sample.incarnation)
 #endif
                 continue;
+            if (blocked.count(QuarantineKey(sample.guid, sample.incarnation)) != 0)
+            {
+                state.invalid = true;
+                continue;
+            }
             if (state.invalid)
                 continue;
 #ifdef P13_R9_MUTANT_DUPLICATE
@@ -313,6 +315,23 @@ int main()
         Check(!recovered.Read(76).invalid && recovered.Read(76).accepted == 1 &&
                   recovered.Read(76).lastContribution == 12,
               "old epoch poison leaked into current incarnation");
+
+        // Overflowed old epoch's already queued observations must NOT
+        // invalidate a NEW session when relog happens before draining.
+        HypotheticalWorldOwner pendingOld(2);
+        pendingOld.Begin(77, 1);
+        Check(pendingOld.Submit({77, 1, 1, 1, false}), "old pending first missing");
+        Check(pendingOld.Submit({77, 1, 2, 2, false}), "old pending second missing");
+        Check(!pendingOld.Submit({77, 1, 3, 3, false}), "old pending overflow missing");
+        pendingOld.Retire(77);
+        pendingOld.Begin(77, 2);
+        pendingOld.DrainAfterJoin();
+        Check(!pendingOld.Read(77).invalid, "poisoned old pending batch invalidated new epoch");
+        Check(pendingOld.Submit({77, 2, 1, 15, false}), "new after old pending batch rejected");
+        pendingOld.DrainAfterJoin();
+        Check(pendingOld.Read(77).accepted == 1 &&
+                  pendingOld.Read(77).lastContribution == 15,
+              "new epoch swallowed after old poisoned batch");
 
         // Missing sequence invalidates future observations.
         HypotheticalWorldOwner gap(8);
