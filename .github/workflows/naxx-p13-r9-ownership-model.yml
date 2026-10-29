@@ -121,6 +121,7 @@ jobs:
               tests/p13_r9_world_owner_queue_model.cpp -o /tmp/p13r9_$std
             /tmp/p13r9_$std | tee /tmp/p13r9_$std.txt
             grep -q '^PASS: P13 R9 synthetic ownership, 8 workers' /tmp/p13r9_$std.txt
+            grep -q '^PASS: bounded admission alternative, 8 stale workers, 1500 relogs' /tmp/p13r9_$std.txt
             grep -q '^LIMITATION: no Player' /tmp/p13r9_$std.txt
           done
       - name: ASan+UBSan; real threads, abstract queue only
@@ -136,7 +137,7 @@ jobs:
           g++ -std=c++20 -O1 -g -Wall -Wextra -Werror -Wshadow -pedantic -pthread \
             -fsanitize=thread tests/p13_r9_world_owner_queue_model.cpp -o /tmp/p13r9_tsan
           TSAN_OPTIONS='halt_on_error=1 exitcode=66' /tmp/p13r9_tsan | grep -q '^PASS: P13 R9 synthetic ownership, 8 workers'
-      - name: Five negative mutants must compile and fail with expected reason
+      - name: Seven negative mutants must compile and fail with expected reason
         run: |
           set -euo pipefail
           for spec in \
@@ -144,7 +145,9 @@ jobs:
             'DUPLICATE|duplicate sequence invalidated state' \
             'OVERFLOW|overflow must fail closed' \
             'BG_BARRIER|BG summary closed before queue drained' \
-            'POISON_SCOPE|new incarnation rejected by stale overflow quarantine'; do
+            'POISON_SCOPE|new incarnation rejected by stale overflow quarantine' \
+            'ADMISSION_STALE|stale workers consumed active queue capacity' \
+            'ADMISSION_PURGE|retired pending observations were not purged'; do
             IFS='|' read -r name expected <<< "$spec"
             g++ -std=c++20 -Wall -Wextra -Werror -Wshadow -pedantic -pthread \
               "-DP13_R9_MUTANT_$name" \
@@ -160,12 +163,13 @@ jobs:
             }
             echo "CAUGHT: $name ($expected)"
           done
-          echo "5/5 synthetic mutants caught"
+          echo "7/7 synthetic mutants caught"
       - name: Scope of proof
         if: always()
         run: |
           echo 'Synthetic design and source-only anchors. No production C++, SQL/DBC, config, host or DB changes.'
           echo 'Incarnation and sequence are INVENTED model tokens, not verified available core features.'
-          echo 'Epoch-keyed poison remains unbounded, and stale epochs may still fill the global bounded queue.'
+          echo 'ORIGINAL R9 candidate queue: epoch-keyed poison remains unbounded and stale epochs may fill it.'
+          echo 'SEPARATE synthetic bounded admission gate: invented world-issued leases; no real core contract, no reward semantics.'
           echo 'No Player*, real currency awards, hooks or Worldserver gameplay.'
           echo 'No owner policy selected, no merge, install, deployment or release.'
