@@ -190,7 +190,8 @@ struct PlayerScript {
     virtual void OnPlayerLogin(Player*) {}
     virtual void OnPlayerLogout(Player*) {}
 };
-void StoreHonorSnapshot(Player* player);\nclass HonorHooks : public PlayerScript {
+void StoreHonorSnapshot(Player* player);
+class HonorHooks : public PlayerScript {
 public:
 __MODULE_LOGIN__
 __MODULE_LOGOUT__
