@@ -119,7 +119,7 @@ def check_core(sources: dict[str, str]) -> None:
     print("PINNED CORE: MapMgr::Update waits for scheduled tasks; actual reload timing not settled")
 
 
-CPP = StringNotUsed = r"""
+CPP = r"""
 #include <cassert>
 #include <cstdint>
 #include <iostream>
