@@ -164,7 +164,7 @@ Result invoke(uint32 initialMoney, uint32 honor, Hook* hook) {
     Player* player = &playerObject;
     uint32 excessHonor = honor;
 __REWARD__
-    AddBattlegroundSummary(&player, excessHonor, requestedCopper, rewardCopper);
+    AddBattlegroundSummary(player, excessHonor, requestedCopper, rewardCopper);
     return {rewardCopper, static_cast<int64_t>(player->GetMoney()) -
         static_cast<int64_t>(initialMoney),
         BattlegroundHonorSummaries.at(41).AwardedCopper, hook ? hook->called : 0,
