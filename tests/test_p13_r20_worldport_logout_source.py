@@ -69,8 +69,8 @@ def verify(blocks):
     assert "HandleMoveWorldportAck();" in blocks["ack_opcode"]
     assert "bool Player::TeleportTo" in far
     before(far,"Map* oldmap = IsInWorld() ? GetMap() : nullptr;",
-           "oldmap->RemovePlayerFromMap(this, false);",
-           "SetSemaphoreTeleportFar(GameTime::GetGameTime().count());")
+           "oldmap->RemovePlayerFromMap(this, false);")
+    assert far.rindex("SetSemaphoreTeleportFar(GameTime::GetGameTime().count());") > far.index("oldmap->RemovePlayerFromMap(this, false);"), "final far-map semaphore after old-map removal"
     assert "if (oldmap)\n                oldmap->RemovePlayerFromMap(this, false);" in far
     assert "move packet sent by client always after far teleport" in far
     assert "HandleMoveWorldportAckOpcode" in far
@@ -149,7 +149,12 @@ def mutation_guards(original):
     for name,key,old,new in checks:
         assert old in original[key],"missing negative guard "+name
         changed=dict(original)
-        changed[key]=changed[key].replace(old,new,1)
+        if name=="far flag missing":
+            assert changed[key].count(old)==2, "expected delayed and final far flag"
+            changed[key]=changed[key].rsplit(old,1)
+            changed[key]=new.join(changed[key])
+        else:
+            changed[key]=changed[key].replace(old,new,1)
         try: verify(changed)
         except (AssertionError,ValueError):
             print("CAUGHT R20 SOURCE DRIFT: "+name)
