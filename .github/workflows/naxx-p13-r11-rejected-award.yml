@@ -1,0 +1,66 @@
+name: "P13 R11 rejected-award finality source-only witness"
+on:
+  push:
+    branches: ['test/cs01-p13-r11-rejected-award-finality-20261029']
+    paths: ['tests/test_p13_r11_rejected_award_lifecycle.py', 'docs/research/P13-R11-REJECTED-AWARD-FINALITY.md', '.github/workflows/naxx-p13-r11-rejected-award.yml']
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths: ['tests/test_p13_r11_rejected_award_lifecycle.py', 'docs/research/P13-R11-REJECTED-AWARD-FINALITY.md', '.github/workflows/naxx-p13-r11-rejected-award.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  MOD_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+jobs:
+  original-source-sequences:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Entities/Player/Player.cpp
+          persist-credentials: false
+      - name: Pin original blobs and check strictly additive scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git merge-base --is-ancestor "$MOD_MAIN" HEAD
+          test "$(git rev-parse "$MOD_MAIN:src/Systems/HonorOverflow.cpp")" = d4f70c511ac5a3e32c7e6b8f913d095915da707c
+          test "$(git -C pinned-core rev-parse HEAD:src/server/game/Entities/Player/Player.cpp)" = 138e7eab4905ec366338a54cc18e6cfe749a3670
+          git diff --quiet "$MOD_MAIN" HEAD -- src conf
+          python3 - <<'PY'
+          import subprocess
+          out = subprocess.check_output(['git','diff','--name-status','80e9de1c39a6dc995188a80c31a5e785d0f2a6f9','HEAD'],text=True).splitlines()
+          entries = [line.split('\t',1) for line in out]
+          want = {'tests/test_p13_r11_rejected_award_lifecycle.py','docs/research/P13-R11-REJECTED-AWARD-FINALITY.md','.github/workflows/naxx-p13-r11-rejected-award.yml'}
+          assert len(entries) == 3 and all(status == 'A' for status, path in entries), entries
+          assert {path for status, path in entries} == want, entries
+          print('PASS: exactly 3 additive test, research and CI files')
+          PY
+      - name: Literal original C++17/C++20/UBSan and source drift
+        run: |
+          set -euo pipefail
+          python3 -I tests/test_p13_r11_rejected_award_lifecycle.py . pinned-core | tee /tmp/p13_r11.log
+          grep -Fxq 'PASS: R11 pinned original money, snapshot, BG close and logout source guards' /tmp/p13_r11.log
+          test "$(grep -c '^CAUGHT DRIFT:' /tmp/p13_r11.log)" -eq 6
+          grep -Fxq 'PASS: c++17 R11 original-source lifecycle sequence' /tmp/p13_r11.log
+          grep -Fxq 'PASS: c++20 R11 original-source lifecycle sequence' /tmp/p13_r11.log
+          grep -Fxq 'PASS: c++20-ubsan R11 original-source lifecycle sequence' /tmp/p13_r11.log
+      - name: Nonauthorising scope disclosure
+        if: always()
+        run: |
+          echo 'Original function bodies with dummy Player, NOT full server or actual gameplay.'
+          echo 'No production source/config or owner host mutations; R7 race HOLD, R9 lifetime unresolved.'
+          echo 'MapUpdate.Threads=8 retained, F14 OFF, NoWrite/relay OFF, D18 HARD NO-GO, K1 date held, gameplay 0/5.'
