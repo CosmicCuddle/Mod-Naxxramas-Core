@@ -141,7 +141,7 @@ jobs:
           set -euo pipefail
           for spec in \
             'EPOCH|stale incarnation leaked' \
-            'DUPLICATE|duplicate observation processed' \
+            'DUPLICATE|duplicate sequence invalidated state' \
             'OVERFLOW|overflow must fail closed' \
             'BG_BARRIER|BG summary closed before queue drained'; do
             IFS='|' read -r name expected <<< "$spec"
