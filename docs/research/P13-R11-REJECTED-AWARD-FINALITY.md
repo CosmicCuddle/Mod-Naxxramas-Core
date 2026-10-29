@@ -24,7 +24,8 @@ The new P13-R11 Python harness pins the two original file blobs, extracts litera
 1. Positive ordinary cap failure -> next identical contribution no retry -> one newly earned honor point attempts separately.
 2. Trial cap failure -> next identical contribution no retry, with pre-admission hook seen once.
 3. BG positive rejected credit -> proposed BG summary -> forced leave after BG state changes -> single erased close and no second summary.
-4. Source guards for login/logout reset, BG end/leave ordering; six intentionally incorrect source drifts must be rejected.
+4. BG accumulation while notifications are enabled, then disabled at summary flush -> no message but state is still erased, and re-enabling notifications does not replay the old summary.
+5. Source guards for login/logout reset, BG end/leave ordering; six intentionally incorrect source drifts must be rejected (including a hook-removal mutation, NOT a moved-hook test).
 
 Illustrative caps and conversion rate are synthetic: maximum 1000, honor cap 100, trial cap 600, 1 copper per honor. NOT actual AzerothCore live values. Tests do not run a Worldserver, real Player or BG hook dispatch, production threads, network, DB or player payout. Synthetic success never resolves R7 concurrent unordered_map risk or R9 actual Player lifetime.
 
