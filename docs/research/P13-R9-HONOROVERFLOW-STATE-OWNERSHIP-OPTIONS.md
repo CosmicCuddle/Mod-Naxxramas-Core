@@ -39,11 +39,12 @@
 - Pending old-incarnation GUID reused after logout/relog → discard old data.
 - Duplicate sequence → ignore and do not double-count; missing sequence → invalidate (do not guess).
 - A BG flush **before** all pending same-GUID samples have drained → refuse. After drain, accept once; a second close is refused.
-- Queue overload → quarantine the GUID including already queued items; **fail closed**, not a partial reward.
+- Queue overload → quarantine the **hypothetical (GUID, incarnation)** including already queued items; **fail closed**, not a partial reward. A later incarnation does **not** inherit the old quarantine, including when the old poisoned batch is still pending.
 - Player incarnation retired before the drain → late pending event never recreates state.
+- **NEW R9 follow-up:** old-incarnation overflow quarantine must not make a later incarnation unserviceable; stale poisoned old batch must not invalidate a new incarnation when logout/relogin precedes queue drain.
 - `static_assert` verifies the observation is trivially copyable; it is not proof of real owner-side Player lifetime safety.
 
-Four **deliberately wrong model variants** must fail: missing epoch test, missing duplicate test, accepting queue overflow, and BG-close-before-drain. All variants operate on the disposable test-only model. No undefined concurrent access to the production `std::unordered_map` is executed.
+Five **deliberately wrong model variants** must fail: missing epoch test, missing duplicate test, accepting queue overflow, BG-close-before-drain, and **GUID-only persistent overflow poison** that incorrectly rejects a new incarnation. All variants operate on the disposable test-only model. No undefined concurrent access to the production `std::unordered_map` is executed.
 
 ## 4. Non-negotiable open requirements before production remediation
 
@@ -51,5 +52,17 @@ Four **deliberately wrong model variants** must fail: missing epoch test, missin
 2. **Economy parity or approved change:** snapshots update even while feature OFF; daily contribution reset; honor cap and money cap, exact once-only awards; full/partial cap; `IncludeBots`; BG end and leave with single summary; update ordering around login/logout; visibility/notification does not suppress legitimate awards; queue overflow must have explicit owner-approved resolution.
 3. **Performance and synchronization:** no `MapUpdate.Threads=8` change, predictable lock order, no blocking chat/DB/Player calls while holding a shared lock, bounded memory/work, no unsafe callback reentrancy.
 4. **Verification:** original pinned-worldserver full build and original exact-head hosted test logs when separately authorised, signed-off design, dated restorable backup and documented rollback before any owner-host test. Synthetic TSAN success is **not** production TSAN or gameplay acceptance.
+
+## 5. Additional R9 post-review model limitation: quarantine lifetime (29 Oct 2026)
+
+Independent review at [DRAFT #233 comment 6497675733](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/233#issuecomment-6497675733) found that the original **model**, not production module code, used `poisoned: unordered_set<GUID>`, so a queue-overflow during one login could prevent `Submit` in the next hypothetical login incarnation. The reviewed model also risked invalidating a fresh incarnation if it applied an old queued quarantine *before* checking that sample's incarnation.
+
+The test-only follow-up uses `(GUID, invented incarnation)` as a **model key**, rejects mismatched-incarnation samples **before** inspecting old quarantine and adds explicit regression witnesses for (a) overflow then retire/relogin and (b) retire/relogin while already queued old poisoned samples remain. An additional deliberately wrong `POISON_SCOPE` variant restores GUID-wide quarantine and must be caught with the direct error `new incarnation rejected by stale overflow quarantine`. **Neither implementation nor any production ownership policy is authorized by this test.**
+
+**Further unresolved problems, not fixed by the model:** the quarantine set is deliberately **unbounded**, historical retired epoch records are not pruned, a flood of stale producers may fill the shared bounded queue and poison a new incarnation, `Begin` assumes a validated monotonic epoch source, and `FinishBgAfterJoin` does not prove real server hook order or real monetary transaction atomicity. This remains a design study and should not be translated into production code without new source contracts and owner approval.
+
+### Related pinned-source lifetime limitation
+
+`Grimfeather@8daffdabe9202c228e45d833c9a1d399597a15cd` [WorldSession.cpp lines 830–858](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/src/server/game/Server/WorldSession.cpp#L830-L858) executes `OnPlayerLogout` only when `!redirecting`, although cleanup proceeds outside the conditional. The original [HonorOverflow.cpp lines 343–358](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/blob/80e9de1c39a6dc995188a80c31a5e785d0f2a6f9/src/Systems/HonorOverflow.cpp#L343-L358) clears shared maps through login reset and `OnPlayerLogout`. **Do not assume every teardown triggers `OnPlayerLogout`**; actual redirect-call reachability, cluster ownership, and stale state cleanup are not independently established here. Do not call this a proven owner-host leak.
 
 **Final state: No production edit, no money award, no owner config or SQL/DBC action, no merge or install. Gameplay accepted 0/5.**
