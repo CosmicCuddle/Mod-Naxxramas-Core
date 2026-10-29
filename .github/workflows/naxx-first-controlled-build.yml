@@ -176,7 +176,7 @@ jobs:
           grep -aFq 'NaxxramasCoreGolemaggActionAudit' "$binary"
           sha256sum "$binary"
           echo 'PASS: combined GFPP/consumables, Hunter ammunition, Quest Loot, and read-only Golemagg audit are defined in final linked Worldserver.'
-      - name: Capture build fingerprint - review-only, NO executable artifact
+      - name: Capture build fingerprint in logs only - no uploaded artifact
         run: |
           set -euo pipefail
           binary=acore-build/src/server/apps/worldserver
@@ -192,15 +192,6 @@ jobs:
             sha256sum "$binary"
             file "$binary"
           } | tee /tmp/naxx-first-test/BUILD-FINGERPRINT.txt
-      - name: Upload SMALL review-only config and fingerprint (NO executable)
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: first-controlled-build-review
-          path: |
-            /tmp/naxx-first-test/mod_naxxramas_core.conf
-            /tmp/naxx-first-test/BUILD-FINGERPRINT.txt
-          retention-days: 14
       - name: Preserve safety boundary
         if: always()
         run: |
