@@ -111,7 +111,7 @@ def negative_guards(module_src, core_src):
             raise AssertionError("source drift survivor: " + label)
 
 
-PREFIX = StringPrefix = r"""
+PREFIX = r"""
 #include <algorithm>
 #include <cstdint>
 #include <iostream>
@@ -244,7 +244,9 @@ def compiled_witness(earn, summary, money):
             assert "MISMATCH: exact ordinary cap equality proposed=100 actual=0" in out
             assert "MISMATCH: clipped to exact ordinary cap proposed=100 actual=0" in out
             assert "MISMATCH: trial cap rejection proposed=200 actual=0" in out
-            assert out.count("MISMATCH:") == 3 and out.count("MATCH:") == 4, out
+            matches = [line for line in out.splitlines() if line.startswith("MATCH:")]
+            mismatches = [line for line in out.splitlines() if line.startswith("MISMATCH:")]
+            assert len(mismatches) == 3 and len(matches) == 4, out
             assert "PASS: P13-R10 pinned proposed-vs-credited boundary, 7 synthetic cases" in out
             print(f"PASS: {std} literal-source 7-case accounting fixture")
         print("LIMIT: source-compiled payout branch with dummy Player and synthetic caps only")
