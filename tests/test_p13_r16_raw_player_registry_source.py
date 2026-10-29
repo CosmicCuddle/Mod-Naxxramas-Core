@@ -20,6 +20,8 @@ PLAYER = "src/server/game/Entities/Player/Player.cpp"
 SCRIPT_MGR = "src/server/game/Scripting/ScriptMgr.h"
 WORLD = "src/server/game/World/World.cpp"
 MAPMGR = "src/server/game/Maps/MapMgr.cpp"
+MISC_CPP = "src/server/game/Scripting/ScriptDefines/MiscScript.cpp"
+MISC_H = "src/server/game/Scripting/ScriptDefines/MiscScript.h"
 BLOBS = {
  MOD: "d4f70c511ac5a3e32c7e6b8f913d095915da707c",
  ACCESS_CPP: "8b15ce734d8f6624a29fe12e23c6917d77e1919d",
@@ -28,6 +30,8 @@ BLOBS = {
  SCRIPT_MGR: "7f0f30d3ca46cb290636c33ca8e1b2b9c0ffa1f8",
  WORLD: "a001fcaf3b00fdecefb80f95f1ec3c1ae14116fe",
  MAPMGR: "46f627a10515001f7edfd956ccdbf4359a267400",
+ MISC_CPP: "a41a3f0d9f48d0c4319a585c591ba7ec722fc37b",
+ MISC_H: "9ed20ab2304fed3bceb20a7e8dc704e529897365",
 }
 
 def git(repo: pathlib.Path, *args: str, no_match: bool = False) -> str:
@@ -49,7 +53,7 @@ def function(text: str, signature: str) -> str:
                 return text[start:pos + 1]
     raise AssertionError(f"unbalanced original function {signature}")
 
-def contract(mod, cpp, h, player, mgr, world, mapmgr):
+def contract(mod, cpp, h, player, mgr, world, mapmgr, misc_cpp, misc_h):
     ins = function(cpp, "void HashMapHolder<T>::Insert(T* o)")
     rem = function(cpp, "void HashMapHolder<T>::Remove(T* o)")
     find = function(cpp, "T* HashMapHolder<T>::Find(ObjectGuid guid)")
@@ -82,6 +86,14 @@ def contract(mod, cpp, h, player, mgr, world, mapmgr):
     m = function(mapmgr, "void MapMgr::Update(uint32 diff)")
     assert "m_updater.wait();" in m
     assert "m_updater.schedule_update" in m
+    construct = function(misc_cpp, "void ScriptMgr::OnConstructPlayer(Player* origin)")
+    destruct = function(misc_cpp, "void ScriptMgr::OnDestructPlayer(Player* origin)")
+    assert "CALL_ENABLED_HOOKS(MiscScript, MISCHOOK_ON_CONSTRUCT_PLAYER, script->OnConstructPlayer(origin));" in construct
+    assert "CALL_ENABLED_HOOKS(MiscScript, MISCHOOK_ON_DESTRUCT_PLAYER, script->OnDestructPlayer(origin));" in destruct
+    assert "MISCHOOK_ON_CONSTRUCT_PLAYER," in misc_h and "MISCHOOK_ON_DESTRUCT_PLAYER," in misc_h
+    assert "virtual void OnConstructPlayer(Player* /*origin*/) { }" in misc_h
+    assert "virtual void OnDestructPlayer(Player* /*origin*/) { }" in misc_h
+    assert "ScriptRegistry<MiscScript>::AddScript(this, std::move(enabledHooks));" in misc_cpp
     assert "std::unordered_map<ObjectGuid::LowType, HonorSnapshot> HonorSnapshots;" in mod
     assert "std::unordered_map<ObjectGuid::LowType, BattlegroundHonorSummary> BattlegroundHonorSummaries;" in mod
     return ins, rem, find, get_container, get_lock
@@ -98,6 +110,8 @@ def negative_guards(src):
         ("map update join removed", 6, "m_updater.wait();", "/* no join */"),
         ("HonorOverflow shared map state changed", 0, "std::unordered_map<ObjectGuid::LowType, HonorSnapshot> HonorSnapshots;",
          "/* replaced state */"),
+        ("MiscScript constructor dispatch bypassed", 7, "CALL_ENABLED_HOOKS(MiscScript, MISCHOOK_ON_CONSTRUCT_PLAYER, script->OnConstructPlayer(origin));", "/* missing dispatch */"),
+        ("MiscScript destructor hook disabled", 8, "MISCHOOK_ON_DESTRUCT_PLAYER,", "/* no destructor hook */"),
     ]
     for name, i, old, replacement in candidates:
         assert old in src[i], name
@@ -232,9 +246,9 @@ def main(args):
         assert git(root, "rev-parse", rev + ":" + path) == blob, path
     assert git(mod, "rev-parse", "HEAD:" + MOD) == BLOBS[MOD]
     sources = [(mod / MOD).read_text()] + [(core / p).read_text()
-               for p in (ACCESS_CPP, ACCESS_H, PLAYER, SCRIPT_MGR, WORLD, MAPMGR)]
+               for p in (ACCESS_CPP, ACCESS_H, PLAYER, SCRIPT_MGR, WORLD, MAPMGR, MISC_CPP, MISC_H)]
     parts = contract(*sources)
-    print("PASS: R16 exactly seven pinned original source blobs and registry/world guards")
+    print("PASS: R16 exactly nine pinned original source blobs and registry/world/misc dispatch guards")
     negative_guards(sources)
     lifecycle_inventory(core)
     compile_dummy(parts)
