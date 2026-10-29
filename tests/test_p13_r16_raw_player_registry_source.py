@@ -203,7 +203,7 @@ int main() {
 
 def compile_dummy(parts):
     ins, rem, find, container, lock = parts
-    source = PREFIX + "\n".join([ins, rem, find, container, lock]) + SUFFIX
+    source = PREFIX + "\n".join("template<class T>\n" + method for method in [ins, rem, find, container, lock]) + SUFFIX
     with tempfile.TemporaryDirectory(prefix="p13_r16_") as d:
         p = pathlib.Path(d)
         file = p / "registry.cpp"
