@@ -11,6 +11,7 @@
 #include <exception>
 #include <iostream>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
@@ -75,7 +76,7 @@ public:
     bool Submit(Observation const& observation)
     {
         std::lock_guard<std::mutex> lock(queueMutex);
-        if (poisoned.count(observation.guid))
+        if (poisoned.count(QuarantineKey(observation.guid, observation.incarnation)))
             return false;
 #ifdef P13_R9_MUTANT_OVERFLOW
         if (false)
@@ -85,7 +86,7 @@ public:
         {
             // A dropped event invalidates that GUID's sequence, not just the
             // single missing item. No guessed monetary recovery is allowed.
-            poisoned.insert(observation.guid);
+            poisoned.insert(QuarantineKey(observation.guid, observation.incarnation));
             return false;
         }
         pending.push_back(observation);
@@ -96,7 +97,7 @@ public:
     {
         RequireWorldThread();
         std::vector<Observation> local;
-        std::unordered_set<std::uint32_t> blocked;
+        std::set<std::pair<std::uint32_t, std::uint64_t>> blocked;
         {
             std::lock_guard<std::mutex> lock(queueMutex);
             local.swap(pending);
@@ -113,7 +114,7 @@ public:
             if (it == sessions.end())
                 continue;
             SessionState& state = it->second;
-            if (blocked.count(sample.guid) != 0)
+            if (blocked.count(QuarantineKey(sample.guid, sample.incarnation)) != 0)
             {
                 state.invalid = true;
                 continue;
@@ -162,7 +163,8 @@ public:
             return false;
         auto it = sessions.find(guid);
         if (it == sessions.end() || it->second.invalid ||
-            poisoned.count(guid) || !it->second.pendingBgSamples)
+            poisoned.count(QuarantineKey(guid, it->second.incarnation)) ||
+            !it->second.pendingBgSamples)
             return false;
         count = it->second.pendingBgSamples;
         it->second.pendingBgSamples = 0;
@@ -190,6 +192,18 @@ public:
     }
 
 private:
+    using IncarnationKey = std::pair<std::uint32_t, std::uint64_t>;
+
+    static IncarnationKey QuarantineKey(std::uint32_t guid, std::uint64_t incarnation)
+    {
+#ifdef P13_R9_MUTANT_POISON_SCOPE
+        (void)incarnation;
+        return {guid, 0}; // DELIBERATE wrong variant: poisons future sessions
+#else
+        return {guid, incarnation};
+#endif
+    }
+
     void RequireWorldThread() const
     {
         Check(std::this_thread::get_id() == owner,
@@ -200,7 +214,9 @@ private:
     std::size_t const capacity;
     std::mutex queueMutex;
     std::vector<Observation> pending;
-    std::unordered_set<std::uint32_t> poisoned;
+    // Model-only quarantine is scoped to the hypothetical incarnation. This
+    // set is NOT bounded/pruned: memory/lifetime policy is still unresolved.
+    std::set<IncarnationKey> poisoned;
     // ONLY the owning thread accesses sessions, including during Drain.
     std::unordered_map<std::uint32_t, SessionState> sessions;
     std::uint32_t acceptedOverall = 0;
@@ -275,6 +291,28 @@ int main()
         full.DrainAfterJoin();
         Check(full.Read(73).invalid && full.Read(73).accepted == 0,
               "overflow leaked partially accepted observations");
+
+        // A dropped item in the old hypothetical incarnation must not
+        // automatically poison a fresh incarnation of the same GUID.
+        // This is NOT proof that original core exposes a reliable epoch.
+        HypotheticalWorldOwner recovered(2);
+        recovered.Begin(76, 1);
+        Check(recovered.Submit({76, 1, 1, 2, false}), "old first enqueue missing");
+        Check(recovered.Submit({76, 1, 2, 3, false}), "old second enqueue missing");
+        Check(!recovered.Submit({76, 1, 3, 4, false}), "old overflow not quarantined");
+        recovered.DrainAfterJoin();
+        Check(recovered.Read(76).invalid, "old overflow state was not blocked");
+        recovered.Retire(76);
+        recovered.Begin(76, 2);
+        Check(recovered.Submit({76, 2, 1, 12, false}),
+              "new incarnation rejected by stale overflow quarantine");
+        // A late, formerly poisoned old-epoch observation remains rejected.
+        Check(!recovered.Submit({76, 1, 4, 13, false}),
+              "stale poisoned incarnation was unexpectedly admitted");
+        recovered.DrainAfterJoin();
+        Check(!recovered.Read(76).invalid && recovered.Read(76).accepted == 1 &&
+                  recovered.Read(76).lastContribution == 12,
+              "old epoch poison leaked into current incarnation");
 
         // Missing sequence invalidates future observations.
         HypotheticalWorldOwner gap(8);
