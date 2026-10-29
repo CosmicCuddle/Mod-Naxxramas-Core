@@ -1,0 +1,68 @@
+name: "P13 R12 mutable money-hook original source witness"
+on:
+  push:
+    branches: ['test/cs01-p13-r12-money-hook-mutation-20261029']
+    paths: ['tests/test_p13_r12_money_hook_mutation_source.py', 'docs/research/P13-R12-MONEY-HOOK-MUTABILITY.md', '.github/workflows/naxx-p13-r12-money-hook.yml']
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths: ['tests/test_p13_r12_money_hook_mutation_source.py', 'docs/research/P13-R12-MONEY-HOOK-MUTABILITY.md', '.github/workflows/naxx-p13-r12-money-hook.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  MOD_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+jobs:
+  original-source-money-hook:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Scripting/ScriptDefines/PlayerScript.h
+            src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
+            src/server/game/Scripting/ScriptMgrMacros.h
+          persist-credentials: false
+      - name: Verify strictly three additive nonproduction paths
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git merge-base --is-ancestor "$MOD_MAIN" HEAD
+          git diff --quiet "$MOD_MAIN" HEAD -- src conf
+          python3 - <<'PY'
+          import subprocess
+          rows = subprocess.check_output(['git','diff','--name-status','80e9de1c39a6dc995188a80c31a5e785d0f2a6f9','HEAD'],text=True).splitlines()
+          pairs = [r.split('\t',1) for r in rows]
+          allowed = {'tests/test_p13_r12_money_hook_mutation_source.py','docs/research/P13-R12-MONEY-HOOK-MUTABILITY.md','.github/workflows/naxx-p13-r12-money-hook.yml'}
+          assert len(pairs) == 3 and all(s == 'A' for s, _ in pairs), pairs
+          assert {p for _,p in pairs} == allowed, pairs
+          print('PASS: R12 only 3 additive research, test, workflow paths')
+          PY
+      - name: Compile literal original source and synthetic hook subscriber cases
+        run: |
+          set -euo pipefail
+          python3 -I tests/test_p13_r12_money_hook_mutation_source.py . pinned-core | tee /tmp/p13_r12.log
+          grep -Fxq 'PASS: R12 five original source blobs and mutable pre-credit hook dispatch' /tmp/p13_r12.log
+          test "$(grep -c '^CAUGHT SOURCE DRIFT:' /tmp/p13_r12.log)" -eq 5
+          grep -Fxq 'PASS: c++17 original-body mutable-hook 6-case witness' /tmp/p13_r12.log
+          grep -Fxq 'PASS: c++20 original-body mutable-hook 6-case witness' /tmp/p13_r12.log
+          grep -Fxq 'PASS: c++20-ubsan original-body mutable-hook 6-case witness' /tmp/p13_r12.log
+      - name: Report no runtime authorization
+        if: always()
+        run: |
+          echo 'Mock hook, invented cap/rate, no actual installed script or native Worldserver, no payout.'
+          echo 'No source/config/SQL/DBC/client/N-Core changes, no merge/deployment.'
+          echo 'R7 concurrency HOLD, P13 economics unapproved, MapUpdate.Threads=8 retained.'
+          echo 'F14 OFF, NoWrite relay OFF, K1 date and D18 HARD NO-GO; owner gameplay 0/5.'
