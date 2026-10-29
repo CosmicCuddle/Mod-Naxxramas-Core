@@ -136,14 +136,15 @@ jobs:
           g++ -std=c++20 -O1 -g -Wall -Wextra -Werror -Wshadow -pedantic -pthread \
             -fsanitize=thread tests/p13_r9_world_owner_queue_model.cpp -o /tmp/p13r9_tsan
           TSAN_OPTIONS='halt_on_error=1 exitcode=66' /tmp/p13r9_tsan | grep -q '^PASS: P13 R9 synthetic ownership, 8 workers'
-      - name: Four negative mutants must compile and fail with expected reason
+      - name: Five negative mutants must compile and fail with expected reason
         run: |
           set -euo pipefail
           for spec in \
             'EPOCH|stale incarnation leaked' \
             'DUPLICATE|duplicate sequence invalidated state' \
             'OVERFLOW|overflow must fail closed' \
-            'BG_BARRIER|BG summary closed before queue drained'; do
+            'BG_BARRIER|BG summary closed before queue drained' \
+            'POISON_SCOPE|new incarnation rejected by stale overflow quarantine'; do
             IFS='|' read -r name expected <<< "$spec"
             g++ -std=c++20 -Wall -Wextra -Werror -Wshadow -pedantic -pthread \
               "-DP13_R9_MUTANT_$name" \
@@ -159,11 +160,12 @@ jobs:
             }
             echo "CAUGHT: $name ($expected)"
           done
-          echo "4/4 synthetic mutants caught"
+          echo "5/5 synthetic mutants caught"
       - name: Scope of proof
         if: always()
         run: |
           echo 'Synthetic design and source-only anchors. No production C++, SQL/DBC, config, host or DB changes.'
           echo 'Incarnation and sequence are INVENTED model tokens, not verified available core features.'
+          echo 'Epoch-keyed poison remains unbounded, and stale epochs may still fill the global bounded queue.'
           echo 'No Player*, real currency awards, hooks or Worldserver gameplay.'
           echo 'No owner policy selected, no merge, install, deployment or release.'
