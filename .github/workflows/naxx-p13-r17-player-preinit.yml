@@ -1,0 +1,78 @@
+name: "P13 R17 original constructor GUID initialization source guard"
+on:
+  push:
+    branches: ['test/cs01-p13-r17-preinit-lifecycle-20261029']
+    paths:
+      - tests/test_p13_r17_player_preinit_source.py
+      - docs/research/P13-R17-CONSTRUCTOR-GUID-BOUNDARY.md
+      - .github/workflows/naxx-p13-r17-player-preinit.yml
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - tests/test_p13_r17_player_preinit_source.py
+      - docs/research/P13-R17-CONSTRUCTOR-GUID-BOUNDARY.md
+      - .github/workflows/naxx-p13-r17-player-preinit.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  MOD_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+jobs:
+  preinitialized-lifecycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Entities/Object/Object.cpp
+            src/server/game/Entities/Object/Object.h
+            src/server/game/Entities/Unit/Unit.cpp
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Handlers/CharacterHandler.cpp
+            src/server/game/Scripting/ScriptDefines/MiscScript.cpp
+            src/server/game/Scripting/ScriptDefines/MiscScript.h
+          persist-credentials: false
+      - name: Verify immutable source and precisely three new nonproduction paths
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git merge-base --is-ancestor "$MOD_MAIN" HEAD
+          git diff --quiet "$MOD_MAIN" HEAD -- src conf
+          python3 - <<'PY'
+          import subprocess
+          changes = [line.split('\t',1) for line in subprocess.check_output(
+            ['git','diff','--name-status','80e9de1c39a6dc995188a80c31a5e785d0f2a6f9','HEAD'],text=True).splitlines()]
+          allowed = {'tests/test_p13_r17_player_preinit_source.py',
+                     'docs/research/P13-R17-CONSTRUCTOR-GUID-BOUNDARY.md',
+                     '.github/workflows/naxx-p13-r17-player-preinit.yml'}
+          assert len(changes) == 3 and all(flag == 'A' for flag,_ in changes),changes
+          assert {path for _,path in changes} == allowed,changes
+          print('PASS: R17 exactly three additive nonproduction source-test paths')
+          PY
+      - name: Source-only constructor/GUID boundary, never run preinit GetGUID
+        run: |
+          set -euo pipefail
+          python3 -I tests/test_p13_r17_player_preinit_source.py . pinned-core | tee /tmp/p13-r17.log
+          grep -Fxq 'PASS: R17 eight original source blob pins, pre-GUID construct hook, failed DB load destruction, normal login registration order' /tmp/p13-r17.log
+          test "$(grep -c '^CAUGHT R17 SOURCE DRIFT:' /tmp/p13-r17.log)" -eq 12
+          grep -Fxq 'PASS: R17 twelve synthetic source-drift guards caught' /tmp/p13-r17.log
+          grep -Fq 'LIMIT: no call to GetGUID on uninitialized Player' /tmp/p13-r17.log
+      - name: Safety contract
+        if: always()
+        run: |
+          echo 'No unsafe GetGUID call, no live Player, Worldserver, server/client/DB/SQL/DBC or money.'
+          echo 'No production source/config/core/IP/Playerbots/N-Core edits, merge or deployment.'
+          echo 'R7 concurrency release HOLD, H-DEFAULT/H-SELFBOT/H-REMEDIATION unselected.'
+          echo 'MapUpdate.Threads=8, F14 OFF, N-Core NoWrite relay OFF, D18 hard no-go, K1 date held; owner gameplay 0/5.'
