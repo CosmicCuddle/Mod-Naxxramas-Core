@@ -58,5 +58,14 @@ The pinned Git-tree hook-name scan directly found **five** reference lines for e
 
 The disposable CI test has therefore been strengthened to require **nine** original blobs including MiscScript.cpp/.h and **11 must-fail source mutation guards**. Hook-name inventory checks the original immutable tree, not GitHub's unindexed code search. It does not invoke live hook dispatch.
 
-**Final exact-head CI evidence and actual source counts must be verified after the research update.**
+## 8. Independently examined original hosted evidence (research checkpoint)
+
+At original updated research checkpoint commit **e5934ad6577b7d22fbe7130eabb02fa5586af562**, the following hosted CI jobs both completed successfully. CS01 independently fetched and read their complete original logs:
+
+- [Push run 40902855113 / job 123549571991](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40902855113/job/123549571991): **SUCCESS, 734 original log lines**.
+- [PR run 40902866237 / job 123549607345](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40902866237/job/123549607345): **SUCCESS, 734 original log lines**.
+
+Both exact-head logs independently show: **nine original file SHA guards**, exactly three additive research/test/workflow paths, **11/11 deliberate source-drift mutations caught**, five original tracked-source matching lines for each MiscScript construct/destruct lifecycle symbol (one direct ScriptMgr method-definition line for each), and the original HashMapHolder C++17/C++20/UBSan dummy pointer witness PASS. All results are read-only/dummy; no live memory race, Player lifetime guarantee, installed handler or host incident is proved.
+
+This research document is itself amended after that successful checkpoint, so the **latest final document-head workflow** must still be reverified before calling the DRAFT's final CI current. The authoritative exact current-head CI record is maintained on PR #242 and the Part 38 living checklist.
 
