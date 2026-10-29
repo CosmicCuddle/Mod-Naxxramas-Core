@@ -1,0 +1,94 @@
+name: "P13 R10 HonorOverflow proposed-vs-credited money source witness (test-only)"
+
+on:
+  push:
+    branches: ['test/cs01-p13-r10-money-credit-source-20261029']
+    paths:
+      - 'tests/test_p13_r10_money_credit_source.py'
+      - 'docs/research/P13-R10-HONOROVERFLOW-MONEY-RETURN-ACCOUNTING.md'
+      - '.github/workflows/naxx-p13-r10-money-credit-source.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tests/test_p13_r10_money_credit_source.py'
+      - 'docs/research/P13-R10-HONOROVERFLOW-MONEY-RETURN-ACCOUNTING.md'
+      - '.github/workflows/naxx-p13-r10-money-credit-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p13-r10-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  MOD_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+
+jobs:
+  original-money-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Entities/Player/Player.cpp
+          persist-credentials: false
+      - name: Verify original SHA and strictly 3 additive research/test/workflow paths
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git merge-base --is-ancestor "$MOD_MAIN" HEAD
+          test "$(git rev-parse "$MOD_MAIN:src/Systems/HonorOverflow.cpp")" = 'd4f70c511ac5a3e32c7e6b8f913d095915da707c'
+          test "$(git -C pinned-core rev-parse HEAD:src/server/game/Entities/Player/Player.cpp)" = '138e7eab4905ec366338a54cc18e6cfe749a3670'
+          git diff --quiet "$MOD_MAIN" HEAD -- src conf
+          python3 - <<'PY'
+          import subprocess
+          data = subprocess.check_output(
+              ['git','diff','--name-status',
+               '80e9de1c39a6dc995188a80c31a5e785d0f2a6f9','HEAD'],
+              text=True).splitlines()
+          records = [line.split('\t',1) for line in data]
+          expected = {
+              'tests/test_p13_r10_money_credit_source.py',
+              'docs/research/P13-R10-HONOROVERFLOW-MONEY-RETURN-ACCOUNTING.md',
+              '.github/workflows/naxx-p13-r10-money-credit-source.yml',
+          }
+          assert len(records) == 3 and all(s == 'A' for s, _ in records), records
+          assert {p for _, p in records} == expected, records
+          print('PASS: exactly three source-only added files, no production change')
+          PY
+      - name: Compile literal original module and core C++17/20/UBSan with synthetic balances
+        run: |
+          set -euo pipefail
+          python3 -I tests/test_p13_r10_money_credit_source.py . pinned-core | tee /tmp/p13-r10-original.log
+          grep -Fxq 'PASS: original pinned HonorOverflow and Player::ModifyMoney source' /tmp/p13-r10-original.log
+          test "$(grep -c '^CAUGHT SOURCE DRIFT:' /tmp/p13-r10-original.log)" -eq 4
+          grep -Fxq 'CAUGHT SOURCE DRIFT: core equality' /tmp/p13-r10-original.log
+          grep -Fxq 'CAUGHT SOURCE DRIFT: core trial check' /tmp/p13-r10-original.log
+          grep -Fxq 'CAUGHT SOURCE DRIFT: HonorOverflow ignores return' /tmp/p13-r10-original.log
+          grep -Fxq 'CAUGHT SOURCE DRIFT: BG proposed amount' /tmp/p13-r10-original.log
+          grep -Fxq 'PASS: c++17 literal-source 7-case accounting fixture' /tmp/p13-r10-original.log
+          grep -Fxq 'PASS: c++20 literal-source 7-case accounting fixture' /tmp/p13-r10-original.log
+          grep -Fxq 'PASS: c++20-ubsan literal-source 7-case accounting fixture' /tmp/p13-r10-original.log
+          grep -Fxq 'LIMIT: source-compiled payout branch with dummy Player and synthetic caps only' /tmp/p13-r10-original.log
+      - name: Explicit nonauthorising scope
+        if: always()
+        run: |
+          echo 'Pinned original module/core C++ is compiled against dummy Player/World; no Worldserver build or live payout.'
+          echo 'Money cap 1,000 and conversion rate one are synthetic test values, NOT owner config or original constants.'
+          echo 'No SQL/DBC, real DB, character, Playerbots/IP, N-Core, config, production src, merge or install.'
+          echo 'P13 economic/bot policy and remediation NOT selected; R7 shared-map race remains release HOLD.'
+          echo 'MapUpdate.Threads=8 unchanged, F14 OFF, D18 HARD NO-GO, owner gameplay 0/5.'
