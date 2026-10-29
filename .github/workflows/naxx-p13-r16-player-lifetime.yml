@@ -61,8 +61,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I tests/test_p13_r16_raw_player_registry_source.py . pinned-core | tee /tmp/p13-r16-original.log
-          grep -Fxq 'PASS: R16 exactly seven pinned original source blobs and registry/world guards' /tmp/p13-r16-original.log
-          test "$(grep -c '^CAUGHT R16 SOURCE DRIFT:' /tmp/p13-r16-original.log)" -eq 9
+          grep -Fxq 'PASS: R16 exactly nine pinned original source blobs and registry/world/misc dispatch guards' /tmp/p13-r16-original.log
+          test "$(grep -c '^CAUGHT R16 SOURCE DRIFT:' /tmp/p13-r16-original.log)" -eq 11
           test "$(grep -c '^HOOK-SUMMARY ' /tmp/p13-r16-original.log)" -eq 2
           grep -Fxq 'PASS: R16 actual pinned construct/destruct source-name inventory' /tmp/p13-r16-original.log
           grep -Fxq 'PASS: R16 c++17 original registry method dummy pointer witness' /tmp/p13-r16-original.log
