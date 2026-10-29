@@ -1,0 +1,184 @@
+name: "F14 P15 combined P12+P14 matrix (test-only, native)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/PlayerIdentityPolicy.h'
+      - 'src/Systems/PlayerIdentityFacts.h'
+      - 'src/Systems/PlayerIdentityFacts.cpp'
+      - 'tests/f14_facts_stubs/**'
+      - 'tests/f14_combined_matrix_tests.cpp'
+      - 'tests/f14_combined_inputs.py'
+      - 'tests/f14_combined_mutants.py'
+      - 'docs/research/F14-P15-COMBINED-MATRIX.md'
+      - '.github/workflows/f14-combined-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f14-p15-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_202: 205d958c3fddc8943c8eeef9822213f810e47c2d
+  P12_224: 33bf0d3feed7f51e10ad6470625d5f14dc601765
+  P14_228: eec8211ec9f170468d2ed970a325b3bfbd571e6e
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+  PLAYERBOTS_SHA: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: ${{ env.PLAYERBOTS_SHA }}
+          path: pinned-playerbots
+          sparse-checkout: src
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/World/World.cpp
+            src/server/game/Maps/MapMgr.cpp
+            src/server/game/Server/Protocol/Opcodes.cpp
+            src/server/game/Handlers/MiscHandler.cpp
+            src/server/game/Handlers/QueryHandler.cpp
+            src/server/game/Cache/WhoListCacheMgr.cpp
+            src/server/game/Cache/WhoListCacheMgr.h
+            src/server/game/Entities/Player/SocialMgr.h
+            src/server/game/Guilds/Guild.cpp
+            src/server/game/Server/Packets/GuildPackets.h
+            src/server/game/Scripting/ScriptDefines/ServerScript.h
+            src/server/game/Server/WorldSession.cpp
+          persist-credentials: false
+      - name: Confirm exact heads and both sibling commits
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-playerbots rev-parse HEAD)" = "$PLAYERBOTS_SHA"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git cat-file -e "$P12_224^{commit}"
+          git cat-file -e "$P14_228^{commit}"
+      - name: "Test-only child of #202: no src/conf change, only P15 paths added"
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_202" HEAD
+          git diff --quiet "$BASE_202" HEAD -- src conf tests/f14_facts_stubs
+          git diff --name-status "$BASE_202" HEAD | while read -r status path; do
+            test "$status" = "A" || { echo "not an addition: $status $path"; exit 1; }
+            case "$path" in
+              tests/f14_combined_matrix_tests.cpp|tests/f14_combined_inputs.py|\
+              tests/f14_combined_mutants.py|docs/research/F14-P15-COMBINED-MATRIX.md|\
+              .github/workflows/f14-combined-matrix.yml) ;;
+              *) echo "unexpected changed path: $path"; exit 1 ;;
+            esac
+          done
+      - name: "Stage siblings: reviewed blobs, disjoint paths, clean merge-tree (never committed)"
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_combined_inputs.py . /tmp/p15 | tee /tmp/inputs.txt
+          grep -qx 'OK   merge-tree 33bf0d3 + eec8211 is clean: tree c426cd5' /tmp/inputs.txt
+          grep -q '^extracted src/Systems/WhoListingPolicy.h @ 01c6b32 (blob e66f72c); seam differs on lines \[1, 2, 17, 211, 233\]$' /tmp/inputs.txt
+          grep -qx 'PASS: siblings staged at /tmp/p15' /tmp/inputs.txt
+      - name: "P12 #224's own tests on the combined tree"
+        working-directory: /tmp/p15/combined
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_selfbot_masking_facts.py "$GITHUB_WORKSPACE/pinned-playerbots" | tee /tmp/p12f.txt
+          grep -qx 'PASS: 13 pinned Playerbots facts at d750b4b' /tmp/p12f.txt
+          F="-Wall -Wextra -Werror -pedantic -Wshadow -pthread -Isrc/Systems -Itests/f14_facts_stubs/core -Itests/f14_facts_stubs/playerbots"
+          for std in 17 20; do
+            g++ -std=c++$std $F tests/f14_selfbot_masking_tests.cpp -o /tmp/p12_$std
+            /tmp/p12_$std | grep -qx 'PASS: F14 P12 masked SelfBot matrix, 27 checks'
+          done
+          g++ -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $F \
+            tests/f14_selfbot_masking_tests.cpp -o /tmp/p12_san
+          /tmp/p12_san | grep -qx 'PASS: F14 P12 masked SelfBot matrix, 27 checks'
+          python3 -I tests/f14_selfbot_masking_mutants.py /tmp/p12mut | tee /tmp/p12m.txt
+          grep -qx '8/8 mutants caught' /tmp/p12m.txt
+      - name: "P14 #228's own tests on the combined tree"
+        working-directory: /tmp/p15/combined
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_visibility_seam_facts.py "$GITHUB_WORKSPACE/pinned-core" | tee /tmp/p14f.txt
+          grep -qx 'PASS: 12 pinned core facts at 8daffda' /tmp/p14f.txt
+          F="-Wall -Wextra -Werror -pedantic -Wshadow -pthread -I/tmp/p15/seam -Isrc/Systems"
+          for std in 17 20; do
+            g++ -std=c++$std $F tests/f14_visibility_seam_tests.cpp -o /tmp/p14_$std
+            /tmp/p14_$std | grep -qx 'PASS: F14 P14 /who identity seam, 23 checks, 2000 random cases'
+          done
+          g++ -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $F \
+            tests/f14_visibility_seam_tests.cpp -o /tmp/p14_san
+          /tmp/p14_san | grep -qx 'PASS: F14 P14 /who identity seam, 23 checks, 2000 random cases'
+          python3 -I tests/f14_visibility_seam_mutants.py /tmp/p15/seam /tmp/p14mut | tee /tmp/p14m.txt
+          grep -qx '9/9 mutants caught' /tmp/p14m.txt
+      - name: Combined matrix (C++17/20, ASan+UBSan, ThreadSanitizer with 8 workers)
+        run: |
+          set -euo pipefail
+          # The fixture fails on count drift; the floor stops coverage shrinking.
+          n=$(grep -oP 'constexpr int EXPECTED_CHECKS = \K[0-9]+' tests/f14_combined_matrix_tests.cpp)
+          test "$n" -ge 27
+          want="PASS: F14 P15 combined P12+P14 matrix, $n checks, 8 map workers"
+          I="-I/tmp/p15/seam -Isrc/Systems -Itests/f14_facts_stubs/core -Itests/f14_facts_stubs/playerbots"
+          for std in 17 20; do
+            g++ -std=c++$std -Wall -Wextra -Werror -pedantic -Wshadow -pthread $I \
+              tests/f14_combined_matrix_tests.cpp -o /tmp/p15_$std
+            /tmp/p15_$std | tee /tmp/p15_$std.txt
+            grep -qx "$want" /tmp/p15_$std.txt
+          done
+          g++ -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -pthread $I \
+            tests/f14_combined_matrix_tests.cpp -o /tmp/p15_asan
+          /tmp/p15_asan | grep -qx "$want"
+          g++ -std=c++20 -O1 -g -fsanitize=thread -pthread $I tests/f14_combined_matrix_tests.cpp -o /tmp/p15_tsan
+          TSAN_OPTIONS="halt_on_error=1 exitcode=66" /tmp/p15_tsan | grep -qx "$want"
+      - name: Count drift is caught (drop one check -> must fail)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/drift
+          python3 - <<'PY'
+          import pathlib
+          src = pathlib.Path("tests/f14_combined_matrix_tests.cpp").read_text()
+          line = "    CHECK(Classify(maskedSelf) == Identity::Human);\n"
+          assert src.count(line) == 1, "anchor check missing"
+          pathlib.Path("/tmp/drift/t.cpp").write_text(src.replace(line, ""))
+          PY
+          g++ -std=c++20 -pthread -I/tmp/p15/seam -Isrc/Systems -Itests/f14_facts_stubs/core \
+            -Itests/f14_facts_stubs/playerbots /tmp/drift/t.cpp -o /tmp/drift/t
+          if /tmp/drift/t > /tmp/drift/out.txt; then echo "dropped check not detected"; exit 1; fi
+          grep -q '^COUNT DRIFT: ran 26 checks, expected 27$' /tmp/drift/out.txt
+      - name: Must-fail mutants, including M2, M3 and a ThreadSanitizer race (9)
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_combined_mutants.py /tmp/p15 /tmp/p15mut | tee /tmp/m.txt
+          grep -qx '9/9 mutants caught' /tmp/m.txt
+          grep -qx "CAUGHT who rows rebuilt during the map phase (TSAN): \['ThreadSanitizer: data race'\]" /tmp/m.txt
+      - name: "Inherited #197 classifier and #202 adapter still pass"
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic -pthread -Isrc/Systems \
+            tests/f14_player_identity_policy_tests.cpp -o /tmp/p197
+          /tmp/p197 | grep -qx 'PASS: F14 identity classifier, 2936 checks'
+          with=$(grep -oP 'EXPECTED_CHECKS_WITH_PLAYERBOTS = \K[0-9]+' tests/f14_identity_facts_adapter_tests.cpp)
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic -pthread -Isrc/Systems -Itests/f14_facts_stubs/core \
+            -Itests/f14_facts_stubs/playerbots tests/f14_identity_facts_adapter_tests.cpp -o /tmp/p202
+          /tmp/p202 | grep -qx "PASS: F14 facts adapter with Playerbots, $with checks"
+      - name: Scope of proof
+        if: always()
+        run: |
+          echo 'Test-only: no src/, conf, SQL, DBC, core, Playerbots or IP change; #224, #228 and #145 read, not edited.'
+          echo 'Combined tree is built in /tmp and never committed. No hook; F14 stays OFF; no server run.'
