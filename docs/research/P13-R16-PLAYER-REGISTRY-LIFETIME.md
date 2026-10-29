@@ -50,4 +50,13 @@ The R14 [owner decision matrix DRAFT #240](https://github.com/CosmicCuddle/Mod-N
 
 H-DEFAULT, H-SELFBOT and H-REMEDIATION all UNSELECTED. R7 potential shared-container concurrency remains release HOLD. Protected Mod/N-Core mains and frozen integration PR #160 no-write. MapUpdate.Threads=8 MUST remain **8**. F14 OFF/unwired; N-Core NoWrite and relay OFF; K1 Step1 not before 1 November 2026; D18 already-armed in-combat pet A-to-B HARD NO-GO. Gameplay acceptance 0/5. No SQL/DBC, client, owner Worldserver, installed module, DB, core, IP, Playerbots, N-Core, merge or deployment. Future high-impact work requires separate owner approval, dated restorable backups, verified restoration and rollback.
 
-**Await original exact-head hosted source scans and complete raw CI logs before claiming final results.**
+## 7. Refined real lifecycle dispatch (source-verified)
+
+The pinned Git-tree hook-name scan directly found **five** reference lines for each lifecycle method. Original [MiscScript.cpp lines 32–39](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/src/server/game/Scripting/ScriptDefines/MiscScript.cpp#L32-L39), blob **a41a3f0d9f48d0c4319a585c591ba7ec722fc37b**, implements both ScriptMgr methods and dispatches through **CALL_ENABLED_HOOKS(MiscScript, MISCHOOK_ON_CONSTRUCT_PLAYER / MISCHOOK_ON_DESTRUCT_PLAYER)**. Original [MiscScript.h lines 23–63](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/src/server/game/Scripting/ScriptDefines/MiscScript.h#L23-L63), blob **9ed20ab2304fed3bceb20a7e8dc704e529897365**, defines both hook IDs and virtual callback methods. The original MiscScript constructor registers enabled script callbacks through ScriptRegistry<MiscScript>::AddScript.
+
+**Important correction to the initial open question:** Actual core **MiscScript** construction/destruction callback dispatch IS source-supported, not merely a declaration. It is *not* a normal PlayerScript login/logout callback, and the existing Mod HonorOverflow does not register this MiscScript lifecycle hook. This gives a real extension seam, but no *automatic stable/monotonic Player incarnation identifier, handle for queued raw Player*, or proof of thread ownership/monetary atomicity.
+
+The disposable CI test has therefore been strengthened to require **nine** original blobs including MiscScript.cpp/.h and **11 must-fail source mutation guards**. Hook-name inventory checks the original immutable tree, not GitHub's unindexed code search. It does not invoke live hook dispatch.
+
+**Final exact-head CI evidence and actual source counts must be verified after the research update.**
+
