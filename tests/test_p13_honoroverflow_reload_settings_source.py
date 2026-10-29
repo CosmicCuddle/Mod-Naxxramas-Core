@@ -291,8 +291,11 @@ def check_standard_ingress(sources: dict[str, str]) -> None:
 
 
 def check_standard_ingress_negative(sources: dict[str, str]) -> None:
+    chat_line = next(line for line in sources["opcodes"].splitlines()
+                     if "DEFINE_HANDLER(CMSG_MESSAGECHAT," in line)
     edits = (
-        ("opcodes", "PROCESS_THREADUNSAFE", "PROCESS_THREADSAFE", "GM chat processing class"),
+        ("opcodes", chat_line, chat_line.replace("PROCESS_THREADUNSAFE", "PROCESS_THREADSAFE"),
+         "GM chat processing class"),
         ("world", "ProcessCliCommands();", "/* unqueued */", "world CLI phase"),
         ("mapmgr", "m_updater.wait();", "/* no wait */", "map worker join"),
         ("reload", "sWorld->LoadConfigSettings(true);", "/* no reload */", "config command"),
