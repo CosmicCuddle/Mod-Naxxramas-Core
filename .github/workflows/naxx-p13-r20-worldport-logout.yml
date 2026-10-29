@@ -1,0 +1,80 @@
+name: "P13 R20 original far teleport ACK / logout source guard (test-only)"
+on:
+  push:
+    branches: ['test/cs01-p13-r20-worldport-logout-20261029']
+    paths:
+      - tests/test_p13_r20_worldport_logout_source.py
+      - docs/research/P13-R20-WORLDPORT-LOGOUT-RECOVERY.md
+      - .github/workflows/naxx-p13-r20-worldport-logout.yml
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - tests/test_p13_r20_worldport_logout_source.py
+      - docs/research/P13-R20-WORLDPORT-LOGOUT-RECOVERY.md
+      - .github/workflows/naxx-p13-r20-worldport-logout.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  MOD_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+jobs:
+  worldport-logout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Handlers/MovementHandler.cpp
+            src/server/game/Server/WorldSession.cpp
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Maps/Map.cpp
+            src/server/game/Handlers/CharacterHandler.cpp
+          persist-credentials: false
+      - name: Exact original SHA and exactly three additive nonproduction paths
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git merge-base --is-ancestor "$MOD_MAIN" HEAD
+          git diff --quiet "$MOD_MAIN" HEAD -- src conf
+          python3 - <<'PY'
+          import subprocess
+          rows = subprocess.check_output(['git','diff','--name-status','80e9de1c39a6dc995188a80c31a5e785d0f2a6f9','HEAD'],text=True).splitlines()
+          changes = [x.split('\t',1) for x in rows]
+          approved = {
+            'tests/test_p13_r20_worldport_logout_source.py',
+            'docs/research/P13-R20-WORLDPORT-LOGOUT-RECOVERY.md',
+            '.github/workflows/naxx-p13-r20-worldport-logout.yml',
+          }
+          assert len(changes)==3 and all(action=='A' for action,_ in changes),changes
+          assert {path for _,path in changes}==approved,changes
+          print('PASS: R20 exactly three additive research/test/workflow paths')
+          PY
+      - name: Inspect source ACK and logout drains, test 20 deliberate source drift cases
+        run: |
+          set -euo pipefail
+          python3 -I tests/test_p13_r20_worldport_logout_source.py . pinned-core | tee /tmp/p13-r20.log
+          grep -Fxq 'PASS: R20 six exact pinned source blobs and real transfer/ACK/logout guards' /tmp/p13-r20.log
+          test "$(grep -c '^CAUGHT R20 SOURCE DRIFT:' /tmp/p13-r20.log)" -eq 20
+          grep -Fxq 'PASS: R20 twenty synthetic source drift mutants caught' /tmp/p13-r20.log
+          test "$(grep -c '^SYNTHETIC R20 path ' /tmp/p13-r20.log)" -eq 5
+          grep -Fxq 'PASS: R20 five illustrative condition-only ACK cases (NOT a real transfer)' /tmp/p13-r20.log
+          grep -Fq 'LIMIT: ACK clears far flag early' /tmp/p13-r20.log
+      - name: Explicitly no owner host and no lifetime/money approval
+        if: always()
+        run: |
+          echo 'R20 source audit only; not a real transfer, cleanup leak, deadlock, payout or owner incident.'
+          echo 'No production/core/IP/Playerbots/N-Core, SQL/DBC, database/client or Worldserver change.'
+          echo 'No merge/install; R7 release HOLD; P13 H-DEFAULT/H-SELFBOT/H-REMEDIATION unselected.'
+          echo 'MapUpdate.Threads=8, F14 OFF, NoWrite relay OFF, K1 held, D18 HARD NO-GO, gameplay 0/5.'
