@@ -76,7 +76,7 @@ def mutation_guards(mod, core):
         ("check declined money", "mod", "player->ModifyMoney(static_cast<int32>(rewardCopper));", "if (!player->ModifyMoney(static_cast<int32>(rewardCopper))) return;"),
         ("BG no forced last capture", "mod", "ProcessHonorOverflow(player, true);", "ProcessHonorOverflow(player, false);"),
         ("BG no close erase", "mod", "BattlegroundHonorSummaries.erase(itr);", "/* do not close BG summary */"),
-        ("hook after trial check", "core", "sScriptMgr->OnPlayerMoneyChanged(this, amount);", "/* hook removed */"),
+        ("pre-admission hook removed", "core", "sScriptMgr->OnPlayerMoneyChanged(this, amount);", "/* hook removed */"),
     ]
     for label, which, old, new in replacements:
         src = mod if which == "mod" else core
@@ -176,6 +176,7 @@ void reset() {
     scripts.calls = 0;
     messages = 0;
     world.trialCap = 0;
+    HonorOverflowNotify = true;
 }
 int main() {
     try {
@@ -232,6 +233,23 @@ int main() {
         SendBattlegroundSummary(&bg);
         check(messages == 1, "duplicate BG close sent a second summary");
         std::cout << "PASS: BG forced end/leave flush once, reports proposed not credited\n";
+
+        reset();
+        Player quiet(13, 900);
+        quiet.inBattleground = true;
+        StoreHonorSnapshot(&quiet);
+        quiet.today = 100;
+        ProcessHonorOverflow(&quiet);
+        check(BattlegroundHonorSummaries.count(13) == 1,
+              "quiet BG did not accumulate summary");
+        HonorOverflowNotify = false;
+        SendBattlegroundSummary(&quiet);
+        check(messages == 0 && BattlegroundHonorSummaries.count(13) == 0,
+              "disabled notification should still clear BG summary");
+        HonorOverflowNotify = true;
+        SendBattlegroundSummary(&quiet);
+        check(messages == 0, "suppressed summary was replayed");
+        std::cout << "PASS: BG summary erased even when notifications disabled\n";
         std::cout << "LIMIT: literal source slices + synthetic Player, no thread/race/real server proof\n";
         return 0;
     } catch (std::exception const& e) {
@@ -258,7 +276,7 @@ def run_witness(parts):
             subprocess.run(["g++", "-std=" + standard, "-Wall", "-Wextra", "-Werror",
                             "-pedantic", *flags, str(src), "-o", str(out)], check=True)
             output = subprocess.check_output([str(out)], text=True)
-            assert output.count("PASS:") == 3, output
+            assert output.count("PASS:") == 4, output
             assert "LIMIT:" in output
             print("PASS: " + label + " R11 original-source lifecycle sequence")
 
