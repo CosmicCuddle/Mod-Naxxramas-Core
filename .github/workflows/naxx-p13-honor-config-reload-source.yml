@@ -1,0 +1,92 @@
+name: "P13 R8 HonorOverflow plain reload settings source contract (test only)"
+
+on:
+  push:
+    branches:
+      - 'test/cs01-p13-r8-honor-config-reload-source-20261029'
+    paths:
+      - 'tests/test_p13_honoroverflow_reload_settings_source.py'
+      - '.github/workflows/naxx-p13-honor-config-reload-source.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tests/test_p13_honoroverflow_reload_settings_source.py'
+      - '.github/workflows/naxx-p13-honor-config-reload-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p13-r8-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  MOD_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+
+jobs:
+  pinned-serial-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/World/World.cpp
+            src/server/game/Maps/MapMgr.cpp
+            src/server/game/Maps/MapUpdater.cpp
+            src/server/game/Maps/Map.cpp
+            src/server/game/Entities/Player/PlayerUpdates.cpp
+          persist-credentials: false
+
+      - name: Confirm exact source refs and two test-only added paths
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git merge-base --is-ancestor "$MOD_MAIN" HEAD
+          git diff --quiet "$MOD_MAIN" HEAD -- src conf
+          python3 - <<'PY'
+          import subprocess
+          expected = {
+              "tests/test_p13_honoroverflow_reload_settings_source.py",
+              ".github/workflows/naxx-p13-honor-config-reload-source.yml",
+          }
+          lines = subprocess.check_output(
+              ["git", "diff", "--name-status", "80e9de1c39a6dc995188a80c31a5e785d0f2a6f9", "HEAD"],
+              text=True).splitlines()
+          entries = [line.split("\t", 1) for line in lines]
+          assert len(entries) == 2, entries
+          assert all(status == "A" for status, _ in entries), entries
+          assert {path for _, path in entries} == expected, entries
+          print("PASS: exactly two new test/CI paths; protected module source unchanged")
+          PY
+
+      - name: Run original config hook serially (C++17/20 UBSan) and source drift guards
+        run: |
+          set -euo pipefail
+          python3 -I tests/test_p13_honoroverflow_reload_settings_source.py | tee /tmp/p13-r8.txt
+          grep -qx 'PASS: c++17 original hook, 4 variables, serial snapshots' /tmp/p13-r8.txt
+          grep -qx 'PASS: c++20 original hook, 4 variables, serial snapshots' /tmp/p13-r8.txt
+          grep -qx 'CAUGHT source drift: world reload callback absent' /tmp/p13-r8.txt
+          grep -qx 'UNPROVEN: actual reload overlap with map workers, data race or live incident' /tmp/p13-r8.txt
+
+      - name: Explicit scope of proof
+        if: always()
+        run: |
+          echo 'Original pinned source sites and serial C++ callback state only.'
+          echo 'No concurrent writes tested; no production patch or concurrency mitigation.'
+          echo 'MapMgr::Update waits for map tasks; actual ingress/timing of reload remains unproven.'
+          echo 'P13 owner policies unselected; MapUpdate.Threads=8 remains untouched.'
+          echo 'No Worldserver run, owner host, private DB/config, SQL/DBC, N-Core, F14 or gameplay.'
