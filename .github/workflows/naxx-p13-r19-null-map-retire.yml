@@ -1,0 +1,78 @@
+name: "P13 R19 pinned conditional null-map logout cleanup source guard"
+on:
+  push:
+    branches: ['test/cs01-p13-r19-null-map-retire-20261029']
+    paths:
+      - tests/test_p13_r19_null_map_retirement_source.py
+      - docs/research/P13-R19-NULL-MAP-RETIREMENT.md
+      - .github/workflows/naxx-p13-r19-null-map-retire.yml
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - tests/test_p13_r19_null_map_retirement_source.py
+      - docs/research/P13-R19-NULL-MAP-RETIREMENT.md
+      - .github/workflows/naxx-p13-r19-null-map-retire.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  MOD_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+jobs:
+  null-map-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Server/WorldSession.cpp
+            src/server/game/Maps/Map.cpp
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Globals/ObjectAccessor.cpp
+            src/server/game/Scripting/ScriptDefines/MiscScript.cpp
+          persist-credentials: false
+      - name: Only three additive nonproduction paths from protected main
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git merge-base --is-ancestor "$MOD_MAIN" HEAD
+          git diff --quiet "$MOD_MAIN" HEAD -- src conf
+          python3 - <<'PY'
+          import subprocess
+          a=[x.split('\t',1) for x in subprocess.check_output(
+            ['git','diff','--name-status','80e9de1c39a6dc995188a80c31a5e785d0f2a6f9','HEAD'],text=True).splitlines()]
+          allowed={'tests/test_p13_r19_null_map_retirement_source.py',
+                   'docs/research/P13-R19-NULL-MAP-RETIREMENT.md',
+                   '.github/workflows/naxx-p13-r19-null-map-retire.yml'}
+          assert len(a)==3 and all(k=='A' for k,p in a),a
+          assert {p for k,p in a}==allowed,a
+          print('PASS: R19 exactly three additive research/test/workflow paths')
+          PY
+      - name: Verify pinned original conditional cleanup and 17 source-drift guards
+        run: |
+          set -euo pipefail
+          python3 -I tests/test_p13_r19_null_map_retirement_source.py . pinned-core | tee /tmp/p13-r19.log
+          grep -Fxq 'PASS: R19 six exact original source blobs and conditional map/no-map logout cleanup order' /tmp/p13-r19.log
+          test "$(grep -c '^CAUGHT R19 SOURCE DRIFT:' /tmp/p13-r19.log)" -eq 17
+          grep -Fxq 'PASS: R19 seventeen deliberate source-drift mutants caught' /tmp/p13-r19.log
+          test "$(grep -c '^SYNTHETIC R19 path ' /tmp/p13-r19.log)" -eq 4
+          grep -Fxq 'PASS: R19 four synthetic branch-only timelines, no live cleanup inference' /tmp/p13-r19.log
+          grep -Fq 'LIMIT: no-map branch not shown calling registry removal/destructor DIRECTLY' /tmp/p13-r19.log
+      - name: No owner server or remediation authorized
+        if: always()
+        run: |
+          echo 'R19 proves only direct source branch coverage, not a host memory leak, stale registry or payout.'
+          echo 'No production core/Playerbots/IP/N-Core/SQL/DBC/client/DB/Worldserver change, merge or install.'
+          echo 'R7 shared-map release HOLD, H-DEFAULT/H-SELFBOT/H-REMEDIATION unselected, MapUpdate.Threads=8.'
+          echo 'F14 OFF, NoWrite relay OFF, D18 HARD NO-GO, K1 date held; gameplay 0/5.'
