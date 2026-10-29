@@ -6,6 +6,8 @@
 // Input sequence and generation are hypothetical; pinned core does NOT
 // provide this contract automatically. C++17/20, ASan+UBSan, TSAN.
 #include <algorithm>
+#include <atomic>
+#include <limits>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -224,6 +226,201 @@ private:
     std::uint32_t acceptedOverall = 0;
 };
 
+// An INDEPENDENT test-only admission sketch, distinct from the R9 world-state
+// queue above. Its hypothetical world-issued lease DOES NOT exist in pinned
+// core. It proves only that stale producer traffic cannot consume this model's
+// bounded queue/retired registry. This is not a Player identity or payout fix.
+class HypotheticalBoundedAdmission final
+{
+public:
+    struct Lease final
+    {
+        std::uint32_t guid = 0;
+        std::uint64_t incarnation = 0;
+    };
+
+    HypotheticalBoundedAdmission(std::size_t maxSessions, std::size_t maxPending)
+        : owner(std::this_thread::get_id()),
+          liveCapacity(maxSessions), queueCapacity(maxPending)
+    {
+        Check(maxSessions > 0 && maxPending > 0, "zero synthetic admission limit");
+    }
+
+    Lease Begin(std::uint32_t guid)
+    {
+        RequireWorldThread();
+        std::lock_guard<std::mutex> lock(mutex);
+        Check(guid > 0 && active.find(guid) == active.end(), "duplicate live lease");
+        Check(active.size() < liveCapacity, "active synthetic sessions at bound");
+        Check(nextIncarnation < std::numeric_limits<std::uint64_t>::max(),
+              "synthetic incarnation counter exhausted");
+        Lease result{guid, ++nextIncarnation};
+        active.emplace(guid, Active{result.incarnation, false});
+        return result;
+    }
+
+    void Retire(Lease lease)
+    {
+        RequireWorldThread();
+        std::lock_guard<std::mutex> lock(mutex);
+        auto it = active.find(lease.guid);
+        Check(it != active.end() && it->second.incarnation == lease.incarnation,
+              "retire requires active matching lease");
+        active.erase(it);
+#ifndef P13_R9_MUTANT_ADMISSION_PURGE
+        pending.erase(std::remove_if(pending.begin(), pending.end(),
+            [lease](Observation const& sample) {
+                return sample.guid == lease.guid &&
+                       sample.incarnation == lease.incarnation;
+            }), pending.end());
+#endif
+    }
+
+    bool Submit(Observation observation)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto it = active.find(observation.guid);
+        if (it == active.end())
+            return false;
+#ifndef P13_R9_MUTANT_ADMISSION_STALE
+        if (it->second.incarnation != observation.incarnation)
+            return false;
+#endif
+        if (it->second.invalid)
+            return false;
+        if (pending.size() >= queueCapacity)
+        {
+            it->second.invalid = true; // No partial processing for this lease.
+            return false;
+        }
+        pending.push_back(observation);
+        return true;
+    }
+
+    std::size_t DrainAfterJoin()
+    {
+        RequireWorldThread();
+        std::lock_guard<std::mutex> lock(mutex);
+        std::size_t accepted = 0;
+        for (Observation const& sample : pending)
+        {
+            auto it = active.find(sample.guid);
+            if (it != active.end() &&
+                it->second.incarnation == sample.incarnation && !it->second.invalid)
+                ++accepted;
+        }
+        pending.clear();
+        return accepted;
+    }
+
+    std::size_t Pending() const
+    {
+        RequireWorldThread();
+        std::lock_guard<std::mutex> lock(mutex);
+        return pending.size();
+    }
+
+    std::size_t ActiveCount() const
+    {
+        RequireWorldThread();
+        std::lock_guard<std::mutex> lock(mutex);
+        return active.size();
+    }
+
+private:
+    struct Active final
+    {
+        std::uint64_t incarnation = 0;
+        bool invalid = false;
+    };
+
+    void RequireWorldThread() const
+    {
+        Check(std::this_thread::get_id() == owner,
+              "admission lifecycle is world-owner only");
+    }
+
+    std::thread::id const owner;
+    std::size_t const liveCapacity;
+    std::size_t const queueCapacity;
+    std::uint64_t nextIncarnation = 0; // Hypothetical, not a core API.
+    mutable std::mutex mutex;
+    std::unordered_map<std::uint32_t, Active> active;
+    std::vector<Observation> pending;
+};
+
+void TestHypotheticalBoundedAdmission()
+{
+    HypotheticalBoundedAdmission gate(1, 2);
+    auto old = gate.Begin(88);
+    Check(gate.Submit({old.guid, old.incarnation, 1, 1, false}),
+          "old lease admission failed");
+    gate.Retire(old);
+    Check(gate.Pending() == 0, "retired pending observations were not purged");
+    Check(gate.ActiveCount() == 0, "retired lease held active memory");
+
+    auto fresh = gate.Begin(88);
+    Check(fresh.incarnation > old.incarnation,
+          "world-issued synthetic incarnation did not advance");
+    std::atomic<bool> staleAdmitted{false};
+    std::vector<std::thread> staleWorkers;
+    for (int worker = 0; worker < 8; ++worker)
+    {
+        staleWorkers.emplace_back([&, worker] {
+            for (int i = 0; i < 100; ++i)
+            {
+                if (gate.Submit({old.guid, old.incarnation,
+                                 static_cast<std::uint64_t>(worker * 100 + i + 1),
+                                 9, false}))
+                    staleAdmitted.store(true, std::memory_order_relaxed);
+            }
+        });
+    }
+    for (auto& worker : staleWorkers)
+        worker.join();
+    Check(!staleAdmitted.load(std::memory_order_relaxed),
+          "stale workers consumed active queue capacity");
+    Check(gate.Pending() == 0, "stale workers occupied the new queue");
+    Check(gate.Submit({fresh.guid, fresh.incarnation, 1, 42, false}),
+          "fresh incarnation cannot submit after stale worker flood");
+    Check(gate.DrainAfterJoin() == 1, "fresh admission lost after stale flood");
+    gate.Retire(fresh);
+
+    // Hypothetical ownership does not accumulate tombstones. The only retained
+    // counter is a 64-bit monotonic sequence; exhaustion fails closed.
+    for (int i = 0; i < 1500; ++i)
+    {
+        auto lease = gate.Begin(88);
+        Check(gate.Submit({lease.guid, lease.incarnation, 1, 2, false}),
+              "bounded relog admission failed");
+        gate.Retire(lease);
+        Check(gate.ActiveCount() == 0 && gate.Pending() == 0,
+              "retired synthetic sessions accumulated unbounded entries");
+    }
+
+    auto current = gate.Begin(88);
+    Check(gate.Submit({current.guid, current.incarnation, 1, 3, false}),
+          "first current event failed");
+    Check(gate.Submit({current.guid, current.incarnation, 2, 4, false}),
+          "second current event failed");
+    Check(!gate.Submit({current.guid, current.incarnation, 3, 5, false}),
+          "admission queue overflow must fail closed");
+    Check(gate.DrainAfterJoin() == 0,
+          "invalid lease partially admitted after queue overflow");
+    gate.Retire(current);
+    auto replacement = gate.Begin(88);
+    Check(gate.Submit({replacement.guid, replacement.incarnation, 1, 6, false}),
+          "new lease stayed poisoned after prior admission overflow");
+    Check(gate.DrainAfterJoin() == 1, "new lease not admitted after old overflow");
+    gate.Retire(replacement);
+    Check(gate.ActiveCount() == 0 && gate.Pending() == 0,
+          "bounded admission did not reclaim synthetic state");
+    std::cout << "PASS: bounded admission alternative, 8 stale workers, "
+                 "1500 relogs, active/queue bounds, overflow recovery\n";
+    std::cout << "LIMITATION: invented world-issued leases; no real core ownership, "
+                 "ordering, currency or BG semantics\n";
+}
+
 int main()
 {
     try
@@ -351,6 +548,8 @@ int main()
         gone.DrainAfterJoin();
         Check(gone.SessionCount() == 0 && gone.AcceptedTotal() == 0,
               "late callback recreated retired identity");
+
+        TestHypotheticalBoundedAdmission();
 
         std::cout << "PASS: P13 R9 synthetic ownership, 8 workers, stale epochs, "
                      "duplicates, BG barrier, overflow, gaps, retired GUID\n";
