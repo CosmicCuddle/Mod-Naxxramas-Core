@@ -259,6 +259,7 @@ int main()
         bg.DrainAfterJoin();
         Check(bg.Submit({72, 9, 2, 8, true}), "duplicate submission missing");
         bg.DrainAfterJoin();
+        Check(!bg.Read(72).invalid, "duplicate sequence invalidated state");
         Check(bg.Read(72).accepted == 2, "duplicate observation processed");
         Check(bg.FinishBgAfterJoin(72, received), "BG summary cannot flush after barrier");
         Check(received == 2, "BG summary sample count wrong");
