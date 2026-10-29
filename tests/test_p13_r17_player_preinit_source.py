@@ -113,7 +113,9 @@ def mutants(srcs):
          "CALL_ENABLED_HOOKS(MiscScript, MISCHOOK_ON_CONSTRUCT_PLAYER, script->OnConstructPlayer(origin));",
          "/* bypass */"),
         ("failed LoadFromDB no delete", 5, "delete pCurrChar; // delete it manually", "/* deleted disabled */"),
-        ("HonorOverflow normal login no snapshot", 0, "StoreHonorSnapshot(player);", "/* no snapshot */"),
+        ("HonorOverflow normal login no snapshot", 0,
+         "void OnPlayerLogin(Player* player) override\n    {\n        StoreHonorSnapshot(player);",
+         "void OnPlayerLogin(Player* player) override\n    {\n        /* no snapshot */"),
     ]
     count = 0
     for name, index, old, changed in edits:
