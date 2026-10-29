@@ -1,0 +1,63 @@
+name: P13-R7 pinned HonorOverflow shared-state map-thread audit
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_p13_honoroverflow_shared_map_thread_source.py'
+      - '.github/workflows/naxx-p13-shared-map-thread-source.yml'
+  push:
+    branches:
+      - 'test/cs01-p13-honoroverflow-shared-state-20261029'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-concurrency-risk-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: "P13-R7: exact R6 parent and test-only scope"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=3a1b8b2caa43b924618db58524853e631dea3a29
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --name-only "$BASE" HEAD > /tmp/actual-changed
+          printf '%s\n' \
+            '.github/workflows/naxx-p13-shared-map-thread-source.yml' \
+            'tests/test_p13_honoroverflow_shared_map_thread_source.py' > /tmp/allowed
+          diff -u /tmp/allowed /tmp/actual-changed
+          for path in \
+            src/Systems/HonorOverflow.cpp \
+            conf/mod_naxxramas_core.conf.dist \
+            tests/test_p13_bot_membership_fallback_source.py \
+            tests/test_p13_headless_identity_source.py; do
+            test "$(git show "$BASE":"$path" | sha256sum | cut -d' ' -f1)" = \
+                 "$(sha256sum "$path" | cut -d' ' -f1)"
+          done
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: pinned-core
+          fetch-depth: 1
+          sparse-checkout: |
+            src/server/game/World/WorldConfig.cpp
+            src/server/game/Maps/MapMgr.cpp
+            src/server/game/Maps/MapUpdater.cpp
+            src/server/game/Maps/Map.cpp
+            src/server/game/Entities/Player/PlayerUpdates.cpp
+          sparse-checkout-cone-mode: false
+      - name: "P13-R7: run deterministic source proof, never concurrent unordered_map UB"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-core rev-parse HEAD)" = \
+               "8daffdabe9202c228e45d833c9a1d399597a15cd"
+          python3 -m py_compile tests/test_p13_honoroverflow_shared_map_thread_source.py
+          python3 tests/test_p13_honoroverflow_shared_map_thread_source.py
