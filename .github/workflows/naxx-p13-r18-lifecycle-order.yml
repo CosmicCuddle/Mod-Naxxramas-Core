@@ -1,0 +1,80 @@
+name: "P13 R18 original Player admission and redirecting retirement order"
+on:
+  push:
+    branches: ['test/cs01-p13-r18-admission-retirement-order-20261029']
+    paths:
+      - tests/test_p13_r18_admission_retirement_source.py
+      - docs/research/P13-R18-ADMISSION-RETIREMENT-ORDER.md
+      - .github/workflows/naxx-p13-r18-lifecycle-order.yml
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - tests/test_p13_r18_admission_retirement_source.py
+      - docs/research/P13-R18-ADMISSION-RETIREMENT-ORDER.md
+      - .github/workflows/naxx-p13-r18-lifecycle-order.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  MOD_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+jobs:
+  lifecycle-order:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Handlers/CharacterHandler.cpp
+            src/server/game/Maps/Map.cpp
+            src/server/game/Server/WorldSession.cpp
+            src/server/game/Globals/ObjectAccessor.cpp
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Scripting/ScriptDefines/MiscScript.cpp
+          persist-credentials: false
+      - name: Verify exact original pins and three additive nonproduction paths
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git merge-base --is-ancestor "$MOD_MAIN" HEAD
+          git diff --quiet "$MOD_MAIN" HEAD -- src conf
+          python3 - <<'PY'
+          import subprocess
+          x = subprocess.check_output(['git','diff','--name-status','80e9de1c39a6dc995188a80c31a5e785d0f2a6f9','HEAD'],text=True).splitlines()
+          a = [r.split('\t',1) for r in x]
+          paths = {
+            'tests/test_p13_r18_admission_retirement_source.py',
+            'docs/research/P13-R18-ADMISSION-RETIREMENT-ORDER.md',
+            '.github/workflows/naxx-p13-r18-lifecycle-order.yml'
+          }
+          assert len(a)==3 and all(status=='A' for status,_ in a), a
+          assert {p for _,p in a}==paths, a
+          print('PASS: R18 exactly three additive test/research/CI paths')
+          PY
+      - name: Verify source ordering and negative drift without executing a real Player
+        run: |
+          set -euo pipefail
+          python3 -I tests/test_p13_r18_admission_retirement_source.py . pinned-core | tee /tmp/p13-r18.log
+          grep -Fxq 'PASS: R18 seven pinned original C++ blobs and ordinary admission, logout, redirect and retire source order' /tmp/p13-r18.log
+          test "$(grep -c '^CAUGHT R18 SOURCE DRIFT:' /tmp/p13-r18.log)" -eq 16
+          grep -Fxq 'PASS: R18 sixteen negative source-drift mutations caught' /tmp/p13-r18.log
+          grep -Fxq 'PASS: R18 four synthetic conditional lifecycle timelines (NOT live executions)' /tmp/p13-r18.log
+          grep -Fq 'LIMIT: redirect map removal requires FindMap' /tmp/p13-r18.log
+      - name: State explicit nonauthorization
+        if: always()
+        run: |
+          echo 'Source-only; no real login/logout/Player lifetime/credits or unsafe memory access.'
+          echo 'No production/core/IP/Playerbots/N-Core, SQL/DBC, client, DB, Worldserver or owner-host changes.'
+          echo 'No merge or installation, R7 release HOLD, P13 economics unselected, MapUpdate.Threads=8.'
+          echo 'F14 OFF, NoWrite relay OFF, K1 date held, D18 HARD NO-GO, owner gameplay 0/5.'
