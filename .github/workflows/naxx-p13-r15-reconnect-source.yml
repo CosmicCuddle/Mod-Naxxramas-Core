@@ -1,0 +1,78 @@
+name: "P13 R15 original same-Player session reattach source witness"
+on:
+  push:
+    branches: ['test/cs01-p13-r15-real-player-reattach-20261029']
+    paths:
+      - tests/test_p13_r15_reconnect_transfer_source.py
+      - docs/research/P13-R15-REAL-PLAYER-REATTACH.md
+      - .github/workflows/naxx-p13-r15-reconnect-source.yml
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - tests/test_p13_r15_reconnect_transfer_source.py
+      - docs/research/P13-R15-REAL-PLAYER-REATTACH.md
+      - .github/workflows/naxx-p13-r15-reconnect-source.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  MOD_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+jobs:
+  original-reattach:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Handlers/CharacterHandler.cpp
+            src/server/game/Server/WorldSession.cpp
+            src/server/game/Server/WorldSessionMgr.cpp
+            src/server/game/Entities/Player/Player.h
+          persist-credentials: false
+      - name: Verify exactly three additive test-only paths and unchanged module
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git merge-base --is-ancestor "$MOD_MAIN" HEAD
+          git diff --quiet "$MOD_MAIN" HEAD -- src conf
+          python3 - <<'PY'
+          import subprocess
+          rows = subprocess.check_output(['git','diff','--name-status','80e9de1c39a6dc995188a80c31a5e785d0f2a6f9','HEAD'],text=True).splitlines()
+          items = [x.split('\t',1) for x in rows]
+          allowed = {
+             'tests/test_p13_r15_reconnect_transfer_source.py',
+             'docs/research/P13-R15-REAL-PLAYER-REATTACH.md',
+             '.github/workflows/naxx-p13-r15-reconnect-source.yml',
+          }
+          assert len(items) == 3 and all(s == 'A' for s,_ in items), items
+          assert {p for _,p in items} == allowed, items
+          print('PASS: R15 exactly three additive nonproduction paths and pinned original module')
+          PY
+      - name: Compile literal core reattach and module callbacks in disposable dummy fixture
+        run: |
+          set -euo pipefail
+          python3 -I tests/test_p13_r15_reconnect_transfer_source.py . pinned-core | tee /tmp/p13-r15.log
+          grep -Fxq 'PASS: R15 exact five pinned blobs and real offline/reattach/normal-login callbacks' /tmp/p13-r15.log
+          test "$(grep -c '^CAUGHT R15 SOURCE DRIFT:' /tmp/p13-r15.log)" -eq 8
+          grep -Fxq 'PASS: R15 c++17 literal original transfer/setters/module callbacks' /tmp/p13-r15.log
+          grep -Fxq 'PASS: R15 c++20 literal original transfer/setters/module callbacks' /tmp/p13-r15.log
+          grep -Fxq 'PASS: R15 c++20-ubsan literal original transfer/setters/module callbacks' /tmp/p13-r15.log
+      - name: Explicitly no runtime authority
+        if: always()
+        run: |
+          echo 'R15 dummy Player/session source transfer is not a live reconnect or login callback proof beyond source guards.'
+          echo 'No original source/config/core, Playerbots/IP/N-Core, SQL/DBC, database/client or Worldserver activity.'
+          echo 'No merge, payment, policy change or owner-host action; MapUpdate.Threads=8.'
+          echo 'H-DEFAULT/H-SELFBOT/H-REMEDIATION UNSELECTED; R7 release HOLD; F14 OFF; NoWrite relay OFF; D18 HARD NO-GO; gameplay 0/5.'
