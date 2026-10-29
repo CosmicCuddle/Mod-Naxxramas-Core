@@ -48,6 +48,15 @@ jobs:
             src/server/game/Maps/MapUpdater.cpp
             src/server/game/Maps/Map.cpp
             src/server/game/Entities/Player/PlayerUpdates.cpp
+            src/server/scripts/Commands/cs_reload.cpp
+            src/server/apps/worldserver/CommandLine/CliRunnable.cpp
+            src/server/apps/worldserver/RemoteAccess/RASession.cpp
+            src/server/apps/worldserver/ACSoap/ACSoap.cpp
+            src/server/game/Server/Protocol/Opcodes.cpp
+            src/server/game/Server/WorldSession.cpp
+            src/server/game/Server/WorldSessionMgr.cpp
+            src/server/game/Handlers/ChatHandler.cpp
+            src/server/apps/worldserver/Main.cpp
           persist-credentials: false
 
       - name: Confirm exact source refs and two test-only added paths
@@ -81,12 +90,15 @@ jobs:
           grep -qx 'PASS: c++20 original hook, 4 variables, serial snapshots' /tmp/p13-r8.txt
           grep -qx 'CAUGHT source drift: world reload callback absent' /tmp/p13-r8.txt
           grep -qx 'UNPROVEN: actual reload overlap with map workers, data race or live incident' /tmp/p13-r8.txt
+          grep -qx 'STANDARD RESULT: no map-worker/config reload overlap in inspected normal ingress' /tmp/p13-r8.txt
+          grep -qx 'LIMIT: direct/custom/other threads invoking reload not exhaustively audited' /tmp/p13-r8.txt
+          test "$(grep -c '^CAUGHT standard-route drift:' /tmp/p13-r8.txt)" -eq 5
 
       - name: Explicit scope of proof
         if: always()
         run: |
           echo 'Original pinned source sites and serial C++ callback state only.'
           echo 'No concurrent writes tested; no production patch or concurrency mitigation.'
-          echo 'MapMgr::Update waits for map tasks; actual ingress/timing of reload remains unproven.'
+          echo 'Standard GM/CLI/RA/SOAP reload ingress is serialized against normal map-update worker tasks by pinned World::Update and MapMgr::Update wait; custom/direct ingress not exhaustively audited.'
           echo 'P13 owner policies unselected; MapUpdate.Threads=8 remains untouched.'
           echo 'No Worldserver run, owner host, private DB/config, SQL/DBC, N-Core, F14 or gameplay.'
