@@ -40,12 +40,13 @@ jobs:
           ref: 283abe12774801e5671da746ea8bf535cc0252e0
           path: acore/modules/mod-individual-progression
           persist-credentials: false
-      - name: Checkout exact P2 P3 integration candidate
+      - name: Checkout exact first controlled candidate WITH protected main history
         uses: actions/checkout@v4
         with:
           repository: CosmicCuddle/Mod-Naxxramas-Core
           ref: ${{ github.sha }}
           path: acore/modules/mod-naxxramas-core
+          fetch-depth: 0
           persist-credentials: false
       - name: Enforce four exact SHA pins and opt-in defaults
         run: |
