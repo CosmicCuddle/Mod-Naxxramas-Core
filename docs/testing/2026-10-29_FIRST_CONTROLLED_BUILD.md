@@ -34,7 +34,7 @@ The prior **operator-reported** installation snapshot on **12 Oct 2026** (from \
 - standalone native C++17 Hunter ammo selection and C++20 Golemagg allowlist;
 - a full real CMake + **Worldserver compile and link** with the core, Playerbots, Individual Progression and this module;
 - verifies final executable and module archive include **real defined Hunter ammo and bot consumable symbols**, plus QuestLoot and Golemagg; records SHA-256 and build provenance;
-- generates a review-only \`mod_naxxramas_core.conf\` profile in a temporary runner directory with high-risk defaults OFF, and optionally uploads the profile plus build evidence for inspection. Neither build nor config is installed, used or deployed on owner host.
+- generates a review-only \`mod_naxxramas_core.conf\` profile in a temporary runner directory with high-risk defaults OFF, and prints the linked binary's SHA-256 fingerprint in the hosted CI log for inspection. **No artifacts (including config files) are uploaded**, in accordance with existing QuestLoot release-safety tests. Neither build nor config is installed, used or deployed on owner host.
 
 **A successful GitHub build is NOT in-game acceptance. A failed CI step should be fixed at its exact failing source/compilation point rather than interpreted as broken gameplay.**
 
