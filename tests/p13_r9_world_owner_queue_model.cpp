@@ -421,6 +421,78 @@ void TestHypotheticalBoundedAdmission()
                  "ordering, currency or BG semantics\n";
 }
 
+// SOURCE-BOUNDARY COUNTEREXAMPLE: a new WorldSession/socket does NOT imply
+// a new Player object. Pinned core's same-Player offline reconnect rebinds
+// Player::SetSession to a different WorldSession WITHOUT OnPlayerLogin; true
+// fresh DB login creates a new Player and invokes the login script hook.
+// The tokens here are hypothetical, never a core API or production hook.
+struct HypotheticalPlayerLifecycle final
+{
+    std::uint64_t playerLifetime = 0;
+    std::uint64_t socketSession = 0;
+    std::uint32_t honorSnapshot = 0;
+    std::uint32_t pendingBgObservations = 0;
+
+    void NewPlayerFromDB(std::uint64_t lifetime, std::uint64_t socket)
+    {
+        playerLifetime = lifetime;
+        socketSession = socket;
+        honorSnapshot = 0;
+        pendingBgObservations = 0;
+    }
+
+    void RecordHonorAndBg(std::uint32_t honor, std::uint32_t bgCount)
+    {
+        honorSnapshot = honor;
+        pendingBgObservations = bgCount;
+    }
+
+    void RebindSamePlayerAfterDisconnect(std::uint64_t newSocket)
+    {
+        Check(playerLifetime != 0 && newSocket != socketSession,
+              "invalid synthetic same-Player session rebind");
+        socketSession = newSocket;
+#ifdef P13_R9_MUTANT_RECONNECT_ROTATE
+        ++playerLifetime; // WRONG: conflates WorldSession with Player lifetime
+#endif
+#ifdef P13_R9_MUTANT_RECONNECT_CLEAR
+        pendingBgObservations = 0; // WRONG: fakes absent OnPlayerLogin reset
+#endif
+    }
+
+    void RetirePlayer()
+    {
+        playerLifetime = 0;
+        socketSession = 0;
+        honorSnapshot = 0;
+        pendingBgObservations = 0;
+    }
+};
+
+void TestReconnectIdentityIsNotSocketIdentity()
+{
+    HypotheticalPlayerLifecycle p;
+    p.NewPlayerFromDB(101, 501);
+    p.RecordHonorAndBg(75000, 3);
+    p.RebindSamePlayerAfterDisconnect(502);
+    Check(p.playerLifetime == 101,
+          "socket reconnect rotated live Player lifetime");
+    Check(p.socketSession == 502 && p.honorSnapshot == 75000,
+          "socket reconnect lost live honor snapshot");
+    Check(p.pendingBgObservations == 3,
+          "socket reconnect erased pending BG summary without logout hook");
+    // True end-of-Player lifetime, not merely disconnect; a later DB-created
+    // Player with the same GUID must NOT inherit old in-memory state.
+    p.RetirePlayer();
+    p.NewPlayerFromDB(102, 503);
+    Check(p.playerLifetime == 102 && p.honorSnapshot == 0 &&
+          p.pendingBgObservations == 0,
+          "fresh DB Player inherited old Player lifetime state");
+    std::cout << "PASS: pinned reconnect counterexample, new socket != new Player lifetime\n";
+    std::cout << "LIMITATION: source-bound synthetic lifecycle only; no owner disconnect "
+                 "or Worldserver replay\n";
+}
+
 int main()
 {
     try
@@ -549,6 +621,7 @@ int main()
         Check(gone.SessionCount() == 0 && gone.AcceptedTotal() == 0,
               "late callback recreated retired identity");
 
+        TestReconnectIdentityIsNotSocketIdentity();
         TestHypotheticalBoundedAdmission();
 
         std::cout << "PASS: P13 R9 synthetic ownership, 8 workers, stale epochs, "
