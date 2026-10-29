@@ -1,0 +1,88 @@
+name: "P13 R13 pinned source hook registration inventory (test-only)"
+on:
+  push:
+    branches: ['test/cs01-p13-r13-pinned-money-hook-inventory-20261029']
+    paths:
+      - tests/test_p13_r13_hook_inventory.py
+      - docs/research/P13-R13-PINNED-HOOK-SUBSCRIBER-INVENTORY.md
+      - .github/workflows/naxx-p13-r13-hook-inventory.yml
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - tests/test_p13_r13_hook_inventory.py
+      - docs/research/P13-R13-PINNED-HOOK-SUBSCRIBER-INVENTORY.md
+      - .github/workflows/naxx-p13-r13-hook-inventory.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  MOD_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+  BOTS_SHA: d750b4b3a50effdf22bedc8032f0e8e5f7cb8091
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout: |
+            src
+            modules
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: ${{ env.BOTS_SHA }}
+          path: pinned-playerbots
+          sparse-checkout: |
+            src
+          persist-credentials: false
+      - name: Immutable original pins, precisely three additive nonproduction paths
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          test "$(git -C pinned-playerbots rev-parse HEAD)" = "$BOTS_SHA"
+          git merge-base --is-ancestor "$MOD_MAIN" HEAD
+          git diff --quiet "$MOD_MAIN" HEAD -- src conf
+          test "$(git rev-parse "$MOD_MAIN:src/Systems/HonorOverflow.cpp")" = d4f70c511ac5a3e32c7e6b8f913d095915da707c
+          python3 - <<'PY'
+          import subprocess
+          out = subprocess.check_output(["git", "diff", "--name-status", "80e9de1c39a6dc995188a80c31a5e785d0f2a6f9", "HEAD"], text=True).splitlines()
+          changes = [x.split("\t", 1) for x in out]
+          permitted = {
+              "tests/test_p13_r13_hook_inventory.py",
+              "docs/research/P13-R13-PINNED-HOOK-SUBSCRIBER-INVENTORY.md",
+              ".github/workflows/naxx-p13-r13-hook-inventory.yml",
+          }
+          assert len(changes) == 3, changes
+          assert all(status == "A" for status, _ in changes), changes
+          assert {path for _, path in changes} == permitted, changes
+          print("PASS: exactly three new nonproduction research/test/CI paths; protected source unchanged")
+          PY
+      - name: Git tree grep immutable tracked source, not GitHub search index
+        run: |
+          set -euo pipefail
+          python3 -I tests/test_p13_r13_hook_inventory.py . pinned-core pinned-playerbots | tee /tmp/p13-r13-scoped-original.log
+          grep -Fxq 'PASS: 4 synthetic source/registration scanner guards (NOT real subscriptions)' /tmp/p13-r13-scoped-original.log
+          grep -Fxq 'PASS: 4 real pinned framework blobs and authoritative hook anchors' /tmp/p13-r13-scoped-original.log
+          grep -Fxq 'PASS: R13 complete bounded tracked-source git-grep inventory for three pinned trees' /tmp/p13-r13-scoped-original.log
+          test "$(grep -c '^SCAN-SUMMARY ' /tmp/p13-r13-scoped-original.log)" -eq 3
+          grep -Fq 'LIMIT: SOURCE coverage excludes external installed scripts' /tmp/p13-r13-scoped-original.log
+      - name: Explicitly non-authorising scope and unknown runtime
+        if: always()
+        run: |
+          echo 'Pinned source git grep does not prove owner installed scripts or active callbacks.'
+          echo 'No runtime scripts, full Worldserver, owner client, owner DB or SQL/DBC.'
+          echo 'No production source, config, original core, Playerbots, IP, private addon, merge or deployment.'
+          echo 'R7 race release HOLD; H-DEFAULT/H-SELFBOT/H-REMEDIATION not selected.'
+          echo 'MapUpdate.Threads=8, F14 OFF, N-Core NoWrite relay OFF, D18 HARD NO-GO; owner gameplay 0/5.'
