@@ -1,0 +1,137 @@
+# P13-R14 — HonorOverflow remediation decision matrix (NOT a decision)
+
+**29 October 2026 UTC | cross-study engineering analysis | DOCUMENTATION ONLY, DRAFT, NO PRODUCTION WORK.**
+
+Pre-registered BEFORE writing at [master coordination #28 comment 6500226959](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28#issuecomment-6500226959). This is a **new synthesis of existing independent source studies R7–R13**, not a novel executable test, proof of actual owner-host failure, selected solution, or permission to edit economics. Immutable project-protected Mod main `80e9de1c39a6dc995188a80c31a5e785d0f2a6f9`, original HonorOverflow blob `d4f70c511ac5a3e32c7e6b8f913d095915da707c`, pinned Grimfeather core `8daffdabe9202c228e45d833c9a1d399597a15cd`. No owner host, installed addon or server process was examined.
+
+## 1. The engineering problem: THREE interlocked contracts
+
+A successful remediation must separately specify, prove and integrate all three:
+
+**C1 — exclusive state ownership / cross-character concurrency.** Original [HonorOverflow.cpp](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/blob/80e9de1c39a6dc995188a80c31a5e785d0f2a6f9/src/Systems/HonorOverflow.cpp#L34-L55) declares global `HonorSnapshots` and `BattlegroundHonorSummaries` as `unordered_map` without module-local synchronization; worker callbacks can access these maps for different player keys. Original pinned core dispatches `Player::Update` on map workers. R7 supplies credible **potential concurrent container access** but **did not observe a real live race or payout**. One synchronized read/write transition is needed across all relevant entry points, or data must be exclusively owned by a single execution context. R8 narrows **standard** reload ingress: normal GM/CLI/RA/SOAP config reload and world-tick map join are serial for audited paths, **not** universal reloader or worker-vs-worker safety.
+
+**C2 — attribution, settlement and finality of currency.** Original [HonorOverflow.cpp L168–263](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/blob/80e9de1c39a6dc995188a80c31a5e785d0f2a6f9/src/Systems/HonorOverflow.cpp#L168-L263) moves contribution snapshot **before** attempting payment, clips its requested payment against a cap, ignores the `ModifyMoney` bool and later reports/accumulates the *proposal*, not a proven settled amount. Pinned [Player.cpp L11697–11729](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/src/server/game/Entities/Player/Player.cpp#L11697-L11729) can reject positive money on trial limit and **strict** ordinary max-cap equality; its script callback is **pre-admission**. R10 proves conditional proposed-vs-delta mismatch in synthetic original-source tests. R11 confirms an unchanged-contribution update **does not retry** that declined proposal, and BG summary state is erased when closed, including Notify-OFF cases. These are source-level semantics; **never silently introduce a retry or backfill**.
+
+**C3 — real character lifetime / battleground ordering.** BG end and early-leave callbacks perform a forced honor flush followed by summary close; login overwrites snapshot and clears summary; logout clears both. R9 model's **invented incarnation/sequence** is NOT a source-backed token. A pinned core Player can be reattached to a new session under relevant configurations without a fresh `OnPlayerLogin`; ordinary `OnPlayerLogout` does not cover all redirect paths. Never use socket lifetime, `Player*`, naked GUID or a hypothetical epoch as a guaranteed identity across delay/teardown. Queued BG close must not overtake same-character updates; queue overload must not partially award or poison a later incarnation.
+
+**Bottom line:** A mutex-only patch may fix container UB but leave monetary duplication/incorrect reports. A bool-only money patch may fix some rejected awards but not mutable hook amounts, callback reentry or concurrency. A world-queue-only patch may eliminate map-worker writes but change contribution timing, identity and BG-close semantics.
+
+## 2. Immutable source evidence register (not a live test report)
+
+| Study | Pinned evidence established | What it does NOT establish |
+| --- | --- | --- |
+| [R7 DRAFT #229](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/229), HEAD `1fdcd96ca73b0143c6108f4784b2c24cc0bfd139` | Two process-global unsynchronized maps, map-worker callback route with different GUIDs | Reproduced host race, crash, lost credit or lock remedy |
+| [R8 DRAFT #232](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/232), HEAD `7a904433f9326ef4ecc502d2252043a3b95f30b4` | Normal audited world reload/tick scheduling is serial around map join | Arbitrary async reload, hook reentry or all map-worker overlap impossible |
+| [R9 DRAFT #233](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/233), HEAD `1f20d3e28398fff0255b2d2d8d1a1f1fed28faa4` | Illustrative world-owner queue alternatives; limited bounded admission and poison models; pinned redirect/reconnection caveats | Real identity epoch, safe Player resolver, bounded actor production implementation, actual award |
+| [R10 DRAFT #235](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/235), HEAD `b1e355874ad8a06c507e3e85bf925450d728392b` | `ModifyMoney` bool discarded; cap-equality/trial rejection can mismatch proposed payout and BG accounting | Owner account actually hit a cap or reported wrong currency |
+| [R11 DRAFT #237](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/237), HEAD `94b50d0d50d94b220eca0e5cc55c0e59fea1ff2c` | Snapshot consumed before settlement; no unchanged-delta retry; BG summary copied/erased before Notify/session; pre-admission hook | Real loss, actual hook side effects, production BG race |
+| [R12 DRAFT #238](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/238), HEAD `9556d6694496a8529433b9b49e396727d719e40a` | Core money callback receives modifiable `int32&` and executes before sign/cap branch; hypothetical hook can change effective delta | A real installed mutating hook exists; live reentry, actual payouts |
+| [R13 DRAFT #239](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/239), HEAD `13734623799636846bfe3d957a222d0683b364cf` | Direct pinned Git-tree grep across 3,178 tracked C/C++ files: 6 expected core framework lines, zero *additional literal money-hook name* references in scoped paths; two final exact-head hosted jobs green | Owner-installed/custom/overlay script inventory, dynamic/Lua bridge, current runtime hook absence or no callback possibility |
+
+R13's exact final original full log evidence: [push 40896012724](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40896012724) and [PR 40896025489](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40896025489), **SUCCESS**, each full 945-line job log reviewed by CS01. This R14 document has **no test or CI claim of its own**. PR dates are 29 October 2026 UTC; none was merged.
+
+## 3. Ownership options — no owner selection
+
+| Candidate | Plausible advantage | Unresolved integration danger | Preliminary review stance |
+| --- | --- | --- | --- |
+| **A. Single world-thread owner** — map workers emit immutable observations and world thread alone updates snapshots, BG summaries and awards | Eliminates process-global map worker-vs-worker mutation if all paths comply, gives one settlement owner | Requires genuine Player lifetime resolver and ordering token, bounded/validated queue, safe handoff and BG-close barrier. Changes *when* credit occurs; queue loss/quarantine must have economics policy; actual core hook seam not proved | **Viable only after lifecycle and payment design; NOT approved** |
+| **B. One synchronized module-state gate** — protect each map and transition through one shared lock | Smaller conceptual timing change, could preserve synchronous callback handling | Lock must cover every map access, login/logout/leave and settlement coordination. **Do not hold lock across Player methods, money hook, chat or third-party callbacks** without proven reentrancy and ordering; releasing around credit needs separate per-GUID transaction/lease to avoid double credit | **Requires formal lock-order/atomicity design; NOT a trivial hotfix** |
+| **C. Per-GUID actor or serialized transactions** with synchronized key registry | May avoid unrelated character contention | Registry and lifecycle still shared; actor retire/reuse, queue growth and BG close need strict ordering; `Player*`/socket alone is not stable identity. More complex than B | **Possible architecture, high proof burden; NOT approved** |
+| **D. thread_local/per-map copy** | Avoids some local contention | Map/worker migration and BG/login/logout need cross-owner state; can split a single character snapshot or summary | **REJECT as stand-alone fix** |
+| **E. Only check ModifyMoney bool / only adjust money-cap equality** | Addresses a narrow identified rejection path | Does not synchronize maps, solve hook mutation or honor finality; changes core/payout assumptions if misapplied | **REJECT as stand-alone fix** |
+
+No measured performance ordering is claimed. Option A is not automatically safer than B without the missing Player identity and BG ordering contract; Option B is not automatically deployable simply because a lock compiles. **The owner has selected none of A/B/C.**
+
+## 4. Monetary semantics that cannot be guessed
+
+No implementation may proceed until the owner explicitly approves the complete settlement policy. Keep H-DEFAULT, H-SELFBOT and H-REMEDIATION as **UNSELECTED labels**; this document neither redefines their earlier meaning nor uses a default to quietly select one.
+
+| Scenario | Observed source behaviour (not a recommendation) | Approval decision needed |
+| --- | --- | --- |
+| Honor gain while option disabled, rate 0, or excluded bot | Snapshot updated before the applicable gate; unchanged later contribution is not retrospectively paid | Whether old gains stay ineligible forever or owner explicitly authorizes other semantics |
+| Rejected normal money-cap **equality** or trial limit | Core can refuse positive award; module may still report proposed reward | What counts as settled currency, messaging and BG summary policy; do NOT assume bool success means exact original amount |
+| Money-hook changes `int32&`, potentially re-enters | Hook can change local money amount BEFORE sign/admission; owner-installed subscriber presence unknown | Whether to prohibit/allow hook changes, which ledger or transactional seam is authoritative, how to attribute nested transactions |
+| Notification OFF or session unavailable | BG summary is erased before Notify/session check | Whether replay is prohibited, and exactly when summary close becomes final |
+| BG end, leave and duplicate closure | Flush then erase; same contribution cannot be retried without new earned delta | Which event orders are valid and how to avoid double award and a close-before-drain loss |
+| Queue overload, stale or disconnected Player, GUID reattach | R9 queue/epoch models are invented; real stable incarnation handle not proved | Quarantine/retire/drop/retry/compensate policy and finite memory/expiration guarantees |
+| Bot inclusion, SelfBot, headless or identity masked | Module's bot identity gate and configured inclusion are separate from underlying Player lifetime | H-SELFBOT policy and bot-identity proof for every relevant control path |
+
+**Do not equate** a balance read before and after `ModifyMoney` with an unquestionably attributable delta in the presence of nested/reentrant or concurrent other money writes. A future design must prove which monetary operation owns an observed balance change. Likewise, blindly retrying a previously refused conversion would *change* R11 finality and could create duplication.
+
+## 5. Review gates before any production-authoring approval
+
+**Gate G0 — current HOLD (source-only):** Freeze these source pins and issue statuses; audit active scripts only through separately authorized read-only source disclosure; no supposition about owner host versions. No code changes as part of R14.
+
+**Gate G1 — owner policy:** Record explicit, durable decisions for H-DEFAULT, H-SELFBOT, H-REMEDIATION and unresolved cap equality, failed credit, retry/no-retry, notification and BG close, accepted currency delta, queue overload/quarantine/expiry, expected per-bot behaviour. Do not silently infer answers from historical values.
+
+**Gate G2 — architecture proof:** Choose A, B or C explicitly; demonstrate all map/summary reader/writer paths participate in ownership; prove lifecycle handle across redirect, same-Player session reattach, logout/map transfer, BG end/leave and shutdown; validate bounded memory and queue backpressure; prove no cross-GUID map races or deadlocks at `MapUpdate.Threads=8`. Revisit config reload and callback reentry only where source supports them.
+
+**Gate G3 — separately approved implementation:** New branch and explicit scope, no edits to protected main or frozen #160; updated source pins; compilation against matching original core, negative source-guard tests, deterministic transaction/BG/reconnect tests, sanitizer evaluation where practical, original exact-head hosted logs and independent code review. Passing fixture CI ≠ successful Worldserver or owner gameplay.
+
+**Gate G4 — owner-host acceptance and rollback (not currently authorized):** Before any high-impact deployment or owner machine/SQL/DBC/client work, explicit approval, dated restorable backup, demonstrated restore, documented rollback and full owner-controlled native/in-game verification. Mandatory owner-accepted gameplay gate currently **0/5**; no release until independently accepted.
+
+No test plan authorizes intentionally racing an owner's live map state. No automatic outstanding-copper calculation, mass compensation, SQL updates, cap rewrite, Playerbots/IP/core patch or battle history migration is authorized.
+
+## 6. Decision record — deliberately open
+
+| Subject | Status | Evidence or blocking dependency |
+| --- | --- | --- |
+| Default feature/economics **H-DEFAULT** | **UNSELECTED** | No owner-approved policy |
+| SelfBot identity/economics **H-SELFBOT** | **UNSELECTED** | No approved entitlement/identity contract |
+| Payout/cap/finality **H-REMEDIATION** | **UNSELECTED** | G1 monetary policy not approved |
+| State concurrency owner A/B/C | **UNSELECTED** | G2 identity, lock/order and atomicity proof incomplete |
+| Thread-local-only option D | **Rejected as sufficient alone**, not selected | Does not preserve cross-worker BG/login/leave state |
+| Bool-only option E | **Rejected as sufficient alone**, not selected | Does not fix concurrency, mutable callbacks or finality |
+| Exact existing host scripts and settings | **UNKNOWN** | R13 source scope is NOT installed host inventory |
+| Authorization to implement/merge/install/launch | **NONE** | G1–G4 unmet; owner accepted gameplay **0/5** |
+
+**Non-negotiable safety:** Protected Mod and private N-Core main and frozen integration DRAFT #160 remain untouched. `MapUpdate.Threads=8` MUST remain **8**; R7 release HOLD. F14 OFF/unwired with unselected global concealment policy; N-Core NoWrite and relay OFF; K1 Step1 not before **1 November 2026**; D18 already-armed in-combat hunter pet A→B **HARD NO-GO**. LAB-004 mining and LAB-005 four elemental Shaman totems/Tempest Shield remain brainstorming only. This is no deployment/change to core, IP, Playerbots, Worldserver, server config, client, database, SQL or DBC.
+
+
+## 7. R15–R17 constraint update — construction hook is NOT post-GUID initialization (29 October 2026 UTC)
+
+This is an **unselected, documentation-only** refinement, recorded after the original R14 decision matrix (no production patch or owner decision). Source research [R15 #241](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/241), [R16 #242](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/242) and [R17 #243](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/243) adds a critical sequencing gate beyond the original world-thread vs mutex vs actor comparison:
+
+1. **Raw construction phase — no GUID field access.** Original Object::Object initializes `m_uint32Values=nullptr`. Its derived WorldObject/Unit/Player constructors do not run Object::_Create. Original Player constructor invokes real MiscScript `OnConstructPlayer` **before** normal character creation `Player::Create` or ordinary DB-login `LoadFromDB` initializes GUID data. `GetGUID` uses `GetGuidValue` reading that backing array; do **not** read `GetGUID` from this early hook or assume it provides a stable character identity. An early pointer-address observation might only be provisional, but its safe storage/registration and concurrency semantics are **not proven**.
+2. **Verified initialization/admission phase — pending architecture proof.** Ordinary successful DB-load login calls ObjectAccessor::AddObject only after LoadFromDB succeeds and later normal OnPlayerLogin; these are distinct stages, not a proven safe lifetime token. Original rejected DB load directly deletes the Player and triggers destruction without successful OnPlayerLogin. Any future internal epoch must be minted only at a separately proven safe point after actual GUID/storage readiness, and a matching cleanup must cover failure paths. This document does NOT choose or implement an epoch.
+3. **Session reattachment phase — no artificial re-incarnation.** R15's conditional existing-Player reconnect transfers one Player* to a new WorldSession without direct normal login dispatch; old cached session low GUID can remain. Socket/session changes alone must not retire/reset state.
+4. **Destruction and deferred work phase — no raw Player lease.** R16's MiscScript OnDestructPlayer is real, but it may observe a failed-load object; ObjectAccessor's global lookup lock covers the map operation only and returns a raw Player* without lifetime pinning. Pending/late work still needs authoritative rejection, drain/retire ordering, map-worker barrier, BG close order, bounded backpressure and accepted real-money attribution.
+
+**Gate G2 remains blocked.** A, B and C are not selected; no payout, retry, compensation, hotfix or even a safe stable GUID-keyed lifetime protocol is approved. This addendum is sourced by original immutable core@8daffd and protected Mod main@80e9de1; it is NOT a worldserver test. Original source test [R17 PR #243](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/243) exact HEAD `0afa355bb829336b7e84604f4cf8d09c25bd17b6` passed both source-only hosted workflows with eight original blob guards and 12 must-fail source mutations; tests never execute unsafe early `GetGUID`.
+
+
+## 8. R18 verified admission / retirement phase ordering (29 October 2026 UTC)
+
+New separate pinned-source evidence [P13-R18 DRAFT #244](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/244), exact HEAD `d56de3c0d684a5489a89204b008a1c3d0582c29b`, establishes another constraint to G2 without selecting a remedy:
+
+- **Ordinary DB-load success:** `ObjectAccessor::AddObject` occurs **before** `Map::AddPlayerToMap` and before `OnPlayerLogin`. The map's successful path performs `AddToWorld` and `OnPlayerEnterMap` before normal OnPlayerLogin. An attempted map add may fail (invalid cell) and the handler can attempt teleport/other handling, so registry membership alone cannot be interpreted as successful world admission or settled actor readiness.
+- **Failed DB load:** existing failed `LoadFromDB` case returns through a delete before registry insertion, and a destructor hook can still execute for the failed object. R17's pre-GUID construct warning remains.
+- **Nonredirecting map-found logout:** OnPlayerBeforeLogout, battleground leave, ordinary OnPlayerLogout, map RemoveFromWorld, OnPlayerLeaveMap, registry RemoveObject, and destruction run in the pinned normal path. The normal logout callback is earlier than final registry removal/deletion.
+- **Redirecting map-found logout:** `OnPlayerLogout` is under `if (!redirecting)`; the later conditional map removal may still unregister/delete, invoking `OnDestructPlayer` without that normal logout callback. The rare **no-map** path, full redirect call-site reachability, actual host sidecar and concurrency are not established by this source-only study.
+
+**Design gate consequence:** Options A/B/C must prove transitions across validated source initialization, *registered but not admitted*, *admitted*, *normal login*, *redirecting quiescence*, *map leave*, *registry retirement*, and *destruction*. None can assume a single existing hook universally creates and retires a payment-capable Player. Hook order itself provides no raw-pointer lease or authoritative credited-money transaction. R7 and the G0–G4 holds still apply.
+
+R18 exact original-source hosted [push 40910719802](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40910719802) and [PR 40910760953](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40910760953) both **SUCCESS**, full original logs independently read (627/634 lines), **7 SHA-pinned source blobs**, **16/16 negative source changes caught**, **4 synthetic conditional event arrays**. Those are NOT live call traces or production tests. **No option, epoch, hook wiring, monetary policy or production implementation is authorized.**
+
+
+## 9. R19 source-only null-map logout retirement uncertainty (29 October 2026 UTC)
+
+New independent pinned-source [R19 DRAFT #245](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/245), exact HEAD 87314245541b94c3f0e71727fce93e9cc40003c2, extends G2 with a **conditional direct-cleanup coverage gap**:
+
+- Original WorldSession::LogoutPlayer explicitly notes FindMap() can be null during a disconnected map transfer. It calls CleanupsBeforeDelete, then **only if FindMap yields a Map** invokes Map::RemovePlayerFromMap(player,true), whose map-found path performs OnPlayerLeaveMap, ObjectAccessor::RemoveObject and delete player (real MiscScript destructor event). Regardless of map, LogoutPlayer calls SetPlayer(nullptr). Its session destructor retries logout only if its Player pointer is non-null, and SetPlayer itself does not own/delete the previous Player.
+- Ordinary nonredirecting logout directly invokes HonorOverflow's OnPlayerLogout before the map test; redirecting skips the normal hook. Redirecting plus null-map can therefore combine both source exceptions. Whether any additional nested hook, external owner or transfer process later unregisters/destroys the Player is **NOT established**. This is NOT proof of a live memory leak, stale ObjectAccessor, monetary corruption or globally absent destructor callback. Do not propose a blind delete or unregistration without an ownership proof; doing so could introduce double-free or conflicting lifetime ownership.
+- R19 original source-only test pins **six exact original blobs**, catches **17/17 deliberately altered source cases**, checks four **invented** normal/redirecting versus map-found/null branch tables; exact-head hosted [push 40911974178](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40911974178) and [PR 40912021807](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40912021807) both SUCCESS (full 631-line original raw logs independently reviewed). This is not a Worldserver test, native memory sanitizer, reproduced race or owner-host finding.
+
+**Gate G2 still BLOCKED:** a future A/B/C design must prove explicit owner and retirement/invalidation beyond ordinary map-found logout: mapless transfer/interruption, ordinary vs redirecting, raw Player lookup, same-Player reattach, failed DB load and pending queued economic events. Owner H-DEFAULT/H-SELFBOT/H-REMEDIATION and A/B/C remain **UNSELECTED**, R7 release HOLD. No code or payout implementation is approved.
+
+
+## 10. R20 transfer-drain qualification of R19 (29 October 2026 UTC)
+
+Independently pinned original source [P13-R20 DRAFT #246](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/246), exact tested HEAD **d1192551d96ef3be181b9ccc75add0db53f38c95**, **narrows** the practical meaning of R19 without negating its conditional direct branch fact.
+
+- Original Player::TeleportTo far-map route removes the existing Player from its old map with remove=false and requests far-teleport ACK; the Player remains the same object pending admission. Original WorldSession::LogoutPlayer performs **two source locations** of conditional far-teleport drain loops calling HandleMoveWorldportAck: before setting m_playerLogout and before SaveToDB. Therefore the source actively tries to complete pending far transfers before reaching the final FindMap test. **Do not say a disconnected transfer routinely produces null-map logout**.
+- Original HandleMoveWorldportAck clears the far semaphore **before** validating destination coordinates. Invalid-coordinate handling kicks and returns; map creation/admission denial can attempt homebind, and failed AddPlayerToMap restores old map then attempts homebind. There is NO original-source guarantee that all these branches leave a safely admitted Player. The LogoutPlayer transfer-drain loops lack an explicit fixed iteration cap, but this does NOT establish any live infinite loop. Reconnect's separate limitA/B/C=10 guards are not logout-loop bounds.
+- The R19 final cleanup fact remains conditional: **if FindMap is null when the last logout branch executes**, the directly shown Map::RemovePlayerFromMap -> ObjectAccessor::RemoveObject -> delete Player chain is bypassed while the session Player pointer is detached. This alone does not prove no other owner, actual leak or stale global registration.
+- R20 independently verified all six pinned original source blobs, **20/20 deliberate drift changes caught** and five **synthetic-only** ACK cases. Both exact-head [push CI 40915686762](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40915686762) and [PR CI 40915696876](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/40915696876) succeeded; complete original 638-line logs of each were read. R20 had two initial **fixture-only** failed attempts at earlier heads, repaired before final dual green; none establish a core/runtime failure.
+
+**G2 now requires explicit transfer/ACK state proof as well as mapless retirement ownership.** Do not patch by clearing a flag, introducing an unconditional delete or blindly retrying money; real transfer, BG close, Player session reattachment, queue lifetime and economic settlement remain unproven. R7 release HOLD, owner A/B/C and H-DEFAULT/H-SELFBOT/H-REMEDIATION UNSELECTED, and all frozen main/MapUpdate.Threads=8/F14/NoWrite/K1/D18/gameplay no-go boundaries remain.
