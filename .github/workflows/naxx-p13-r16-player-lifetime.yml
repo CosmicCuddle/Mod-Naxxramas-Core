@@ -1,0 +1,78 @@
+name: "P13 R16 pinned raw Player registry and lifecycle source (nonproduction)"
+on:
+  push:
+    branches: ['test/cs01-p13-r16-player-registry-lifetime-20261029']
+    paths:
+      - tests/test_p13_r16_raw_player_registry_source.py
+      - docs/research/P13-R16-PLAYER-REGISTRY-LIFETIME.md
+      - .github/workflows/naxx-p13-r16-player-lifetime.yml
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - tests/test_p13_r16_raw_player_registry_source.py
+      - docs/research/P13-R16-PLAYER-REGISTRY-LIFETIME.md
+      - .github/workflows/naxx-p13-r16-player-lifetime.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  MOD_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+jobs:
+  raw-player-lifetime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout: |
+            src
+            modules
+          persist-credentials: false
+      - name: Verify original pin and exactly three additive research paths
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git merge-base --is-ancestor "$MOD_MAIN" HEAD
+          git diff --quiet "$MOD_MAIN" HEAD -- src conf
+          python3 - <<'PY'
+          import subprocess
+          rows = subprocess.check_output(["git","diff","--name-status","80e9de1c39a6dc995188a80c31a5e785d0f2a6f9","HEAD"],text=True).splitlines()
+          changes = [x.split("\t",1) for x in rows]
+          permitted = {
+            "tests/test_p13_r16_raw_player_registry_source.py",
+            "docs/research/P13-R16-PLAYER-REGISTRY-LIFETIME.md",
+            ".github/workflows/naxx-p13-r16-player-lifetime.yml",
+          }
+          assert len(changes) == 3 and all(flag == "A" for flag, _ in changes), changes
+          assert {p for _, p in changes} == permitted, changes
+          print("PASS: R16 exactly three additive research/test/workflow paths")
+          PY
+      - name: Compile original registry, pin lifecycle and world-tick source
+        run: |
+          set -euo pipefail
+          python3 -I tests/test_p13_r16_raw_player_registry_source.py . pinned-core | tee /tmp/p13-r16-original.log
+          grep -Fxq 'PASS: R16 exactly seven pinned original source blobs and registry/world guards' /tmp/p13-r16-original.log
+          test "$(grep -c '^CAUGHT R16 SOURCE DRIFT:' /tmp/p13-r16-original.log)" -eq 9
+          test "$(grep -c '^HOOK-SUMMARY ' /tmp/p13-r16-original.log)" -eq 2
+          grep -Fxq 'PASS: R16 actual pinned construct/destruct source-name inventory' /tmp/p13-r16-original.log
+          grep -Fxq 'PASS: R16 c++17 original registry method dummy pointer witness' /tmp/p13-r16-original.log
+          grep -Fxq 'PASS: R16 c++20 original registry method dummy pointer witness' /tmp/p13-r16-original.log
+          grep -Fxq 'PASS: R16 c++20-ubsan original registry method dummy pointer witness' /tmp/p13-r16-original.log
+          grep -Fxq 'PASS: R16 scoped original-source registry and world-tick seam research' /tmp/p13-r16-original.log
+      - name: Hard scope limits
+        if: always()
+        run: |
+          echo 'Original HashMapHolder code/dummy Player != Player lifetime guarantee or race test.'
+          echo 'No core, Playerbots, IP, N-Core, SQL/DBC, database, Worldserver, installed client or production change.'
+          echo 'No merge, payout, owner economic decision or gameplay.'
+          echo 'R7 release HOLD, MapUpdate.Threads=8, F14 OFF, NoWrite relay OFF, D18 hard no-go, K1 date; gameplay 0/5.'
