@@ -111,7 +111,8 @@ def negative_guards(srcs):
         ("no same-account offline check", 1, "sess->GetAccountId() != GetAccountId()", "false /* no account check */"),
         ("session low GUID reset to zero on detach", 2, "if (_player)\n        m_GUIDLow", "else\n        m_GUIDLow"),
         ("no module BG summary reset at normal login", 0,
-         "BattlegroundHonorSummaries.erase(", "/* summary erase removed */ ("),
+         "BattlegroundHonorSummaries.erase(\n            player->GetGUID().GetCounter());",
+         "/* summary erase on normal login removed */"),
     ]
     for name, index, original, changed in cases:
         assert original in srcs[index], "missing negative guard anchor: " + name
@@ -189,7 +190,7 @@ struct PlayerScript {
     virtual void OnPlayerLogin(Player*) {}
     virtual void OnPlayerLogout(Player*) {}
 };
-class HonorHooks : public PlayerScript {
+void StoreHonorSnapshot(Player* player);\nclass HonorHooks : public PlayerScript {
 public:
 __MODULE_LOGIN__
 __MODULE_LOGOUT__
