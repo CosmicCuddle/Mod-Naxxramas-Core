@@ -1,0 +1,169 @@
+name: "P13 R9 HonorOverflow state ownership options (test and docs only)"
+on:
+  push:
+    branches: ['test/cs01-p13-r9-ownership-options-20261029']
+    paths:
+      - 'tests/p13_r9_world_owner_queue_model.cpp'
+      - 'docs/research/P13-R9-HONOROVERFLOW-STATE-OWNERSHIP-OPTIONS.md'
+      - '.github/workflows/naxx-p13-r9-ownership-model.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tests/p13_r9_world_owner_queue_model.cpp'
+      - 'docs/research/P13-R9-HONOROVERFLOW-STATE-OWNERSHIP-OPTIONS.md'
+      - '.github/workflows/naxx-p13-r9-ownership-model.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: p13-r9-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+env:
+  MOD_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+jobs:
+  pinned-synthetic-ownership:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/World/World.cpp
+            src/server/game/Maps/MapMgr.cpp
+            src/server/game/Maps/Map.cpp
+            src/server/game/Entities/Player/PlayerUpdates.cpp
+            src/server/game/Server/WorldSession.cpp
+            src/server/game/Battlegrounds/Battleground.cpp
+            src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
+          persist-credentials: false
+      - name: Exact original refs and 3 test doc CI additions only
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git merge-base --is-ancestor "$MOD_MAIN" HEAD
+          git diff --quiet "$MOD_MAIN" HEAD -- src conf
+          test "$(git rev-parse "$MOD_MAIN:src/Systems/HonorOverflow.cpp")" = "d4f70c511ac5a3e32c7e6b8f913d095915da707c"
+          python3 - <<'PY'
+          import subprocess
+          lines = subprocess.check_output(["git", "diff", "--name-status",
+                   "80e9de1c39a6dc995188a80c31a5e785d0f2a6f9", "HEAD"],
+                   text=True).splitlines()
+          records = [line.split("\t", 1) for line in lines]
+          expected = {
+              "tests/p13_r9_world_owner_queue_model.cpp",
+              "docs/research/P13-R9-HONOROVERFLOW-STATE-OWNERSHIP-OPTIONS.md",
+              ".github/workflows/naxx-p13-r9-ownership-model.yml"}
+          assert len(records) == 3 and all(status == "A" for status, _ in records), records
+          assert {path for _, path in records} == expected, records
+          print("PASS: 3 additive test/doc/CI paths, no production source change")
+          PY
+      - name: Assert original pinned HonorOverflow and core map/lifetime source facts
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          def require(path, *markers):
+              body = Path(path).read_text()
+              for token in markers:
+                  assert token in body, f"source drift in {path}: {token}"
+              return body
+          src = require("src/Systems/HonorOverflow.cpp",
+              "std::unordered_map<ObjectGuid::LowType, HonorSnapshot> HonorSnapshots;",
+              "std::unordered_map<ObjectGuid::LowType, BattlegroundHonorSummary> BattlegroundHonorSummaries;",
+              "HonorSnapshots[player->GetGUID().GetCounter()]",
+              "BattlegroundHonorSummaries[player->GetGUID().GetCounter()]",
+              "HonorSnapshots.erase(guid);", "BattlegroundHonorSummaries.erase(guid);",
+              "ProcessHonorOverflow(player);",
+              "player->ModifyMoney(static_cast<int32>(rewardCopper));")
+          for token in ("std::mutex", "std::shared_mutex", "std::lock_guard",
+                        "std::unique_lock", "thread_local"):
+              assert token not in src, f"possible mitigation requires review: {token}"
+          mm = require("pinned-core/src/server/game/Maps/MapMgr.cpp",
+              "m_updater.schedule_update(*iter->second", "m_updater.wait();")
+          assert mm.index("m_updater.schedule_update(*iter->second") < mm.index("m_updater.wait();")
+          require("pinned-core/src/server/game/Maps/Map.cpp", "player->Update(s_diff);")
+          require("pinned-core/src/server/game/Entities/Player/PlayerUpdates.cpp",
+                  "sScriptMgr->OnPlayerUpdate(this, p_time);")
+          w = require("pinned-core/src/server/game/World/World.cpp",
+                  "sWorldSessionMgr->UpdateSessions(diff);", "sMapMgr->Update(diff);",
+                  "sBattlegroundMgr->Update(diff);")
+          positions = [w.index(s) for s in ("sWorldSessionMgr->UpdateSessions(diff);",
+                       "sMapMgr->Update(diff);", "sBattlegroundMgr->Update(diff);")]
+          assert positions == sorted(positions), "world map/BG phase drift"
+          se = require("pinned-core/src/server/game/Server/WorldSession.cpp",
+                  "sScriptMgr->OnPlayerLogout(_player);", "_player->CleanupsBeforeDelete();")
+          assert se.index("sScriptMgr->OnPlayerLogout(_player);") < se.index("_player->CleanupsBeforeDelete();")
+          require("pinned-core/src/server/game/Battlegrounds/Battleground.cpp",
+                  "sScriptMgr->OnBattlegroundEndReward(this, player",
+                  "sScriptMgr->OnBattlegroundRemovePlayerAtLeave(this, player);")
+          require("pinned-core/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp",
+                  "CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_UPDATE",
+                  "CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_LOGOUT")
+          print("PASS: source-pinned original maps, worker hooks, BG callbacks and logout")
+          print("LIMIT: original-source anchors are not production race reproduction")
+          PY
+      - name: Strict C++17 and C++20 baseline
+        run: |
+          set -euo pipefail
+          for std in 17 20; do
+            g++ -std=c++$std -Wall -Wextra -Werror -Wshadow -pedantic -pthread \
+              tests/p13_r9_world_owner_queue_model.cpp -o /tmp/p13r9_$std
+            /tmp/p13r9_$std | tee /tmp/p13r9_$std.txt
+            grep -q '^PASS: P13 R9 synthetic ownership, 8 workers' /tmp/p13r9_$std.txt
+            grep -q '^LIMITATION: no Player' /tmp/p13r9_$std.txt
+          done
+      - name: ASan+UBSan; real threads, abstract queue only
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O1 -g -Wall -Wextra -Werror -Wshadow -pedantic -pthread \
+            -fsanitize=address,undefined -fno-sanitize-recover=all \
+            tests/p13_r9_world_owner_queue_model.cpp -o /tmp/p13r9_asan
+          /tmp/p13r9_asan | grep -q '^PASS: P13 R9 synthetic ownership, 8 workers'
+      - name: ThreadSanitizer; abstract queue, NOT production maps
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O1 -g -Wall -Wextra -Werror -Wshadow -pedantic -pthread \
+            -fsanitize=thread tests/p13_r9_world_owner_queue_model.cpp -o /tmp/p13r9_tsan
+          TSAN_OPTIONS='halt_on_error=1 exitcode=66' /tmp/p13r9_tsan | grep -q '^PASS: P13 R9 synthetic ownership, 8 workers'
+      - name: Four negative mutants must compile and fail with expected reason
+        run: |
+          set -euo pipefail
+          for spec in \
+            'EPOCH|stale incarnation leaked' \
+            'DUPLICATE|duplicate observation processed' \
+            'OVERFLOW|overflow must fail closed' \
+            'BG_BARRIER|BG summary closed before queue drained'; do
+            IFS='|' read -r name expected <<< "$spec"
+            g++ -std=c++20 -Wall -Wextra -Werror -Wshadow -pedantic -pthread \
+              "-DP13_R9_MUTANT_$name" \
+              tests/p13_r9_world_owner_queue_model.cpp -o "/tmp/r9_mut_$name"
+            if "/tmp/r9_mut_$name" > "/tmp/r9_mut_$name.txt" 2>&1; then
+              echo "SURVIVED: $name"
+              exit 1
+            fi
+            grep -Fqx "EXPECTED/REAL MODEL FAILURE: $expected" "/tmp/r9_mut_$name.txt" || {
+              echo "Unexpected failure for $name"
+              cat "/tmp/r9_mut_$name.txt"
+              exit 1
+            }
+            echo "CAUGHT: $name ($expected)"
+          done
+          echo "4/4 synthetic mutants caught"
+      - name: Scope of proof
+        if: always()
+        run: |
+          echo 'Synthetic design and source-only anchors. No production C++, SQL/DBC, config, host or DB changes.'
+          echo 'Incarnation and sequence are INVENTED model tokens, not verified available core features.'
+          echo 'No Player*, real currency awards, hooks or Worldserver gameplay.'
+          echo 'No owner policy selected, no merge, install, deployment or release.'
