@@ -196,6 +196,7 @@ public:
 __MODULE_LOGIN__
 __MODULE_LOGOUT__
 };
+__STORE_DEF__
 }
 """
 SUFFIX = r"""
@@ -254,7 +255,8 @@ def compile_fixture(parts):
             .replace("__TRANSFER__", sequence)
             .replace("__MODULE_LOGIN__", on_login)
             .replace("__MODULE_LOGOUT__", on_logout)
-            + "\n" + setter + "\n" + store + "\n" + SUFFIX)
+            .replace("__STORE_DEF__", store)
+            + "\n" + setter + "\n" + SUFFIX)
     with tempfile.TemporaryDirectory(prefix="p13_r15_") as tmp:
         root = pathlib.Path(tmp)
         source = root / "reconnect.cpp"
