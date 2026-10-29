@@ -66,8 +66,8 @@ SOURCE_REQUIREMENTS = {
 }
 
 def active_lines(content: str, key: str):
-    expression = re.compile(r"^(?P<prefix>[ \\t]*" + re.escape(key) +
-                            r"[ \\t]*=[ \\t]*)(?P<value>[^#\\r\\n]*?)(?P<tail>[ \\t]*(?:#.*)?)$", re.M)
+    expression = re.compile(r"^(?P<prefix>[ \t]*" + re.escape(key) +
+                            r"[ \t]*=[ \t]*)(?P<value>[^#\r\n]*?)(?P<tail>[ \t]*(?:#.*)?)$", re.M)
     return list(expression.finditer(content))
 
 def replace_strict(content: str, key: str, value: str) -> str:
