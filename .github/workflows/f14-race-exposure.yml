@@ -1,0 +1,128 @@
+name: "F14 P16 race exposure outside /who (source audit, test-only)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'tests/f14_race_exposure_facts.py'
+      - 'tests/f14_race_exposure_extract.py'
+      - 'tests/f14_race_exposure_tests.cpp'
+      - 'tests/f14_race_exposure_mutants.py'
+      - 'docs/research/F14-P16-RACE-EXPOSURE.md'
+      - '.github/workflows/f14-race-exposure.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f14-p16-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_202: 205d958c3fddc8943c8eeef9822213f810e47c2d
+  WHO_145: 01c6b32a956b83dd92cb9d9b2f9103941497936b
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_SHA }}
+          path: pinned-core
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Handlers/QueryHandler.cpp
+            src/server/game/Server/Protocol/Opcodes.cpp
+            src/server/game/Entities/Unit/Unit.cpp
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Entities/Player/PlayerStorage.cpp
+            src/server/game/Entities/Object/Updates/UpdateFieldFlags.cpp
+            src/server/game/Handlers/SpellHandler.cpp
+            src/server/game/DungeonFinding/LFGMgr.cpp
+            src/server/game/Handlers/GroupHandler.cpp
+            src/server/game/Battlegrounds/Battleground.cpp
+            src/server/game/Battlegrounds/BattlegroundScore.h
+            src/server/game/Battlegrounds/ArenaScore.h
+            src/server/game/Battlegrounds/ArenaTeam.cpp
+            src/server/game/Handlers/CalendarHandler.cpp
+          persist-credentials: false
+      - name: "Confirm exact heads and the #145 source commit"
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C pinned-core rev-parse HEAD)" = "$CORE_SHA"
+          git cat-file -e "$WHO_145^{commit}"
+      - name: "Test-only child of #202: no src/conf change, only P16 paths added"
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_202" HEAD
+          git diff --quiet "$BASE_202" HEAD -- src conf tests/f14_facts_stubs
+          git diff --name-status "$BASE_202" HEAD | while read -r status path; do
+            test "$status" = "A" || { echo "not an addition: $status $path"; exit 1; }
+            case "$path" in
+              tests/f14_race_exposure_facts.py|tests/f14_race_exposure_extract.py|\
+              tests/f14_race_exposure_tests.cpp|tests/f14_race_exposure_mutants.py|\
+              docs/research/F14-P16-RACE-EXPOSURE.md|.github/workflows/f14-race-exposure.yml) ;;
+              *) echo "unexpected changed path: $path"; exit 1 ;;
+            esac
+          done
+      - name: Pinned core race-exposure facts (13, each with a negative fixture)
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_race_exposure_facts.py pinned-core | tee /tmp/facts.txt
+          grep -qx '13/13 negative fixtures caught' /tmp/facts.txt
+          grep -qx 'PASS: 13 pinned core facts at 8daffda (9 exposing, 4 no-race)' /tmp/facts.txt
+      - name: "Extract the real name-query function and #145's writer"
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_race_exposure_extract.py pinned-core . /tmp/p16 | tee /tmp/extract.txt
+          grep -qx 'extracted src/server/game/Handlers/QueryHandler.cpp L32-L62 (blob eb0142a) and src/Systems/WhoListingPolicy.h @ 01c6b32 (blob e66f72c)' /tmp/extract.txt
+      - name: Counterexample (C++17/20, ASan+UBSan)
+        run: |
+          set -euo pipefail
+          # The fixture fails on count drift; the floor stops coverage shrinking.
+          n=$(grep -oP 'constexpr int EXPECTED_CHECKS = \K[0-9]+' tests/f14_race_exposure_tests.cpp)
+          test "$n" -ge 12
+          want="PASS: F14 P16 name query exposes race hidden by /who, $n checks"
+          for std in 17 20; do
+            g++ -std=c++$std -Wall -Wextra -Werror -pedantic -Wshadow -I/tmp/p16 tests/f14_race_exposure_tests.cpp -o /tmp/p16_$std
+            /tmp/p16_$std | tee /tmp/p16_$std.txt
+            grep -qx "$want" /tmp/p16_$std.txt
+          done
+          g++ -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -I/tmp/p16 \
+            tests/f14_race_exposure_tests.cpp -o /tmp/p16_san
+          /tmp/p16_san | grep -qx "$want"
+      - name: Count drift is caught (drop one check -> must fail)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/drift
+          python3 - <<'PY'
+          import pathlib
+          src = pathlib.Path("tests/f14_race_exposure_tests.cpp").read_text()
+          line = "    CHECK(r1.Race == RACE_BLOODELF);\n"
+          assert src.count(line) == 1, "anchor check missing"
+          pathlib.Path("/tmp/drift/t.cpp").write_text(src.replace(line, ""))
+          PY
+          g++ -std=c++20 -I/tmp/p16 /tmp/drift/t.cpp -o /tmp/drift/t
+          if /tmp/drift/t > /tmp/drift/out.txt; then echo "dropped check not detected"; exit 1; fi
+          grep -q '^COUNT DRIFT: ran 11 checks, expected 12$' /tmp/drift/out.txt
+      - name: Must-fail mutants (5)
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_race_exposure_mutants.py /tmp/p16 /tmp/p16mut | tee /tmp/m.txt
+          grep -qx '5/5 mutants caught' /tmp/m.txt
+      - name: Scope of proof
+        if: always()
+        run: |
+          echo 'Source audit only: no src/, conf, SQL, DBC, core, Playerbots or IP change; #145 read, not edited.'
+          echo 'No packet rewrite, no hook; F14 stays OFF. No server run; client behaviour is UNKNOWN.'
