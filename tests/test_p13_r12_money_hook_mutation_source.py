@@ -160,14 +160,15 @@ Result invoke(uint32 initialMoney, uint32 honor, Hook* hook) {
     BattlegroundHonorSummaries.clear();
     ScriptRegistry<PlayerScript>::EnabledHooks[0].clear();
     if (hook) ScriptRegistry<PlayerScript>::EnabledHooks[0].push_back(hook);
-    Player player(initialMoney);
+    Player playerObject(initialMoney);
+    Player* player = &playerObject;
     uint32 excessHonor = honor;
 __REWARD__
     AddBattlegroundSummary(&player, excessHonor, requestedCopper, rewardCopper);
-    return {rewardCopper, static_cast<int64_t>(player.GetMoney()) -
+    return {rewardCopper, static_cast<int64_t>(player->GetMoney()) -
         static_cast<int64_t>(initialMoney),
         BattlegroundHonorSummaries.at(41).AwardedCopper, hook ? hook->called : 0,
-        player.errors};
+        player->errors};
 }
 void match(char const* label, Result const& x, uint32 proposed, int64_t credited, int hooks, int errorCount) {
     require(x.proposed == proposed && x.summarized == proposed, "module proposed mismatch");
