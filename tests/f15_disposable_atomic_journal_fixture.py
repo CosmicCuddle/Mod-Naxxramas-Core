@@ -109,16 +109,27 @@ class JournalFixture:
         x = self._read_state(stream)
         return None if x is None else dict(x)
 
-    def _commit(self, stream, state):
+    def _commit(self, stream, state, fail_at=None):
         # Unique internal temp path; atomic replace + directory sync for the
         # disposable Linux runner. Not protected against malicious writers.
+        # A simulated crash can leave a fully fsynced .pending manifest. On
+        # recovery, reuse it only if it matches the EXACT expected next state.
         temp = self.state / (stream + ".pending")
-        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        try:
-            self._write_all(fd, self._serialize(state))
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        serialized = self._serialize(state)
+        if temp.exists() or temp.is_symlink():
+            meta = temp.lstat()
+            if (not stat.S_ISREG(meta.st_mode) or meta.st_nlink != 1
+                    or temp.read_bytes() != serialized):
+                raise ValueError("untrusted or mismatched orphaned pending manifest")
+        else:
+            fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            try:
+                self._write_all(fd, serialized)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        if fail_at == "before-manifest-publish":
+            raise SyntheticCrash("simulated stop before checkpoint manifest publication")
         os.replace(temp, self._state_path(stream))
         self._dir_sync(self.state)
 
@@ -189,7 +200,7 @@ class JournalFixture:
     def poll(self, stream, fail_at=None):
         """Capture one <=64 byte fixture span. All files are synthetic."""
         self._check_stream(stream)
-        if fail_at not in (None, "before-publish", "after-publish", "after-checkpoint"):
+        if fail_at not in (None, "before-publish", "after-publish", "before-checkpoint-publish", "after-checkpoint"):
             raise ValueError("invalid synthetic crash point")
         fd = os.open(self._path(stream), os.O_RDONLY | os.O_NOFOLLOW)
         try:
@@ -225,7 +236,8 @@ class JournalFixture:
         finally:
             os.close(fd)
         new_state = {"dev": state["dev"], "ino": state["ino"], "offset": state["offset"] + len(chunk)}
-        self._commit(stream, new_state)
+        self._commit(stream, new_state,
+                     fail_at="before-manifest-publish" if fail_at == "before-checkpoint-publish" else None)
         if fail_at == "after-checkpoint":
             raise SyntheticCrash("simulated stop after checkpoint publication")
         return (warning or ("recovered-and-append" if recovered else "appended")), chunk
