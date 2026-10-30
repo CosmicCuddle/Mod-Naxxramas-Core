@@ -123,6 +123,19 @@ jobs:
           subprocess.run(args,cwd=item["directory"],check=True,timeout=450)
           print("PASS: P1 actual modified C++ TU compiled against pinned dependencies",flush=True)
           PY
+      - name: Diagnose compiled P1 object before linking (no gameplay or config change)
+        run: |
+          set -euo pipefail
+          obj=acore-build/modules/CMakeFiles/modules.dir/mod-naxxramas-core/src/Systems/MeetingStoneProgression.cpp.o
+          test -s "$obj" || { echo 'FAIL: compiled P1 translation unit object missing' >&2; exit 1; }
+          echo 'PASS: compiled P1 translation unit object exists'
+          for key in 'NaxxramasCore.MeetingStones.ClassicMode.Enabled' 'NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled'; do
+            if grep -aFq "$key" "$obj"; then
+              echo "PRESENT in prelink P1 object: $key"
+            else
+              echo "MISSING from prelink P1 object: $key (diagnostic, not independently a gameplay failure)"
+            fi
+          done
       - name: Compile and link complete Worldserver without launching it
         run: cmake --build acore-build --target worldserver --parallel 2
       - name: Verify real linked module and pilot toggle is present
@@ -147,10 +160,22 @@ jobs:
             echo 'FAIL: P1 loader symbol missing from linked Worldserver' >&2
             exit 1
           fi
+          # Compare the old Vanilla stone gate and new pilot gate at archive
+          # and final-link stages. Missing key in a binary is a diagnostic,
+          # not proof that the gameplay hook ran or that config was loaded.
+          for key in 'NaxxramasCore.MeetingStones.ClassicMode.Enabled' 'NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled'; do
+            for stage in "$archive" "$binary"; do
+              if grep -aFq "$key" "$stage"; then
+                echo "PRESENT $key in $stage"
+              else
+                echo "MISSING $key from $stage"
+              fi
+            done
+          done
           if grep -aFq 'NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled' "$binary"; then
             echo 'PASS: P1 default-OFF pilot toggle present in linked Worldserver'
           else
-            echo 'FAIL: P1 pilot toggle missing from linked Worldserver' >&2
+            echo 'FAIL: P1 pilot toggle absent from final Worldserver; inspect prelink object/archive/Vanilla gate diagnostics before source changes' >&2
             exit 1
           fi
           sha256sum "$binary"
