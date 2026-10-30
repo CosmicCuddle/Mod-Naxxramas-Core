@@ -14,8 +14,10 @@
 #include "Chat.h"
 #include "Config.h"
 #include "GameObject.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptMgr.h"
+#include "SpellMgr.h"
 
 #include <type_traits>
 #include <utility>
@@ -107,8 +109,48 @@ public:
 
     bool CanGameObjectGossipHello(Player* player, GameObject* go) override
     {
-        if (!player || !go ||
-            go->GetGoType() != GAMEOBJECT_TYPE_MEETINGSTONE ||
+        if (!player || !go)
+            return false;
+
+        // P1 Warlock second-stage summoning portal is a TYPE-23 object too,
+        // despite not being a dungeon Meeting Stone. Only this exact spawned
+        // portal may take the optional 61994 continuation. Keep the original
+        // Classic Meeting Stone behaviour untouched when the pilot is OFF.
+        constexpr uint32 WARLOCK_SECOND_PORTAL_ENTRY = 194097;
+        constexpr uint32 WARLOCK_SECOND_PORTAL_CREATION_SPELL = 61993;
+        constexpr uint32 WARLOCK_SECOND_PORTAL_CONTINUATION_SPELL = 61994;
+        if (go->GetGoType() == GAMEOBJECT_TYPE_MEETINGSTONE &&
+            go->GetEntry() == WARLOCK_SECOND_PORTAL_ENTRY &&
+            sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled", false))
+        {
+            // Do not let the original fork's generic type-23 spell (23598)
+            // run on a malformed/static/unowned imitation of the portal.
+            if (!go->GetOwnerGUID() ||
+                go->GetSpellId() != WARLOCK_SECOND_PORTAL_CREATION_SPELL ||
+                !go->GetGOInfo())
+                return true;
+
+            // Copy the pinned core's group/target and min-level rules before
+            // overriding its incorrect generic type-23 spell selection.
+            Player* targetPlayer = ObjectAccessor::FindPlayer(player->GetTarget());
+            if (!targetPlayer || targetPlayer == player ||
+                !targetPlayer->IsInSameRaidWith(player))
+                return true;
+
+            uint8 minLevel = go->GetGOInfo()->meetingstone.minLevel;
+            if (player->GetLevel() < minLevel || targetPlayer->GetLevel() < minLevel)
+                return true;
+
+            // No queued callback or retained raw Player pointer. The pilot
+            // casts normally (not fully triggered), then consumes GO use so
+            // the core cannot also cast generic Meeting Stone spell 23598.
+            if (sSpellMgr->GetSpellInfo(WARLOCK_SECOND_PORTAL_CONTINUATION_SPELL))
+                player->CastSpell(player, WARLOCK_SECOND_PORTAL_CONTINUATION_SPELL, false);
+            return true;
+        }
+
+        if (go->GetGoType() != GAMEOBJECT_TYPE_MEETINGSTONE ||
             !sConfigMgr->GetOption<bool>(
                 "NaxxramasCore.MeetingStones.ClassicMode.Enabled", true))
         {
