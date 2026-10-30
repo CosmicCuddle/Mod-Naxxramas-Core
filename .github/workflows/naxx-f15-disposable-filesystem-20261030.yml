@@ -1,0 +1,62 @@
+name: "F15 disposable-filesystem archive safety proof (NO HOST)"
+on:
+  push:
+    branches: ["test/cs01-f15-disposable-filesystem-20261030"]
+    paths:
+      - ".github/workflows/naxx-f15-disposable-filesystem-20261030.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  temp-files-only:
+    name: "Run 38 policy and 29 disposable-file cases"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify inherited archive policy identical and exactly 3 new isolated files
+        run: |
+          set -euo pipefail
+          BASE=b39639df00875c52e0e188623867af2b4bf96eda
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --quiet "$BASE" HEAD -- src conf data tools
+          test "$(git rev-parse "$BASE":tools/f15/console_archive_policy.py)" = \
+               "$(git rev-parse HEAD:tools/f15/console_archive_policy.py)"
+          python3 - <<'PY'
+          import subprocess
+          files=set(subprocess.check_output(
+              ["git","diff","--name-only","b39639df00875c52e0e188623867af2b4bf96eda","HEAD"],
+              text=True).splitlines())
+          expected={
+              "tests/test_f15_archive_disposable_filesystem.py",
+              "docs/research/F15-DISPOSABLE-FILESYSTEM-ARCHIVE-TESTS.md",
+              ".github/workflows/naxx-f15-disposable-filesystem-20261030.yml",
+          }
+          assert files==expected, (files,expected)
+          print("PASS: exactly three test/doc/CI paths, parent policy unmodified")
+          PY
+      - name: Run 38 existing pure policy cases
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_console_archive_policy.py -v > /tmp/f15-policy-result.txt 2>&1 || { cat /tmp/f15-policy-result.txt; exit 1; }
+          grep -Eq '^Ran 38 tests in [0-9.]+s$' /tmp/f15-policy-result.txt
+          grep -qx 'OK' /tmp/f15-policy-result.txt
+          echo "PASS: inherited offline policy 38/38, no skipped cases"
+      - name: Run exactly 29 real disposable file fixtures (not server logs)
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_archive_disposable_filesystem.py -v > /tmp/f15-temp-io-result.txt 2>&1 || { cat /tmp/f15-temp-io-result.txt; exit 1; }
+          grep -Eq '^Ran 29 tests in [0-9.]+s$' /tmp/f15-temp-io-result.txt
+          grep -qx 'OK' /tmp/f15-temp-io-result.txt
+          ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/f15-temp-io-result.txt
+          echo "PASS: 29 disposable filesystem cases, no skipped cases"
+      - name: Preserve production nonauthorization
+        if: always()
+        run: |
+          echo "No PM2 Worldserver, tmux/Authserver, owner files, host access, archive installer, retention scheduler, or live deletion."
+          echo "The only filesystem mutation was inside runner-owned tempfile.TemporaryDirectory fixtures."
+          echo "No deploy, merge, SQL/DBC/client, or runtime restart."
+          echo "This is NOT an operational F15 crash monitor or 30-day console archiver."
