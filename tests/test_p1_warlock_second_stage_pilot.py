@@ -52,7 +52,7 @@ def assert_contract(pilot=PILOT, hook=HOOK, cfg=CONF):
 
 class WarlockPortalPilotContract(unittest.TestCase):
     def test_unchanged_loader_and_exact_off_config(self):
-        self.assertEqual(len(re.findall(r"^\\s+AddMeetingStoneProgressionScripts\\(\\);\\s*$",LOADER,re.M)),1)
+        self.assertEqual(len(re.findall(r"^\s+AddMeetingStoneProgressionScripts\(\);\s*$",LOADER,re.M)),1)
         self.assertTrue(assert_contract())
 
     def test_all_other_gameobjects_keep_original_logic(self):
