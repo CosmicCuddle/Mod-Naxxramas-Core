@@ -131,9 +131,28 @@ jobs:
           binary=acore-build/src/server/apps/worldserver
           archive=acore-build/modules/libmodules.a
           test -x "$binary" && test -s "$archive"
-          nm -C --defined-only "$archive" | grep -Fq 'AddMeetingStoneProgressionScripts()'
-          nm -C --defined-only "$binary" | grep -Fq 'AddMeetingStoneProgressionScripts()'
-          grep -aFq 'NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled' "$binary"
+          # Materialize symbol listings first: nm | grep -q under pipefail
+          # can fail with SIGPIPE even after grep found a valid match.
+          nm -C --defined-only "$archive" > "$RUNNER_TEMP/naxx-p1-archive-symbols.txt"
+          nm -C --defined-only "$binary" > "$RUNNER_TEMP/naxx-p1-worldserver-symbols.txt"
+          if grep -Fq 'AddMeetingStoneProgressionScripts()' "$RUNNER_TEMP/naxx-p1-archive-symbols.txt"; then
+            echo 'PASS: P1 loader symbol defined in module archive'
+          else
+            echo 'FAIL: P1 loader symbol missing from module archive' >&2
+            exit 1
+          fi
+          if grep -Fq 'AddMeetingStoneProgressionScripts()' "$RUNNER_TEMP/naxx-p1-worldserver-symbols.txt"; then
+            echo 'PASS: P1 loader symbol defined in linked Worldserver'
+          else
+            echo 'FAIL: P1 loader symbol missing from linked Worldserver' >&2
+            exit 1
+          fi
+          if grep -aFq 'NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled' "$binary"; then
+            echo 'PASS: P1 default-OFF pilot toggle present in linked Worldserver'
+          else
+            echo 'FAIL: P1 pilot toggle missing from linked Worldserver' >&2
+            exit 1
+          fi
           sha256sum "$binary"
           echo 'PASS: P1 default-OFF pilot linked in real historical-compatible Worldserver'
       - name: Release/owner-host nonauthorization
