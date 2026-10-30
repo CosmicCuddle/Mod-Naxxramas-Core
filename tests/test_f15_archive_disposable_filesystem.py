@@ -358,8 +358,9 @@ class TestF15DisposableArchive(unittest.TestCase):
         self.h.append_source("Worldserver-out", b"P")
         self.h.ingest("Worldserver-out", DAY + timedelta(seconds=1))
         p = self.h.seal("Worldserver-out", DAY + timedelta(days=1))
-        p.unlink()
-        p.write_bytes(b"third-party-owned")
+        substitute = self.h.output / "separate-owned-fixture"
+        substitute.write_bytes(b"third-party-owned")
+        substitute.replace(p)  # Moves a distinct, already allocated inode over the archive.
         self.assertFalse(self.h.discard_expired_synthetic_only(DAY + timedelta(days=60)))
         self.assertEqual(p.read_bytes(), b"third-party-owned")
 
