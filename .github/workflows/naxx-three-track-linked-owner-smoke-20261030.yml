@@ -20,8 +20,8 @@ jobs:
       - name: Verify branch isolation and immutable source blobs
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = aac4b3c75de3d83896982cf4fa52efffb9d0bc85
-          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/naxx-three-track-linked-owner-smoke-20261030.yml'
+          git merge-base --is-ancestor aac4b3c75de3d83896982cf4fa52efffb9d0bc85 HEAD
+          test "$(git diff --name-only aac4b3c75de3d83896982cf4fa52efffb9d0bc85 HEAD)" = '.github/workflows/naxx-three-track-linked-owner-smoke-20261030.yml'
           test "$(git rev-parse HEAD:src/Systems/MeetingStoneProgression.cpp)" = a43072a48134f15eb95ecd03ddbe1984f040fbb7
           test "$(git rev-parse HEAD:src/Systems/HunterAmmoProvision.cpp)" = 36ad027b7ee72104998977b4fa01b9d8d559a7e4
           test "$(git rev-parse HEAD:src/Systems/QuestLootProtection.cpp)" = 48729dc9fdd674eea0f4bb7bd1a47762558daf6f
@@ -43,7 +43,7 @@ jobs:
           echo 'PASS: six offline source/model suites only; no runtime/gameplay test'
 
   owner-source-worldserver:
-    name: One native Worldserver: Warlock + Hunter Ammo + Quest Loot + EP
+    name: 'One native Worldserver: Warlock + Hunter Ammo + Quest Loot + EP'
     needs: source-tests
     runs-on: ubuntu-24.04
     timeout-minutes: 110
