@@ -1,0 +1,50 @@
+name: "F15 console archive metadata-only policy: OFFLINE regression"
+on:
+  push:
+    branches: ["test/cs01-f15-console-archive-policy-offline-20261030"]
+    paths:
+      - ".github/workflows/naxx-f15-console-archive-policy-offline-20261030.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-model-only:
+    name: "Read-only model and 38 retention/rotation tests"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm exact isolated branch and four changed paths
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9 HEAD
+          git diff --quiet 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9 HEAD -- src conf data
+          python3 - <<'PY'
+          import subprocess
+          allowed={
+              "tools/f15/console_archive_policy.py",
+              "tests/test_f15_console_archive_policy.py",
+              "docs/research/F15-DAILY-CONSOLE-ARCHIVE-OFFLINE-POLICY.md",
+              ".github/workflows/naxx-f15-console-archive-policy-offline-20261030.yml",
+          }
+          actual=set(subprocess.check_output(
+              ["git","diff","--name-only","80e9de1c39a6dc995188a80c31a5e785d0f2a6f9","HEAD"],
+              text=True).splitlines())
+          assert actual==allowed,(actual,allowed)
+          print("PASS: exactly four review-only offline policy/test/docs/CI files")
+          PY
+      - name: Run 38 synthetic archive/retention cases with no skips
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_console_archive_policy.py -v 2>&1 | tee /tmp/f15-archive-policy-tests.txt
+          grep -Eq '^Ran 38 tests in [0-9.]+s$' /tmp/f15-archive-policy-tests.txt
+          grep -qx 'OK' /tmp/f15-archive-policy-tests.txt
+          ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/f15-archive-policy-tests.txt
+      - name: State exact proof limits
+        run: |
+          echo "PASS: model only; no disk IO, deletion, time scheduling, service process, or host action"
+          echo "No Worldserver/Authserver, PM2, tmux, Linux log rotation, SQL/DBC/client or owner files are touched"
+          echo "F15 incident monitor and 30-day console archiver remain NOT OPERATIONAL"
