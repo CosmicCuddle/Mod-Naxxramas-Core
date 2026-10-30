@@ -67,4 +67,5 @@ jobs:
         run: |
           echo "All real file writes and deletes occurred exclusively under runner-owned ephemeral TemporaryDirectory fixtures."
           echo "Not a production collector, not a working scheduled archive, not operational crash reporting."
+          echo "The pending-checkpoint tests prove only a disposable single-writer synthetic failure point."
           echo "Never touch owner PM2, tmux, Authserver, Worldserver, SQL, installed logs, daemon settings or character records."
