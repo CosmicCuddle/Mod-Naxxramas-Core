@@ -179,5 +179,60 @@ class DurableFixtureTests(unittest.TestCase):
         self.assertEqual(self.j.published_bytes("Worldserver-out"), b"FIRSTSECOND")
 
 
+    def test_21_crash_with_fsynced_pending_checkpoint_recovers_without_duplicate(self):
+        self.start()
+        self.j.append("Worldserver-out", b"JOURNAL-ONCE")
+        with self.assertRaises(fx.SyntheticCrash):
+            self.j.poll("Worldserver-out", fail_at="before-checkpoint-publish")
+        self.assertEqual(self.j.published_bytes("Worldserver-out"), b"JOURNAL-ONCE")
+        self.assertTrue((self.j.state / "Worldserver-out.pending").exists())
+        self.assertEqual(self.j.checkpoint("Worldserver-out")["offset"],
+                         len(b"previous-days-history"))
+        event, chunk = self.j.poll("Worldserver-out")
+        self.assertEqual((event, chunk), ("recovered", b""))
+        self.assertFalse((self.j.state / "Worldserver-out.pending").exists())
+        self.assertEqual(len(self.j.published("Worldserver-out")), 1)
+        self.assertEqual(self.j.published_bytes("Worldserver-out"), b"JOURNAL-ONCE")
+
+    def test_22_modified_pending_checkpoint_fails_closed(self):
+        self.start()
+        self.j.append("Worldserver-out", b"ORIGINAL")
+        with self.assertRaises(fx.SyntheticCrash):
+            self.j.poll("Worldserver-out", fail_at="before-checkpoint-publish")
+        pending = self.j.state / "Worldserver-out.pending"
+        pending.write_bytes(b"attacker-changed-pending-metadata")
+        with self.assertRaises(ValueError):
+            self.j.poll("Worldserver-out")
+        self.assertEqual(self.j.published_bytes("Worldserver-out"), b"ORIGINAL")
+        self.assertEqual(self.j.checkpoint("Worldserver-out")["offset"],
+                         len(b"previous-days-history"))
+
+    def test_23_pending_checkpoint_symlink_refused(self):
+        self.start()
+        self.j.append("Worldserver-out", b"ORIGINAL")
+        with self.assertRaises(fx.SyntheticCrash):
+            self.j.poll("Worldserver-out", fail_at="before-checkpoint-publish")
+        pending = self.j.state / "Worldserver-out.pending"
+        pending.unlink()
+        other = self.j.root / "separate-synthetic-protected"
+        other.write_bytes(b"PROTECT")
+        pending.symlink_to(other)
+        with self.assertRaises(ValueError):
+            self.j.poll("Worldserver-out")
+        self.assertEqual(other.read_bytes(), b"PROTECT")
+
+    def test_24_after_pending_recovery_can_append_new_bytes(self):
+        self.start("Authserver-native")
+        self.j.append("Authserver-native", b"FIRST")
+        with self.assertRaises(fx.SyntheticCrash):
+            self.j.poll("Authserver-native", fail_at="before-checkpoint-publish")
+        self.j.append("Authserver-native", b"SECOND")
+        event, payload = self.j.poll("Authserver-native")
+        self.assertEqual((event, payload), ("recovered-and-append", b"SECOND"))
+        self.assertEqual(self.j.published_bytes("Authserver-native"), b"FIRSTSECOND")
+        self.assertEqual(self.j.checkpoint("Authserver-native")["offset"],
+                         len(b"previous-days-historyFIRSTSECOND"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
