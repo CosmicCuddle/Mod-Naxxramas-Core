@@ -1,0 +1,204 @@
+name: "Warlock/Hunter/A04 plus latest IP grouping: one pinned Worldserver (OFFLINE)"
+on:
+  push:
+    branches: ["test/cs01-warlock-hunter-ip-grouping-compat-20261030"]
+    paths:
+      - ".github/workflows/naxx-warlock-hunter-ip-grouping-combined-20261030.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-compatibility:
+    name: "Preserve module source and test current IP grouping"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Only this workflow added; all frozen module source and defaults unchanged
+        run: |
+          set -euo pipefail
+          BASE=be17ead517b6db268a19063aa033b8af706031fa
+          git merge-base --is-ancestor "$BASE" HEAD
+          test "$(git diff --name-only "$BASE" HEAD)" = ".github/workflows/naxx-warlock-hunter-ip-grouping-combined-20261030.yml"
+          git diff --quiet "$BASE" HEAD -- src conf data scripts tests tools
+          test "$(git rev-parse HEAD:src/Systems/MeetingStoneProgression.cpp)" = a43072a48134f15eb95ecd03ddbe1984f040fbb7
+          test "$(git rev-parse HEAD:src/Systems/HunterAmmoProvision.cpp)" = 36ad027b7ee72104998977b4fa01b9d8d559a7e4
+          test "$(git rev-parse HEAD:src/Systems/QuestLootProtection.cpp)" = 48729dc9fdd674eea0f4bb7bd1a47762558daf6f
+          grep -Fxq 'NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled = 0' conf/mod_naxxramas_core.conf.dist
+          grep -Fxq 'NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0' conf/mod_naxxramas_core.conf.dist
+          grep -Fxq 'NaxxramasCore.QuestLootProtection.Enabled = 0' conf/mod_naxxramas_core.conf.dist
+          echo "PASS: only one CI file added; same previously linked P1/Ammo/Quest Loot runtime code and OFF defaults"
+      - name: Repeat six existing module source/model test suites
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_meeting_stone_ritual_isolation.py -v
+          python3 -m unittest discover -s tests -p test_p1_warlock_second_stage_pilot.py -v
+          python3 -m unittest discover -s tests -p test_hunter_ammo_consumables.py -v
+          python3 -m unittest discover -s tests -p test_quest_loot_protection.py -v
+          python3 -m unittest discover -s tests -p test_ep_tower_module_only.py -v
+          python3 -m unittest discover -s tests -p test_mc_gfpp_one_shot.py -v
+      - name: Checkout current exact unmerged IP grouping DRAFT without modifying it
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/mod-individual-progression
+          ref: e0cd785f6b2090c8f099c824811077d0ab2a9de5
+          path: current-ip
+          persist-credentials: false
+      - name: Execute actual IP grouping policy C++17/C++20 and source guards
+        run: |
+          set -euo pipefail
+          test "$(git -C current-ip rev-parse HEAD)" = e0cd785f6b2090c8f099c824811077d0ab2a9de5
+          for standard in c++17 c++20; do
+            g++ -std="$standard" -Wall -Wextra -Werror -pedantic \
+              current-ip/tests/group_expansion_policy.cpp \
+              -o "$RUNNER_TEMP/ip-grouping-$standard"
+            "$RUNNER_TEMP/ip-grouping-$standard"
+          done
+          python3 current-ip/tests/check_group_expansion_source.py
+          echo "PASS: unchanged actual IP expansion policy source, no host/gameplay test"
+
+  worldserver-linked-compatibility:
+    name: "Full Worldserver link: current IP grouping + Warlock + Ammo + Quest Loot"
+    needs: source-compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout historical owner-reported Grimfeather Core
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+      - name: Checkout historical owner-reported Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: e88cc4099e69f35126b28942a412ca702d20453b
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - name: Checkout exact current IP grouping DRAFT (not baseline IP)
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/mod-individual-progression
+          ref: e0cd785f6b2090c8f099c824811077d0ab2a9de5
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - name: Checkout same frozen Warlock/Ammo/A04 combined module plus CI-only branch
+        uses: actions/checkout@v4
+        with:
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify exact source pin combination and flags are OFF
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = e88cc4099e69f35126b28942a412ca702d20453b
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = e0cd785f6b2090c8f099c824811077d0ab2a9de5
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "$GITHUB_SHA"
+          grep -Fxq 'NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled = 0' acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          grep -Fxq 'NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0' acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          grep -Fxq 'NaxxramasCore.QuestLootProtection.Enabled = 0' acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          echo "PASS: four pinned checkouts; no experimental toggle enabled"
+      - name: Apply ONLY the two historic owner-reported Playerbots compatibility lines (disposable)
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          module = Path("acore/modules/mod-playerbots")
+          edits = {
+            "src/Db/PlayerbotsDatabase.h": (
+              "MySQLConnection* CreateAsyncConnection(ProducerConsumerQueue<SQLOperation*>* queue,",
+              "MySQLConnection* CreateConnection(ProducerConsumerQueue<SQLOperation*>* queue,"
+            ),
+            "src/Util/LocaleColumns.h": (
+              "if (!IsLocaleRegistered(locale))",
+              "if (!localeNames[locale])"
+            ),
+          }
+          for rel, (old, new) in edits.items():
+              path = module / rel
+              data = path.read_text(encoding="utf-8")
+              assert data.count(old) == 1 and data.count(new) == 0, rel
+              path.write_text(data.replace(old, new), encoding="utf-8")
+          PY
+          git -C acore/modules/mod-playerbots diff --check
+          python3 - <<'PY'
+          import subprocess
+          cwd = "acore/modules/mod-playerbots"
+          paths = set(subprocess.check_output(
+            ["git","diff","--name-only"],cwd=cwd,text=True).splitlines())
+          expected={"src/Db/PlayerbotsDatabase.h","src/Util/LocaleColumns.h"}
+          assert paths == expected, paths
+          for row in subprocess.check_output(
+            ["git","diff","--numstat"],cwd=cwd,text=True).splitlines():
+              add, remove, path = row.split("\t",2)
+              assert (add,remove)==("1","1"),(path,add,remove)
+          print("PASS: exactly 2 historical one-line changes in runner checkout only")
+          PY
+      - name: Install dependencies in disposable GitHub runner only
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure real full Worldserver, static module/script source
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Verify BOTH IP grouping implementation units and P1 module compile graph
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          cc=json.loads(Path("acore-build/compile_commands.json").read_text())
+          required=(
+            "/mod-individual-progression/src/IndividualProgression.cpp",
+            "/mod-individual-progression/src/IndividualProgressionPlayer.cpp",
+            "/mod-naxxramas-core/src/Systems/MeetingStoneProgression.cpp",
+            "/mod-naxxramas-core/src/Systems/HunterAmmoProvision.cpp",
+            "/mod-naxxramas-core/src/Systems/QuestLootProtection.cpp",
+          )
+          for name in required:
+              hits=[r for r in cc if r.get("file","").replace(chr(92),"/").endswith(name)]
+              assert len(hits)==1,(name,len(hits))
+              print("PASS: real compile graph includes "+name)
+          PY
+      - name: Compile and link full Worldserver with CURRENT IP grouping (NEVER LAUNCH)
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify the shared executable actually linked Warlock, Hunter, Quest Loot and EP
+        run: |
+          set -euo pipefail
+          exe=acore-build/src/server/apps/worldserver
+          test -x "$exe" && test -s "$exe"
+          nm -C --defined-only "$exe" > "$RUNNER_TEMP/combined-ip-grouping-module-symbols.txt"
+          for symbol in 'AddMeetingStoneProgressionScripts()' \
+                        'NaxxramasCoreMeetingStoneProgression::CanGameObjectGossipHello(' \
+                        'vtable for NaxxramasCoreMeetingStoneProgression' \
+                        'NaxxramasHunterAmmo::TopUpHunterAmmo('; do
+            grep -Fq "$symbol" "$RUNNER_TEMP/combined-ip-grouping-module-symbols.txt" ||
+              { echo "FAIL: missing symbol $symbol" >&2; exit 1; }
+            echo "PASS: linked symbol $symbol"
+          done
+          grep -aFq 'NaxxramasQuestLootProtection' "$exe"
+          grep -aFq 'outdoorpvp_naxxramas_ep_lock' "$exe"
+          sha256sum "$exe"
+          echo "PASS: one real linked Worldserver includes latest IP grouping and module P1/P2/P4"
+          echo "NOT gameplay, live host test, operational F15, or authorization to deploy"
+      - name: Preserve owner-host safety boundary
+        if: always()
+        run: |
+          echo "Runner-only source pins: historical Grimfeather Core/Playerbots, current unmerged Cosmic IP expansion draft and frozen Warlock/Ammo/Quest Loot module."
+          echo "No owner-worldserver or authserver start/stop, binary upload, runtime process, SQL, client, DBC, database, config, PM2/tmux, or backup change."
+          echo "No code source from any module changed except exactly two known Playerbots lines IN THE DISPOSABLE RUNNER."
+          echo "Human quest loot H1/H2 and rndbot F14 are NOT certified. F15 operational collector NOT included."
+          echo "All experimental toggles OFF; owner approval, restorable backups and actual installed-source review before staging."
