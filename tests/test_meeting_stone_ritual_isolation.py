@@ -24,35 +24,33 @@ def hook_body():
 
 
 class MeetingStoneRitualIsolation(unittest.TestCase):
-    def test_module_only_intercepts_real_meetingstone_type(self):
+    def test_module_only_intercepts_meetingstone_or_exact_opt_in_warlock_portal(self):
         hook = hook_body()
-        # This early fail-open type guard excludes a Warlock ritual GO (type 18).
-        guard = re.compile(
-            r"if\s*\(\s*!player\s*\|\|\s*!go\s*\|\|\s*"
-            r"go->GetGoType\(\)\s*!=\s*GAMEOBJECT_TYPE_MEETINGSTONE"
-            r"\s*\|\|\s*!sConfigMgr->GetOption<bool>\s*\("
-            r'\s*"NaxxramasCore.MeetingStones.ClassicMode.Enabled",\s*true'
-            r"\s*\)\s*\)\s*\{\s*return false;\s*\}",
-            re.DOTALL,
-        )
-        # The type/config guard must be the FIRST statement in the hook:
-        # a prior injected ritual-specific return true would stop native Use.
-        first_statement_guard = re.compile(
-            r"^\s*\{\s*" + guard.pattern,
-            re.DOTALL,
-        )
-        self.assertRegex(hook, first_statement_guard)
-        # Prove the assertion itself rejects an accidental blocking return.
-        altered = hook.replace("return false;", "return (true);", 1)
-        self.assertNotRegex(altered, first_statement_guard)
-        # Also reject an earlier ritual-specific override before the type guard.
+        # The default-OFF, origin-checked exception is the ONLY early
+        # override. Every other GO reaches the original IP gate.
+        self.assertIn("if (!player || !go)\n            return false;", hook)
+        self.assertRegex(
+            hook, re.compile(
+                r"go->GetGoType\(\) == GAMEOBJECT_TYPE_MEETINGSTONE\s*&&\s*"
+                r"go->GetEntry\(\) == WARLOCK_SECOND_PORTAL_ENTRY\s*&&\s*"
+                r"sConfigMgr->GetOption<bool>\(\s*"
+                r'"NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled", false',
+                re.DOTALL))
+        original_gate = re.compile(
+            r"if\s*\(\s*go->GetGoType\(\) != GAMEOBJECT_TYPE_MEETINGSTONE\s*\|\|\s*"
+            r"!sConfigMgr->GetOption<bool>\(\s*"
+            r'"NaxxramasCore.MeetingStones.ClassicMode.Enabled", true',
+            re.DOTALL)
+        self.assertRegex(hook, original_gate)
+        self.assertLess(hook.index("go->GetEntry() == WARLOCK_SECOND_PORTAL_ENTRY"),
+                        hook.index("go->GetGoType() != GAMEOBJECT_TYPE_MEETINGSTONE"))
+        # Deliberately modified default-on pilot is detected.
         altered = hook.replace(
-            "{",
-            "{ if (go->GetGoType() == GAMEOBJECT_TYPE_SUMMONING_RITUAL)"
-            " return true;",
-            1,
-        )
-        self.assertNotRegex(altered, first_statement_guard)
+            '"NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled", false',
+            '"NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled", true', 1)
+        self.assertNotIn(
+            '"NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled", false',
+            altered)
 
     def test_progression_decision_occurs_after_type_guard(self):
         hook = hook_body()
@@ -72,6 +70,7 @@ class MeetingStoneRitualIsolation(unittest.TestCase):
         # No new default-OFF setting or altered stock spell is required to
         # exempt a genuine Ritual of Summoning GO.
         self.assertNotIn("GAMEOBJECT_TYPE_SUMMONING_RITUAL", hook)
+        self.assertIn("NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled", hook)
         self.assertNotIn("23598", hook)
 
     def test_guard_hook_is_registered_once(self):
