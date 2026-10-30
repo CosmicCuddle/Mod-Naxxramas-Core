@@ -1,0 +1,144 @@
+name: P1 Warlock second-stage default-OFF pilot native build
+on:
+  push:
+    branches: ['test/cs01-p1-warlock-second-stage-pilot-20261030']
+    paths:
+      - src/Systems/MeetingStoneProgression.cpp
+      - conf/mod_naxxramas_core.conf.dist
+      - tests/test_meeting_stone_ritual_isolation.py
+      - tests/test_p1_warlock_second_stage_pilot.py
+      - docs/testing/P1-WARLOCK-SECOND-STAGE-PILOT.md
+      - .github/workflows/naxx-p1-warlock-second-stage-pilot.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  MOD_BASE: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_SHA: b7f06a16ac7120b5abc2e8d3f96a94265a363224
+  BOTS_SHA: 037c01418b5d01506917a3db9b44fd56ac5f965c
+  IP_SHA: 283abe12774801e5671da746ea8bf535cc0252e0
+jobs:
+  source-guards:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Strict only six isolated source/config/test/docs/CI paths
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$MOD_BASE" HEAD
+          python3 - <<'PY'
+          import subprocess
+          changes=[row.split('\t',1) for row in subprocess.check_output(
+              ["git","diff","--name-status","80e9de1c39a6dc995188a80c31a5e785d0f2a6f9","HEAD"],
+              text=True).splitlines()]
+          expected={
+            "src/Systems/MeetingStoneProgression.cpp":"M",
+            "conf/mod_naxxramas_core.conf.dist":"M",
+            "tests/test_meeting_stone_ritual_isolation.py":"M",
+            "tests/test_p1_warlock_second_stage_pilot.py":"A",
+            "docs/testing/P1-WARLOCK-SECOND-STAGE-PILOT.md":"A",
+            ".github/workflows/naxx-p1-warlock-second-stage-pilot.yml":"A"
+          }
+          assert len(changes)==6 and {p:k for k,p in changes}==expected,changes
+          print("PASS: P1 exactly six approved source/config/test/docs/CI paths")
+          PY
+          grep -Fxq 'NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled = 0' conf/mod_naxxramas_core.conf.dist
+          grep -Fxq 'NaxxramasCore.MeetingStones.ClassicMode.Enabled = 1' conf/mod_naxxramas_core.conf.dist
+          test "$(git rev-parse "$MOD_BASE":src/Systems/MeetingStoneProgression.cpp)" = b46d0f2b5c16e490878e68d259092ebb4b2fdc7a
+      - name: Original Vanilla guard, new pilot and QuestLoot no-upload safety tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_meeting_stone_ritual_isolation.py -v
+          python3 -m unittest discover -s tests -p test_p1_warlock_second_stage_pilot.py -v
+          python3 -m unittest discover -s tests -p test_quest_loot_protection.py -v
+          echo 'PASS: P1 guarded source-only tests, not gameplay'
+  real-worldserver:
+    needs: source-guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/azerothcore-wotlk
+          ref: b7f06a16ac7120b5abc2e8d3f96a94265a363224
+          path: acore
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: 037c01418b5d01506917a3db9b44fd56ac5f965c
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ZhengPeiRu21/mod-individual-progression
+          ref: 283abe12774801e5671da746ea8bf535cc0252e0
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+      - name: Verify exact original historical source pins
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "$CORE_SHA"
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = "$BOTS_SHA"
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = "$IP_SHA"
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C acore rev-parse HEAD:src/server/game/Entities/GameObject/GameObject.cpp)" = c006c59145b3bdd14e7d3f513628bc0a29653835
+          grep -Fq 'spellId = 23598;' acore/src/server/game/Entities/GameObject/GameObject.cpp
+      - name: Install runner-only C++ build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+      - name: Configure actual source and full Worldserver target
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+      - name: Compile REAL modified MeetingStoneProgression translation unit
+        run: |
+          python3 - <<'PY'
+          import json,shlex,subprocess
+          from pathlib import Path
+          commands=json.loads(Path("acore-build/compile_commands.json").read_text())
+          want="mod-naxxramas-core/src/Systems/MeetingStoneProgression.cpp"
+          records=[x for x in commands if x.get("file","").replace("\\","/").endswith(want)]
+          assert len(records)==1,(want,len(records))
+          item=records[0]
+          args=item.get("arguments") or shlex.split(item["command"])
+          assert any("MeetingStoneProgression.cpp" in x for x in args)
+          subprocess.run(args,cwd=item["directory"],check=True,timeout=450)
+          print("PASS: P1 actual modified C++ TU compiled against pinned dependencies",flush=True)
+          PY
+      - name: Compile and link complete Worldserver without launching it
+        run: cmake --build acore-build --target worldserver --parallel 2
+      - name: Verify real linked module and pilot toggle is present
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          archive=acore-build/modules/libmodules.a
+          test -x "$binary" && test -s "$archive"
+          nm -C --defined-only "$archive" | grep -Fq 'AddMeetingStoneProgressionScripts()'
+          nm -C --defined-only "$binary" | grep -Fq 'AddMeetingStoneProgressionScripts()'
+          grep -aFq 'NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled' "$binary"
+          sha256sum "$binary"
+          echo 'PASS: P1 default-OFF pilot linked in real historical-compatible Worldserver'
+      - name: Release/owner-host nonauthorization
+        if: always()
+        run: |
+          echo 'No artifact upload, Worldserver start, install, deploy, SQL/DBC or live game testing.'
+          echo 'P1 remains FAILED until group+target/cooldown/GO provenance tests on owner-approved backed-up realm.'
+          echo 'R7 release HOLD; MapUpdate.Threads=8; F14 OFF; NoWrite relay OFF; D18 HARD NO-GO.'
