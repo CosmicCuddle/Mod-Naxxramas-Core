@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   journal-synthetic:
-    name: "77 inherited controls + 20 journal recovery tests"
+    name: "77 inherited controls + 24 journal recovery tests"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -54,14 +54,14 @@ jobs:
           python3 -I -B -W error tests/test_f15_disposable_crash_gap_contract.py -v > /tmp/f15-negative.txt 2>&1 || { cat /tmp/f15-negative.txt; exit 1; }
           grep -Eq '^Ran 10 tests in [0-9.]+s$' /tmp/f15-negative.txt
           grep -qx OK /tmp/f15-negative.txt
-      - name: Run exactly 20 new durable-journal crash-injection tests
+      - name: Run exactly 24 durable-journal crash-injection tests
         run: |
           set -euo pipefail
           python3 -I -B -W error tests/test_f15_atomic_journal_disposable.py -v > /tmp/f15-journal.txt 2>&1 || { cat /tmp/f15-journal.txt; exit 1; }
-          grep -Eq '^Ran 20 tests in [0-9.]+s$' /tmp/f15-journal.txt
+          grep -Eq '^Ran 24 tests in [0-9.]+s$' /tmp/f15-journal.txt
           grep -qx OK /tmp/f15-journal.txt
           ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/f15-journal.txt
-          echo "PASS: 97 fixture assertions total. Ten are known-gap demonstrations, NOT fixes."
+          echo "PASS: 101 fixture assertions total. Ten are known-gap demonstrations, NOT fixes."
       - name: Declare nondeployment boundary
         if: always()
         run: |
