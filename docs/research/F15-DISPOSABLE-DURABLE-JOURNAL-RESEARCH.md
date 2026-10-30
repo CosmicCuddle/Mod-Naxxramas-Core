@@ -13,7 +13,7 @@ The new GitHub-runner fixture explores a small **durable checkpoint and immutabl
 1. On initial attachment, write a persisted source inode/offset baseline; **never automatically copy gigabytes of historical PM2 output**.
 2. On each poll read a bounded, newly appended byte span. Write it to a uniquely named immutable segment file in a runner-only directory, `fsync`, then atomically publish that segment.
 3. Only after publishing the segment, update a checksummed manifest containing the source inode and new committed offset using an atomic rename and directory sync.
-4. If a crash occurs after publishing but before manifest commit, on restart verify the contiguous segment and **recover** the checkpoint without appending the same bytes a second time. If a crash occurs after committing, the persisted offset prevents duplication.
+4. If a crash occurs after publishing but before manifest commit, on restart verify the contiguous segment and **recover** the checkpoint without appending the same bytes a second time. The updated fixture also recognizes an already-fsynced, orphaned `.pending` checkpoint **only when its content exactly matches the expected next state**; mismatched or symlinked pending state causes a fail-closed error. If a crash occurs after committing, the persisted offset prevents duplication.
 5. Detect changes to source inode or shrinkage and **warn** when an unseen tail might be lost. No claim of recovering missing old bytes.
 6. Keep Worldserver stdout, Worldserver stderr and Authserver's native test stream independently identified.
 
@@ -35,4 +35,8 @@ This is a narrowly scoped, reproducible test toward solving one major failure mo
 
 ### Acceptance gate
 
-Run **38 policy tests + 29 disposable-file positive tests + 10 known-gap negative controls + 20 new journal recovery tests** in a hosted GitHub Action at the exact branch head. All must complete without skips. The negative controls passing means the *older* fixture's shortcomings are still visible, while the new 20 demonstrate a narrowly improved journal design. No gameplay or live-server test is claimed.
+Run **38 policy tests + 29 disposable-file positive tests + 10 known-gap negative controls + 24 journal recovery tests** in a hosted GitHub Action at the exact branch head. All must complete without skips. The negative controls passing means the *older* fixture's shortcomings are still visible, while the new 24 demonstrate a narrowly improved journal design. No gameplay or live-server test is claimed.
+
+## Follow-up checkpoint publication interruption (same draft)
+
+Additional fake-file tests simulate a crash **after writing and syncing the new checkpoint's temporary file but before renaming it**. The original fixture would refuse to continue because the stale `.pending` name still existed. The review-only fixture now validates and reuses an exact matching temporary checkpoint, while refusing a modified or symlinked one. This closes one **specific synthetic failpoint** only; it does not prove safe handling of power cuts, concurrent collectors, malicious filesystem writers or all crash windows.
