@@ -1,0 +1,70 @@
+name: "F15 durable-checkpoint disposable file journal tests (NO HOST)"
+on:
+  push:
+    branches: ["test/cs01-f15-durable-journal-fixture-20261030"]
+    paths:
+      - ".github/workflows/naxx-f15-disposable-durable-journal-20261030.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  journal-synthetic:
+    name: "77 inherited controls + 20 journal recovery tests"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Source integrity and exact added-path allowlist
+        run: |
+          set -euo pipefail
+          BASE=b093b25f791f23252a2a0fd129f76f6101eccf46
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --quiet "$BASE" HEAD -- src conf data tools
+          python3 - <<'PY'
+          import subprocess
+          base="b093b25f791f23252a2a0fd129f76f6101eccf46"
+          actual=set(subprocess.check_output(["git","diff","--name-only",base,"HEAD"],text=True).splitlines())
+          allowed={
+              "tests/f15_disposable_atomic_journal_fixture.py",
+              "tests/test_f15_atomic_journal_disposable.py",
+              "docs/research/F15-DISPOSABLE-DURABLE-JOURNAL-RESEARCH.md",
+              ".github/workflows/naxx-f15-disposable-durable-journal-20261030.yml",
+          }
+          assert actual==allowed,(actual,allowed)
+          print("PASS: four additive test/doc/CI paths, runtime source unchanged")
+          PY
+      - name: Run 38 pure archive policy tests
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_console_archive_policy.py -v > /tmp/f15-pure.txt 2>&1 || { cat /tmp/f15-pure.txt; exit 1; }
+          grep -Eq '^Ran 38 tests in [0-9.]+s$' /tmp/f15-pure.txt
+          grep -qx OK /tmp/f15-pure.txt
+      - name: Run 29 disposable log-file positive tests
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_archive_disposable_filesystem.py -v > /tmp/f15-io.txt 2>&1 || { cat /tmp/f15-io.txt; exit 1; }
+          grep -Eq '^Ran 29 tests in [0-9.]+s$' /tmp/f15-io.txt
+          grep -qx OK /tmp/f15-io.txt
+      - name: Run ten old crash-window negative controls (gaps remain)
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_disposable_crash_gap_contract.py -v > /tmp/f15-negative.txt 2>&1 || { cat /tmp/f15-negative.txt; exit 1; }
+          grep -Eq '^Ran 10 tests in [0-9.]+s$' /tmp/f15-negative.txt
+          grep -qx OK /tmp/f15-negative.txt
+      - name: Run exactly 20 new durable-journal crash-injection tests
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_atomic_journal_disposable.py -v > /tmp/f15-journal.txt 2>&1 || { cat /tmp/f15-journal.txt; exit 1; }
+          grep -Eq '^Ran 20 tests in [0-9.]+s$' /tmp/f15-journal.txt
+          grep -qx OK /tmp/f15-journal.txt
+          ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/f15-journal.txt
+          echo "PASS: 97 fixture assertions total. Ten are known-gap demonstrations, NOT fixes."
+      - name: Declare nondeployment boundary
+        if: always()
+        run: |
+          echo "All real file writes and deletes occurred exclusively under runner-owned ephemeral TemporaryDirectory fixtures."
+          echo "Not a production collector, not a working scheduled archive, not operational crash reporting."
+          echo "Never touch owner PM2, tmux, Authserver, Worldserver, SQL, installed logs, daemon settings or character records."
