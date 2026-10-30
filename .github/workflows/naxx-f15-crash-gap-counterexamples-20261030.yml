@@ -1,0 +1,65 @@
+name: "F15 crash-window negative control proof (OFFLINE ONLY)"
+on:
+  push:
+    branches: ["test/cs01-f15-crash-gap-regression-20261030"]
+    paths:
+      - ".github/workflows/naxx-f15-crash-gap-counterexamples-20261030.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-only:
+    name: "67 positive controls + 10 counterexamples"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove source inherited unchanged and test branch touches three files only
+        run: |
+          set -euo pipefail
+          BASE=75aaf8cc580f8d6567bffcfdd4c1b35f6b401d0a
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --quiet "$BASE" HEAD -- src conf data tools
+          python3 - <<'PY'
+          import subprocess
+          base="75aaf8cc580f8d6567bffcfdd4c1b35f6b401d0a"
+          paths=set(subprocess.check_output(
+              ["git","diff","--name-only",base,"HEAD"],text=True).splitlines())
+          expect={
+              "tests/test_f15_disposable_crash_gap_contract.py",
+              "docs/research/F15-DISPOSABLE-CRASH-GAP-COUNTEREXAMPLES.md",
+              ".github/workflows/naxx-f15-crash-gap-counterexamples-20261030.yml",
+          }
+          assert paths==expect,(paths,expect)
+          print("PASS: three additive review-only paths; base runtime source unchanged")
+          PY
+      - name: Repeat 38 pure policy tests, no skip
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_console_archive_policy.py -v > /tmp/f15-pure.txt 2>&1 || { cat /tmp/f15-pure.txt; exit 1; }
+          grep -Eq '^Ran 38 tests in [0-9.]+s$' /tmp/f15-pure.txt
+          grep -qx 'OK' /tmp/f15-pure.txt
+      - name: Repeat 29 temporary filesystem positive controls, no skip
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_archive_disposable_filesystem.py -v > /tmp/f15-fakeio.txt 2>&1 || { cat /tmp/f15-fakeio.txt; exit 1; }
+          grep -Eq '^Ran 29 tests in [0-9.]+s$' /tmp/f15-fakeio.txt
+          grep -qx 'OK' /tmp/f15-fakeio.txt
+      - name: Prove ten known crash/rotation gaps on disposable fixtures, no skip
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_disposable_crash_gap_contract.py -v > /tmp/f15-known-gaps.txt 2>&1 || { cat /tmp/f15-known-gaps.txt; exit 1; }
+          grep -Eq '^Ran 10 tests in [0-9.]+s$' /tmp/f15-known-gaps.txt
+          grep -qx 'OK' /tmp/f15-known-gaps.txt
+          ! grep -Eq '^FAILED|^ERROR:|skipped=|^OK \(skipped' /tmp/f15-known-gaps.txt
+          echo "PASS: ten reproduced gaps, NOT ten fixes"
+      - name: Explicit owner-host and production NONAUTHORIZATION
+        if: always()
+        run: |
+          echo "Positive checks passing does not make F15 collector operational."
+          echo "Negative controls passing DEMONSTRATES the missing recovery and retention capabilities."
+          echo "All fake logs and archive deletions are in disposable GitHub runner tempdirs."
+          echo "Do not install, merge, deploy, rotate, flush, restart or run on owner server."
