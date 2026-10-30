@@ -138,7 +138,7 @@ jobs:
           done
       - name: Compile and link complete Worldserver without launching it
         run: cmake --build acore-build --target worldserver --parallel 2
-      - name: Verify real linked module and pilot toggle is present
+      - name: Verify real linked module and Meeting Stone virtual gameplay hook
         run: |
           set -euo pipefail
           binary=acore-build/src/server/apps/worldserver
@@ -172,14 +172,29 @@ jobs:
               fi
             done
           done
-          if grep -aFq 'NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled' "$binary"; then
-            echo 'PASS: P1 default-OFF pilot toggle present in linked Worldserver'
-          else
-            echo 'FAIL: P1 pilot toggle absent from final Worldserver; inspect prelink object/archive/Vanilla gate diagnostics before source changes' >&2
-            exit 1
-          fi
+          # Release/O3 may construct a std::string literal from optimized
+          # fragments. No contiguous key bytes is NOT proof a config read
+          # was compiled out (both old Vanilla and P1 keys lack such bytes
+          # even in this run's compiled object; source-guards validate the
+          # exact configuration key and fail-closed default separately).
+          # Hard-gate the actual virtual GO handler and its vtable on BOTH
+          # module archive and final executable; never just a loader stub.
+          for symbols in "$RUNNER_TEMP/naxx-p1-archive-symbols.txt" "$RUNNER_TEMP/naxx-p1-worldserver-symbols.txt"; do
+            if grep -Fq 'NaxxramasCoreMeetingStoneProgression::CanGameObjectGossipHello(' "$symbols"; then
+              echo "PASS: actual P1-capable virtual GO handler defined in $symbols"
+            else
+              echo "FAIL: P1-capable virtual GO handler missing from $symbols" >&2
+              exit 1
+            fi
+            if grep -Fq 'vtable for NaxxramasCoreMeetingStoneProgression' "$symbols"; then
+              echo "PASS: Meeting Stone hook dispatch vtable defined in $symbols"
+            else
+              echo "FAIL: Meeting Stone hook dispatch vtable missing from $symbols" >&2
+              exit 1
+            fi
+          done
           sha256sum "$binary"
-          echo 'PASS: P1 default-OFF pilot linked in real historical-compatible Worldserver'
+          echo 'PASS: actual Meeting Stone hook linked in real historical-compatible Worldserver; source default-OFF contract passed'
       - name: Release/owner-host nonauthorization
         if: always()
         run: |
