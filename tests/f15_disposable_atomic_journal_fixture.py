@@ -135,12 +135,18 @@ class JournalFixture:
                 raise ValueError("existing segment changed")
             return
         temp = self.archive / (name + ".pending")
-        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        try:
-            self._write_all(fd, chunk)
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        if temp.exists():
+            oldmeta = temp.lstat()
+            if (not stat.S_ISREG(oldmeta.st_mode) or oldmeta.st_nlink != 1
+                    or temp.read_bytes() != chunk):
+                raise ValueError("untrusted orphaned pending segment")
+        else:
+            fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            try:
+                self._write_all(fd, chunk)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
         if fail_at == "before-publish":
             raise SyntheticCrash("simulated stop before segment publication")
         os.replace(temp, dest)
