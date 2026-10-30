@@ -1,0 +1,49 @@
+name: "F15 private-free offline crash/error evidence regression (review only)"
+on:
+  push:
+    branches: ['test/cs01-f15-offline-regression-20261030']
+    paths: ['.github/workflows/naxx-f15-review-only-offline-regression-20261030.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  f15-offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact frozen F15 branch; test workflow only; no src/config edits
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor a73b1aed7871da6ffdad7a33c73ce9a46cbdfaa3 HEAD
+          test "$(git diff --name-only a73b1aed7871da6ffdad7a33c73ce9a46cbdfaa3 HEAD)" = '.github/workflows/naxx-f15-review-only-offline-regression-20261030.yml'
+          git diff --quiet a73b1aed7871da6ffdad7a33c73ce9a46cbdfaa3 HEAD -- src conf
+          test "$(git rev-parse HEAD:tools/f15/offline_restart.py)" = "$(git rev-parse a73b1aed7871da6ffdad7a33c73ce9a46cbdfaa3:tools/f15/offline_restart.py)"
+          test "$(git rev-parse HEAD:tools/f15/offline_store.py)" = "$(git rev-parse a73b1aed7871da6ffdad7a33c73ce9a46cbdfaa3:tools/f15/offline_store.py)"
+          echo 'PASS: frozen existing F15 offline producer+store, single new workflow file'
+      - name: Run F15 quota and inherited offline evidence tests
+        run: |
+          set -euo pipefail
+          check() {
+            output=$(python3 -I -B -W error "$1" -v 2>&1) || { printf '%s\n' "$output"; exit 1; }
+            printf '%s\n' "$output" | grep -Eq "^Ran $2 tests in [0-9.]+s$" ||
+              { printf '%s\n' "$output"; exit 1; }
+            printf '%s\n' "$output" | grep -qx 'OK' ||
+              { printf '%s\n' "$output"; exit 1; }
+            echo "PASS: $1 ($2 tests, 0 skipped)"
+          }
+          check tests/test_f15_restart_sidecar_quota_p30.py 16
+          check tests/test_f15_store_bounds_r4.py 16
+          check tests/test_f15_directory_inode_flock_p29.py 7
+          check tests/test_f15_offline_store_s2.py 43
+          check tests/test_f15_restart_sidecar_s3.py 30
+          check tests/test_f15_exit_evidence_s4.py 25
+          check tests/test_f15_error_bursts_s4b.py 38
+          check tests/test_f15_error_reports_s4c.py 24
+      - name: Declare precise limits of evidence
+        run: |
+          echo 'F15 crash/error/store synthetic offline tests only; NO real Worldserver/Authserver, signal provenance, host, root, SQL, DB, log, artifact or server monitor.'
+          echo 'No production crash experiment; real F15 remains BLOCKED_AT_R0.'
