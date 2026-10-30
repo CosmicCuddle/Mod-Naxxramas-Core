@@ -1,0 +1,208 @@
+name: Three-track Warlock + Hunter + A04 owner-pinned linked Worldserver (review only)
+on:
+  push:
+    branches: ['test/cs01-warlock-hunter-a04-linked-owner-ci-20261030']
+    paths:
+      - '.github/workflows/naxx-three-track-linked-owner-smoke-20261030.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-tests:
+    name: Exact source unchanged + six feature-family source tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify branch isolation and immutable source blobs
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = aac4b3c75de3d83896982cf4fa52efffb9d0bc85
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/naxx-three-track-linked-owner-smoke-20261030.yml'
+          test "$(git rev-parse HEAD:src/Systems/MeetingStoneProgression.cpp)" = a43072a48134f15eb95ecd03ddbe1984f040fbb7
+          test "$(git rev-parse HEAD:src/Systems/HunterAmmoProvision.cpp)" = 36ad027b7ee72104998977b4fa01b9d8d559a7e4
+          test "$(git rev-parse HEAD:src/Systems/QuestLootProtection.cpp)" = 48729dc9fdd674eea0f4bb7bd1a47762558daf6f
+          test "$(git rev-parse HEAD:src/Systems/BotRaidConsumables.cpp)" = 266fcfa1a1c2193fa900cb1116fcf205acc1425a
+          grep -Fxq 'NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled = 0' conf/mod_naxxramas_core.conf.dist
+          grep -Fxq 'NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0' conf/mod_naxxramas_core.conf.dist
+          grep -Fxq 'NaxxramasCore.QuestLootProtection.Enabled = 0' conf/mod_naxxramas_core.conf.dist
+          grep -Fq 'NaxxramasOneShotTimer Timer{90 * IN_MILLISECONDS};' src/Systems/BotRaidConsumables.cpp
+          echo 'PASS: immutable original P1+main source; all experimental features OFF and MC GFPP still 90s'
+      - name: Execute existing real source and model test families
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_meeting_stone_ritual_isolation.py -v
+          python3 -m unittest discover -s tests -p test_p1_warlock_second_stage_pilot.py -v
+          python3 -m unittest discover -s tests -p test_hunter_ammo_consumables.py -v
+          python3 -m unittest discover -s tests -p test_quest_loot_protection.py -v
+          python3 -m unittest discover -s tests -p test_ep_tower_module_only.py -v
+          python3 -m unittest discover -s tests -p test_mc_gfpp_one_shot.py -v
+          echo 'PASS: six offline source/model suites only; no runtime/gameplay test'
+
+  owner-source-worldserver:
+    name: One native Worldserver: Warlock + Hunter Ammo + Quest Loot + EP
+    needs: source-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout owner's reported AzerothCore core SHA
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+
+      - name: Checkout owner's reported Playerbots SHA
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: e88cc4099e69f35126b28942a412ca702d20453b
+          path: acore/modules/mod-playerbots
+          persist-credentials: false
+
+      - name: Checkout owner's clean Cosmic IP fork source baseline
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/mod-individual-progression
+          ref: dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          path: acore/modules/mod-individual-progression
+          persist-credentials: false
+
+      - name: Checkout exact unmerged Warlock P1 pilot DRAFT commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: acore/modules/mod-naxxramas-core
+          persist-credentials: false
+
+      - name: Verify exact four source SHA pins and Warlock source gates
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C acore/modules/mod-playerbots rev-parse HEAD)" = e88cc4099e69f35126b28942a412ca702d20453b
+          test "$(git -C acore/modules/mod-individual-progression rev-parse HEAD)" = dd96f2b77e3ebfa2a4726bf785525ba133f1ab61
+          test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "$GITHUB_SHA"
+          grep -Fxq 'NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled = 0' acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          grep -Fxq 'NaxxramasCore.MeetingStones.ClassicMode.Enabled = 1' acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          echo 'PASS: owner-reported four source pins and Warlock default-OFF config contract'
+
+      - name: Reproduce precisely the two owner-local Playerbots header changes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          module = Path("acore/modules/mod-playerbots")
+          replacements = {
+              "src/Db/PlayerbotsDatabase.h": (
+                  "MySQLConnection* CreateAsyncConnection(ProducerConsumerQueue<SQLOperation*>* queue,",
+                  "MySQLConnection* CreateConnection(ProducerConsumerQueue<SQLOperation*>* queue,"
+              ),
+              "src/Util/LocaleColumns.h": (
+                  "if (!IsLocaleRegistered(locale))",
+                  "if (!localeNames[locale])"
+              ),
+          }
+          for relative_path, (old, new) in replacements.items():
+              path = module / relative_path
+              content = path.read_text(encoding="utf-8")
+              assert content.count(old) == 1, f"Expected exact owner patch base is absent: {relative_path}"
+              assert content.count(new) == 0, f"Unexpected owner patch already in checkout: {relative_path}"
+              path.write_text(content.replace(old, new), encoding="utf-8")
+              print(f"Reproduced owner-reported change: {relative_path}")
+          PY
+          git -C acore/modules/mod-playerbots diff --check
+          python3 - <<'PY'
+          import subprocess
+          cwd = "acore/modules/mod-playerbots"
+          names = set(subprocess.check_output(
+              ["git", "diff", "--name-only"], cwd=cwd, text=True).splitlines())
+          expected = {"src/Db/PlayerbotsDatabase.h", "src/Util/LocaleColumns.h"}
+          assert names == expected, names
+          stats = subprocess.check_output(
+              ["git", "diff", "--numstat"], cwd=cwd, text=True).splitlines()
+          assert len(stats) == 2, stats
+          for line in stats:
+              added, removed, path = line.split("\t", 2)
+              assert (added, removed) == ("1", "1"), (path, added, removed)
+          print("PASS: only the two protected owner-local Playerbots 1-line edits reproduced")
+          PY
+
+      - name: Install dependencies on disposable runner only
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git cmake ninja-build g++ make pkg-config file \
+            libmysqlclient-dev libssl-dev libbz2-dev \
+            libreadline-dev libncurses-dev libboost-all-dev
+
+      - name: Configure owner-source-matched full Worldserver target
+        run: |
+          cmake -S acore -B acore-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DMODULES=static -DSCRIPTS=static \
+            -DAPPS_BUILD=world-only -DTOOLS_BUILD=none \
+            -DUSE_COREPCH=ON -DUSE_SCRIPTPCH=ON
+
+      - name: Verify real owner-source compile graph includes changed Warlock file
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          records = json.loads(Path("acore-build/compile_commands.json").read_text())
+          want = "/mod-naxxramas-core/src/Systems/MeetingStoneProgression.cpp"
+          hits = [row for row in records if row.get("file", "").replace(chr(92), "/").endswith(want)]
+          assert len(hits) == 1, f"Unexpected Warlock P1 compilation count: {len(hits)}"
+          print("PASS: owner-source compilation graph contains exact Warlock source")
+          PY
+
+      - name: Compile and link owner-source Worldserver without starting it
+        run: cmake --build acore-build --target worldserver --parallel 2
+
+      - name: Require linked Warlock virtual GameObject handler and loader
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          test -x "$binary" && test -s "$binary"
+          nm -C --defined-only "$binary" > "$RUNNER_TEMP/naxx-owner-p1-worldserver-symbols.txt"
+          for expected in 'AddMeetingStoneProgressionScripts()' \
+                          'NaxxramasCoreMeetingStoneProgression::CanGameObjectGossipHello(' \
+                          'vtable for NaxxramasCoreMeetingStoneProgression'; do
+            grep -Fq "$expected" "$RUNNER_TEMP/naxx-owner-p1-worldserver-symbols.txt" ||
+              { echo "FAIL: linked owner-source Worldserver missing $expected" >&2; exit 1; }
+            echo "PASS: linked owner-source Worldserver contains $expected"
+          done
+          sha256sum "$binary"
+          echo 'PASS: disposable four-source version compile with exact local Playerbots changes; NOT owner runtime acceptance'
+
+      - name: Verify Hunter Ammo and Quest Loot and EP in SAME linked Worldserver
+        run: |
+          set -euo pipefail
+          binary=acore-build/src/server/apps/worldserver
+          test -x "$binary"
+          nm -C --defined-only "$binary" > "$RUNNER_TEMP/naxx-three-track-worldserver-symbols.txt"
+          grep -Fq 'NaxxramasHunterAmmo::TopUpHunterAmmo(' "$RUNNER_TEMP/naxx-three-track-worldserver-symbols.txt" ||
+            { echo 'FAIL: defined Hunter ammo provision function missing in Worldserver' >&2; exit 1; }
+          echo 'PASS: actual Hunter ammo function defined in linked Worldserver'
+          grep -aFq 'NaxxramasQuestLootProtection' "$binary" ||
+            { echo 'FAIL: Quest Loot script registration marker missing' >&2; exit 1; }
+          echo 'PASS: Quest Loot registered in same linked Worldserver (not full H1/H2 fix)'
+          grep -aFq 'outdoorpvp_naxxramas_ep_lock' "$binary" ||
+            { echo 'FAIL: EP handler registration marker missing' >&2; exit 1; }
+          echo 'PASS: EP lock registration marker in same linked Worldserver'
+          grep -Fq 'NaxxramasCore.BotConsumables.MC.GreaterFireProtection.OneShotEnabled = 0' acore/modules/mod-naxxramas-core/conf/mod_naxxramas_core.conf.dist
+          echo 'PASS: optional MC GFPP flag OFF in distributed config'
+          sha256sum "$binary"
+          echo 'PASS: one disposable owner-source full-link build includes P1 pilot, Hunter Ammo, narrow Quest Loot and EP; NOT gameplay and NOT operational F15'
+
+      - name: Owner-host and gameplay nonauthorization
+        if: always()
+        run: |
+          echo 'All source checkouts, two reproduced local Playerbots edits and compilation occur ONLY on this disposable GitHub runner.'
+          echo 'No Worldserver start, binary upload, artifact deploy, live owner-host access, SQL/DBC/client/config changes or backups.'
+          echo 'Other installed modules and owner-host binary/config/backups are not proven by this four-repository build.'
+          echo 'P1 gameplay remains FAIL until owner-approved full ritual test, target summons, accepts and arrives.'
+          echo 'Pilot default OFF; preserve R7 HOLD, F14 OFF, NoWrite relay OFF, D18 HARD NO-GO, MapUpdate.Threads=8.'
