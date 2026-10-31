@@ -38,7 +38,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Four new paths and one exact inherited CI-scope edit
+      - name: Four new paths and one exact inherited CI-only test extension
         shell: bash
         run: |
           set -euo pipefail
@@ -70,9 +70,20 @@ jobs:
           (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/test/cs01-f15-consented-source-poll-20261031')
         shell: bash"""
           assert prior.count(old) == 1
-          assert Path(p).read_text() == prior.replace(old, new)
+          marker = "      - name: Evidence boundary\n        if: always()"
+          extra = """      - name: Retained old-inode tests on the isolated #259 child only
+        if: github.event_name == 'pull_request' && github.head_ref == 'test/cs01-f15-retained-old-inode-drain-20261031'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_retained_old_inode_poll.py' -v
+"""
+          assert prior.count(marker) == 1
+          expected = prior.replace(old, new).replace(marker, extra + marker)
+          assert Path(p).read_text() == expected
           PY
-          echo 'PASS: four additions, inherited CI exact-step-only; no runtime edits'
+          echo 'PASS: four additions, inherited CI scoped and test-only extension; no runtime edits'
       - name: Source admission, fd bridge, retained old inode test suites
         shell: bash
         run: |
