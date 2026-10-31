@@ -1,8 +1,10 @@
 """F15 *manual* recovery of a named rotated-old source after a simulated restart.
 
 TEST-ONLY, no CLI/service/daemon/host integration, no automatic directory scan,
-source switch or deletion. An operator supplies EVERY exact path and root in a
-disposable fixture; no real PM2/Auth file or installed realm is accessed.
+source switch or deletion. An operator supplies an exact old file/root for
+each recovered stream and explicitly quarantines any bootstrap-only stream
+instead. All three streams must be accounted for, but quarantined sources
+are NOT opened or read. No real PM2/Auth file or installed realm is accessed.
 An explicitly listed bootstrap-only stream is quarantined, NOT recovered or read.
 
 The prior single journal and checkpoint remain the ONLY replay authority.
