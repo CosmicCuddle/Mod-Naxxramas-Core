@@ -18,9 +18,17 @@ This narrow test-only child is stacked on [F15 #259](https://github.com/CosmicCu
 
 This is **manual historical recovery of an old named inode**, not a general solution to automatic log rotation.
 
+## Mixed quiet/anchored streams (reviewer finding, 31 October 2026)
+
+Information [reviewed #261](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/261#issuecomment-6546934955) and noticed its original all-three-anchored prerequisite blocked legitimate stdout old-tail recovery when stderr or Auth had **only a bootstrap note**. The original fail-closed concern is valid: bootstrap-only history cannot authenticate even a last byte segment.
+
+The revised manual test seam requires each of the three streams be **explicitly accounted for**. A stream is EITHER supplied as an anchored exact old filename/root OR separately named in `quarantined_quiet_streams`. Quarantine is permitted **only** when its complete original journal contains exactly one genuine bootstrap-skip record and the checkpoint matches it. The constructor checks the entire original published chain and refuses to quietly quarantine an already-captured stream or a segment published just before a simulated crash. The quarantined source is **never opened or polled**; `poll(quarantined)` fails closed. Quarantine is **not evidence that the stream remained silent after reader restart**, and any inherited idle UTC manifest entry is not proof of source completeness.
+
+A single anchored World-out can therefore recover its own explicitly named old tail even when World-err/Auth-native are quarantined, with no extra cursor or next-file adoption. Real World/Err/Auth logging still requires separate complete-source operational design. This is a disposable reader-object proof only, not a validated host identity or collector process restart.
+
 ## Negative and positive verification
 
-`tests/test_f15_manual_old_inode_recovery.py` specifies **14 fake-file tests**: renamed old inode plus appended tail, three independent stream recoveries, rejection of new inode, deleted old file, symlink/hardlink, modified last journalled bytes, truncate below checkpoint, bootstrap-only journal, wrong source root, missing/extra stream keys, bad candidate pair, preserved original source bytes and timestamps, and a late old-writer append after an idle poll (no automatic next-file handoff).
+`tests/test_f15_manual_old_inode_recovery.py` specifies **20 fake-file tests**: renamed old inode plus appended tail, three independent stream recoveries, rejection of new inode, deleted old file, symlink/hardlink, modified last journalled bytes, truncate below checkpoint, bootstrap-only journal, wrong source root, missing/extra stream keys, bad candidate pair, preserved original source bytes and timestamps, and a late old-writer append after an idle poll (no automatic next-file handoff). Six additional mixed quiet/anchored tests cover explicitly quarantining one or two bootstrap-only streams, permitting anchored old-tail recovery without asserting quiet-stream completeness, rejecting silent omission or quarantine of an already captured stream, rejecting a segment published just before a simulated crash, and rejecting duplicate/unknown/overlapping quarantine lists.
 
 The test restarts only the **Python reader object inside the same disposable workspace**, not a production collector across process crashes or system reboot. Journal and archives are under a disposable `TemporaryDirectory`, not available on the owner's host or as durable daily archives.
 
