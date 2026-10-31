@@ -85,19 +85,16 @@ jobs:
           assert Path(p).read_text() == expected
           p2 = ".github/workflows/naxx-f15-integrated-disposable-20261031.yml"
           prior2 = subprocess.check_output(["git", "show", base+":"+p2], text=True)
-          marker2 = "      - name: Scope of proof\n        if: always()"
-          extra2 = """      - name: CS01 #259 fake old-inode rotation tests (child branch only)
-        if: github.event_name == 'pull_request' && github.head_ref == 'test/cs01-f15-retained-old-inode-drain-20261031'
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(id -u)" != 0
-          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_source_admission.py' -v
-          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_consented_source_poll.py' -v
-          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_retained_old_inode_poll.py' -v
-"""
-          assert prior2.count(marker2) == 1
-          assert Path(p2).read_text() == prior2.replace(marker2, extra2+marker2)
+          now2 = Path(p2).read_text()
+          for first, nextstep in (
+              ('      - name: "CS01 F15 #259 six-path source scope (child branch only)"', '      - name: Not root (so the unreadable-source test runs)'),
+              ('      - name: "CS01 #259 fake old-inode rotation tests (child branch only)"', '      - name: Scope of proof'),
+          ):
+              assert now2.count(first) == 1 and now2.count(nextstep) == 1
+              i = now2.index(first)
+              j = now2.index(nextstep, i)
+              now2 = now2[:i] + now2[j:]
+          assert now2 == prior2
           PY
           echo 'PASS: four additions, two exact CI-only extensions; no runtime edits'
       - name: Source admission, fd bridge, retained old inode test suites
