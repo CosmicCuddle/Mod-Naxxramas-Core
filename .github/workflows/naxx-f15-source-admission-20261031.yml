@@ -28,7 +28,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Enforce four newly added paths above frozen #256
+      - name: Enforce four added paths + one inherited workflow correction
         shell: bash
         run: |
           set -euo pipefail
@@ -38,12 +38,30 @@ jobs:
           git diff --quiet "$BASE" HEAD -- src conf data tools
           git diff --name-status "$BASE" HEAD | sort > /tmp/actual.txt
           printf '%s\n' \
+            'M	.github/workflows/naxx-f15-integrated-disposable-20261031.yml' \
             'A	.github/workflows/naxx-f15-source-admission-20261031.yml' \
             'A	docs/research/F15-READONLY-SOURCE-ADMISSION.md' \
             'A	tests/f15_source_admission.py' \
             'A	tests/test_f15_source_admission.py' | sort > /tmp/expected.txt
           diff -u /tmp/expected.txt /tmp/actual.txt
-          echo 'PASS: four additions only; original #249-#256 + runtime unchanged'
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base = "dcf09ec570575feec82c4afc1ca1c0806e99d617"
+          p = ".github/workflows/naxx-f15-integrated-disposable-20261031.yml"
+          prior = subprocess.check_output(["git", "show", base + ":" + p], text=True)
+          old = '      - name: "Exact head, child of #252, added-path allowlist"\n        run: |'
+          new = '''      - name: "Exact head, child of #252, added-path allowlist"
+        # Frozen five-path assertion applies ONLY to the original #256 feature branch.
+        # Downstream PRs retain every inherited synthetic regression step.
+        if: >-
+          (github.event_name == 'pull_request' && github.head_ref == 'claude/cs03-f15-integrated-disposable-20261031') ||
+          (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/claude/cs03-f15-integrated-disposable-20261031')
+        run: |'''
+          assert prior.count(old) == 1
+          assert Path(p).read_text() == prior.replace(old, new)
+          PY
+          echo 'PASS: 4 added files; 1 precisely scoped inherited CI step; suites and runtime unchanged'
       - name: Fake-file admission and negative-control tests
         shell: bash
         run: |
