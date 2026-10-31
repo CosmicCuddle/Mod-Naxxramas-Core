@@ -82,7 +82,7 @@ class EndToEndConsentedFileBridge(unittest.TestCase):
         self.assertEqual([x.kind for x in r.records(OUT)], ["note-bootstrap-skip", "seg"])
         ck = r._checkpoint(OUT)
         self.assertEqual(ck["seq"], 2)
-        self.assertFalse(any(p.exists() for p in self.w.sources.iterdir()))
+        self.assertFalse(any(p.exists() for p in r.sources.iterdir()))
         r.seal_through(at(1, 0, 1))
         self.assertEqual(r.archive_bytes(OUT, at().date()), b"a\n")
 
