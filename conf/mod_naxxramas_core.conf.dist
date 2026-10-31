@@ -244,6 +244,17 @@ NaxxramasCore.BotTalentCompletion.Enabled = 0
 # 0 = Unrestricted standard WotLK meeting stones for everybody
 # Default: 1
 NaxxramasCore.MeetingStones.ClassicMode.Enabled = 1
+#
+# P1 opt-in Warlock second-stage Ritual of Summoning portal repair PILOT.
+# WotLK GO entry 194097 is type 23 (also used by dungeon Meeting Stones).
+# Only an owned, spell-61993-created GO194097 can cast continuation 61994,
+# subject to the native same-raid, valid target and minimum-level rules.
+# This is NOT a tested release fix. Requires owner-approved staging,
+# matching spell/GO data, backup/rollback and direct gameplay acceptance.
+# Leave OFF for ordinary first-build startup or until the pilot is approved.
+# Default: 0 (disabled)
+NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled = 0
+
 
 #####################################
 # Individual Progression - Classic Battlemaster Queues
