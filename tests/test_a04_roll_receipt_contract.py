@@ -138,6 +138,23 @@ class RollDirectContractTests(unittest.TestCase):
         d.pop(c.GROUP)
         self.denied(d, "F1")
 
+    def test_19_misleading_after_creature_hook_missing_is_detected(self):
+        d = self.change(c.HANDLER, c.PRE_RECEIPT_NAMED_HOOK,
+                        "/* hook deliberately absent in synthetic mutant */",
+                        "void WorldSession::HandleAutostoreLootItemOpcode")
+        self.denied(d, "H1_PREAWARD_HOOK_MISSING_OR_DUPLICATED")
+
+    def test_20_move_named_after_creature_hook_after_store_is_detected(self):
+        d = dict(self.src)
+        body = substitute(d[c.HANDLER], c.PRE_RECEIPT_NAMED_HOOK,
+                          "/* original pre-store observation moved */",
+                          "void WorldSession::HandleAutostoreLootItemOpcode")
+        body = substitute(body, c.NATIVE_STORE,
+                          c.NATIVE_STORE + "\n    " + c.PRE_RECEIPT_NAMED_HOOK,
+                          "void WorldSession::HandleAutostoreLootItemOpcode")
+        d[c.HANDLER] = body
+        self.denied(d, "H1_PREAWARD_ORDER_CHANGED")
+
 
 if __name__ == "__main__":
     unittest.main()
