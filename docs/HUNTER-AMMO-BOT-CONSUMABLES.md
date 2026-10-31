@@ -25,6 +25,14 @@ Vendor fallback when nothing is selected: Rough/Sharp/Razor/Jagged arrows (2512/
 - **Live rows and Altbot identity are unknown here.** Whether the installed world's `item_template` rows for the ten catalog IDs match these assumptions, and what the installed Playerbots build means by `IsAltBot()`, was not checked against a running realm.
 - **A level 70+ Hunter still receives Classic-tier ammo.** The level cap is 60, so the vendor fallback stops at Jagged Arrow / Accurate Slugs. Thorium stays selected-only and default-deny.
 
+## Review-only Hunter skip diagnostics (31 October 2026)
+
+The owner's earlier **Bloodseeker crossbow (19107) with selected Doomshot arrows (12654)** produced a generic “unsupported ranged weapon or selected ammunition” message. Doomshot is an intentionally excluded *rare source* in the conservative Classic supply catalogue, so this is **not proof the crossbow was invalid**. [Issue #31](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/31) documents the expected denial and the still-untested allowed Jagged Arrow 11285 positive/firing case.
+
+This isolated **unmerged, default-OFF diagnostics-only** draft distinguishes (a) no compatible/intact ranged weapon, (b) a nonempty selected ammo ID not approved by the catalogue or its level/weapon limits, and (c) an empty selected-ammo ID without level-eligible vendor fallback. These messages use already existing result statuses and selection state. They **do not** change the catalogue, add ammunition, equip/select anything, modify Playerbots/IP, or weaken `IsAltBot()`; the actual grant path and in-game behaviour are still untested for this exact head. Existing source tests and pinned native build must verify it before considering integration.
+
+**Owner decision:** do not ask for a separate Hunter/Warlock owner game test. Wait for a coordinated *four-feature* readiness milestone: Warlock, Hunter ammo, **functional F15** World/Auth crash reporting + daily console TXT archives with safe 30-day retention, and A04 human quest-loot H1/H2. [Recorded decision](https://github.com/CosmicCuddle/Naxxramas-Server-Coordination/issues/4#issuecomment-6542213162). Staging, process/config changes and inventory effects still require separate owner approval and verified rollback. Functional F15 also requires server-side operational tests.
+
 ## Not in this draft
 
 No SQL, no DBC, no core/Playerbots/Individual Progression edits, and no claim that a source test or a linked Worldserver proves inventory or combat behaviour. Leave the switch at 0 until a separate owner-approved pilot. Rollback is that same switch plus a restart; minted stacks would need the character backup from that pilot, not a schema rollback.
