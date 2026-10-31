@@ -29,6 +29,8 @@ def assert_contract(pilot=PILOT, hook=HOOK, cfg=CONF):
     assert 'go->GetSpellId() != WARLOCK_SECOND_PORTAL_CREATION_SPELL' in pilot
     assert '!go->GetOwnerGUID()' in pilot
     assert '!go->GetGOInfo()' in pilot
+    assert 'Group* const ritualGroup = player->GetGroup();' in pilot
+    assert '!ritualGroup || !ritualGroup->IsMember(go->GetOwnerGUID())' in pilot
     assert 'ObjectAccessor::FindPlayer(player->GetTarget())' in pilot
     assert '!targetPlayer || targetPlayer == player ||' in pilot
     assert '!targetPlayer->IsInSameRaidWith(player)' in pilot
@@ -43,7 +45,7 @@ def assert_contract(pilot=PILOT, hook=HOOK, cfg=CONF):
     assert 'if (!IsVanillaProgression(player))' in hook
     assert hook.find('go->GetEntry() == WARLOCK_SECOND_PORTAL_ENTRY') < hook.find(
         'go->GetGoType() != GAMEOBJECT_TYPE_MEETINGSTONE')
-    assert pilot.find('GetSpellId()') < pilot.find('FindPlayer(') < pilot.find('minLevel') < pilot.find('CastSpell(')
+    assert pilot.find('GetSpellId()') < pilot.find('IsMember(') < pilot.find('FindPlayer(') < pilot.find('minLevel') < pilot.find('CastSpell(')
     assert 'GAMEOBJECT_TYPE_SUMMONING_RITUAL' not in hook
     assert 'SetGoType(' not in hook and 'SetFlag(' not in hook
     assert 'WorldDatabase.' not in hook and 'CharacterDatabase.' not in hook
@@ -66,7 +68,12 @@ class WarlockPortalPilotContract(unittest.TestCase):
         self.assertIn('return true;',orig)
 
     def test_invalid_pilot_cases_fail_closed_and_no_core_fallback(self):
+        self.assertIn('#include "Group.h"',SRC)
         self.assertIn('return true;',PILOT.split('ObjectAccessor::FindPlayer(')[0])
+        self.assertRegex(PILOT,re.compile(
+            r'Group\* const ritualGroup = player->GetGroup\(\);\s*'
+            r'if \(!ritualGroup \|\| !ritualGroup->IsMember\(go->GetOwnerGUID\(\)\)\)\s*'
+            r'return true;',re.S))
         self.assertRegex(PILOT,re.compile(
             r'if \(!targetPlayer \|\| targetPlayer == player \|\|\s*'
             r'!targetPlayer->IsInSameRaidWith\(player\)\)\s*return true;',re.S))
@@ -76,18 +83,21 @@ class WarlockPortalPilotContract(unittest.TestCase):
         self.assertTrue(PILOT.rstrip().endswith('return true;\n        }'))
 
     def test_synthetic_policy_matrix_not_live_events(self):
-        def route(kind,entry,enabled,spawned,valid):
+        def route(kind,entry,enabled,spawned,owner_is_in_clickers_group,valid):
             if kind != 23 or entry != 194097 or not enabled:
                 return "existing native/progression path"
-            if not spawned or not valid:
+            if not spawned or not owner_is_in_clickers_group or not valid:
                 return "consume without cast"
             return "61994 nontriggered continuation"
         for kind,entry in ((18,194108),(23,191029),(23,194097),(11,194097)):
-            self.assertEqual(route(kind,entry,False,True,True),"existing native/progression path")
-        self.assertEqual(route(23,194097,True,True,True),"61994 nontriggered continuation")
-        for condition in ((False,True),(True,False),(False,False)):
-            self.assertEqual(route(23,194097,True,*condition),"consume without cast")
-        self.assertEqual(route(23,191029,True,True,True),"existing native/progression path")
+            self.assertEqual(route(kind,entry,False,True,True,True),"existing native/progression path")
+        self.assertEqual(route(23,194097,True,True,True,True),"61994 nontriggered continuation")
+        # New negative: A and target T can be in the same raid while neither
+        # belongs to owner W's group; source must refuse the stranger's click.
+        self.assertEqual(route(23,194097,True,True,False,True),"consume without cast")
+        for spawned,valid in ((False,True),(True,False),(False,False)):
+            self.assertEqual(route(23,194097,True,spawned,True,valid),"consume without cast")
+        self.assertEqual(route(23,191029,True,True,True,True),"existing native/progression path")
 
     def test_mutations_fail_source_contract(self):
         cases = (
@@ -101,6 +111,9 @@ class WarlockPortalPilotContract(unittest.TestCase):
             ("pilot accidentally ON", '"NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled", false',
              '"NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled", true',"hook"),
             ("no owner gate", "!go->GetOwnerGUID()","false","pilot"),
+            ("missing active owner-group membership guard",
+             "!ritualGroup || !ritualGroup->IsMember(go->GetOwnerGUID())",
+             "false","pilot"),
             ("wrong origin spell", "go->GetSpellId() != WARLOCK_SECOND_PORTAL_CREATION_SPELL",
              "go->GetSpellId() == WARLOCK_SECOND_PORTAL_CREATION_SPELL","pilot"),
             ("no target lookup","ObjectAccessor::FindPlayer(player->GetTarget())",
@@ -120,7 +133,7 @@ class WarlockPortalPilotContract(unittest.TestCase):
             ("missing spell existence gate","sSpellMgr->GetSpellInfo(WARLOCK_SECOND_PORTAL_CONTINUATION_SPELL)",
              "true","pilot"),
         )
-        self.assertEqual(len(cases),15)
+        self.assertEqual(len(cases),16)
         for name,old,new,where in cases:
             with self.subTest(name=name):
                 self.assertIn(old,{"pilot":PILOT,"hook":HOOK,"cfg":CONF}[where])
