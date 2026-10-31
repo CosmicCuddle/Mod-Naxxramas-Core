@@ -275,6 +275,7 @@ class TimeAndEncoding(Base):
         self.runner.seal_through(at(1, 0, 1))
         entry = self.runner.archive_entry(OUT, at(0).date())
         self.assertFalse(entry["utf8_valid"])
+        self.assertIn("never repaired", entry["encoding"])  # raw bytes kept, not "valid UTF-8"
         self.assertEqual(self.runner.archive_bytes(OUT, at(0).date()), b"cut \xe2\x82")
         self.assertIn("incomplete-utf8-tail", [n["kind"] for n in entry["notes"]])
 
@@ -337,6 +338,13 @@ class SourceSafety(Base):
             with self.assertRaises(R.FailClosed):
                 R.IntegratedRunner(self.ws, names)
             self.runner = R.IntegratedRunner(self.ws)
+
+    def test_two_streams_cannot_share_one_source_file(self):
+        names = dict(R.DEFAULT_SOURCE_NAMES, **{ERR: R.DEFAULT_SOURCE_NAMES[OUT]})
+        self.runner.close()
+        with self.assertRaisesRegex(R.FailClosed, "its own source file"):
+            R.IntegratedRunner(self.ws, names)
+        self.runner = R.IntegratedRunner(self.ws)
 
     def test_only_world_out_err_and_auth_native(self):
         for stream in ("Authserver-pty", "Worldserver-native", "Authserver-out", "../x"):
@@ -478,6 +486,29 @@ class Retention(Base):
         os.symlink(target, path)
         self.assertEqual(self.runner.expire(later), [])
         self.assertEqual(target.read_bytes(), b"precious\n")
+
+    def test_foreign_file_at_the_sidecar_name_is_kept(self):
+        old, young = self._archive_two_days()
+        side = self.runner.archive / old["sidecar"]
+        side.unlink()
+        side.write_bytes(b"someone else's file, same name\n")  # regular, one link, not ours
+        removed = self.runner.expire(at(31, 12))
+        self.assertEqual(removed, [old["name"]])  # the archive itself is still provably ours
+        self.assertEqual(side.read_bytes(), b"someone else's file, same name\n")
+        entry = self.runner.archive_entry(OUT, at(0).date())
+        self.assertIn("not the one this runner wrote", entry["sidecar_kept"])
+        self.assertTrue((self.runner.archive / young["sidecar"]).exists())
+
+    def test_foreign_sidecar_survives_interrupted_retention(self):
+        old, _ = self._archive_two_days()
+        side = self.runner.archive / old["sidecar"]
+        side.write_bytes(b"edited in place: same inode, other bytes\n")
+        with self.assertRaises(R.SyntheticCrash):
+            self.runner.expire(at(31, 12), fail_at="after-unlink-before-manifest")
+        self.restart()
+        self.assertEqual(self.runner.expire(at(31, 13)), [])
+        self.assertEqual(side.read_bytes(), b"edited in place: same inode, other bytes\n")
+        self.assertEqual(self.runner.archive_entry(OUT, at(0).date())["state"], "expired")
 
     def test_hardlinked_archive_is_not_deleted(self):
         old, _ = self._archive_two_days()

@@ -63,6 +63,8 @@ COMPLETENESS = {
     "Worldserver-err": "PM2 stderr log file as observed by polling; stderr text is not a crash diagnosis",
     "Authserver-native": "native Authserver log file only; NOT a PTY console transcript",
 }
+ENCODING_LABEL = ("raw source bytes, unchanged; a .txt is valid UTF-8 only when utf8_valid is true; "
+                  "invalid UTF-8 is flagged, never repaired or replaced")
 TIME_LABEL = "UTC observation day of the poll that first read the bytes; not the event time"
 MAX_SEGMENT = 4096
 MAX_CLOCK_JUMP = timedelta(days=62)
@@ -236,6 +238,8 @@ class IntegratedRunner:
         for stream, name in names.items():
             if not isinstance(name, str) or not _SOURCE_NAME_RE.fullmatch(name) or ".." in name:
                 raise FailClosed(f"unsafe source name for {stream}")
+        if len(set(names.values())) != len(names):
+            raise FailClosed("each stream needs its own source file")
         self.source_names = names
         self._lock_fd = os.open(self.state / "runner.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:
@@ -602,14 +606,17 @@ class IntegratedRunner:
         tag = _sha(f"{stream}|{day.isoformat()}|{_sha(content)}".encode("ascii"))[:12]
         name = policy.archive_filename(role, source, closed_at, tag)
         sidecar = name[:-4] + ".provenance.json"
-        entry = dict(entry, name=name, sidecar=sidecar, sha256=_sha(content), utf8_valid=utf8_valid)
+        entry = dict(entry, name=name, sidecar=sidecar, sha256=_sha(content), utf8_valid=utf8_valid,
+                     encoding=ENCODING_LABEL)
         provenance = json.dumps({k: v for k, v in entry.items() if k != "sidecar"},
                                 sort_keys=True, indent=1).encode("utf-8")
         self._publish_once(self.archive, sidecar, provenance)
+        side = (self.archive / sidecar).lstat()
         self._publish_once(self.archive, name, content, fail_at,
                            before="before-archive-publish", after="after-archive-publish")
         meta = (self.archive / name).lstat()
-        return dict(entry, state="sealed", dev=meta.st_dev, ino=meta.st_ino)
+        return dict(entry, state="sealed", dev=meta.st_dev, ino=meta.st_ino,
+                    sidecar_dev=side.st_dev, sidecar_ino=side.st_ino, sidecar_sha256=_sha(provenance))
 
     def archive_entry(self, stream, day):
         for entry in self._manifest()["entries"]:
@@ -625,6 +632,30 @@ class IntegratedRunner:
         return data
 
     # ---- retention -------------------------------------------------------------
+    @staticmethod
+    def _is_ours(dfd, name, dev, ino, sha):
+        """True if `name` (relative to the archive directory) is still exactly the file we
+        wrote: regular, one link, same device and inode, same SHA-256. None if absent.
+
+        A check-then-unlink race remains; a real host adapter would need more.
+        """
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return False  # e.g. a symlink (ELOOP)
+        try:
+            meta = os.fstat(fd)
+            if not stat.S_ISREG(meta.st_mode) or meta.st_nlink != 1 or (meta.st_dev, meta.st_ino) != (dev, ino):
+                return False
+            digest = hashlib.sha256()
+            while block := os.read(fd, 1 << 16):
+                digest.update(block)
+            return digest.hexdigest() == sha
+        finally:
+            os.close(fd)
+
     def expire(self, now, fail_at=None):
         """Remove only manifest-owned, sealed, unchanged archives older than 30x24h."""
         if fail_at not in EXPIRE_FAILPOINTS:
@@ -645,12 +676,7 @@ class IntegratedRunner:
                 except FileNotFoundError:
                     missing.append(entry)
                     continue
-                owned = (meta.st_dev, meta.st_ino) == (entry["dev"], entry["ino"])
-                if owned and stat.S_ISREG(meta.st_mode) and meta.st_nlink == 1:
-                    try:
-                        owned = _sha(_read_regular(self.archive / name)[0]) == entry["sha256"]
-                    except FailClosed:
-                        owned = False
+                owned = self._is_ours(dfd, name, entry["dev"], entry["ino"], entry["sha256"]) is True
                 records.append(policy.ArchiveRecord(
                     name=name, closed_at=datetime.fromisoformat(entry["closed_at"]), tool_owned=owned,
                     closed=True, regular=stat.S_ISREG(meta.st_mode), symlink=stat.S_ISLNK(meta.st_mode),
@@ -669,12 +695,12 @@ class IntegratedRunner:
                 if (meta.st_dev, meta.st_ino) != (entry["dev"], entry["ino"]):
                     continue
                 sidecar = entry["sidecar"]
-                try:
-                    side = os.stat(sidecar, dir_fd=dfd, follow_symlinks=False)
-                    if stat.S_ISREG(side.st_mode) and side.st_nlink == 1:
-                        os.unlink(sidecar, dir_fd=dfd)
-                except FileNotFoundError:
-                    pass
+                side = self._is_ours(dfd, sidecar, entry.get("sidecar_dev"), entry.get("sidecar_ino"),
+                                     entry.get("sidecar_sha256"))
+                if side is True:
+                    os.unlink(sidecar, dir_fd=dfd)
+                elif side is False:
+                    entry["sidecar_kept"] = "file at the sidecar name is not the one this runner wrote"
                 os.unlink(name, dir_fd=dfd)
                 os.fsync(dfd)
                 if fail_at == "after-unlink-before-manifest":

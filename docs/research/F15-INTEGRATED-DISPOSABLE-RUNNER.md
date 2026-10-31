@@ -67,9 +67,14 @@ observation as bootstrap, append, unchanged, replaced or truncated), and
 | Explicit bootstrap skip | Existing bytes are skipped and the count is recorded | `test_bootstrap_skips_history_and_says_so` |
 
 Timestamps in the archives are **observation days, not event times**. An
-archive's bytes are the source bytes unchanged. If a source ends inside a
-UTF-8 sequence and does not grow, the bytes are kept as they are and flagged
-(`utf8_valid: false` plus a note); they are never rewritten.
+archive's bytes are the source bytes unchanged. **The runner does not promise
+that every `.txt` is valid UTF-8**: it promises the raw source bytes are kept
+and that invalid UTF-8 is visibly flagged. A `.txt` is valid UTF-8 only when
+its entry says `utf8_valid: true`. If a source ends inside a UTF-8 sequence and
+does not grow, the bytes are kept as they are and flagged (`utf8_valid: false`,
+an `incomplete-utf8-tail` note and the `encoding` label); they are never
+repaired, replaced or rewritten. Whether a production collector should instead
+hold back or quarantine such bytes is an open design decision.
 
 ## Failure points tested (each resumes with no lost and no duplicated byte)
 
@@ -89,7 +94,8 @@ UTF-8 sequence and does not grow, the bytes are kept as they are and flagged
 ## Fails closed, or shows a visible gap
 
 - **Fails closed:** symlinked source; source with more than one hard link;
-  unsafe source names (`../`, absolute, hidden, nested); unreadable source;
+  unsafe source names (`../`, absolute, hidden, nested); two streams mapped to
+  the same source file; unreadable source;
   a second runner on the same workspace (lock); a root that is not the
   runner's own disposable workspace; a corrupt or missing journal record; a
   tampered checkpoint.
@@ -102,13 +108,19 @@ UTF-8 sequence and does not grow, the bytes are kept as they are and flagged
 ## Retention
 
 Retention only looks at names listed in the signed manifest and acts only when
-#249's planner agrees. Each archive is re-checked first: same device and
-inode, a regular file, one hard link, and unchanged SHA-256. Proven untouched:
+#249's planner agrees. Each archive is re-checked first, opened relative to
+the archive directory without following links: same device and inode, a
+regular file, one hard link, and unchanged SHA-256. **The provenance sidecar
+gets the same check** (its device, inode and SHA-256 are recorded at sealing).
+A file at the sidecar's name that is not the one this runner wrote is left in
+place and noted (`sidecar_kept`), including across an interrupted retention
+run. A check-then-unlink race remains; a real host adapter would need more
+than this synthetic fixture provides. Proven untouched:
 `Crash-History.txt`, crash reports, user `.txt` files, a look-alike archive
 name that is not in the manifest, the source logs, an archive edited in
-place, an archive replaced by a symlink, a hard-linked archive, and a
-manifest entry pointing outside the archive directory. An archive exactly
-30×24h old is kept.
+place, an archive replaced by a symlink, a hard-linked archive, a manifest
+entry pointing outside the archive directory, and a foreign file (replaced or
+edited in place) at a sidecar's name. An archive exactly 30×24h old is kept.
 
 ## Release blockers (tests pass by showing the gap is NOT solved)
 
@@ -129,10 +141,10 @@ reason.
 ## Files
 
 - `tests/f15_integrated_disposable_runner.py`: the runner (test fixture).
-- `tests/test_f15_integrated_disposable_runner.py`: 45 end-to-end tests.
-- `tests/f15_integrated_runner_mutants.py`: 10 must-fail mutants.
+- `tests/test_f15_integrated_disposable_runner.py`: 48 end-to-end tests.
+- `tests/f15_integrated_runner_mutants.py`: 12 must-fail mutants.
 - `.github/workflows/naxx-f15-integrated-disposable-20261031.yml`: runs the
-  inherited 38 + 29 + 10 + 24 tests, the 45 new tests (no skips on the
+  inherited 38 + 29 + 10 + 24 tests, the 48 new tests (no skips on the
   non-root runner) and the mutants, and checks the added-path scope.
 
 Synthetic success is not operational F15. Exact-head CI, source review,
@@ -140,3 +152,16 @@ failure-point coverage, rollback and backups, and separate owner acceptance
 are all required before even proposing a controlled host test. The owner's
 gate for any game or host pilot remains P1 Warlock, P2 Hunter ammo, P3 F15
 and P4 human loot, all ready together.
+
+## Review revision (31 Oct 2026)
+
+- Information (#256, 6544412290): retention deleted any regular single-link
+  file at a sidecar's name. The sidecar's identity is now recorded and checked
+  like the archive's; a foreign file is kept. Tests:
+  `test_foreign_file_at_the_sidecar_name_is_kept`,
+  `test_foreign_sidecar_survives_interrupted_retention`.
+- CS01 (#143, 6544357951): source names must be distinct
+  (`test_two_streams_cannot_share_one_source_file`), and the UTF-8 wording now
+  says "raw bytes kept, invalid UTF-8 flagged", not "every `.txt` is valid
+  UTF-8".
+- Two new must-fail mutants cover both fixes.

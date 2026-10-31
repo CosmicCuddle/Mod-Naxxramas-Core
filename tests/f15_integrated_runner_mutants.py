@@ -28,8 +28,8 @@ MUTANTS = [
      "        if meta.st_nlink != 1:\n            os.close(fd)\n",
      "        if False:\n            os.close(fd)\n"),
     ("retention trusts a changed archive",
-     "                        owned = _sha(_read_regular(self.archive / name)[0]) == entry[\"sha256\"]\n",
-     "                        owned = True\n"),
+     "                owned = self._is_ours(dfd, name, entry[\"dev\"], entry[\"ino\"], entry[\"sha256\"]) is True\n",
+     "                owned = True\n"),
     ("no adoption of records published before a stop",
      "            nxt = [r for r in self.records(stream) if r.seq == ck[\"seq\"] + 1]\n",
      "            nxt = []\n"),
@@ -44,6 +44,10 @@ MUTANTS = [
      "            if False:\n"),
     ("corrupt journal records are trusted",
      "        if _sha(data) != record.sha:\n", "        if False:\n"),
+    ("any regular file at the sidecar name is deleted",
+     "                if side is True:\n", "                if side is not None:\n"),
+    ("two streams may share one source file",
+     "        if len(set(names.values())) != len(names):\n", "        if False:\n"),
 ]
 
 
