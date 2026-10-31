@@ -29,6 +29,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Freeze runtime and ancestors; four additions only
+        # Original #258 exact-four-path assertion is specific to its own branch.
+        # Keep all 15+16 inherited regression cases active on later child PRs.
+        if: >-
+          (github.event_name == 'pull_request' && github.head_ref == 'test/cs01-f15-consented-source-poll-20261031') ||
+          (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/test/cs01-f15-consented-source-poll-20261031')
         shell: bash
         run: |
           set -euo pipefail
