@@ -29,6 +29,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Freeze runtime and ancestors; four additions only
+        # Original #258 exact-four-path assertion is specific to its own branch.
+        # Keep all 15+16 inherited regression cases active on later child PRs.
+        if: >-
+          (github.event_name == 'pull_request' && github.head_ref == 'test/cs01-f15-consented-source-poll-20261031') ||
+          (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/test/cs01-f15-consented-source-poll-20261031')
         shell: bash
         run: |
           set -euo pipefail
@@ -52,6 +57,13 @@ jobs:
           test "$(id -u)" != 0
           python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_source_admission.py' -v
           python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_consented_source_poll.py' -v
+      - name: Retained old-inode tests on the isolated #259 child only
+        if: github.event_name == 'pull_request' && github.head_ref == 'test/cs01-f15-retained-old-inode-drain-20261031'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_retained_old_inode_poll.py' -v
       - name: Evidence boundary
         if: always()
         run: |
