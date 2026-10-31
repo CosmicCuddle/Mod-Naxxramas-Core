@@ -22,9 +22,12 @@ SELECT
   q.ID AS quest_id,
   q.LogTitle AS quest_title,
   q.MinLevel AS quest_min_level,
+  q.QuestLevel AS quest_level,
   it.entry AS item_id,
   it.name AS item_name,
   it.Flags AS item_flags,
+  it.bonding AS item_bonding,
+  it.maxcount AS item_maxcount,
   it.FlagsExtra AS item_flags_extra,
   ct.entry AS creature_id,
   ct.name AS creature_name,
@@ -49,16 +52,38 @@ WHERE q.RequiredItemId1 <> 0
   AND q.RequiredNpcOrGoCount2 = 0
   AND q.RequiredNpcOrGoCount3 = 0
   AND q.RequiredNpcOrGoCount4 = 0
+  AND q.QuestType = 2
+  AND q.QuestLevel BETWEEN 1 AND 60
   AND q.MinLevel <= 60
   AND ct.maxlevel <= 60
   AND ct.exp = 0
+  AND (it.Flags & 2048) = 0  -- exclude ITEM_FLAG_MULTI_DROP in pinned 3.3.5a Core
   AND cl.QuestRequired = 1
+  AND cl.Chance = 100
+  AND cl.GroupId = 0
   AND cl.Reference = 0
   AND cl.MinCount = 1
   AND cl.MaxCount = 1
 ORDER BY q.MinLevel, q.ID, ct.entry
 LIMIT 100;
 ```
+
+### Verified historical candidate from pinned Grimfeather world SQL (not live `acore_world`)
+
+I independently read the **actual MySQL dump blobs** in `Grimfeather/azerothcore-wotlk@8daffdabe9202c228e45d833c9a1d399597a15cd` (2026-06-01 dump timestamp), not just the public AzerothCore wiki, and cross-joined **all four** historical tables by parsing their `INSERT` rows. **Recommended first candidate (only on an offline copy with source-match):**
+
+| Field | Exact historical dump value |
+| --- | --- |
+| Quest | **922 — Rellian Greenspyre**, quest level 7, minimum level 4, `QuestType=2`, `RequiredItemId1=5168`, `RequiredItemCount1=1`, no other required-item or NPC/GO objective counts |
+| Required item Q | **5168 — Timberling Seed**, `class=12` Quest, `bonding=4` Quest, `Flags=0`, `FlagsExtra=0`, `flagsCustom=0`, `maxcount=0`, `stackable=20` |
+| Creature | **2030 — Elder Timberling**, historical levels 10–11, `exp=0`, `lootid=2030` |
+| Direct loot row | `creature_loot_template.Entry=2030, Item=5168, Reference=0, Chance=100, QuestRequired=1, GroupId=0, LootMode=1, MinCount=1, MaxCount=1` |
+
+**Why this selection is safer:** I first found quest **176 — Wanted: Hogger** / item **1931 — Huge Gnoll Claw** / creature **448 — Hogger**, with a 100% direct quest drop, but its item `Flags=2048`. The pinned [`ItemTemplate.h` defines `ITEM_FLAG_MULTI_DROP = 0x00000800`](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/src/server/game/Entities/Item/ItemTemplate.h#L158), so **Hogger's claw is invalid for our non-FFA shared-item regression**. Timberling Seed has `Flags=0` and avoids that trap. The SELECT above now explicitly filters this bit, enabled `QuestType=2`, quest level 1–60, direct **100%** nongrouped drop, and outputs useful bankability-related item fields. The historical dump yielded a candidate when these predicates were applied; **the exact SELECT has not been executed in MySQL or against any private server database**.
+
+Pinned evidence files: [quest_template.sql](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/data/sql/base/db_world/quest_template.sql), [item_template.sql](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/data/sql/base/db_world/item_template.sql), [creature_template.sql](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/data/sql/base/db_world/creature_template.sql), and [creature_loot_template.sql](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/data/sql/base/db_world/creature_loot_template.sql).
+
+**Remaining essential checks:** First prove the candidate exists unchanged in the owner's *approved offline* world snapshot, can be accepted by two actual eligible characters, is permitted by `Player::CanBankItem` in the exact deployed Core, and yields `LootItem::freeforall=false`. Quest-item `bonding=4` and `Flags=0` **do not alone prove bankability**. The creature's original loot template or coins may include other rewards—**the zero-gold, single-Q fixture is an isolated disposable model, not a claim about the live Elder Timberling loot table**. Never edit the live quest or loot database to force the test.
 
 **Manual/source checks BEFORE accepting a candidate:** confirm Q is genuinely bankable through installed-source `Player::CanBankItem` and normal bank-slot rules; `ITEM_FLAG_MULTI_DROP` is absent, its `follow_loot_rules`, `needs_quest`, template/custom flags and quest constraints are appropriate, and no quest-item-start or class/faction exception changes the predicate. Confirm the creature is genuinely Vanilla/within cap; a direct `cl.QuestRequired=1` hit does **not** prove the mob drops only Q or guarantees a spawn/drop. In the *disposable model only*, isolate a loot object with one non-FFA Q, gold=0 and no other loot; do not mutate actual world loot tables. Record **quest ID, Q item ID, creature ID, source revision and candidate verification** in the existing #109 discussion. Until this is checked, **no specific item is certified**.
 
