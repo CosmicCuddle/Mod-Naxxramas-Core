@@ -1,0 +1,114 @@
+name: "Part33 A04 Need/Greed roll-vs-direct receipt source (OFF)"
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - "scripts/check_a04_roll_receipt_contract.py"
+      - "tests/test_a04_roll_receipt_contract.py"
+      - ".github/workflows/a04-part33-roll-vs-direct-receipt.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: a04-part33-roll-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+env:
+  A04_BASE: 043f21338212f3d76de17bd52c0bca7dd392d558
+  CORE_SHA: 8daffdabe9202c228e45d833c9a1d399597a15cd
+  A04_PIN_CORE: ${{ github.workspace }}/acore
+
+jobs:
+  exact-pin-source-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - name: Exact public AzerothCore 3.3.5a source
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: acore
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/server/game/Groups/Group.cpp
+            src/server/game/Entities/Player/Player.cpp
+            src/server/game/Entities/Player/PlayerStorage.cpp
+            src/server/game/Scripting/ScriptDefines/PlayerScript.h
+            src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
+            src/server/game/Scripting/ScriptMgr.h
+            src/server/game/Handlers/LootHandler.cpp
+      - name: Exact isolated CS01 source-only DRAFT
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: module
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify same immutable public core and ONLY 3 new research QA paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C acore rev-parse HEAD)" = "$CORE_SHA"
+          test "$(git -C module rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git -C module merge-base --is-ancestor "$A04_BASE" HEAD
+          git -C module diff --name-only "$A04_BASE" HEAD | sort >/tmp/roll-paths.txt
+          printf '%s\n' \
+            .github/workflows/a04-part33-roll-vs-direct-receipt.yml \
+            scripts/check_a04_roll_receipt_contract.py \
+            tests/test_a04_roll_receipt_contract.py | sort | diff -u - /tmp/roll-paths.txt
+          git -C module diff --quiet "$A04_BASE" HEAD -- src conf sql
+          for p in \
+            src/server/game/Groups/Group.cpp \
+            src/server/game/Entities/Player/Player.cpp \
+            src/server/game/Entities/Player/PlayerStorage.cpp \
+            src/server/game/Scripting/ScriptDefines/PlayerScript.h \
+            src/server/game/Scripting/ScriptDefines/PlayerScript.cpp \
+            src/server/game/Scripting/ScriptMgr.h \
+            src/server/game/Handlers/LootHandler.cpp; do
+            test -s "acore/$p"
+          done
+      - name: Positive pinned Need-Greed versus corpse-autostore source contract
+        shell: bash
+        working-directory: module
+        run: |
+          set -euo pipefail
+          python3 -I -B scripts/check_a04_roll_receipt_contract.py --core "$A04_PIN_CORE" | tee /tmp/group-receipt-source.txt
+          grep -Fxq 'A04 GROUP ROLL vs DIRECT RECEIPT: PASS (pinned source only)' /tmp/group-receipt-source.txt
+      - name: Twenty-six pinned direct, roll, Master Loot, pre-award and storage checks
+        shell: bash
+        working-directory: module
+        run: |
+          set -euo pipefail
+          python3 -I -B tests/test_a04_roll_receipt_contract.py -v 2>&1 | tee /tmp/group-roll-tests.txt
+          grep -Eq '^Ran 26 tests in [0-9.]+s$' /tmp/group-roll-tests.txt
+          grep -Fxq 'OK' /tmp/group-roll-tests.txt
+          ! grep -Eq '^FAILED|^ERROR:|^FAIL:|skipped' /tmp/group-roll-tests.txt
+      - name: Do NOT regress prior H1 direct positive receipt source proof
+        shell: bash
+        working-directory: module
+        run: |
+          set -euo pipefail
+          python3 -I -B scripts/check_a04_positive_receipt_contract.py --core "$A04_PIN_CORE" | tee /tmp/direct-source.txt
+          grep -Fxq 'A04 POSITIVE DIRECT RECEIPT SOURCE CONTRACT: PASS (no runtime)' /tmp/direct-source.txt
+          python3 -I -B tests/test_a04_positive_receipt_contract.py -v 2>&1 | tee /tmp/direct-tests.txt
+          grep -Eq '^Ran 14 tests in [0-9.]+s$' /tmp/direct-tests.txt
+          grep -Fxq 'OK' /tmp/direct-tests.txt
+          ! grep -Eq '^FAILED|^ERROR:|^FAIL:|skipped' /tmp/direct-tests.txt
+      - name: Preserve original 30-category no-write H1/H2 classifier tests
+        shell: bash
+        working-directory: module
+        run: |
+          set -euo pipefail
+          python3 -I -B tests/test_a04_incident_triage_part29.py -v 2>&1 | tee /tmp/triage-tests.txt
+          grep -Eq '^Ran 30 tests in [0-9.]+s$' /tmp/triage-tests.txt
+          grep -Fxq 'OK' /tmp/triage-tests.txt
+          ! grep -Eq '^FAILED|^ERROR:|^FAIL:|skipped' /tmp/triage-tests.txt
+      - name: "Boundaries: offline public source, no item award policy or host"
+        if: always()
+        run: |
+          echo 'Source checks only: native Master Loot target storage, direct/NEED/GREED callbacks, pre-store AfterCreatureLoot and mail fallback.'
+          echo 'Offline candidates are skipped in this public roll loop, not proof of custom installed fork behaviour.'
+          echo 'Source parser not runtime C++; no owner item/quest/NPC IDs, logs, packets or private state.'
+          echo 'No C++ modifications, observers, SQL/DBC, configuration ON, server/client or deployment.'
+          echo 'H1/H2 private receipt and sparkles unverified; 0/5 owner-accepted gameplay.'
