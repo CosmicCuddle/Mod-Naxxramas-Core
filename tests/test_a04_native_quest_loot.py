@@ -21,7 +21,7 @@ sys.path.insert(0, str(HERE))
 import build  # noqa: E402
 import prepare_pinned  # noqa: E402
 
-EXPECTED_CHECKS = 68
+EXPECTED_CHECKS = 71
 EXPECTED_DEFINITIONS = 28
 
 # Each listed check must be present and PASS.
@@ -33,7 +33,9 @@ REQUIRED = [
     "T2.WITNESS_A_sees_no_row_despite_need", "T2.WITNESS_A_store_denied",
     "T3.WITNESS_H2_B_sees_locked_row", "T3.WITNESS_H2_B_store_denied_with_release", "T3.A_right_preserved",
     "T4a.STOCK_first_eligible_taker_gets_single_copy", "T4b.STOCK_first_eligible_taker_gets_single_copy",
-    "O1.STOCK_banked_B_store_without_view_is_awarded", "C2.O2_STOCK_B_direct_store_of_hidden_row_succeeds",
+    "O1.DIRECT_API_banked_B_store_without_view_is_awarded", "C2.O2_API_B_store_of_hidden_slot_succeeds",
+    "T0.A_award_runs_quest_counter_to_complete", "T4a.taker_complete_other_still_incomplete",
+    "T4b.taker_complete_other_still_incomplete", "C1b.both_quest_counters_complete",
     "T5.WITNESS_whole_slot_move_double_subtracts",
     "C1a.ffa_not_marked_looted_by_view", "C1b.B_awarded_own_copy", "C3.master_self_store_denied", "C3.A_awarded",
 ]

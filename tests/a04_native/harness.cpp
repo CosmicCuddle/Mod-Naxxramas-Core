@@ -201,11 +201,12 @@ struct Scene
         p.questSlots[slot] = quest;
         p.m_QuestStatus[quest].Status = QUEST_STATUS_INCOMPLETE;
     }
-    // Item reaches the bags (StoreNewItem path), then the original counter check runs.
+    // Setup only: an item reaches the bags in the pinned StoreNewItem order
+    // (original ItemAddedQuestCheck, then StoreItem) without counting as a loot award.
     static void gainToBags(Player& p, uint32 item)
     {
-        p.bagCount[item] += 1;
         p.ItemAddedQuestCheck(item, 1);
+        p.bagCount[item] += 1;
     }
     // Player::SwapItem bag -> empty bank slot: RemoveItem, BankItem, then the
     // original ItemRemovedQuestCheck (PlayerStorage.cpp, SwapItem body).
@@ -259,9 +260,14 @@ struct Scene
     }
 
     // The creature branch of HandleAutostoreLootItemOpcode ends in this call.
+    // The loot GUID is only set by open() (as by SendLoot); O1 sets it itself.
     bool take(Player& p, uint8 slot)
     {
-        p.lootGuid = corpse;
+        if (p.lootGuid != corpse)
+        {
+            std::fprintf(stderr, "harness error: %s takes without opening\n", p.name.c_str());
+            std::abort();
+        }
         size_t before = p.ev.received.size();
         InventoryResult msg;
         p.StoreLootItem(slot, &loot, msg);
@@ -274,6 +280,10 @@ struct Scene
     {
         auto it = loot.GetPlayerQuestItems().find(p.GetGUID());
         return it != loot.GetPlayerQuestItems().end() && !it->second->empty() && it->second->at(0).is_looted;
+    }
+    bool objectiveDone(Player& p, uint32 quest, uint16 count)
+    {
+        return p.m_QuestStatus[quest].ItemCount[0] == count && p.GetQuestStatus(quest) == QUEST_STATUS_COMPLETE;
     }
     uint32 received(Player& p, uint32 item)
     {
@@ -324,7 +334,7 @@ static void t0()
     check("T0.A_store_awards_exactly_one", s.take(s.A, 0) && s.received(s.A, Q_ITEM) == 1);
     s.obs("T0.after_A_take");
     check("T0.counts_settle_corpse_looted", s.loot.unlootedCount == 0 && s.loot.isLooted() && s.q().is_looted);
-    check("T0.A_quest_counter_unchanged_by_loot_store", s.A.m_QuestStatus[Q_QUEST].ItemCount[0] == 0);
+    check("T0.A_award_runs_quest_counter_to_complete", s.A.GetItemCount(Q_ITEM, false) == 1 && s.objectiveDone(s.A, Q_QUEST, 1));
 }
 
 static void h1QuestCompleteB()
@@ -338,6 +348,7 @@ static void h1QuestCompleteB()
     check("H1neg.complete_B_not_in_quest_list", !s.inQuestList(s.B));
     check("H1neg.complete_B_sees_no_row", s.open(s.B, GROUP_PERMISSION).empty());
     check("H1neg.complete_B_direct_store_gets_nothing", !s.take(s.B, 0));
+    s.open(s.A, GROUP_PERMISSION);
     check("H1neg.A_still_awarded", s.take(s.A, 0) && s.received(s.A, Q_ITEM) == 1);
 }
 
@@ -424,6 +435,9 @@ static void t4()
               firstGot && !secondGot && s.received(first, Q_ITEM) == 1 && s.received(second, Q_ITEM) == 0);
         check(bFirst ? "T4b.other_looter_told_slot_removed" : "T4a.other_looter_told_slot_removed",
               !second.ev.removedSlots.empty() && s.loot.isLooted());
+        check(bFirst ? "T4b.taker_complete_other_still_incomplete" : "T4a.taker_complete_other_still_incomplete",
+              s.objectiveDone(first, Q_QUEST, 1) && second.GetQuestStatus(Q_QUEST) == QUEST_STATUS_INCOMPLETE &&
+              second.m_QuestStatus[Q_QUEST].ItemCount[0] == 0);
     }
 }
 
@@ -434,9 +448,14 @@ static void o1()
     Scene::accept(s.A, Q_QUEST);
     bankedB(s);
     s.kill({rowQuestSeed()}, s.A);
-    bool got = s.take(s.B, 0);  // no CMSG_LOOT view first
+    // DIRECT API ONLY: the loot GUID is set without SendLoot, so no LootView
+    // runs first. A normal client always gets SendLoot (view, then GUID) before
+    // it can autostore, and B's view would mark the item looted (T1/T2).
+    s.B.lootGuid = s.corpse;
+    bool got = s.take(s.B, 0);
     s.obs("O1.after_B_store_without_view");
-    check("O1.STOCK_banked_B_store_without_view_is_awarded", got && s.received(s.B, Q_ITEM) == 1);
+    check("O1.DIRECT_API_banked_B_store_without_view_is_awarded", got && s.received(s.B, Q_ITEM) == 1);
+    s.open(s.A, GROUP_PERMISSION);
     check("O1.then_A_denied", !s.take(s.A, 0));
 }
 
@@ -459,6 +478,7 @@ static void t5()
     s.kill({rowT5()}, s.A);
     check("T5.B_listed_for_item_it_already_holds", s.inQuestList(s.B) && s.inQuestList(s.A));
     s.open(s.B, GROUP_PERMISSION);
+    s.open(s.A, GROUP_PERMISSION);
     check("T5.B_view_then_marks_shared_looted_A_denied", s.q().is_looted && !s.take(s.A, 0));
 }
 
@@ -480,13 +500,17 @@ static void cFfa()
         {
             check("C1a.banked_B_view_shows_no_row", s.open(s.B, GROUP_PERMISSION).empty());
             check("C1a.ffa_not_marked_looted_by_view", !s.q().is_looted && s.ownQuestRowLooted(s.B));
+            s.open(s.A, GROUP_PERMISSION);
             check("C1a.A_still_awarded", s.take(s.A, 0) && s.received(s.A, FFA_ITEM) == 1);
         }
         else
         {
+            s.open(s.A, GROUP_PERMISSION);
+            s.open(s.B, GROUP_PERMISSION);
             check("C1b.A_awarded_copy", s.take(s.A, 0) && s.received(s.A, FFA_ITEM) == 1);
             check("C1b.B_awarded_own_copy", s.take(s.B, 0) && s.received(s.B, FFA_ITEM) == 1);
             check("C1b.copies_settle_corpse", s.loot.isLooted());
+            check("C1b.both_quest_counters_complete", s.objectiveDone(s.A, FFA_QUEST, 1) && s.objectiveDone(s.B, FFA_QUEST, 1));
         }
     }
 }
@@ -499,9 +523,11 @@ static void cOrdinary()
     check("C2.under_threshold_counted_once", s.loot.items.size() == 1 && s.loot.items[0].is_underthreshold && s.loot.unlootedCount == 1);
     check("C2.A_round_robin_sees_row", oneRow(s.open(s.A, GROUP_PERMISSION), ORDINARY_ITEM, LOOT_SLOT_TYPE_ALLOW_LOOT));
     check("C2.B_view_hides_round_robin_row", s.open(s.B, GROUP_PERMISSION).empty());
-    // Observation O2: StoreLootItem does not re-check round robin.
+    // Observation O2 (API level): B has opened (GUID set by the view), but the
+    // row is hidden; storing slot 0 needs a hand-made or stale-UI request.
+    // StoreLootItem does not re-check round robin.
     bool got = s.take(s.B, 0);
-    check("C2.O2_STOCK_B_direct_store_of_hidden_row_succeeds", got && s.received(s.B, ORDINARY_ITEM) == 1);
+    check("C2.O2_API_B_store_of_hidden_slot_succeeds", got && s.received(s.B, ORDINARY_ITEM) == 1);
     check("C2.A_then_already_looted", !s.take(s.A, 0));
 }
 
@@ -532,6 +558,7 @@ static void cGold()
 
 int main()
 {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);  // keep check lines if anything aborts
     loadTemplates();
     check("FIXTURE.pinned_rows", pinned::LOOT_2030_5168.questRequired == 1 && pinned::LOOT_2030_5168.chance == 100.0f &&
                                  pinned::ITEM_5168.flags == 0 && pinned::ITEM_1931.flags == ITEM_FLAG_MULTI_DROP &&

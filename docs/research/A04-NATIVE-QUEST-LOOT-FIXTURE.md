@@ -60,7 +60,7 @@ the code: an ordinary junk item (900001) and the T5 two-slot quest item/quest
    not write `is_looted`, `is_counted`, `unlootedCount`, quest lists and so on.
    Planting `LootItem::AllowedForPlayer` or `l.unlootedCount = 0` in the
    harness fails it.
-4. **9 must-fail mutants**, each applied to the **extracted original text**,
+4. **10 must-fail mutants**, each applied to the **extracted original text**,
    never to the harness. Every one turns at least one check red.
 
 | Mutant on original text | First failing check |
@@ -74,6 +74,7 @@ the code: an ordinary junk item (900001) and the T5 two-slot quest item/quest
 | FFA quest item marked looted globally | `C1b.B_awarded_own_copy` |
 | `ItemRemovedQuestCheck` does not re-read bags (L1973) | `T5.WITNESS_whole_slot_move_double_subtracts` |
 | bank move does not re-open the quest | `T1.setup_B_banked_counter0_incomplete` |
+| `ItemAddedQuestCheck` does not count (PlayerQuest.cpp L1935) | `T0.A_award_runs_quest_counter_to_complete` |
 
 ## Stand-ins (not executed)
 
@@ -91,13 +92,16 @@ the code: an ordinary junk item (900001) and the T5 two-slot quest item/quest
 - **Real item storage.** `SwapItem`, `StoreItem`, `BankItem`, `CanBankItem` and
   Item/Bag objects are not run. Bag and bank are counters; the original
   `ItemAddedQuestCheck`/`ItemRemovedQuestCheck` run in the pinned call order.
+  On a loot award, the `StoreNewItem` stub follows the pinned order (sum the
+  `dest` counts, then the original `ItemAddedQuestCheck`, then store), so the
+  winner's quest objective moves as it would in the pinned code.
 - **`CanCompleteQuest`, `CompleteQuest`, `IncompleteQuest`.** These are reduced
   to "all item objectives met ⇒ COMPLETE / re-open ⇒ INCOMPLETE".
 - **`UNIT_DYNFLAG_LOOTABLE` per-viewer serialization** (corpse sparkle), the
   client UI, conditions, DisableMgr, other script hooks, Playerbots, and the
   module's `QuestLootProtection` (which defaults to OFF).
 
-## Proof matrix (pinned source, all 68 checks PASS = behaviour reproduced)
+## Proof matrix (pinned source, all 71 checks PASS = behaviour reproduced)
 
 In this table, **WITNESS** means the pinned code shows the unsafe behaviour.
 That is a red result for the safety invariant, recorded on purpose; it is not
@@ -106,16 +110,16 @@ is chosen.
 
 | Case | Setup / order | Pinned result | Safety invariant |
 |---|---|---|---|
-| **T0** control | A needs 922; B has no quest. A opens, then takes | A gets exactly 1×5168; count 1→0; corpse `isLooted`. B sees no row; B's direct store gets nothing | **PASS** |
+| **T0** control | A needs 922; B has no quest. A opens, then takes | A gets exactly 1×5168 and the original counter takes quest 922 to 1/1 COMPLETE; count 1→0; corpse `isLooted`. B sees no row; B's store after opening gets nothing | **PASS** |
 | **H1 negative** | B already COMPLETE (seed in bags) | B is not in the quest list, sees no row, and a direct store gets nothing; A is awarded | **PASS**: no wrong-human award |
 | **T1** | B banked the seed (counter 0, INCOMPLETE, bank 1). A opens (ALLOW_LOOT row), then B opens, then A clicks | B's view shows no row and **sets the shared `Q.is_looted`** without any award or count change. A's stale row is denied **silently** (no error, no release). `unlootedCount` stays 1, so the corpse never reaches `isLooted()` | **FAIL (witness)**: a view consumes A's right |
 | **T2** | B (banked) opens first, then A | A sees **no row** although A needs Q and is listed; A's store is denied; count stays 1 | **FAIL (witness)** |
 | **T3** | Corpse fills while B's seed is banked; B retrieves it (COMPLETE), then opens | B's cached quest slot remains; **B sees a LOCKED row** (H2 shape); B's store is denied with a loot release. A's row and award are intact | H2 shape reproduced; A **PASS** |
-| **T4** | A and B both need Q; A is round-robin owner; either order | Both see ALLOW_LOOT; **the first taker gets the single copy**, round robin is not consulted, and the other looter is told the slot was removed | **STOCK**, under the unselected A/B/C policy gate |
+| **T4** | A and B both need Q; A is round-robin owner; either order | Both see ALLOW_LOOT; **the first taker gets the single copy** and reaches COMPLETE, round robin is not consulted; the other stays INCOMPLETE at 0 and is told the slot was removed | **STOCK**, under the unselected A/B/C policy gate |
 | **T5** (optional, counter level, synthetic 2-count quest) | B has two Q×1 bag slots (2/2); one whole slot goes to the bank in the `SwapItem` order | **Counter goes to 0** with 1 in bags and 2 including bank; status INCOMPLETE. At the next corpse, B is listed again and B's view marks the shared item looted, so A is denied | **FAIL (witness)** at counter level |
-| **O1** | T1 setup, but B stores **without opening a view** | B is awarded a second seed and A is then denied. The bank check exists only on the view path | **STOCK observation**, not H1 proof |
-| **C1** MULTI_DROP (1931/176) | B banked; or both need | B's view hides only B's own row and the shared item stays unlooted; A is awarded; when both need, both get their own copy | **PASS** |
-| **C2** ordinary group item | Below threshold, round-robin owner A | B's view hides the row, but **B's direct store of the hidden row succeeds** (`StoreLootItem` does not re-check round robin), and A then gets "already looted" | **STOCK observation O2**, normal loot, not quest loot |
+| **O1** | T1 setup, but B's loot GUID is set **directly**, with no `SendLoot`/view | B is awarded a second seed and A is then denied. The bank check exists only on the view path | **DIRECT-API observation only.** A normal client always gets `SendLoot` (view, then GUID) before it can autostore, and B's view would mark the item looted first (T1/T2). Not a client-reachable H1 path |
+| **C1** MULTI_DROP (1931/176) | B banked; or both need | B's view hides only B's own row and the shared item stays unlooted; A is awarded; when both need, both get their own copy and both quest counters reach COMPLETE | **PASS** |
+| **C2** ordinary group item | Below threshold, round-robin owner A | B opens and the view hides the row, but **storing that hidden slot index succeeds** (`StoreLootItem` does not re-check round robin), and A then gets "already looted" | **API observation O2**: needs a hand-made or stale-UI request for a slot B was not shown; reachability by a normal client is not shown. Normal loot, not quest loot |
 | **C3** Master Loot | B is master looter without the quest | B is listed without a right, sees a MASTER row, and self-store is denied; A sees ALLOW_LOOT and is awarded | **PASS** |
 | **C4** gold | T1 mutation plus gold | `hasItemForAll()` stays true and the corpse is not looted | control |
 
@@ -134,8 +138,14 @@ No view-only witness is counted as an award.
   items:
   - a non-entitled B (no quest, or quest complete) is denied on every path tried;
   - the only awards to B go to a B whom the stock counter still marks as
-    needing Q (T4, O1);
-  - normal (non-quest) loot has a separate stock path (O2).
+    needing Q: T4 (normal open order), and O1 (direct API only, not reached
+    by a normal client because the view runs first);
+  - normal (non-quest) loot has a separate API-level path (O2) that needs a
+    request for a slot the client was not shown.
+
+  O1 and O2 are API behaviour observations, not a client-reachable wrong-human
+  exploit; that would need a separate end-to-end packet and open-order
+  reproduction.
 
   Whether any of these matches the owner's incident is unknown.
 - **H2, sparkle or row, then denied.** Two source shapes are reproduced:
@@ -159,6 +169,27 @@ No view-only witness is counted as an award.
 - **Owner's installed binary, DB rows, config** and the effective
   `QuestLootProtection` state are all unknown. This harness is the public
   historical baseline only.
+
+## Review revision (31 Oct 2026)
+
+Information reviewed `6df606f` on #262 (comment 6547304680):
+
+1. **Loot award skipped the quest counter.** The `StoreNewItem` stub did not
+   call the original `ItemAddedQuestCheck`, so T0/T4/FFA proved receipt but not
+   the objective update. It now follows the pinned order, and the
+   `StoreNewItem` call-order fact covers that whole snippet. New checks:
+   - `T0.A_award_runs_quest_counter_to_complete` (replaces a check that
+     asserted the stub's unchanged counter);
+   - `T4a/T4b.taker_complete_other_still_incomplete`;
+   - `C1b.both_quest_counters_complete`.
+
+   A new mutant on the original counter increment is caught.
+2. **O1 and C2 reachability.** The loot GUID is now set only by `open()`, as
+   `SendLoot` does, and `take()` aborts if a player has not opened. O1 sets the
+   GUID itself and is renamed `DIRECT_API`; C2 opens first and is renamed
+   `O2_API`. Both are qualified above as API behaviour, not H1.
+
+The T1/T2/T3/T5 witnesses are unchanged.
 
 ## Rollback
 

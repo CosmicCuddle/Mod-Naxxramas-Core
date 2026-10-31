@@ -113,8 +113,12 @@ PINNED_FACTS = [
 # Call orders the harness copies when it moves items (storage itself is not
 # executed). Each snippet must occur exactly once in the pinned file.
 ORDER_FACTS = [
-    # Player::StoreNewItem: quest counter update for a new item reaching the bags.
-    (STORAGE_CPP, "        ItemAddedQuestCheck(item, count);\n"),
+    # Player::StoreNewItem: quest counter update, then StoreItem, for a new item.
+    (STORAGE_CPP, "        ItemAddedQuestCheck(item, count);\n\n        if (!refund)\n"
+                  "        { // Don't update counter criteria for refunded items (primarily currencies)\n"
+                  "            UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_RECEIVE_EPIC_ITEM, item, count);\n"
+                  "            UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_OWN_ITEM, item, count);\n"
+                  "        }\n\n        pItem = StoreItem(dest, pItem, update);\n"),
     # Player::SwapItem, whole slot bag -> bank.
     (STORAGE_CPP, "            RemoveItem(srcbag, srcslot, true);\n            BankItem(dest, pSrcItem, true);\n"
                   "            UpdateTitansGrip();\n            ItemRemovedQuestCheck(pSrcItem->GetEntry(), pSrcItem->GetCount());\n"),
@@ -145,6 +149,9 @@ MUTANTS = {
     "ffa-quest-item-marked-looted-globally": (
         "        //if only one person is supposed to loot the item, then set it to looted\n        if (!item->freeforall)\n            item->is_looted = true;\n",
         "        item->is_looted = true;\n"),
+    "added-check-does-not-count": (
+        "                    q_status.ItemCount[j] = std::min<uint16>(q_status.ItemCount[j] + count, reqitemcount);\n",
+        "                    (void)0;\n"),
     "removed-check-skips-bag-reread": (
         "                    curitemcount = GetItemCount(entry, false);\n", "                    (void)0;\n"),
     "bank-move-does-not-reopen-quest": (

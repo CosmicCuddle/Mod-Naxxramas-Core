@@ -80,7 +80,7 @@ jobs:
           PY
       - name: "Compiler"
         run: ${{ matrix.cxx }} --version
-      - name: "Harness: 5 tests, 68 checks on original pinned bodies, no skips"
+      - name: "Harness: 5 tests, 71 checks on original pinned bodies, no skips"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
@@ -90,16 +90,16 @@ jobs:
           cat /tmp/a04.txt
           grep -Eq '^Ran 5 tests in [0-9.]+s$' /tmp/a04.txt
           grep -qx OK /tmp/a04.txt
-          grep -qx 'CHECKS 68 passed, 0 failed' /tmp/a04.txt
+          grep -qx 'CHECKS 71 passed, 0 failed' /tmp/a04.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/a04.txt
-      - name: "Must-fail mutants of the extracted original text (9)"
+      - name: "Must-fail mutants of the extracted original text (10)"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
         run: |
           set -euo pipefail
           python3 -I module/tests/a04_native/mutants.py | tee /tmp/mutants.txt
-          grep -qx '9/9 mutants caught' /tmp/mutants.txt
+          grep -qx '10/10 mutants caught' /tmp/mutants.txt
       - name: "Scope of proof"
         if: always()
         run: |

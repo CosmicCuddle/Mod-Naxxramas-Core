@@ -195,10 +195,15 @@ public:
         dest.push_back({0, count});
         return EQUIP_ERR_OK;
     }
+    // Same order as pinned Player::StoreNewItem (PlayerStorage.cpp L2642-2664):
+    // sum dest counts, create the item, original ItemAddedQuestCheck, then StoreItem.
     Item* StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool, int32, AllowedLooterSet&)
     {
-        uint32 count = dest.empty() ? 0 : dest[0].count;
-        bagCount[item] += count;
+        uint32 count = 0;
+        for (ItemPosCount const& pos : dest)
+            count += pos.count;
+        ItemAddedQuestCheck(item, count);
+        bagCount[item] += count;  // StoreItem
         ev.received.push_back({item, count});
         storedItems.push_back(Item{item, count});
         return &storedItems.back();
