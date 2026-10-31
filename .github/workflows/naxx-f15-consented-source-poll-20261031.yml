@@ -1,0 +1,61 @@
+name: "F15 consented file poll (disposable ONLY)"
+
+on:
+  pull_request:
+    branches:
+      - test/cs01-f15-readonly-source-admission-20261031
+    paths:
+      - tests/f15_consented_source_poll.py
+      - tests/test_f15_consented_source_poll.py
+      - docs/research/F15-CONSENTED-EXTERNAL-SOURCE-POLL.md
+      - .github/workflows/naxx-f15-consented-source-poll-20261031.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f15-consented-synthetic-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  disposable-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Exact source SHA, no persisted credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Freeze runtime and ancestors; four additions only
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=31107fb9400a57e56238cdca8a0911cb08c077b7
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --check "$BASE" HEAD
+          git diff --name-status "$BASE" HEAD | sort > /tmp/actual.txt
+          printf '%s\n' \
+            'A	.github/workflows/naxx-f15-consented-source-poll-20261031.yml' \
+            'A	docs/research/F15-CONSENTED-EXTERNAL-SOURCE-POLL.md' \
+            'A	tests/f15_consented_source_poll.py' \
+            'A	tests/test_f15_consented_source_poll.py' | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git diff --quiet "$BASE" HEAD -- src conf data tools
+          echo 'PASS: 4 test/doc/CI additions; no runtime/parent modified'
+      - name: Nonroot metadata gate plus direct-fd journal fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_source_admission.py' -v
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_consented_source_poll.py' -v
+      - name: Evidence boundary
+        if: always()
+        run: |
+          echo 'Only fake external input files under TemporaryDirectory were read.'
+          echo 'All journal, state and archives remain in disposable fixture workspace.'
+          echo 'No owner file, running PM2/tmux, actual World/Auth or production config touched.'
+          echo 'NOT a service, not persistent daily archives, not crash diagnosis, no live readiness.'
