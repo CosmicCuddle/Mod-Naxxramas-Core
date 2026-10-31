@@ -31,20 +31,19 @@ Changes on one isolated source-only pilot DRAFT branched from immutable protecte
 
 ## Owner gameplay acceptance — AFTER review/approval
 
-With a disposable Vanilla-stage Warlock and two legitimate group helpers, observe each step:
+Use **four distinct grouped characters total**, never two or three: a level-eligible **Vanilla Warlock (W)**, two nearby helper players **A** and **B**, and a separate **distant eligible raid member T** who will accept the summon. For deterministic results, all four must be legitimate distinct characters in the same group/raid, not an alternate use of the same player as a second helper. Only perform this in an owner-approved, backed-up staging session after the actual source/binary and config have been verified. The following is an **acceptance specification, not a performed in-game test**.
 
-| Step | Expected |
-| --- | --- |
-| Cast 698 | First green ritual circle appears |
-| Two eligible helpers | Ritual completes; second portal appears |
-| Inspect spawned second GO ID/type | Expected 194097/type23 created by 61993; capture if possible read-only |
-| Valid eligible selected target and helper click | Second portal casts 61994 and leads to successful target summon |
-| Invalid target, self, non-group player, underlevel | No unauthorized summon or wrong spell |
-| Repeated rapid clicks | No duplicate incorrect portal or uncontrolled cast |
-| Normal dungeon Meeting Stone with Vanilla progression and ClassicMode ON | Still blocked with intended message |
-| Same dungeon stone with TBC/WotLK progression | Native accepted when group/level requirements satisfied |
-| Pilot OFF | Identical original main routing; no new effect |
+| Checkpoint | Exact action and observation | Pass / fail meaning |
+| --- | --- | --- |
+| 1 — first ritual | W selects or prepares a legitimate distant T and casts **698**. W's first green GO **194108, type18**, is present. Two distinct nearby helpers **A and B** complete the first-stage channel with W. | First ritual succeeds and **GO194097/type23**, created by **61993**, appears. Merely spawning GO194097 is NOT a successful remote summon. |
+| 2 — second portal | Helper **A** (not W or T) explicitly selects distant **T** as current target, then clicks GO **194097** while GO194097 has a valid owner GUID and creation spell 61993. Preserve T as A's target through the next stage; do not assume selection persists without observing it. | The opt-in hook attempts **normal nontriggered 61994**, never native type23 **23598**. Check that spell61994 is actually cast/channelled, not only requested. This code path has not been owner-tested. |
+| 3 — final ritual | Check whether spell61994 creates final GO **179944, type18**, owned by the second portal activator **A**. Nearby helper **B** (a *different* character from A and not distant target T) completes the last required participation/channel for that GO. | Final GO's native type18 completion is expected to invoke **7720** and issue T's summon request. The appearance of GO179944 alone is still NOT proof. |
+| 4 — distant completion | Distant target **T** sees a real summon confirmation, accepts, and actually appears at the Warlock group's intended location. Record each outcome separately, including who was selected and which player arrived. | **Only actual target acceptance + arrival** closes Warlock P1 gameplay acceptance. A cast, GO creation, channel animation or summon prompt alone is not sufficient. |
+| Negative/control cases | With pilot ON, try invalid/self/out-of-group or underlevel T, wrong origin/static GO194097, and repeated rapid clicks. With pilot OFF confirm exact previous behavior. Test a real ordinary dungeon Meeting Stone in Vanilla with ClassicMode ON and then an eligible TBC/WotLK control. | No unearned target summon, no duplicate cast, no reclassification of genuine dungeon Meeting Stones, and no change to the first GO194108 path. The pilot may run before native GO cooldown/mounted checks: these remain mandatory review points. |
 
 The **first** smoke configuration from #247 keeps both this pilot and ClassicMode OFF and is **NOT** evidence of these Vanilla-specific tests.
 
 **Safety holds:** R7 HonorOverflow race release HOLD and owner economic choices unselected; F14 Blood Elf/Draenei concealment OFF/unmerged; K1 and N-Core NoWrite relay OFF, D18 pet A→B HARD NO-GO; `MapUpdate.Threads=8` MUST remain 8. No merge, deploy, owner server/Worldserver restart, DB/SQL/DBC/client or core/IP/Playerbots/N-Core changes. Current P1 owner gameplay acceptance remains **FAILED** until actually retested.
+
+
+**Separate same-binary historic compile milestone (not a gameplay pass):** [Combined full Worldserver CI 41138075456](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/41138075456) completed successfully with this P1 C++ source, the current IP grouping draft, protected Hunter ammo, and quest-loot/EP module sources. Full native link and expected Warlock GO handler/vtable are present in the disposable linked binary. Owner's newer Core/Playerbots source and effective installed version are still not fingerprinted; normal pilot remains **OFF**. Neither a GitHub link nor this revised document authorizes a production test or deployment.
