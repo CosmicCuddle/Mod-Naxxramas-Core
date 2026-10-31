@@ -272,8 +272,56 @@ class IntegratedRunner:
             base = base[: -len(".provenance.json")] + ".txt"
         return policy.parsed_filename(base) is not None
 
+    _STATE_KEYS = {"clock.json": {"last"}, "archives.json": {"entries", "next_day"}}
+    _CHECKPOINT_KEYS = {"seq", "dev", "ino", "offset", "held_size", "recorded_at"}
+
+    def _pending_is_ours(self, directory, path):
+        """True only if a pending file's CONTENT matches what this runner writes under
+        that name; a matching name alone is not proof.
+
+        Threat boundary: this is a self-consistency check, not authentication. It
+        stops an unrelated file at a reserved name from being deleted; it cannot
+        stop a writer inside the private workspace from forging a consistent one.
+        """
+        try:
+            data, _ = _read_regular(path)
+        except (OSError, FailClosed):
+            return False
+        base = path.name[: -len(".pending")]
+        if directory == self.segments:
+            match = _RECORD_RE.fullmatch(base)
+            if match is None or _sha(data) != match["sha"]:
+                return False
+            return match["kind"] != "seg" or len(data) == int(match["end"]) - int(match["start"])
+        if directory == self.state:
+            try:
+                wrapper = json.loads(data)
+                doc = wrapper["doc"]
+                body = json.dumps(doc, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                keys = self._STATE_KEYS.get(base, self._CHECKPOINT_KEYS)
+                return wrapper["sha256"] == _sha(body) and set(doc) == keys
+            except (ValueError, KeyError, TypeError):
+                return False
+        if base.endswith(".provenance.json"):
+            try:
+                doc = json.loads(data)
+                return doc.get("name") == base[: -len(".provenance.json")] + ".txt"
+            except (ValueError, AttributeError):
+                return False
+        parsed = policy.parsed_filename(base)
+        if parsed is None:
+            return False
+        role, source, closed_at = parsed
+        day = (closed_at - DAY).date().isoformat()
+        tag = _sha(f"{role}-{source}|{day}|{_sha(data)}".encode("ascii"))[:12]
+        return base[-len(tag) - 4: -4] == tag
+
     def _discard_unpublished(self):
-        """Remove our own never-published *.pending files left by a crash; nothing else."""
+        """Remove our own never-published *.pending files left by a crash; nothing else.
+
+        A file at a reserved pending name whose content is not ours is left in place
+        and the runner refuses to start, so an operator decides what it is.
+        """
         for directory in (self.segments, self.state, self.archive):
             for path in directory.iterdir():
                 if not self._owned_pending(directory, path.name):
@@ -281,6 +329,9 @@ class IntegratedRunner:
                 meta = path.lstat()
                 if not stat.S_ISREG(meta.st_mode):
                     raise FailClosed(f"unexpected non-regular pending file {path.name}")
+                if not self._pending_is_ours(directory, path):
+                    raise FailClosed(f"foreign file at reserved name {path.name}; left in place "
+                                     "for an operator decision")
                 path.unlink()
             _dir_sync(directory)
 
@@ -326,9 +377,9 @@ class IntegratedRunner:
         data = json.dumps({"doc": doc, "sha256": _sha(body)}, sort_keys=True).encode("utf-8")
         pending = self.state / (name + ".pending")
         if pending.exists() or pending.is_symlink():
-            if not stat.S_ISREG(pending.lstat().st_mode):
-                raise FailClosed("non-regular pending state file")
-            pending.unlink()  # never published, so never authoritative
+            if not stat.S_ISREG(pending.lstat().st_mode) or not self._pending_is_ours(self.state, pending):
+                raise FailClosed(f"foreign file at reserved name {pending.name}; left in place")
+            pending.unlink()  # our own, never published, so never authoritative
         self._write_new(pending, data)
         if fail_at == "before-checkpoint-publish":
             raise SyntheticCrash(f"stopped before publishing {name}")

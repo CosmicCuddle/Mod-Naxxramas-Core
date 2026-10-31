@@ -390,6 +390,36 @@ class SourceSafety(Base):
         for path, data in foreign.items():
             self.assertEqual(path.read_bytes(), data)
 
+    def _restart_refused_and_kept(self, path, data):
+        path.write_bytes(data)
+        self.runner.close()
+        with self.assertRaisesRegex(R.FailClosed, "foreign file at reserved name"):
+            R.IntegratedRunner(self.ws)
+        self.assertEqual(path.read_bytes(), data)
+
+    def test_foreign_bytes_at_a_reserved_state_pending_name_are_kept(self):
+        self._restart_refused_and_kept(self.runner.state / "clock.json.pending", b"not ours\n")
+
+    def test_foreign_bytes_at_a_valid_record_pending_name_are_kept(self):
+        name = f"{OUT}__000000000001__seg__1__2__0__5__20261031__{'0' * 64}.rec.pending"
+        self._restart_refused_and_kept(self.runner.segments / name, b"12345")
+
+    def test_foreign_bytes_at_an_archive_pending_name_are_kept(self):
+        name = R.policy.archive_filename("Worldserver", "out", at(1), "0123456789ab") + ".pending"
+        self._restart_refused_and_kept(self.runner.archive / name, b"not ours\n")
+
+    def test_genuine_unpublished_files_are_still_recovered(self):
+        self.boot(OUT)
+        self.ws.append(OUT, b"pending once\n")
+        with self.assertRaises(R.SyntheticCrash):
+            self.runner.poll(OUT, at(0, 1), fail_at="before-record-publish")
+        self.assertEqual(len([p for p in self.runner.segments.iterdir() if p.name.endswith(".pending")]), 1)
+        self.restart()
+        self.assertFalse(any(p.name.endswith(".pending") for p in self.runner.segments.iterdir()))
+        self.runner.poll(OUT, at(0, 2))
+        self.runner.seal_through(at(1, 0, 1))
+        self.assertEqual(self.runner.archive_bytes(OUT, at(0).date()), b"pending once\n")
+
     def test_second_writer_is_refused(self):
         with self.assertRaisesRegex(R.FailClosed, "already holds"):
             R.IntegratedRunner(self.ws)

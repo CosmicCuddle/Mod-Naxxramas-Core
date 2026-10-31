@@ -48,6 +48,8 @@ MUTANTS = [
      "                if side is False:\n", "                if False:\n"),
     ("sidecar identity is not recorded at sealing",
      "sidecar_sha256=_sha(provenance))", "sidecar_sha256=None)"),
+    ("a matching pending name is taken as proof of ownership",
+     "                if not self._pending_is_ours(directory, path):\n", "                if False:\n"),
     ("two streams may share one source file",
      "        if len(set(names.values())) != len(names):\n", "        if False:\n"),
 ]

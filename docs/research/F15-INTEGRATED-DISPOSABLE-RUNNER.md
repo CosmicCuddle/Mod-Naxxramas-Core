@@ -102,8 +102,15 @@ hold back or quarantine such bytes is an open design decision.
 - **Visible gap:** a replaced source (new inode) or a truncated source is
   recorded as a note in that day's provenance, saying the old unread tail may
   be missing.
-- **Startup cleanup:** a restart removes only this runner's own unpublished
-  `*.pending` files; any other file is left alone.
+- **Startup cleanup:** a restart removes an unpublished `*.pending` file only
+  if both its name and its **content** match what this runner writes there
+  (journal records: SHA-256 in the name; state files: checksummed document with
+  the expected fields; archives: the content tag in the name). A file at a
+  reserved name that fails this check is left in place and the runner refuses
+  to start, so an operator decides what it is. Other names are never touched.
+  **Threat boundary:** this is a self-consistency check, not authentication.
+  It assumes a private, runner-exclusive workspace; a writer inside it could
+  still forge a consistent file. Real host deletion stays unproven.
 
 ## Retention
 
@@ -145,10 +152,10 @@ reason.
 ## Files
 
 - `tests/f15_integrated_disposable_runner.py`: the runner (test fixture).
-- `tests/test_f15_integrated_disposable_runner.py`: 50 end-to-end tests.
-- `tests/f15_integrated_runner_mutants.py`: 13 must-fail mutants.
+- `tests/test_f15_integrated_disposable_runner.py`: 54 end-to-end tests.
+- `tests/f15_integrated_runner_mutants.py`: 14 must-fail mutants.
 - `.github/workflows/naxx-f15-integrated-disposable-20261031.yml`: runs the
-  inherited 38 + 29 + 10 + 24 tests, the 50 new tests (no skips on the
+  inherited 38 + 29 + 10 + 24 tests, the 54 new tests (no skips on the
   non-root runner) and the mutants, and checks the added-path scope.
 
 Synthetic success is not operational F15. Exact-head CI, source review,
@@ -172,3 +179,10 @@ and P4 human loot, all ready together.
   says "raw bytes kept, invalid UTF-8 flagged", not "every `.txt` is valid
   UTF-8".
 - Three new must-fail mutants cover these fixes.
+- Information (#256, 6544558830): restart cleanup took a matching `.pending`
+  name as proof of ownership. It now also checks the content; a foreign file
+  at a reserved name is kept and the runner refuses to start. Tests:
+  `test_foreign_bytes_at_a_reserved_state_pending_name_are_kept`,
+  `test_foreign_bytes_at_a_valid_record_pending_name_are_kept`,
+  `test_foreign_bytes_at_an_archive_pending_name_are_kept`,
+  `test_genuine_unpublished_files_are_still_recovered`; one new mutant.

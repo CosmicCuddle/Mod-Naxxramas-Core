@@ -65,19 +65,19 @@ jobs:
             grep -Eq "^Ran $n tests in [0-9.]+s\$" "/tmp/$file.txt"
             grep -qx OK "/tmp/$file.txt"
           done
-      - name: Integrated runner, 50 end-to-end tests, no skips
+      - name: Integrated runner, 54 end-to-end tests, no skips
         run: |
           set -euo pipefail
           python3 -I -B -W error tests/test_f15_integrated_disposable_runner.py -v > /tmp/runner.txt 2>&1 || { cat /tmp/runner.txt; exit 1; }
           cat /tmp/runner.txt
-          grep -Eq '^Ran 50 tests in [0-9.]+s$' /tmp/runner.txt
+          grep -Eq '^Ran 54 tests in [0-9.]+s$' /tmp/runner.txt
           grep -qx OK /tmp/runner.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:' /tmp/runner.txt
-      - name: Must-fail mutants (13)
+      - name: Must-fail mutants (14)
         run: |
           set -euo pipefail
           python3 -I tests/f15_integrated_runner_mutants.py | tee /tmp/mutants.txt
-          grep -qx '13/13 mutants caught' /tmp/mutants.txt
+          grep -qx '14/14 mutants caught' /tmp/mutants.txt
       - name: Scope of proof
         if: always()
         run: |
