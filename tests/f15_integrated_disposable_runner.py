@@ -697,10 +697,15 @@ class IntegratedRunner:
                 sidecar = entry["sidecar"]
                 side = self._is_ours(dfd, sidecar, entry.get("sidecar_dev"), entry.get("sidecar_ino"),
                                      entry.get("sidecar_sha256"))
+                if side is False:
+                    # The provenance at that name is not provably ours: keep the whole pair
+                    # rather than delete the archive and leave substituted provenance behind.
+                    entry["retention_blocked"] = ("file at the sidecar name is not the one this runner "
+                                                  "wrote; archive and sidecar both kept")
+                    self._write_signed("archives.json", manifest)
+                    continue
                 if side is True:
                     os.unlink(sidecar, dir_fd=dfd)
-                elif side is False:
-                    entry["sidecar_kept"] = "file at the sidecar name is not the one this runner wrote"
                 os.unlink(name, dir_fd=dfd)
                 os.fsync(dfd)
                 if fail_at == "after-unlink-before-manifest":

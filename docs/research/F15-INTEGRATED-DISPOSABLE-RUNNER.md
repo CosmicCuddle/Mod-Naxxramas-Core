@@ -112,10 +112,14 @@ Retention only looks at names listed in the signed manifest and acts only when
 the archive directory without following links: same device and inode, a
 regular file, one hard link, and unchanged SHA-256. **The provenance sidecar
 gets the same check** (its device, inode and SHA-256 are recorded at sealing).
-A file at the sidecar's name that is not the one this runner wrote is left in
-place and noted (`sidecar_kept`), including across an interrupted retention
-run. A check-then-unlink race remains; a real host adapter would need more
-than this synthetic fixture provides. Proven untouched:
+If the file at the sidecar's name is not provably the one this runner wrote,
+**the whole pair is kept** (archive and sidecar) and the entry is marked
+`retention_blocked`, so an archive is never removed while substituted
+provenance stays behind. A foreign file placed at a sidecar's name after an
+interrupted retention run is also left alone. A check-then-unlink race (the
+name being rebound between the check and the unlink) remains unproven; a real
+host adapter would need more than this synthetic fixture provides, and this
+fixture does not claim atomic production deletion. Proven untouched:
 `Crash-History.txt`, crash reports, user `.txt` files, a look-alike archive
 name that is not in the manifest, the source logs, an archive edited in
 place, an archive replaced by a symlink, a hard-linked archive, a manifest
@@ -141,10 +145,10 @@ reason.
 ## Files
 
 - `tests/f15_integrated_disposable_runner.py`: the runner (test fixture).
-- `tests/test_f15_integrated_disposable_runner.py`: 48 end-to-end tests.
-- `tests/f15_integrated_runner_mutants.py`: 12 must-fail mutants.
+- `tests/test_f15_integrated_disposable_runner.py`: 50 end-to-end tests.
+- `tests/f15_integrated_runner_mutants.py`: 13 must-fail mutants.
 - `.github/workflows/naxx-f15-integrated-disposable-20261031.yml`: runs the
-  inherited 38 + 29 + 10 + 24 tests, the 48 new tests (no skips on the
+  inherited 38 + 29 + 10 + 24 tests, the 50 new tests (no skips on the
   non-root runner) and the mutants, and checks the added-path scope.
 
 Synthetic success is not operational F15. Exact-head CI, source review,
@@ -156,12 +160,15 @@ and P4 human loot, all ready together.
 ## Review revision (31 Oct 2026)
 
 - Information (#256, 6544412290): retention deleted any regular single-link
-  file at a sidecar's name. The sidecar's identity is now recorded and checked
-  like the archive's; a foreign file is kept. Tests:
-  `test_foreign_file_at_the_sidecar_name_is_kept`,
-  `test_foreign_sidecar_survives_interrupted_retention`.
+  file at a sidecar's name (confirmed by CS01, 6544439058). The sidecar's
+  identity is now recorded and checked like the archive's; if it is not ours,
+  the whole pair is kept. Tests: `test_foreign_file_at_the_sidecar_name_is_kept`,
+  `test_sidecar_edited_in_place_also_keeps_the_pair`,
+  `test_foreign_file_placed_after_an_interrupted_retention_is_kept`,
+  `test_sidecar_already_gone_does_not_block_an_owned_archive`; the
+  positive case stays in `test_only_owned_closed_archives_older_than_30_days_go`.
 - CS01 (#143, 6544357951): source names must be distinct
   (`test_two_streams_cannot_share_one_source_file`), and the UTF-8 wording now
   says "raw bytes kept, invalid UTF-8 flagged", not "every `.txt` is valid
   UTF-8".
-- Two new must-fail mutants cover both fixes.
+- Three new must-fail mutants cover these fixes.

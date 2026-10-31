@@ -44,8 +44,10 @@ MUTANTS = [
      "            if False:\n"),
     ("corrupt journal records are trusted",
      "        if _sha(data) != record.sha:\n", "        if False:\n"),
-    ("any regular file at the sidecar name is deleted",
-     "                if side is True:\n", "                if side is not None:\n"),
+    ("a foreign sidecar does not block retention",
+     "                if side is False:\n", "                if False:\n"),
+    ("sidecar identity is not recorded at sealing",
+     "sidecar_sha256=_sha(provenance))", "sidecar_sha256=None)"),
     ("two streams may share one source file",
      "        if len(set(names.values())) != len(names):\n", "        if False:\n"),
 ]

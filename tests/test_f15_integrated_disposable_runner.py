@@ -492,22 +492,37 @@ class Retention(Base):
         side = self.runner.archive / old["sidecar"]
         side.unlink()
         side.write_bytes(b"someone else's file, same name\n")  # regular, one link, not ours
-        removed = self.runner.expire(at(31, 12))
-        self.assertEqual(removed, [old["name"]])  # the archive itself is still provably ours
+        self.assertEqual(self.runner.expire(at(31, 12)), [])  # the pair is kept, fail closed
         self.assertEqual(side.read_bytes(), b"someone else's file, same name\n")
+        self.assertTrue((self.runner.archive / old["name"]).exists())
         entry = self.runner.archive_entry(OUT, at(0).date())
-        self.assertIn("not the one this runner wrote", entry["sidecar_kept"])
+        self.assertEqual(entry["state"], "sealed")
+        self.assertIn("both kept", entry["retention_blocked"])
         self.assertTrue((self.runner.archive / young["sidecar"]).exists())
 
-    def test_foreign_sidecar_survives_interrupted_retention(self):
+    def test_sidecar_already_gone_does_not_block_an_owned_archive(self):
+        old, _ = self._archive_two_days()
+        (self.runner.archive / old["sidecar"]).unlink()  # e.g. removed by an interrupted run
+        self.assertEqual(self.runner.expire(at(31, 12)), [old["name"]])
+
+    def test_sidecar_edited_in_place_also_keeps_the_pair(self):
         old, _ = self._archive_two_days()
         side = self.runner.archive / old["sidecar"]
         side.write_bytes(b"edited in place: same inode, other bytes\n")
-        with self.assertRaises(R.SyntheticCrash):
+        self.assertEqual(self.runner.expire(at(31, 12)), [])
+        self.assertEqual(side.read_bytes(), b"edited in place: same inode, other bytes\n")
+        self.assertTrue((self.runner.archive / old["name"]).exists())
+
+    def test_foreign_file_placed_after_an_interrupted_retention_is_kept(self):
+        old, _ = self._archive_two_days()
+        side = self.runner.archive / old["sidecar"]
+        with self.assertRaises(R.SyntheticCrash):  # our sidecar and archive are already unlinked
             self.runner.expire(at(31, 12), fail_at="after-unlink-before-manifest")
+        self.assertFalse(side.exists())
+        side.write_bytes(b"new foreign file at the old sidecar name\n")
         self.restart()
         self.assertEqual(self.runner.expire(at(31, 13)), [])
-        self.assertEqual(side.read_bytes(), b"edited in place: same inode, other bytes\n")
+        self.assertEqual(side.read_bytes(), b"new foreign file at the old sidecar name\n")
         self.assertEqual(self.runner.archive_entry(OUT, at(0).date())["state"], "expired")
 
     def test_hardlinked_archive_is_not_deleted(self):
