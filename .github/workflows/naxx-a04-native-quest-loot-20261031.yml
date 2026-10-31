@@ -1,0 +1,108 @@
+name: "A04 extracted pinned-source quest-loot harness (NO HOST)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - "tests/a04_native/**"
+      - "tests/test_a04_native_quest_loot.py"
+      - "docs/research/A04-NATIVE-QUEST-LOOT-FIXTURE.md"
+      - ".github/workflows/naxx-a04-native-quest-loot-20261031.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a04-native-quest-loot-${{ github.event.pull_request.number || github.ref }}-${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  BASE_MAIN: 80e9de1c39a6dc995188a80c31a5e785d0f2a6f9
+  CORE_PIN: 8daffdabe9202c228e45d833c9a1d399597a15cd
+
+jobs:
+  harness:
+    name: "Original pinned loot bodies (${{ matrix.cxx }})"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+    steps:
+      - name: "Checkout exact module head"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: module
+          fetch-depth: 0
+          persist-credentials: false
+      - name: "Checkout pinned Grimfeather core (read-only sources and public SQL)"
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_PIN }}
+          path: core
+          persist-credentials: false
+          sparse-checkout: |
+            src/common
+            src/server/shared
+            src/server/game
+            deps/fmt
+            data/sql/base/db_world
+      - name: "Exact heads, child of main 80e9de1, added-path allowlist"
+        working-directory: module
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C ../core rev-parse HEAD)" = "$CORE_PIN"
+          git merge-base --is-ancestor "$BASE_MAIN" HEAD
+          git diff --quiet "$BASE_MAIN" HEAD -- src conf data
+          python3 - <<'PY'
+          import os, subprocess
+          base = os.environ["BASE_MAIN"]
+          rows = subprocess.check_output(["git", "diff", "--name-status", base, "HEAD"], text=True).splitlines()
+          actual = {tuple(r.split("\t")) for r in rows}
+          allowed = {("A", p) for p in (
+              "tests/a04_native/prepare_pinned.py",
+              "tests/a04_native/build.py",
+              "tests/a04_native/harness_env.h",
+              "tests/a04_native/harness.cpp",
+              "tests/a04_native/mutants.py",
+              "tests/a04_native/stubs/ConditionMgr.h",
+              "tests/test_a04_native_quest_loot.py",
+              "docs/research/A04-NATIVE-QUEST-LOOT-FIXTURE.md",
+              ".github/workflows/naxx-a04-native-quest-loot-20261031.yml",
+          )}
+          assert actual == allowed, (actual ^ allowed)
+          print("PASS: nine added test/doc/CI paths; module runtime, config and data unchanged")
+          PY
+      - name: "Compiler"
+        run: ${{ matrix.cxx }} --version
+      - name: "Harness: 5 tests, 71 checks on original pinned bodies, no skips"
+        env:
+          A04_CORE: ${{ github.workspace }}/core
+          CXX: ${{ matrix.cxx }}
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error module/tests/test_a04_native_quest_loot.py -v > /tmp/a04.txt 2>&1 || { cat /tmp/a04.txt; exit 1; }
+          cat /tmp/a04.txt
+          grep -Eq '^Ran 5 tests in [0-9.]+s$' /tmp/a04.txt
+          grep -qx OK /tmp/a04.txt
+          grep -qx 'CHECKS 71 passed, 0 failed' /tmp/a04.txt
+          ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/a04.txt
+      - name: "Must-fail mutants of the extracted original text (10)"
+        env:
+          A04_CORE: ${{ github.workspace }}/core
+          CXX: ${{ matrix.cxx }}
+        run: |
+          set -euo pipefail
+          python3 -I module/tests/a04_native/mutants.py | tee /tmp/mutants.txt
+          grep -qx '10/10 mutants caught' /tmp/mutants.txt
+      - name: "Scope of proof"
+        if: always()
+        run: |
+          echo "Original pinned 8daffda loot/quest bodies compiled with test-only collaborator stubs."
+          echo "NOT a Worldserver run, NOT a native Core regression, NOT the owner's server or database."
+          echo "No SQL executed (public pinned SQL rows are parsed as text), no host, PM2, tmux, config or gameplay."
