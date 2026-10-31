@@ -15,7 +15,8 @@ BASE_H = "src/server/game/Scripting/ScriptDefines/PlayerScript.h"
 BASE_CPP = "src/server/game/Scripting/ScriptDefines/PlayerScript.cpp"
 MANAGER_H = "src/server/game/Scripting/ScriptMgr.h"
 HANDLER = "src/server/game/Handlers/LootHandler.cpp"
-PATHS = (GROUP, PLAYER, BASE_H, BASE_CPP, MANAGER_H, HANDLER)
+STORAGE = "src/server/game/Entities/Player/PlayerStorage.cpp"
+PATHS = (GROUP, PLAYER, BASE_H, BASE_CPP, MANAGER_H, HANDLER, STORAGE)
 
 DIRECT = "sScriptMgr->OnPlayerLootItem(this, newitem, item->count, this->GetLootGUID());"
 ROLL_NEED = "sScriptMgr->OnPlayerGroupRollRewardItem(player, _item, item->count, NEED, roll);"
@@ -23,6 +24,9 @@ ROLL_GREED = "sScriptMgr->OnPlayerGroupRollRewardItem(player, _item, item->count
 STORE_ROLL = "Item* _item = player->StoreNewItem(dest, roll->itemid, true, item->randomPropertyId, looters);"
 PRE_RECEIPT_NAMED_HOOK = "sScriptMgr->OnPlayerAfterCreatureLoot(player);"
 NATIVE_STORE = "LootItem* lootItem = player->StoreLootItem(lootSlot, loot, msg);"
+MASTER_STORE = "Item* newitem = target->StoreNewItem(dest, item.itemid, true, item.randomPropertyId, looters);"
+MASTER_ALLOWED = "if (!item.AllowedForPlayer(target, loot->sourceWorldObjectGUID))"
+STORE_NEW_HOOK = "sScriptMgr->OnPlayerStoreNewItem(this, pItem, count);"
 MAIL = "SendRollWonItemViaMail(player, item, roll->itemid);"
 MAIL_GUARD = ("if (msg == EQUIP_ERR_INVENTORY_FULL && "
               "(mailOnFull == MAIL_ITEM_ON_FULL_INVENTORY_EVERYWHERE || "
@@ -146,11 +150,45 @@ def check_native_handler(source):
             "H1_PREAWARD_ORDER_CHANGED")
 
 
+def check_master_award(handler, storage):
+    """Master Loot stores directly into the TARGET's inventory.
+
+    This bypasses ordinary Player::StoreLootItem and its OnPlayerLootItem
+    receipt hook. The common StoreNewItem hook is post-store but shared
+    with many other item awards: it is not Master-Loot-only telemetry.
+    """
+    master = block(handler, "void WorldSession::HandleLootMasterGiveOpcode(WorldPacket& recvData)")
+    require(master.count(MASTER_STORE) == 1,
+            "M1_MASTER_TARGET_STORE_CALL_DRIFT")
+    require(master.count(MASTER_ALLOWED) == 1,
+            "M2_MASTER_ALLOWED_TARGET_CHECK_MISSING")
+    require(master.index(MASTER_ALLOWED) < master.index(MASTER_STORE),
+            "M3_MASTER_ALLOWED_CHECK_AFTER_STORE")
+    require("if (msg != EQUIP_ERR_OK)" in master and
+            master.index("if (msg != EQUIP_ERR_OK)") < master.index(MASTER_STORE),
+            "M4_MASTER_INVENTORY_REJECT_CHECK_DRIFT")
+    require("OnPlayerLootItem(" not in master and
+            "OnPlayerGroupRollRewardItem(" not in master,
+            "M5_MASTER_AWARD_CONFLATED_WITH_DIRECT_OR_ROLL_HOOK")
+
+    fn = block(storage,
+        "Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update, int32 randomPropertyId, AllowedLooterSet& allowedLooters, bool refund)")
+    require(fn.count(STORE_NEW_HOOK) == 1,
+            "M6_POST_STORE_NEW_ITEM_HOOK_MISSING")
+    require("pItem = StoreItem(dest, pItem, update);" in fn and
+            fn.index("pItem = StoreItem(dest, pItem, update);") < fn.index(STORE_NEW_HOOK),
+            "M7_STORE_ITEM_AFTER_RECEIPT_CALLBACK")
+    require("if (pItem)" in fn and
+            fn.index("if (pItem)") < fn.index(STORE_NEW_HOOK),
+            "M8_STORE_NEW_HOOK_NOT_GUARDED_BY_CREATED_ITEM")
+
+
 def check(sources):
     require(set(sources) == set(PATHS), "F1_SOURCE_FIXTURE_MISSING_OR_EXTRA")
     check_group(sources[GROUP])
     check_player(sources[PLAYER])
     check_native_handler(sources[HANDLER])
+    check_master_award(sources[HANDLER], sources[STORAGE])
     check_api(sources[BASE_H], sources[BASE_CPP], sources[MANAGER_H])
     return "A04 GROUP ROLL vs DIRECT RECEIPT: PASS (pinned source only)"
 
