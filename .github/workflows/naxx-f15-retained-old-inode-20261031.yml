@@ -38,7 +38,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Four new paths and one exact inherited CI-only test extension
+      - name: Four new paths plus two precisely scoped inherited CI-only extensions
         shell: bash
         run: |
           set -euo pipefail
@@ -50,6 +50,7 @@ jobs:
           git diff --name-status "$BASE" HEAD | sort > /tmp/actual.txt
           printf '%s\n' \
             'M	.github/workflows/naxx-f15-consented-source-poll-20261031.yml' \
+            'M	.github/workflows/naxx-f15-integrated-disposable-20261031.yml' \
             'A	.github/workflows/naxx-f15-retained-old-inode-20261031.yml' \
             'A	docs/research/F15-RETAINED-OLD-INODE-TAIL.md' \
             'A	tests/f15_retained_old_inode_poll.py' \
@@ -82,8 +83,23 @@ jobs:
           assert prior.count(marker) == 1
           expected = prior.replace(old, new).replace(marker, extra + marker)
           assert Path(p).read_text() == expected
+          p2 = ".github/workflows/naxx-f15-integrated-disposable-20261031.yml"
+          prior2 = subprocess.check_output(["git", "show", base+":"+p2], text=True)
+          marker2 = "      - name: Scope of proof\n        if: always()"
+          extra2 = """      - name: CS01 #259 fake old-inode rotation tests (child branch only)
+        if: github.event_name == 'pull_request' && github.head_ref == 'test/cs01-f15-retained-old-inode-drain-20261031'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_source_admission.py' -v
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_consented_source_poll.py' -v
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_retained_old_inode_poll.py' -v
+"""
+          assert prior2.count(marker2) == 1
+          assert Path(p2).read_text() == prior2.replace(marker2, extra2+marker2)
           PY
-          echo 'PASS: four additions, inherited CI scoped and test-only extension; no runtime edits'
+          echo 'PASS: four additions, two exact CI-only extensions; no runtime edits'
       - name: Source admission, fd bridge, retained old inode test suites
         shell: bash
         run: |
