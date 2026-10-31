@@ -90,9 +90,9 @@ jobs:
               ('      - name: "CS01 F15 #259 six-path source scope (child branch only)"', '      - name: Not root (so the unreadable-source test runs)'),
               ('      - name: "CS01 #259 fake old-inode rotation tests (child branch only)"', '      - name: Scope of proof'),
           ):
-              assert now2.count(first) == 1 and now2.count(nextstep) == 1
-              i = now2.index(first)
-              j = now2.index(nextstep, i)
+              assert now2.count("\n" + first + "\n") == 1 and now2.count("\n" + nextstep + "\n") == 1
+              i = now2.index("\n" + first + "\n") + 1
+              j = now2.index("\n" + nextstep + "\n", i) + 1
               now2 = now2[:i] + now2[j:]
           assert now2 == prior2
           PY
