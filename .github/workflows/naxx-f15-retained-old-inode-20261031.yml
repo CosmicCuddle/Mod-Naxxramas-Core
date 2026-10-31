@@ -1,0 +1,80 @@
+name: "F15 retained rotated-inode tail (fake files ONLY)"
+
+on:
+  pull_request:
+    branches:
+      - test/cs01-f15-consented-source-poll-20261031
+    paths:
+      - tests/f15_retained_old_inode_poll.py
+      - tests/test_f15_retained_old_inode_poll.py
+      - docs/research/F15-RETAINED-OLD-INODE-TAIL.md
+      - .github/workflows/naxx-f15-retained-old-inode-20261031.yml
+      - .github/workflows/naxx-f15-consented-source-poll-20261031.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f15-rotated-old-tail-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  retained-read-only-tail:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact PR head, never base or mutable default
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Four new paths and one exact inherited CI-scope edit
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=c908304ff7248faf852f2e61f16dbe4bc08ce3f2
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --check "$BASE" HEAD
+          git diff --quiet "$BASE" HEAD -- src conf data tools
+          git diff --name-status "$BASE" HEAD | sort > /tmp/actual.txt
+          printf '%s\n' \
+            'M	.github/workflows/naxx-f15-consented-source-poll-20261031.yml' \
+            'A	.github/workflows/naxx-f15-retained-old-inode-20261031.yml' \
+            'A	docs/research/F15-RETAINED-OLD-INODE-TAIL.md' \
+            'A	tests/f15_retained_old_inode_poll.py' \
+            'A	tests/test_f15_retained_old_inode_poll.py' | sort > /tmp/expected.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base = "c908304ff7248faf852f2e61f16dbe4bc08ce3f2"
+          p = ".github/workflows/naxx-f15-consented-source-poll-20261031.yml"
+          prior = subprocess.check_output(["git", "show", base+":"+p], text=True)
+          old = "      - name: Freeze runtime and ancestors; four additions only\n        shell: bash"
+          new = """      - name: Freeze runtime and ancestors; four additions only
+        # Original #258 exact-four-path assertion is specific to its own branch.
+        # Keep all 15+16 inherited regression cases active on later child PRs.
+        if: >-
+          (github.event_name == 'pull_request' && github.head_ref == 'test/cs01-f15-consented-source-poll-20261031') ||
+          (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/test/cs01-f15-consented-source-poll-20261031')
+        shell: bash"""
+          assert prior.count(old) == 1
+          assert Path(p).read_text() == prior.replace(old, new)
+          PY
+          echo 'PASS: four additions, inherited CI exact-step-only; no runtime edits'
+      - name: Source admission, fd bridge, retained old inode test suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_source_admission.py' -v
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_consented_source_poll.py' -v
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_retained_old_inode_poll.py' -v
+      - name: Scope of proof
+        if: always()
+        run: |
+          echo 'Only fake external files were read. Journal workspace is disposable.'
+          echo 'Original read-only fd retained across fake rename; NO automatic adoption.'
+          echo 'No owner/PM2/tmux/Auth/World files or config modified. NOT operational.'
