@@ -33,6 +33,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: "Exact head, child of #252, added-path allowlist"
+        # Frozen five-path assertion applies ONLY to the original #256 feature branch.
+        # Downstream PRs retain every inherited synthetic regression step.
+        if: >-
+          (github.event_name == 'pull_request' && github.head_ref == 'claude/cs03-f15-integrated-disposable-20261031') ||
+          (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/claude/cs03-f15-integrated-disposable-20261031')
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
