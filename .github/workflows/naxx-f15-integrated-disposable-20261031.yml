@@ -115,9 +115,10 @@ jobs:
               ('      - name: "CS01 #259 fake old-inode rotation tests (child branch only)"', '      - name: Scope of proof'),
           ]
           for start, stop in pieces:
-              assert now.count(start) == 1 and now.count(stop) == 1
-              left = now.index(start)
-              right = now.index(stop, left)
+              # Anchor real YAML step lines, not the quoted marker text in this checker.
+              assert now.count("\\n" + start + "\\n") == 1 and now.count("\\n" + stop + "\\n") == 1
+              left = now.index("\\n" + start + "\\n") + 1
+              right = now.index("\\n" + stop + "\\n", left) + 1
               now = now[:left] + now[right:]
           assert now == before, "Inherited #256 workflow changed outside the two named child-only steps"
           print("PASS: exact six paths; two inherited YAML changes only; runtime untouched")
