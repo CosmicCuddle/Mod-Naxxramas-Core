@@ -10,8 +10,8 @@ This narrow test-only child is stacked on [F15 #259](https://github.com/CosmicCu
 
 `tests/f15_manual_old_inode_recovery.py` reopens a **caller-specified exact old pathname**, bounded by a separately specified approved root, after closing the original **test reader**. It does **not** scan for rotating files, follow the newly created filename, take live PM2 JSON, invoke a shell, or touch service processes. Reopen is allowed only when:
 
-- All three stream names are explicitly present and the disposable workspace has the original signed journal marker and previous checkpoint.
-- Each stream has at least one actual published and checkpointed **byte segment**, not merely a bootstrap note. The earlier bootstrap explicitly skipped history; it cannot attest the skipped bytes.
+- Each of the three original stream names is explicitly accounted for as **either** an old-file candidate **or** a bootstrap-only quarantined stream; no stream is omitted or assigned both roles. The disposable workspace retains its original signed journal marker and journal/checkpoints.
+- Every **recovered** stream has at least one actual published and checkpointed **byte segment**, not merely a bootstrap note. A quarantined stream must have exactly one original bootstrap-skip note and NO additional published records; the earlier bootstrap explicitly skipped history, so its bytes cannot be attested and its old source is never reopened.
 - The source is reached through the existing directory-relative no-symlink open, remains a regular file with one hard link, and matches the journal's **device/inode/offset**.
 - The final contiguous journal segment at that checkpoint matches the bytes at the same offset in that source file; a truncation, changed anchor, unexpected old inode or shared physical stream fails closed.
 - The source descriptor remains read-only. New post-recovery bytes go through **the exact existing** `IntegratedRunner.poll`, journal/checkpoint and UTC-day seal.
