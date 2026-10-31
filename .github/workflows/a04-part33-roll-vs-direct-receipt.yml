@@ -73,13 +73,44 @@ jobs:
           set -euo pipefail
           python3 -I -B scripts/check_a04_roll_receipt_contract.py --core "$A04_PIN_CORE" | tee /tmp/group-receipt-source.txt
           grep -Fxq 'A04 GROUP ROLL vs DIRECT RECEIPT: PASS (pinned source only)' /tmp/group-receipt-source.txt
-      - name: Eighteen real-source group-roll negative mutants
+      - name: Twenty real-source roll and pre-award hook negative/positive checks
         shell: bash
         working-directory: module
         run: |
           set -euo pipefail
           python3 -I -B tests/test_a04_roll_receipt_contract.py -v 2>&1 | tee /tmp/group-roll-tests.txt
-          grep -Eq '^Ran 18 tests in [0-9.]+s$' /tmp/group-roll-tests.txt
+          grep -Eq '^Ran 20 tests in [0-9.]+s
+          grep -Fxq 'OK' /tmp/group-roll-tests.txt
+          ! grep -Eq '^FAILED|^ERROR:|^FAIL:|skipped' /tmp/group-roll-tests.txt
+      - name: Do NOT regress prior H1 direct positive receipt source proof
+        shell: bash
+        working-directory: module
+        run: |
+          set -euo pipefail
+          python3 -I -B scripts/check_a04_positive_receipt_contract.py --core "$A04_PIN_CORE" | tee /tmp/direct-source.txt
+          grep -Fxq 'A04 POSITIVE DIRECT RECEIPT SOURCE CONTRACT: PASS (no runtime)' /tmp/direct-source.txt
+          python3 -I -B tests/test_a04_positive_receipt_contract.py -v 2>&1 | tee /tmp/direct-tests.txt
+          grep -Eq '^Ran 14 tests in [0-9.]+s$' /tmp/direct-tests.txt
+          grep -Fxq 'OK' /tmp/direct-tests.txt
+          ! grep -Eq '^FAILED|^ERROR:|^FAIL:|skipped' /tmp/direct-tests.txt
+      - name: Preserve original 30-category no-write H1/H2 classifier tests
+        shell: bash
+        working-directory: module
+        run: |
+          set -euo pipefail
+          python3 -I -B tests/test_a04_incident_triage_part29.py -v 2>&1 | tee /tmp/triage-tests.txt
+          grep -Eq '^Ran 30 tests in [0-9.]+s$' /tmp/triage-tests.txt
+          grep -Fxq 'OK' /tmp/triage-tests.txt
+          ! grep -Eq '^FAILED|^ERROR:|^FAIL:|skipped' /tmp/triage-tests.txt
+      - name: "Boundaries: offline public source, no item award policy or host"
+        if: always()
+        run: |
+          echo 'Source checks only: native direct/NEED/GREED callbacks, pre-store misnamed AfterCreatureLoot and distinct mail fallback.'
+          echo 'Offline candidates are skipped in this public roll loop, not proof of custom installed fork behaviour.'
+          echo 'Source parser not runtime C++; no owner item/quest/NPC IDs, logs, packets or private state.'
+          echo 'No C++ modifications, observers, SQL/DBC, configuration ON, server/client or deployment.'
+          echo 'H1/H2 private receipt and sparkles unverified; 0/5 owner-accepted gameplay.'
+ /tmp/group-roll-tests.txt
           grep -Fxq 'OK' /tmp/group-roll-tests.txt
           ! grep -Eq '^FAILED|^ERROR:|^FAIL:|skipped' /tmp/group-roll-tests.txt
       - name: Do NOT regress prior H1 direct positive receipt source proof
