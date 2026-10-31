@@ -1,4 +1,6 @@
-# P1 + P2 — first controlled gameplay test card (NOT AUTHORISED YET)
+# P1 + P2 — component acceptance card for the unified FOUR-part test (NOT AUTHORISED YET)
+
+**Owner sequencing decision — 31 October 2026:** CosmicCuddle will test this module only **after all FOUR prioritized workstreams are ready together**: Warlock, Hunter ammunition, functional F15 crash/World+Auth console archiving with protected 30-day retention, and both A04 human quest-loot H1/H2 problems. This P1/P2 card is **one component of the combined acceptance pack**, **NOT** a request for an earlier isolated game test. F15 must also receive separate server-side/operational acceptance, because it cannot be tested wholly inside WoW. Offline code/CI/integration work may continue. Read [owner decision and joint gates](https://github.com/CosmicCuddle/Naxxramas-Server-Coordination/issues/4#issuecomment-6542213162). The earlier “P1/P2 first” staging suggestion is superseded; explicit test installation/backup/restore approval is still required.
 
 **31 October 2026 — concise owner-facing reference.** This is an acceptance worksheet, **not** an instruction to pull, recompile, enable configuration, launch a test, or alter character inventory. [Module master status #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28) remains authoritative; [Maintenance/Information readiness #4](https://github.com/CosmicCuddle/Naxxramas-Server-Coordination/issues/4) owns the installed-source and safety gates.
 
