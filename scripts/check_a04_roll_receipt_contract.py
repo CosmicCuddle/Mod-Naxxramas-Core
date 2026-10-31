@@ -14,12 +14,15 @@ PLAYER = "src/server/game/Entities/Player/Player.cpp"
 BASE_H = "src/server/game/Scripting/ScriptDefines/PlayerScript.h"
 BASE_CPP = "src/server/game/Scripting/ScriptDefines/PlayerScript.cpp"
 MANAGER_H = "src/server/game/Scripting/ScriptMgr.h"
-PATHS = (GROUP, PLAYER, BASE_H, BASE_CPP, MANAGER_H)
+HANDLER = "src/server/game/Handlers/LootHandler.cpp"
+PATHS = (GROUP, PLAYER, BASE_H, BASE_CPP, MANAGER_H, HANDLER)
 
 DIRECT = "sScriptMgr->OnPlayerLootItem(this, newitem, item->count, this->GetLootGUID());"
 ROLL_NEED = "sScriptMgr->OnPlayerGroupRollRewardItem(player, _item, item->count, NEED, roll);"
 ROLL_GREED = "sScriptMgr->OnPlayerGroupRollRewardItem(player, _item, item->count, GREED, roll);"
 STORE_ROLL = "Item* _item = player->StoreNewItem(dest, roll->itemid, true, item->randomPropertyId, looters);"
+PRE_RECEIPT_NAMED_HOOK = "sScriptMgr->OnPlayerAfterCreatureLoot(player);"
+NATIVE_STORE = "LootItem* lootItem = player->StoreLootItem(lootSlot, loot, msg);"
 MAIL = "SendRollWonItemViaMail(player, item, roll->itemid);"
 MAIL_GUARD = ("if (msg == EQUIP_ERR_INVENTORY_FULL && "
               "(mailOnFull == MAIL_ITEM_ON_FULL_INVENTORY_EVERYWHERE || "
@@ -127,10 +130,27 @@ def check_api(h, impl, mgr):
             "S3_ROLL_DISPATCH_GUARD_DRIFT")
 
 
+def check_native_handler(source):
+    """The misleadingly named AfterCreatureLoot callback is PRE-store.
+
+    Do not use this void hook as positive H1 item-receipt evidence. The
+    separately checked Player::OnPlayerLootItem and Group roll callbacks
+    are the successful online reward witnesses, not a universal veto.
+    """
+    fn = block(source, "void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket& recvData)")
+    require(fn.count(PRE_RECEIPT_NAMED_HOOK) == 1,
+            "H1_PREAWARD_HOOK_MISSING_OR_DUPLICATED")
+    require(fn.count(NATIVE_STORE) == 1,
+            "H1_NATIVE_ITEM_STORE_CALL_DRIFT")
+    require(fn.index(PRE_RECEIPT_NAMED_HOOK) < fn.index(NATIVE_STORE),
+            "H1_PREAWARD_ORDER_CHANGED")
+
+
 def check(sources):
     require(set(sources) == set(PATHS), "F1_SOURCE_FIXTURE_MISSING_OR_EXTRA")
     check_group(sources[GROUP])
     check_player(sources[PLAYER])
+    check_native_handler(sources[HANDLER])
     check_api(sources[BASE_H], sources[BASE_CPP], sources[MANAGER_H])
     return "A04 GROUP ROLL vs DIRECT RECEIPT: PASS (pinned source only)"
 
