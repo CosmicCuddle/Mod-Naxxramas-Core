@@ -1,0 +1,70 @@
+name: "F15 manual old-inode reopen, disposable only"
+
+on:
+  pull_request:
+    branches:
+      - test/cs01-f15-retained-old-inode-drain-20261031
+    paths:
+      - tests/f15_manual_old_inode_recovery.py
+      - tests/test_f15_manual_old_inode_recovery.py
+      - docs/research/F15-MANUAL-OLD-INODE-REOPEN.md
+      - .github/workflows/naxx-f15-manual-old-reopen-20261031.yml
+      - .github/workflows/naxx-f15-integrated-disposable-20261031.yml
+
+permissions:
+  contents: read
+
+jobs:
+  manual-old-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Exact reviewed PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Nonroot source-only disposable tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          git diff --check 8259071de5b7c1604f18a441999b5bfa3577ba8e HEAD
+          git merge-base --is-ancestor 8259071de5b7c1604f18a441999b5bfa3577ba8e HEAD
+          git diff --quiet 8259071de5b7c1604f18a441999b5bfa3577ba8e HEAD -- src conf data tools
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base = "8259071de5b7c1604f18a441999b5bfa3577ba8e"
+          rows = subprocess.check_output(["git","diff","--name-status",base,"HEAD"],text=True).splitlines()
+          actual = {tuple(row.split("\t")) for row in rows}
+          expected = {
+              ("A","tests/f15_manual_old_inode_recovery.py"),
+              ("A","tests/test_f15_manual_old_inode_recovery.py"),
+              ("A","docs/research/F15-MANUAL-OLD-INODE-REOPEN.md"),
+              ("A",".github/workflows/naxx-f15-manual-old-reopen-20261031.yml"),
+              ("M",".github/workflows/naxx-f15-integrated-disposable-20261031.yml"),
+          }
+          assert actual == expected, (actual,expected)
+          p = ".github/workflows/naxx-f15-integrated-disposable-20261031.yml"
+          original = subprocess.check_output(["git","show",base+":"+p],text=True)
+          current = Path(p).read_text()
+          first = "\n" + '      - name: "CS01 F15 #261 exact five-file scope and manual old-inode recovery"' + "\n"
+          last = "\n" + "      - name: Not root (so the unreadable-source test runs)" + "\n"
+          assert current.count(first)==1 and current.count(last)==1
+          i=current.index(first)
+          j=current.index(last,i)
+          assert current[:i]+current[j:]==original, "inherited F15 workflow changed outside new test-only step"
+          print("PASS: four new paths, one exact inherited CI step, NO runtime changes")
+          PY
+          test "$(id -u)" != 0
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_source_admission.py' -v
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_consented_source_poll.py' -v
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_retained_old_inode_poll.py' -v
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_manual_old_inode_recovery.py' -v
+      - name: Truthful boundary
+        if: always()
+        run: |
+          echo "Only fake filenames were supplied. Same disposable workspace, reader reopened."
+          echo "No old unlink recovery, owner files, tmux PTY, production collector or persistent archives."
