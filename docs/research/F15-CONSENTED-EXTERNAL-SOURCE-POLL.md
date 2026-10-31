@@ -1,6 +1,6 @@
 # F15 — consented external-file polling into disposable journal (DRAFT / test-only)
 
-**Owner:** CosmicCuddle. **Integration:** CS01 Server-Side-Maintenance.  
+**Owner:** CosmicCuddle. **Integration:** CS01 Server-Side-Maintenance.
 **Base:** [F15 source-admission DRAFT #257](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/257) exact `31107fb9400a57e56238cdca8a0911cb08c077b7`. This branch is **stacked** on #257 and therefore indirectly on Claude's untouched [synthetic #256](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/256) and the #249–#252 research chain.
 
 **Not installed. Not authorised for execution on CosmicCuddle's live host. Not a production collector.** No CLI/daemon, launcher/service, scheduler, PM2/tmux invocation, remote source, runtime Core, or owner-host integration.
