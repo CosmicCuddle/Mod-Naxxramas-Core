@@ -11,6 +11,15 @@ on:
       - .github/workflows/naxx-f15-retained-old-inode-20261031.yml
       - .github/workflows/naxx-f15-consented-source-poll-20261031.yml
 
+  push:
+    branches:
+      - test/cs01-f15-retained-old-inode-drain-20261031
+    paths:
+      - tests/f15_retained_old_inode_poll.py
+      - tests/test_f15_retained_old_inode_poll.py
+      - docs/research/F15-RETAINED-OLD-INODE-TAIL.md
+      - .github/workflows/naxx-f15-retained-old-inode-20261031.yml
+
 permissions:
   contents: read
 
@@ -26,7 +35,7 @@ jobs:
       - name: Checkout exact PR head, never base or mutable default
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Four new paths and one exact inherited CI-scope edit
@@ -34,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           BASE=c908304ff7248faf852f2e61f16dbe4bc08ce3f2
-          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           git merge-base --is-ancestor "$BASE" HEAD
           git diff --check "$BASE" HEAD
           git diff --quiet "$BASE" HEAD -- src conf data tools
