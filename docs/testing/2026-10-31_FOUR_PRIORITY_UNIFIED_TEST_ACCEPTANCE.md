@@ -1,0 +1,94 @@
+# Module P1–P4 unified staged-test acceptance and evidence sheet
+
+**Date:** 31 October 2026. **Owner/final approval:** CosmicCuddle. **Prepared by:** Server-Side-Information. **Status:** DRAFT, **NOT APPROVAL TO TEST** and **NOT proof of readiness**. Tracks the owner's required **one coordinated four-priority test milestone**; read with [Issue #28](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/28), [shared Issue #4](https://github.com/CosmicCuddle/Naxxramas-Server-Coordination/issues/4) and [Part 46 handover](../HANDOVERS/2026-10-31_PART45_TO_PART46.md). This is a *future acceptance contract*, not instructions to run anything now.
+
+## 0. Why a single sheet?
+
+P1 second Warlock portal, P2 controlled Hunter Altbot ammo, P3 genuinely operational World/Auth console/crash archives and P4 both human quest-loot symptoms are **non-substitutable**. Historical pinned native link/CI, source guards, disposable Python/C++ models, a passed template-data join, an open draft and a developer claim occupy different evidence states. Never label a feature "tested in game" without owner-observed real behavior.
+
+- **S0 — Draft/source exists:** exact source/feature revision and unaffected custom systems identified.
+- **S1 — Offline checks:** exact source guards, negative tests and native compile/link as appropriate; note pinned historical vs installed source.
+- **S2 — Integration candidate:** approved source combination has no conflicting old overrides or shared-hook collisions; **P3 also requires a real collector candidate, not a temporary test runner**.
+- **S3 — Restore-ready:** current installed Core, Playerbots, Individual Progression, module/dirty changes, custom DBC, effective config/SQL and `MapUpdate.Threads=8` recorded; dated backups and non-destructive restore verification documented. A private owner `acore_world` ZIP **is not** a current-character backup or restore proof.
+- **S4 — Owner-approved staged test:** explicit permission for exact time, account/character(s), feature toggles and rollback. Do not pull, merge, compile, restart, query a live DB, change logs/launchers or edit inventory before this.
+- **S5 — Real outcome:** recorded actual owner gameplay/operational result (pass/fail/inconclusive) and independent regression. S1 green **never** becomes S5 by inference.
+
+**Release/readiness gates are per-priority.** If any one remains short of S3, do not request a partial early P1/P2 owner gameplay test. Even four S3 candidates are **not** permission to begin S4. Optional GFPP, EPL and other ready features may be included only separately, after these four, with independent opt-ins and no new blocker imposed.
+
+## 1. Preflight record (Maintenance prepares; owner approves later)
+
+| Evidence | Required before S4 | Status as of 31 Oct |
+|---|---|---|
+| Exact working-tree SHAs and dirty state | AzerothCore fork, Playerbots, IP, Mod, and any affected addons/config scripts; compare with historical build pins | **UNVERIFIED CURRENT INSTALLED** |
+| Complete chosen source integration | P1 #248 safe 61994 opt-in **instead of** older #160's native 23598 fallthrough; P2 conservative Hunter supply / diagnostic-only #254; actual F15 collector; A04 native item-aware fix/tests | **NOT ASSEMBLED/APPROVED** |
+| Data and effective config | DB schema/templates/selected affected rows from an owner-approved offline snapshot, custom DBC revisions, true running options including exactly 8 map threads | **NOT CERTIFIED INSTALLED** |
+| Backup / rollback rehearsal | Binary, source+custom diffs, effective config, world/characters as affected, scripts, DBC; separate recovery copy and tested restore | **NOT VERIFIED** |
+| Permissions and scope | Realistic disposable test accounts/bots, isolated/test window, no unapproved production host changes, explicit owner go-ahead | **NOT GRANTED** |
+| Logging stability | Verify any collector cannot alter World stdin/PM2 behavior or Auth tmux, and cannot delete original logs, backups, `Crash-History.txt` or foreign archives | **NOT OPERATIONAL** |
+
+Never post private logs, character/account data, live DB rows, private server addresses, credentials or full PM2 snapshots to public coordination Issues. Use redacted fingerprints/evidence classes and secure private handling.
+
+## 2. P1 — Warlock second-stage ritual (Issue #84; draft #248)
+
+**Historical source candidate, NOT a resolved owner gameplay failure.** True end-to-end success means the distant summoned player **arrives**, not just that a spell was requested.
+
+| Trial | Owner-approved future operation | Required result |
+|---|---|---|
+| P1-A valid ritual | A legitimate Vanilla-phase Warlock casts ritual 698 with two eligible helpers; observe first GO18 ritual completion, second GO194097/type23 created by 61993, eligible selected distant target, helper clicks | **Spell61994 actually accepts/starts its channel**, GO179944 appears when appropriate, target receives and **accepts** the final summon request and **arrives at the correct location**. Record any cast errors or cooldowns. |
+| P1-B rejection | Invalid/self/ungrouped/underlevel/unavailable target, non-Warlock helper, repeated rapid click, and mounted helper as permitted by normal mechanics | No unauthorised summon, accidental 23598 native cast, double ritual, crash or bypass of legitimate group/level/cooldown requirements. A non-Warlock helper must not be rejected merely for class where stock mechanics permit. |
+| P1-C ordinary Meeting Stones | Vanilla-stage dungeon stone plus allowed later-era progression under existing normal group and level rules; pilot OFF control | Original dungeon/progression restrictions preserved; pilot disabled = unchanged original behavior. |
+
+**STOP/ROLLBACK if:** a normal dungeon stone is unlocked globally, wrong-target request arrives, mounted/cooldown bypass appears, summon is duplicated, or there is any map-thread crash. **Do not** silently turn on `NaxxramasCore.WarlockRitual.SecondStagePilot.Enabled` without review.
+
+## 3. P2 — Hunter Altbot ammunition (Issue #31; draft #254)
+
+**Source-verified, but no positive owner bag+firing pass.** Main `HunterAmmoProvision.cpp` checks world/alive/Hunter, `IsAltBot()`, equipped non-broken ranged weapon, actual ammo compatibility, effective cap and complete bag capacity. It adds to bags only; it **does not** set `PLAYER_AMMO_ID`, equip ammo, mail it or grant items outside the explicitly invoked preparation command.
+
+| Trial | Test input | Required result |
+|---|---|---|
+| P2-A arrow positive | Eligible controlled Hunter Altbot, bow/crossbow, selected **Jagged Arrow11285**, legal level ≥40, sufficiently empty bags; record before/after original and supplied quantity | Only approved item enters **Altbot bags** until bounded selected target; no ammo auto-equip or replacement. Perform actual ranged shot: correct selected arrows consumed. If target count is 600, compare observed count, not a log-only "ADDED" message. |
+| P2-B bullet positive | Separate eligible controlled Hunter Altbot with gun, selected **Accurate Slugs11284**, legal level ≥40 | Compatible bullets only, observed bag delta and actual firing/consumption. No arrows minted for gun. |
+| P2-C expected rare denial | Owner-reported **Bloodseeker crossbow19107** with **Doomshot12654** selected | This rare arrow remains in the player's possession but **is NOT automatically duplicated**, and the skip reason is accurate. This is a *correct rejection*, not a weapon failure. |
+| P2-D no-selection/fail-closed | Empty selection, no pet, invalid/broken weapon, full bags, repeat or cooldown, ordinary human Hunter and RandomBot Hunter | Empty selection may receive only a legal vendor **bag-only** fallback but not auto-select; no pet alone does not establish supply suppression in main source; invalid weapon/full bag means no unsafe grant; no grants to humans/RandomBots; no cooldown bypass. |
+
+**Safe source defaults:** `NaxxramasCore.BotConsumables.HunterAmmo.Enabled=0`, `AllowSelectedNonVendor=0`; ceiling in reviewed pure source is bounded 1..1000. Source references: [actual HunterAmmoProvision.cpp](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/blob/80e9de1c39a6dc995188a80c31a5e785d0f2a6f9/src/Systems/HunterAmmoProvision.cpp), [HunterAmmoSelection.h](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/blob/80e9de1c39a6dc995188a80c31a5e785d0f2a6f9/src/Systems/HunterAmmoSelection.h). **STOP** for rare ammunition grant, wrong subclass, human grant, inventory damage or uncontrolled repeated minting. Counts/inventory are owner-private, not public Issue attachments.
+
+## 4. P3 — F15 World/Auth consoles and crash evidence (Issue #143; stacked #256–#259)
+
+**Hard requirement:** one operational, durable and non-invasive collector with next-day readable timestamped World/Auth console archives, truthful crash/stop evidence, and 30-day safe retention. A module Worldserver recompile by itself **does not** install this.
+
+| Trial | Source-matched future test | Required result |
+|---|---|---|
+| P3-A continuous capture/day boundary | Real approved World PM2 out and err plus verified Auth *console* stream; stop/clear scrolling/rollover in a safe test window | Existing emitted output continues to be preserved as produced, separate appropriately labelled archive files; yesterday's file remains readable next day with truthful observation-time stamps. Native Auth file alone cannot be called complete tmux PTY transcript without parity proof. |
+| P3-B ordinary lifecycle | Normal operator-managed World/Auth graceful stop/restart and supervisor/collector restart; UTC midnight, idle period, source rotation | No duplicate/omitted captured spans unless honestly labelled gap; original PM2/Auth logs unchanged; no interference with World stdin, active tmux or launcher; old rotated inode tail handled or clearly reported as incomplete. No fake process-death proof from an in-process exception test. |
+| P3-C crash evidence | A real **observed** incident if one naturally occurs; safe offline synthetic crash fixtures separately | Normal stop must not be labelled crash. Crash attribution must cite actual exit/signal/source evidence and preserve preceding available lines; never intentionally crash owner realm just to satisfy this trial. |
+| P3-D bounded archive retention | Disposable simulated timestamps and owner-approved limited dry run of candidate deletion, separate from live retention enablement | Only **collector-owned, verified, closed** console archives older than 30 × 24 hours are eligible, with symlink/hardlink, rename/race, modified content and foreign-file checks. No originals, backups, crash history, user files, open/young archives deleted. Storage quotas, permissions and loss behavior safe. |
+
+**Current proof boundary:** #256 is a single-journal **temporary** synthetic runner, #257 source admission, #258 fake external-descriptor ingress, #259 held-original-inode fake rotation **only while the reader stays alive**. Recorded hosted tests succeeded, but there is **no proven operational daemon, surviving old-inode crash handoff, real Auth PTY, production archive retention or crash diagnosis**. [Latest F15 #259](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/259). **STOP** on lost or mislabelled data, unsafe log access, unsigned/foreign archive deletion or supervisor interference.
+
+## 5. P4 — A04 two-human quest loot (Issue #109; Claude native fixture assigned/ACK pending)
+
+Use [full existing A04 T0–T6 worksheet](../A04-P4-BANKED-QUEST-LOOT-REGRESSION-FIXTURE.md); this summary prevents a false success claim. **Primary historical** quest 922/item5168/mob2030, fallback quest71/item735/mob46/515/735; both candidates also matched relevant **read-only private offline export** rows. Neither proves actual legal banking or live current-DB equivalence.
+
+| Trial | Required observation |
+|---|---|
+| P4-A genuine entitlement | Two actual human-controlled characters (not bot surrogates) under a legal grouped shared one-quest-item corpse: rightful A must see Q and receive exactly one; no duplicate. Record real recipient and before/after bags/mail, not just source flags. |
+| P4-B view-only interference H2 | A has loot row open; B's viewing (with Q in bank under validated quest state) must **not** globally consume Q or strand A's visible slot; reverse open order must preserve A's right. Corpse sparkle and actionable locked rows must reflect *real* remaining per-viewer entitlements. |
+| P4-C changed inventory H2 | After corpse creation, B moves previously banked Q back into bags through allowed route; stale cached quest item must not show B a misleading collectable row while preserving A. Distinguish displayed sparkle from actual pickup. |
+| P4-D real wrong-human award H1 | Independently verify the original wrong-human **actual successful receipt** symptom and prove the proposed fix rejects only unauthorised pickup, **without blocking valid group sharing**. Do NOT infer H1 from a view-only branch or decide owner policy A/B/C without explicit selection. |
+| P4-E ordinary loot | Gold, Master Loot, need/greed rolls, unrelated FFA/MULTI_DROP, skinning, quest count updates and allowed shared awards remain correct. The optional two-needed-item bank accounting test requires whole-slot `SwapItem`, not substituted `SplitItem`. |
+
+**Gate:** Claude must ACK the assigned actual-source C++ fixture [Issue #143](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143#issuecomment-6546297859); source-matched fail-before/fix-after, source compatibility and distinct H1/H2 tests required before owner staging. A distilled model does not count as native Core execution. **STOP** for unauthorised item receipt, denied valid loot, duplicate grant, stale sparkle or corrupted original loot rights.
+
+## 6. One concise future test record — no repeated typing
+
+When *and only when* each priority reaches owner-approved S4, Maintenance should pre-fill the source/config/backup cells. CosmicCuddle can supply short **PASS / FAIL / SKIPPED / INCONCLUSIVE** results, with screenshots where necessary; never demand repeated long terminal output. Retain the full evidence privately.
+
+| Priority | Tested on exact revision? | Safe source/backup gate? | Owner authorised? | Observed PASS/FAIL/INCONCLUSIVE | Regression/rollback verified? |
+|---|---|---|---|---|---|
+| P1 Warlock | UNKNOWN | NO | NO | NOT RUN | NO |
+| P2 Hunter | UNKNOWN | NO | NO | NOT RUN | NO |
+| P3 F15 operational | NO | NO | NO | NOT RUN | NO |
+| P4 A04 human H1/H2 | NO | NO | NO | NOT RUN | NO |
+
+**Final rule:** No individually green test/CI/job, release draft, downloaded ZIP or successful historical full build changes this table without **specific owner-authorised installed-source and observed in-game/operational evidence**. No production change or owner test has been carried out by this worksheet.
