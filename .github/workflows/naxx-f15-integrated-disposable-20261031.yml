@@ -123,6 +123,46 @@ jobs:
           assert now == before, "Inherited #256 workflow changed outside the two named child-only steps"
           print("PASS: exact six paths; two inherited YAML changes only; runtime untouched")
           PY
+      - name: "CS01 F15 #261 exact five-file scope and manual old-inode recovery"
+        if: github.event_name == 'pull_request' && github.head_ref == 'test/cs01-f15-manual-rotated-reopen-20261031'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=8259071de5b7c1604f18a441999b5bfa3577ba8e
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          git merge-base --is-ancestor "$BASE" HEAD
+          git diff --check "$BASE" HEAD
+          git diff --quiet "$BASE" HEAD -- src conf data tools
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          b="8259071de5b7c1604f18a441999b5bfa3577ba8e"
+          rows=subprocess.check_output(["git","diff","--name-status",b,"HEAD"],text=True).splitlines()
+          actual={tuple(row.split("\t")) for row in rows}
+          expected={
+              ("M",".github/workflows/naxx-f15-integrated-disposable-20261031.yml"),
+              ("A",".github/workflows/naxx-f15-manual-old-reopen-20261031.yml"),
+              ("A","docs/research/F15-MANUAL-OLD-INODE-REOPEN.md"),
+              ("A","tests/f15_manual_old_inode_recovery.py"),
+              ("A","tests/test_f15_manual_old_inode_recovery.py"),
+          }
+          assert actual==expected,(actual,expected)
+          path=".github/workflows/naxx-f15-integrated-disposable-20261031.yml"
+          original=subprocess.check_output(["git","show",b+":"+path],text=True)
+          changed=Path(path).read_text()
+          start='\n      - name: "CS01 F15 #261 exact five-file scope and manual old-inode recovery"\n'
+          stop='\n      - name: Not root (so the unreadable-source test runs)\n'
+          assert changed.count(start)==1 and changed.count(stop)==1
+          i=changed.index(start)
+          j=changed.index(stop,i)
+          assert changed[:i]+changed[j:]==original,"parent CI altered beyond new child-only step"
+          print("PASS: exactly four files added, one CI-only insertion; no runtime changes")
+          PY
+          test "$(id -u)" != 0
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_source_admission.py' -v
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_consented_source_poll.py' -v
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_retained_old_inode_poll.py' -v
+          python3 -I -B -W error -m unittest discover -s tests -p 'test_f15_manual_old_inode_recovery.py' -v
       - name: Not root (so the unreadable-source test runs)
         run: test "$(id -u)" != 0
       - name: Inherited suites unchanged (38 policy + 29 filesystem + 10 negative + 24 journal)
