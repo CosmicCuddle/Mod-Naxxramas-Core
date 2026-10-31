@@ -1,0 +1,86 @@
+name: "F15 integrated disposable runner (synthetic, NO HOST)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - "tools/f15/**"
+      - "tests/f15_**"
+      - "tests/test_f15_**"
+      - "docs/research/F15-INTEGRATED-DISPOSABLE-RUNNER.md"
+      - ".github/workflows/naxx-f15-integrated-disposable-20261031.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f15-integrated-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_252: 90e269d4f43bb653ec7979ec7a0a55e713ef8809
+
+jobs:
+  integrated-synthetic:
+    name: "Inherited 101 + integrated runner + mutants"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact head, child of #252, added-path allowlist
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git merge-base --is-ancestor "$BASE_252" HEAD
+          git diff --quiet "$BASE_252" HEAD -- src conf data tools
+          python3 - <<'PY'
+          import os, subprocess
+          base = os.environ["BASE_252"]
+          rows = subprocess.check_output(["git", "diff", "--name-status", base, "HEAD"], text=True).splitlines()
+          actual = {tuple(r.split("\t")) for r in rows}
+          allowed = {("A", p) for p in (
+              "tests/f15_integrated_disposable_runner.py",
+              "tests/test_f15_integrated_disposable_runner.py",
+              "tests/f15_integrated_runner_mutants.py",
+              "docs/research/F15-INTEGRATED-DISPOSABLE-RUNNER.md",
+              ".github/workflows/naxx-f15-integrated-disposable-20261031.yml",
+          )}
+          assert actual == allowed, (actual, allowed)
+          print("PASS: five added test/doc/CI paths; #249-#252 files and runtime source unchanged")
+          PY
+      - name: Not root (so the unreadable-source test runs)
+        run: test "$(id -u)" != 0
+      - name: Inherited suites unchanged (38 policy + 29 filesystem + 10 negative + 24 journal)
+        run: |
+          set -euo pipefail
+          for pair in "test_f15_console_archive_policy.py:38" "test_f15_archive_disposable_filesystem.py:29" \
+                      "test_f15_disposable_crash_gap_contract.py:10" "test_f15_atomic_journal_disposable.py:24"; do
+            file="${pair%%:*}"; n="${pair##*:}"
+            python3 -I -B -W error "tests/$file" -v > "/tmp/$file.txt" 2>&1 || { cat "/tmp/$file.txt"; exit 1; }
+            grep -Eq "^Ran $n tests in [0-9.]+s\$" "/tmp/$file.txt"
+            grep -qx OK "/tmp/$file.txt"
+          done
+      - name: Integrated runner, 45 end-to-end tests, no skips
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error tests/test_f15_integrated_disposable_runner.py -v > /tmp/runner.txt 2>&1 || { cat /tmp/runner.txt; exit 1; }
+          cat /tmp/runner.txt
+          grep -Eq '^Ran 45 tests in [0-9.]+s$' /tmp/runner.txt
+          grep -qx OK /tmp/runner.txt
+          ! grep -Eq 'skipped|^FAILED|^ERROR:' /tmp/runner.txt
+      - name: Must-fail mutants (10)
+        run: |
+          set -euo pipefail
+          python3 -I tests/f15_integrated_runner_mutants.py | tee /tmp/mutants.txt
+          grep -qx '10/10 mutants caught' /tmp/mutants.txt
+      - name: Scope of proof
+        if: always()
+        run: |
+          echo "All file writes and deletes happened inside runner-owned TemporaryDirectory workspaces."
+          echo "Synthetic test fixture only: not a collector, not a service, not operational F15, not crash diagnosis."
+          echo "No PM2, tmux, launcher, Worldserver, Authserver, SQL, database, owner file or host touched."
