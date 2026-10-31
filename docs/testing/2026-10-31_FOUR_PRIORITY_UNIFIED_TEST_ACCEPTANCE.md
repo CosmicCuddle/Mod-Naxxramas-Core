@@ -32,6 +32,9 @@ Never post private logs, character/account data, live DB rows, private server ad
 
 **Historical source candidate, NOT a resolved owner gameplay failure.** True end-to-end success means the distant summoned player **arrives**, not just that a spell was requested.
 
+**New read-only offline world-template cross-check:** the owner-provided private **offline** `acore_world` export contains exactly one matching row each for the already-known first GO **194108/type18** (`Data0=3` required participants, `Data1=62330`), second GO **194097/type23** (`Data0=1` minimum level, `Data1=300` **maximum level**, `Data2=0` area), and final GO **179944/type18** (`Data0=2` participants, `Data1=7720`, `Data2=32783`). The **type23 field interpretation is directly verified from the exact [pinned Grimfeather Core `GameObjectData.h`](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/src/server/game/Entities/GameObject/GameObjectData.h)**. **Do not mistake 300 for a cooldown.** The actual click cooldown, current installed DB, SpellInfo, 61994 channel and remote arrival remain unverified. The private source dump itself and its host/file identity are **not published**; [specific P1 coordination comment](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/84#issuecomment-6546642701).
+
+
 | Trial | Owner-approved future operation | Required result |
 |---|---|---|
 | P1-A valid ritual | A legitimate Vanilla-phase Warlock casts ritual 698 with two eligible helpers; observe first GO18 ritual completion, second GO194097/type23 created by 61993, eligible selected distant target, helper clicks | **Spell61994 actually accepts/starts its channel**, GO179944 appears when appropriate, target receives and **accepts** the final summon request and **arrives at the correct location**. Record any cast errors or cooldowns. |
