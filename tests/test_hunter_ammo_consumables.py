@@ -98,6 +98,42 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertIn("ITEM_CLASS_PROJECTILE", PROVISION)
         self.assertIn("ItemLevel > 60", PROVISION)
 
+    def test_rejection_debug_separates_weapon_from_rare_selected_ammo(self):
+        """Read-only wording review; no actual Worldserver command execution."""
+        weapon = COMMAND.index(
+            "else if (result.status == Status::NoCompatibleRangedWeapon)"
+        )
+        selected = COMMAND.index(
+            "else if (result.status == Status::UnsupportedSelection)"
+        )
+        self.assertLess(weapon, selected)
+        self.assertIn(
+            "Hunter ammo skipped (no compatible, intact ranged weapon equipped).",
+            COMMAND[weapon:selected],
+        )
+        self.assertIn(
+            "bot->GetUInt32Value(PLAYER_AMMO_ID) != 0",
+            COMMAND[selected:selected + 1000],
+        )
+        self.assertIn(
+            "selected ammunition is outside the approved supply catalogue or level/weapon limits",
+            COMMAND[selected:selected + 1200],
+        )
+        self.assertIn(
+            "no level-eligible approved vendor ammunition available",
+            COMMAND[selected:selected + 1200],
+        )
+        self.assertNotIn(
+            "unsupported ranged weapon or selected ammunition",
+            COMMAND,
+        )
+        # The owner-observed rare Doomshot selection stays excluded.
+        self.assertNotIn("{12654,", POLICY)
+        self.assertIn("UnsupportedSelectedAmmo", POLICY)
+        self.assertIn("Status::UnsupportedSelection", PROVISION)
+        self.assertIn("ai->IsAltBot()", PROVISION)
+        self.assertNotIn("bot->SetAmmo(", COMMAND[weapon:selected + 1200])
+
     def test_hallows_end_solo_fire_config_preserved(self):
         """Ammo conf merge must keep current-main Hallow's End keys once each."""
         for key in (
