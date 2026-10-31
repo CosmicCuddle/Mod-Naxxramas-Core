@@ -175,7 +175,7 @@ class ManualOldInodeRecoveryTests(unittest.TestCase):
         self.initial()
         omitted = self.candidates()
         del omitted[ERR]
-        with self.assertRaisesRegex(AdmissionError, "three explicit"):
+        with self.assertRaisesRegex(AdmissionError, "three streams must have old candidates or explicit quiet quarantine"):
             self.restart(omitted)
 
     def test_reject_invalid_candidate_pair(self):
