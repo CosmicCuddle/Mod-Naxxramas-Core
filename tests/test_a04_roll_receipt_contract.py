@@ -156,5 +156,56 @@ class RollDirectContractTests(unittest.TestCase):
         self.denied(d, "H1_PREAWARD_ORDER_CHANGED")
 
 
+    def test_21_master_target_store_missing_is_detected(self):
+        self.denied(
+            self.change(c.HANDLER, c.MASTER_STORE,
+                        "/* removed master recipient award */",
+                        "void WorldSession::HandleLootMasterGiveOpcode"),
+            "M1_MASTER_TARGET_STORE_CALL_DRIFT")
+
+    def test_22_master_target_eligibility_gate_removed_is_detected(self):
+        self.denied(
+            self.change(c.HANDLER, c.MASTER_ALLOWED,
+                        "/* removed target entitlement gate */",
+                        "void WorldSession::HandleLootMasterGiveOpcode"),
+            "M2_MASTER_ALLOWED_TARGET_CHECK_MISSING")
+
+    def test_23_master_target_check_moved_after_award_is_detected(self):
+        d = dict(self.src)
+        body = substitute(d[c.HANDLER], c.MASTER_ALLOWED,
+                          "/* old target entitlement gate moved */",
+                          "void WorldSession::HandleLootMasterGiveOpcode")
+        body = substitute(body, c.MASTER_STORE,
+                          c.MASTER_STORE + "\n    " + c.MASTER_ALLOWED,
+                          "void WorldSession::HandleLootMasterGiveOpcode")
+        d[c.HANDLER] = body
+        self.denied(d, "M3_MASTER_ALLOWED_CHECK_AFTER_STORE")
+
+    def test_24_master_capacity_failure_guard_removed_is_detected(self):
+        self.denied(
+            self.change(c.HANDLER, "if (msg != EQUIP_ERR_OK)",
+                        "if (false)",
+                        "void WorldSession::HandleLootMasterGiveOpcode"),
+            "M4_MASTER_INVENTORY_REJECT_CHECK_DRIFT")
+
+    def test_25_shared_store_hook_removed_is_detected(self):
+        self.denied(
+            self.change(c.STORAGE, c.STORE_NEW_HOOK,
+                        "/* removed post-store hook */",
+                        "Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update, int32 randomPropertyId, AllowedLooterSet& allowedLooters, bool refund)"),
+            "M6_POST_STORE_NEW_ITEM_HOOK_MISSING")
+
+    def test_26_shared_store_hook_moved_before_inventory_storage_is_detected(self):
+        d = dict(self.src)
+        body = substitute(d[c.STORAGE], c.STORE_NEW_HOOK,
+                          "/* moved hook from post-store location */",
+                          "Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update, int32 randomPropertyId, AllowedLooterSet& allowedLooters, bool refund)")
+        body = substitute(body, "pItem = StoreItem(dest, pItem, update);",
+                          c.STORE_NEW_HOOK + "\n        pItem = StoreItem(dest, pItem, update);",
+                          "Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update, int32 randomPropertyId, AllowedLooterSet& allowedLooters, bool refund)")
+        d[c.STORAGE] = body
+        self.denied(d, "M7_STORE_ITEM_AFTER_RECEIPT_CALLBACK")
+
+
 if __name__ == "__main__":
     unittest.main()
