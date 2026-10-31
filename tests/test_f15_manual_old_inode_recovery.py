@@ -74,10 +74,12 @@ class ManualOldInodeRecoveryTests(unittest.TestCase):
             self.runner.close()
             self.runner = None
 
-    def restart(self, candidates=None):
+    def restart(self, candidates=None, quarantined_quiet_streams=()):
         self.close_initial()
-        new = ManualOldInodeRecovery(self.workspace,
-                                     self.candidates() if candidates is None else candidates)
+        new = ManualOldInodeRecovery(
+            self.workspace,
+            self.candidates() if candidates is None else candidates,
+            quarantined_quiet_streams=quarantined_quiet_streams)
         self.runner = new
         self.addCleanup(new.close)
         return new
@@ -205,6 +207,85 @@ class ManualOldInodeRecoveryTests(unittest.TestCase):
         with old.open("ab") as f:
             f.write(b"VERY-LATE-OLD-WRITER\n")
         self.assertEqual(r.poll(OUT, at(5)).captured, b"VERY-LATE-OLD-WRITER\n")
+
+
+    def mixed_quiet_and_anchored(self, active=(OUT, AUTH)):
+        """Establish actual signed bootstrap notes for all; bytes only for active."""
+        r = self.initial(capture=False)
+        for stream in active:
+            with self.paths[stream].open("ab") as f:
+                f.write((stream + "-ANCHOR\n").encode())
+            r.poll(stream, at(2))
+        return r
+
+    def test_one_quiet_stream_explicit_quarantine_recovers_two_anchored(self):
+        self.mixed_quiet_and_anchored()
+        old = self.rotate()
+        with old.open("ab") as f:
+            f.write(b"OLD-OUT-AFTER-RESTART\n")
+        p = self.candidates({OUT: (str(old), str(self.worldroot))})
+        del p[ERR]  # no proof that stderr remained quiet
+        fresh = self.restart(p, quarantined_quiet_streams=(ERR,))
+        self.assertEqual(fresh.quarantined_streams(), (ERR,))
+        self.assertIn("no evidence of silence", fresh.recovery_label(ERR))
+        self.assertEqual(fresh.poll(OUT, at(3)).captured, b"OLD-OUT-AFTER-RESTART\n")
+        with self.assertRaisesRegex(R.FailClosed, "closed retained stream"):
+            fresh.poll(ERR, at(4))
+        with self.paths[AUTH].open("ab") as f:
+            f.write(b"AUTH-MORE\n")
+        self.assertEqual(fresh.poll(AUTH, at(5)).captured, b"AUTH-MORE\n")
+        fresh.seal_through(at(24 * 60 + 1))
+        self.assertEqual(fresh.archive_bytes(OUT, START.date()),
+                         b"Worldserver-out-ANCHOR\nOLD-OUT-AFTER-RESTART\n")
+        self.assertIsNone(fresh.archive_bytes(ERR, START.date()))
+
+    def test_two_quiet_explicit_quarantines_do_not_prevent_stdout_tail(self):
+        self.mixed_quiet_and_anchored(active=(OUT,))
+        old = self.rotate()
+        with old.open("ab") as f:
+            f.write(b"OUT-OLD\n")
+        p = {OUT: (str(old), str(self.worldroot))}
+        fresh = self.restart(p, quarantined_quiet_streams=(ERR, AUTH))
+        self.assertEqual(fresh.quarantined_streams(), tuple(sorted((ERR, AUTH))))
+        self.assertEqual(fresh.poll(OUT, at(4)).captured, b"OUT-OLD\n")
+        for stream in (ERR, AUTH):
+            with self.assertRaisesRegex(R.FailClosed, "closed retained stream"):
+                fresh.poll(stream, at(5))
+
+    def test_no_silent_quiet_skip_when_mapping_is_missing(self):
+        self.mixed_quiet_and_anchored()
+        p = self.candidates()
+        del p[ERR]
+        with self.assertRaisesRegex(AdmissionError, "three streams must"):
+            self.restart(p)
+
+    def test_quarantine_cannot_suppress_previously_anchored_journal(self):
+        self.initial()
+        p = self.candidates()
+        del p[ERR]
+        with self.assertRaisesRegex(AdmissionError, "exact bootstrap-only"):
+            self.restart(p, quarantined_quiet_streams=(ERR,))
+
+    def test_quarantine_rejects_unadopted_segment_after_publish_crash(self):
+        r = self.mixed_quiet_and_anchored(active=(OUT, AUTH))
+        with self.paths[ERR].open("ab") as f:
+            f.write(b"ERR-PUBLISHED-NOT-CHECKPOINTED\n")
+        with self.assertRaises(R.SyntheticCrash):
+            r.poll(ERR, at(3), fail_at="after-record-publish")
+        p = self.candidates()
+        del p[ERR]
+        with self.assertRaisesRegex(AdmissionError, "exact bootstrap-only"):
+            self.restart(p, quarantined_quiet_streams=(ERR,))
+
+    def test_unknown_duplicate_or_overlapping_quiet_list_rejected(self):
+        self.mixed_quiet_and_anchored()
+        p = self.candidates()
+        del p[ERR]
+        for excluded in ((ERR, ERR), ("random-stream",), (ERR, OUT)):
+            with self.subTest(excluded=excluded):
+                with self.assertRaises(AdmissionError):
+                    self.restart(p, quarantined_quiet_streams=excluded)
+
 
 
 if __name__ == "__main__":
