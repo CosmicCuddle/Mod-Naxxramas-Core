@@ -83,6 +83,29 @@ I independently read the **actual MySQL dump blobs** in `Grimfeather/azerothcore
 
 Pinned evidence files: [quest_template.sql](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/data/sql/base/db_world/quest_template.sql), [item_template.sql](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/data/sql/base/db_world/item_template.sql), [creature_template.sql](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/data/sql/base/db_world/creature_template.sql), and [creature_loot_template.sql](https://github.com/Grimfeather/azerothcore-wotlk/blob/8daffdabe9202c228e45d833c9a1d399597a15cd/data/sql/base/db_world/creature_loot_template.sql).
 
+### Exact five-table historical candidate cross-check (Part 45; executed read-only, 31 Oct)
+
+For this checkpoint Information fetched the **complete underlying Git blobs** (not just short excerpts) of all five relevant public SQL dump files from the SAME pinned `Grimfeather/azerothcore-wotlk@8daffdabe9202c228e45d833c9a1d399597a15cd`, parsed column names and both candidate records, then independently asserted their relationships/fields. **Both historical data-shape checks PASSED; no MySQL connection, server process, source C++ compile, bank move, actual drop or owner DB access occurred.**
+
+| Table | Exact pinned blob SHA |
+| --- | --- |
+| `quest_template.sql` | `9ebf71c00c7be4be350c614b05797e87effc1557` |
+| `quest_template_addon.sql` | `6438787baaf5664becd76afb87a5a61dcd659e84` |
+| `item_template.sql` | `a5f561ba1928c4b1d15a18effb73e348f64573ce` |
+| `creature_template.sql` | `899a56b0f5d7bac6536a48e038acb23ba8a70812` |
+| `creature_loot_template.sql` | `1ae8dc3607c53ee882a9d4cddc55a3942d854030` |
+
+| Historical candidate | Result | Quest prerequisite / objective | Item facts | Direct Vanilla mob drop |
+| --- | --- | --- | --- | --- |
+| **Primary:** quest **922 Rellian Greenspyre** / Q **5168 Timberling Seed** | **PASS** historical data shape | `PrevQuestID=918`; exactly 1 × 5168 required, no other item/NPC objective counts | Quest class 12; binding 4; `Flags=0`, `flagsCustom=0`; `MaxCount=0`, stackable 20, `StartQuest=0` | Elder Timberling **2030**, `lootid=2030`, `exp=0`, maxlevel 11; Q `Chance=100`, `QuestRequired=1`, `Reference=0`, `GroupId=0`, count 1 |
+| **Fallback:** quest **71 Report to Thomas** / Q **735 Rolf and Malakai's Medallions** | **PASS** historical data shape | `PrevQuestID=45`; exactly 1 × 735 required, no other item/NPC objective counts | Quest class 12; binding 4; `Flags=0`, `flagsCustom=0`; `MaxCount=1`, stackable 1, `StartQuest=0` | Murloc Forager **46**, Raider **515**, Streamrunner **735**; all `exp=0` and maxlevel 7–12; direct Q `Chance=40`, `QuestRequired=1`, `Reference=0`, `GroupId=0`, count 1 |
+
+Both also have `QuestType=2`, quest/minimum level within Vanilla, loot `LootMode=1`, and zero remaining required item/NPC objective counts in this exact pinned dataset. Their `Flags=0` excludes the `ITEM_FLAG_MULTI_DROP=0x800` stock FFA path **if the actual loaded template matches**.
+
+**Practical preference:** Start with **922/5168/2030** because its historical 100% direct drop and non-unique stackable item simplify repeated controlled tests; keep **71/735/46-or-515-or-735** as an independently verified public-source fallback, particularly if prerequisite/character selection or bankability makes 922 unsuitable. Do not scatter A04 implementation across two cases. **Neither candidate has been confirmed bankable in an actual game or verified owner snapshot**, even though the pinned `Player::CanBankItem` function has no blanket ban on quest-class items. Prerequisite quest 918 versus 45 must be handled legally; tests need *two human-controlled players*, not necessarily WoW Human-race characters.
+
+**Fastest legitimate next milestone:** CS01 can begin a **purely disposable native Core fixture on this exact pinned historical base data** if appropriate; do not postpone that public-reference baseline solely because the *separate* privately approved owner-offline database comparison is still unavailable. But do not infer actual owner-server readiness, production fix or true client visual behavior until matching installed source/DB, safe reviewer testing and later explicit owner approval. This historical data check certifies only the SQL candidate relationships, not the full A04 H1/H2 remedy.
+
 **Remaining essential checks:** First prove the candidate exists unchanged in the owner's *approved offline* world snapshot, can be accepted by two actual eligible characters, is permitted by `Player::CanBankItem` in the exact deployed Core, and yields `LootItem::freeforall=false`. Quest-item `bonding=4` and `Flags=0` **do not alone prove bankability**. The creature's original loot template or coins may include other rewards—**the zero-gold, single-Q fixture is an isolated disposable model, not a claim about the live Elder Timberling loot table**. Never edit the live quest or loot database to force the test.
 
 **Manual/source checks BEFORE accepting a candidate:** confirm Q is genuinely bankable through installed-source `Player::CanBankItem` and normal bank-slot rules; `ITEM_FLAG_MULTI_DROP` is absent, its `follow_loot_rules`, `needs_quest`, template/custom flags and quest constraints are appropriate, and no quest-item-start or class/faction exception changes the predicate. Confirm the creature is genuinely Vanilla/within cap; a direct `cl.QuestRequired=1` hit does **not** prove the mob drops only Q or guarantees a spawn/drop. In the *disposable model only*, isolate a loot object with one non-FFA Q, gold=0 and no other loot; do not mutate actual world loot tables. Record **quest ID, Q item ID, creature ID, source revision and candidate verification** in the existing #109 discussion. Until this is checked, **no specific item is certified**.
