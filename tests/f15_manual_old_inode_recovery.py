@@ -3,6 +3,7 @@
 TEST-ONLY, no CLI/service/daemon/host integration, no automatic directory scan,
 source switch or deletion. An operator supplies EVERY exact path and root in a
 disposable fixture; no real PM2/Auth file or installed realm is accessed.
+An explicitly listed bootstrap-only stream is quarantined, NOT recovered or read.
 
 The prior single journal and checkpoint remain the ONLY replay authority.
 Recovery succeeds only where its last checkpoint refers to an original inode,
@@ -11,7 +12,6 @@ durably journalled segment still matches its bytes. This is NOT authentication
 of the owner host or proof the whole file is unchanged/complete. Lost/unlinked
 old inodes cannot be recovered by a fresh process; fail closed.
 """
-import hashlib
 import os
 
 from f15_consented_source_poll import _open_consented_regular
@@ -23,26 +23,48 @@ from f15_source_admission import AdmissionError
 class ManualOldInodeRecovery(RetainedOldInodePoll):
     """Read-only explicit original-inode reattachment, not next-file handoff."""
 
-    def __init__(self, workspace, authorised_old_files):
-        # Exactly three explicit (absolute file path, approved root) pairs,
-        # NOT PM2 jlist after rotation: that describes NEW files.
-        if set(authorised_old_files) != set(STREAMS):
-            raise AdmissionError("three explicit old-source candidates required")
+    def __init__(self, workspace, authorised_old_files, *, quarantined_quiet_streams=()):
+        # Each stream MUST be explicitly accounted for: either an exact old
+        # filename/root for anchored recovery OR an explicit quarantine.
+        # Quiet bootstrap-only streams cannot be reattached without a byte
+        # anchor. A new PM2 path is NOT evidence for the rotated old inode.
+        if not isinstance(authorised_old_files, dict) or not isinstance(
+                quarantined_quiet_streams, (tuple, list, set, frozenset)):
+            raise AdmissionError("explicit old-file mapping and quiet-stream list required")
+        quiet = list(quarantined_quiet_streams)
+        excluded = set(quiet)
+        if len(quiet) != len(excluded) or excluded.difference(STREAMS) or (
+                excluded & set(authorised_old_files)):
+            raise AdmissionError("duplicate, unknown or overlapping quiet-stream quarantine")
+        if set(authorised_old_files) | excluded != set(STREAMS):
+            raise AdmissionError("three streams must have old candidates or explicit quiet quarantine")
         self._sources = {}
         self._retained = {}
+        self._quarantined_quiet = set()
         IntegratedRunner.__init__(self, workspace)
         try:
             identities = set()
             for stream in sorted(STREAMS):
+                ck = self._checkpoint(stream)
+                # Validate the WHOLE published chain, including possible
+                # unadopted segments, before quarantining or reattaching.
+                chain = list(self._validated_chain(stream))
+                if stream in excluded:
+                    # A quiet log has no captured byte proof. Quarantine only
+                    # precisely one genuine bootstrap note. Never read any
+                    # supplied old/new path or silently advance this cursor.
+                    if ck["seq"] != 1 or len(chain) != 1 or (
+                            chain[0][0].kind != "note-bootstrap-skip") or (
+                            chain[0][0].dev, chain[0][0].ino) != (ck["dev"], ck["ino"]):
+                        raise AdmissionError("quiet quarantine requires exact bootstrap-only journal")
+                    self._quarantined_quiet.add(stream)
+                    continue
                 pair = authorised_old_files[stream]
                 if not isinstance(pair, (tuple, list)) or len(pair) != 2:
                     raise AdmissionError("candidate must provide exact filename and approved root")
                 path, root = pair
-                ck = self._checkpoint(stream)
                 if ck["seq"] < 2:
                     raise AdmissionError("no recorded byte segment; cannot authenticate old prefix")
-                # Validate original journal chain BEFORE opening any candidate.
-                chain = list(self._validated_chain(stream))
                 matching = [(record, data) for record, data in chain
                             if record.seq == ck["seq"] and record.kind == "seg"]
                 if len(matching) != 1:
@@ -71,7 +93,14 @@ class ManualOldInodeRecovery(RetainedOldInodePoll):
             self.close()
             raise
 
+    def quarantined_streams(self):
+        """Explicitly NOT recovered. A seal may record an idle day, not silence proof."""
+        return tuple(sorted(self._quarantined_quiet))
+
     def recovery_label(self, stream):
+        if stream in self._quarantined_quiet:
+            return ("QUARANTINED bootstrap-only; no recovered source, no "
+                    "evidence of silence after reader restart; poll forbidden")
         if stream not in self._retained:
             raise FailClosed("old source is closed or unrecognised")
         return ("manually reattached previous inode only; previous bytes before "
