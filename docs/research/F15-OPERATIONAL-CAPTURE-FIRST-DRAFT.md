@@ -85,3 +85,25 @@ python3 -m unittest discover -s tests -p test_f15_pm2_observer.py -v
 ~~~
 
 This adds tests for exact app-name matching, default-OFF gating, private redacted state, append-only capture, PID changes without false crash claims, symlink/inode rotation refusal and invalid log paths. It does not exercise a real PM2 instance or actual Worldserver/Authserver; the exact-head hosted CI result must be checked separately.
+
+
+## Opt-in automatic 30-day retention across separately supervised child runs (new DRAFT)
+
+The new executable `scripts/f15_supervised_retention.py` addresses a real gap after the per-run archive fix: the original `f15_archive_retention.retain_once` only operates on **one collector root**, but each new supervised World/Auth child now writes to a different `<archive-root>/runs/<run-id>`. The new runner discovers those exact run directories and invokes the existing verified 30-day policy only for **completed, fully captured runs**. It can run once or keep polling (default interval 3600 seconds), but **does not install or enable a scheduler itself**.
+
+Before a single day is deleted it validates **every discovered run's** private directory name and supervisor receipts. The original `start.json` must match the `exit.json`'s service, capture root and successful capture state; the two archive stream origins must match that run's unique original stdout/stderr paths. Unknown run directories, mismatched source/collector roots, foreign receipt shapes, symlinks and incomplete archive states refuse safely. A child with no exit report is **skipped, never assumed crashed**. A completed child that recorded capture failure is **refused, not silently expired**. If a run fails validation, no *other* run is expired by that sweep.
+
+**Disposable-only example (NOT for installed World/Auth server or genuine owner logs):**
+
+~~~sh
+python3 scripts/f15_supervised_retention.py \
+  --output-root /tmp/f15-fake-child-raw \
+  --archive-root /tmp/f15-fake-child-archives \
+  --retention-30d --once
+~~~
+
+Omitting `--retention-30d` refuses before touching any workspace. Without `--once`, an explicitly opted-in command polls every 3600 seconds; this still requires an intentionally installed/supervised operator command to be **truly automatic on a host**. No such command or timer has been deployed. The process operates only on archive and raw-journal files already owned by a validated per-run collector. It **never deletes original raw stdout/stderr source files, supervisor receipt files, any PM2 logs or source files**; therefore it is not a full disk-usage/retention policy until a separately reviewed raw-file lifecycle is implemented. It doesn't attach to an already running PM2/tmux process, does not install a cron timer or prove true crash-causation evidence.
+
+**Added disposable regression:** `tests/test_f15_supervised_retention.py` uses two consecutive disposable Python children, validates independent 30-day archive expiry and preservation of their original raw console and receipt files; rejects forged receipts, foreign archive subdirectories and symlinks; keeps unfinished runs and recent archives; verifies the CLI is disabled by default. The CI workflow runs this test and checks source. **A new exact-head green CI result is required before counting these cases passed.**
+
+Limitations remain: same-UID hostile writer races, filesystem unlink/rename race windows, arbitrary power loss, recovery of an interrupted retention intent (manual review only), storage quotas, persistent source raw files, multiple operator timers racing, actual owner host launch compatibility, log rotation for existing PM2 process, and real World/Auth exit attribution. Never enable on a real host without CosmicCuddle's explicit approval, backups/recovery rehearsal and isolated staged testing.
