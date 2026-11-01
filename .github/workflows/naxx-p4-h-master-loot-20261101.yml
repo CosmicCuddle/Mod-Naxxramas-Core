@@ -4,6 +4,15 @@ on:
   pull_request:
     types: [opened, reopened, synchronize]
     paths:
+      # This composed P1–P4 draft must receive an actual pinned Worldserver
+      # link check even when the child changes only P3 operator tooling.
+      - "scripts/f15_retention_preview.py"
+      - "scripts/f15_supervised_storage_audit.py"
+      - "tests/test_f15_retention_preview.py"
+      - "tests/test_f15_supervised_storage_audit.py"
+      - ".github/workflows/naxx-f15-operator-capture-20261101.yml"
+      - ".github/workflows/f15-supervised-storage-audit-20261101.yml"
+      - "docs/P1-P4-P3-OPERATOR-TOOLS-INTEGRATION-20261101.md"
       - "src/Systems/MasterLootQuestGive.h"
       - "src/Systems/MasterLootQuestGive.cpp"
       - "src/NaxxramasCore_loader.cpp"

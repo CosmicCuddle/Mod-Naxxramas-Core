@@ -11,6 +11,9 @@ on:
       - scripts/f15_process_supervisor.py
       - scripts/f15_pm2_observer.py
       - scripts/f15_supervised_retention.py
+      - scripts/f15_retention_preview.py
+      - tests/test_f15_retention_preview.py
+      - docs/research/F15-RETENTION-PREVIEW.md
       - tests/test_f15_operator_collector.py
       - tests/test_f15_archive_retention.py
       - tests/test_f15_process_supervisor.py
@@ -28,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Compile actual operator program
-        run: python3 -m py_compile scripts/f15_operator_collector.py scripts/f15_archive_retention.py scripts/f15_process_supervisor.py tests/test_f15_operator_collector.py scripts/f15_pm2_observer.py tests/test_f15_pm2_observer.py scripts/f15_supervised_retention.py tests/test_f15_supervised_retention.py tests/test_f15_archive_retention.py tests/test_f15_process_supervisor.py
+        run: python3 -m py_compile scripts/f15_operator_collector.py scripts/f15_archive_retention.py scripts/f15_process_supervisor.py tests/test_f15_operator_collector.py scripts/f15_pm2_observer.py tests/test_f15_pm2_observer.py scripts/f15_supervised_retention.py tests/test_f15_supervised_retention.py tests/test_f15_archive_retention.py tests/test_f15_process_supervisor.py scripts/f15_retention_preview.py tests/test_f15_retention_preview.py
       - name: Execute operator implementation against disposable fake files
         run: |
           python3 -m unittest discover -s tests -p test_f15_operator_collector.py -v
@@ -36,6 +39,7 @@ jobs:
           python3 -m unittest discover -s tests -p test_f15_process_supervisor.py -v
           python3 -m unittest discover -s tests -p test_f15_pm2_observer.py -v
           python3 -m unittest discover -s tests -p test_f15_supervised_retention.py -v
+          python3 -m unittest discover -s tests -p test_f15_retention_preview.py -v
       - name: Check deliberate no-delete stage boundary
         run: |
           python3 - <<'PY'
@@ -60,6 +64,11 @@ jobs:
           assert "os.unlink(" not in p and ".unlink(" not in p
           assert "shutil.rmtree" not in p and "subprocess." not in p
           assert "--retention-30d" in p and 'action="store_true"' in p
+          preview = Path("scripts/f15_retention_preview.py").read_text()
+          assert "def preview_once(" in preview and "--preview" in preview
+          assert ".unlink(" not in preview and "os.remove(" not in preview
+          assert "os.kill(" not in preview and "subprocess." not in preview
+          print("PASS: preview has no file deletion or process-control code")
           print("PASS: real capture, supervisor and explicit-ONLY 30d retention tested on disposable files")
           print("PASS: read-only PM2 observer plus collector, supervisor and opt-in retention covered by disposable tests")
           PY
