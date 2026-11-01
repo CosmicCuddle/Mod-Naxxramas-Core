@@ -124,6 +124,7 @@ def collect_once(root, sources, now=None, include_existing=False):
                     atomic_write(origin_path, json.dumps(origin, sort_keys=True).encode("utf-8"))
                 offset = origin["start"]
                 days = {}
+                tail_proof = None
                 for part in sorted(records.iterdir()):
                     if part.name == "origin.json":
                         continue
@@ -138,9 +139,18 @@ def collect_once(root, sources, now=None, include_existing=False):
                     if len(data) != end - begin or digest(data) != sha:
                         raise Refused("record content changed")
                     days.setdefault(day, bytearray()).extend(data)
+                    # A source writer could copytruncate then regrow the same
+                    # inode past our saved cursor between polls. Retain the
+                    # last authenticated journal chunk as continuity proof.
+                    tail_proof = (begin, data)
                     offset = end
                 if st.st_size < offset:
                     raise Refused(f"source truncated for {label}; manual admission required")
+                if tail_proof is not None:
+                    begin, expected_tail = tail_proof
+                    observed_tail = os.pread(fd, len(expected_tail), begin)
+                    if observed_tail != expected_tail:
+                        raise Refused(f"source rewritten in place for {label}; manual admission required")
                 chunk = b""
                 if st.st_size > offset:
                     chunk = os.pread(fd, min(MAX_CHUNK, st.st_size - offset), offset)
