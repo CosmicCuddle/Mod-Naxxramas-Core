@@ -106,6 +106,7 @@ def collect_once(root, sources, now=None, include_existing=False):
                     raise Refused("one physical source cannot be selected twice")
                 seen.add((st.st_dev, st.st_ino))
                 opened.append((label, path, fd, st))
+            unread = {}
             for label, path, fd, st in opened:
                 records = private_dir(record_root / label)
                 archives = private_dir(archive_root / label)
@@ -147,6 +148,9 @@ def collect_once(root, sources, now=None, include_existing=False):
                         raise Refused("source shortened during poll")
                     if os.fstat(fd).st_size < offset + len(chunk):
                         raise Refused("source size changed during poll")
+                # Report the snapshot's remaining source bytes to supervised
+                # child-drain callers. All archive writes still occur first.
+                unread[label] = st.st_size - offset - len(chunk)
                 # Commit journal first; a published record is replayable on restart.
                 if chunk:
                     day = datetime.fromtimestamp(now if now is not None else time.time(), timezone.utc).strftime("%Y%m%d")
@@ -185,6 +189,7 @@ def collect_once(root, sources, now=None, include_existing=False):
                     current = {"sha256": digest(content), "size": len(content)}
                     if receipt != current:
                         atomic_write(receipt_path, json.dumps(current, sort_keys=True).encode("utf-8"))
+            return unread
         finally:
             for _, _, fd, _ in opened:
                 os.close(fd)
