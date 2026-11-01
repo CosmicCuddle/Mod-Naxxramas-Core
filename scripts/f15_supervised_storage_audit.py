@@ -22,15 +22,28 @@ STREAMS = ("stdout.raw", "stderr.raw")
 
 
 def existing_private_dir(path):
-    """Do not call private_dir() here: that helper can CREATE missing paths."""
-    path = Path(path)
-    try:
-        identity = path.lstat()
-    except FileNotFoundError as exc:
-        raise Refused("storage audit requires an existing private directory") from exc
-    if not stat.S_ISDIR(identity.st_mode) or identity.st_mode & 0o077:
+    """Strict no-create directory check, including symlinked ancestors.
+
+    Path.resolve() alone follows ancestor symlinks before checking them and
+    could let a report read an unexpected tree. Traverse metadata only;
+    never open directory contents or create a missing path on refusal.
+    """
+    requested = Path(path).absolute()
+    if ".." in requested.parts:
+        raise Refused("storage audit refuses parent-directory traversal")
+
+    for candidate in (requested, *requested.parents):
+        try:
+            entry = candidate.lstat()
+        except FileNotFoundError as exc:
+            raise Refused("storage audit requires an existing directory chain") from exc
+        if stat.S_ISLNK(entry.st_mode) or not stat.S_ISDIR(entry.st_mode):
+            raise Refused("storage audit refuses symlinked/non-directory ancestor")
+
+    identity = requested.lstat()
+    if identity.st_mode & 0o077:
         raise Refused("storage audit requires an existing private 0700 directory")
-    return path.resolve()
+    return requested
 
 
 def _raw_stat(path):
