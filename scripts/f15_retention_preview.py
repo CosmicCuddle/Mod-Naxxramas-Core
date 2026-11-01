@@ -58,11 +58,14 @@ def preview_once(root, now=None):
 
         current = datetime.now(timezone.utc) if now is None else datetime.fromtimestamp(now, timezone.utc)
         eligible = []
-        for label_path in sorted(record_root.iterdir()):
-            if label_path.name not in LABELS:
-                raise Refused("unexpected collector journal label")
-            label = label_path.name
-            record_dir = existing_private_dir(label_path)
+        # An extra archive-only stream is an unknown retention state, not
+        # proof that no expired entries exist. Fail closed rather than omit it.
+        journal_labels = {entry.name for entry in record_root.iterdir()}
+        archive_labels = {entry.name for entry in archive_root.iterdir()}
+        if journal_labels != archive_labels or not journal_labels <= LABELS:
+            raise Refused("preview refuses unmatched/unknown collector stream directories")
+        for label in sorted(journal_labels):
+            record_dir = existing_private_dir(record_root / label)
             archive_dir = existing_private_dir(archive_root / label)
             origin = _read_strict_json(record_dir / "origin.json", {"path", "dev", "ino", "start"})
             if type(origin["start"]) is not int or origin["start"] < 0:
