@@ -14,6 +14,7 @@
 #include "Chat.h"
 #include "Config.h"
 #include "GameObject.h"
+#include "Group.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -131,7 +132,15 @@ public:
                 !go->GetGOInfo())
                 return true;
 
-            // Copy the pinned core's group/target and min-level rules before
+            // The second portal was made by the Warlock's first ritual.
+            // A valid clicker must still be grouped with that portal owner.
+            // Match native grouped ritual ownership without dereferencing a
+            // potentially remote/unloaded owner Player pointer.
+            Group* const ritualGroup = player->GetGroup();
+            if (!ritualGroup || !ritualGroup->IsMember(go->GetOwnerGUID()))
+                return true;
+
+            // Copy the pinned core's target and min-level rules before
             // overriding its incorrect generic type-23 spell selection.
             Player* targetPlayer = ObjectAccessor::FindPlayer(player->GetTarget());
             if (!targetPlayer || targetPlayer == player ||
