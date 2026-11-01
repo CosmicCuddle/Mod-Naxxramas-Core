@@ -39,7 +39,7 @@ def private_dir(path):
     return path
 
 def regular_file(path):
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
     fd = os.open(path, flags)
     st = os.fstat(fd)
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
@@ -69,7 +69,7 @@ def atomic_write(path, content):
 def read_receipt(path):
     if not path.exists():
         return None
-    if path.is_symlink() or path.stat().st_nlink != 1:
+    if path.is_symlink() or not path.is_file() or path.stat().st_nlink != 1:
         raise Refused("archive receipt is not a single regular file")
     try:
         obj = json.loads(path.read_text("utf-8"))
@@ -87,6 +87,8 @@ def collect_once(root, sources, now=None):
     lockpath = root / "collector.lock"
     lockfd = os.open(lockpath, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
+        if not stat.S_ISREG(os.fstat(lockfd).st_mode) or os.fstat(lockfd).st_nlink != 1:
+            raise Refused("collector lock must be a single regular file")
         fcntl.flock(lockfd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         opened, seen = [], set()
         try:
@@ -107,8 +109,8 @@ def collect_once(root, sources, now=None):
                 archives = private_dir(archive_root / label)
                 origin_path = records / "origin.json"
                 if origin_path.exists():
-                    if origin_path.is_symlink():
-                        raise Refused("symlink origin refused")
+                    if origin_path.is_symlink() or not origin_path.is_file() or origin_path.stat().st_nlink != 1:
+                        raise Refused("invalid origin file")
                     origin = json.loads(origin_path.read_text("utf-8"))
                     if origin != {"path": str(path), "dev": st.st_dev, "ino": st.st_ino, "start": origin.get("start")}:
                         raise Refused(f"source replaced or origin changed for {label}")
