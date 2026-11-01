@@ -90,10 +90,29 @@ The personal chest opened by A can only be reached with a hand-made packet,
 because the leader's client shows no quest row to give. Refusing it doesn't
 change anything a normal client can do.
 
-**Totals:** 13 checks. There are 3 must-fail header mutants, all caught:
+**Totals:** 15 checks, including two zero-count template negatives. There are 3 must-fail header mutants, all caught:
 - leader's slot sent to every looter;
 - shared looted flag not checked;
 - normal slots taken over.
+
+## 2a. Zero-count quest template — original-source negative
+
+A bounded, **synthetic malformed-template** case now exercises the original
+`Loot::FillLoot` → `Loot::AddItem` path with `mincount=maxcount=0`.
+This bypasses database `LootStoreItem::IsValid` (so it is NOT a claim that
+real loot-table data permits this row). The pinned original `AddItem`
+computes `count=0`, `stacks=0`, and the item-append loop executes zero
+times. **Neither player receives a quest loot row**, and a crafted Master
+Give request is refused without award, counter update, packet notification
+or `unlootedCount` underflow.
+
+The extra two executable GO checks demonstrate that **ordinary template
+generation cannot produce** `item.count=0` with both looted flags unset
+because it produces **no item at all**. They do NOT prove an installed
+custom `OnAfterLootTemplateProcess` script, memory corruption or another
+module could never rewrite a previously generated positive count to zero.
+That separate artificial state remains an unproven possibility, not a
+reported owner-server defect. No runtime source or stock loot policy changed.
 
 **Not modelled:**
 - `Group::MasterLoot` and `UpdateLooterGuid`, which are not on the give path;
@@ -137,7 +156,7 @@ therefore stock, as the #268 limits already say.
 
 | Level | Result |
 |---|---|
-| Local (g++ and clang++) | 8 tests, 28 + 13 checks, 15/15 mutants, #272/H2/H1/#264/#262 regressions all pass |
+| Local (g++ and clang++) | Previous developer baseline: 8 tests, 28 + 13 checks, 15/15 mutants. **This new 15-GO-check head has not yet been rerun or verified locally/hosted.** |
 | Hosted native | the workflow runs the same steps on both compilers. **Not yet run** |
 | Full Worldserver link | covered by #272's own workflow (no source change here) |
 | In game | **none**. Gameplay acceptance is still 0/5 |
