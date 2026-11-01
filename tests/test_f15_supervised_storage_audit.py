@@ -83,6 +83,15 @@ class StorageAuditTests(unittest.TestCase):
             self.report(days=40)
         self.assertEqual(external.read_text(), "EXTERNAL_SECRET")
 
+    def test_root_alias_is_refused(self):
+        run, _ = self.launch("Worldserver", text="SAFE_RAW_SOURCE")
+        before = (run / "stdout.raw").read_bytes()
+        alias = self.base / "alias-root"
+        alias.symlink_to(self.raw, target_is_directory=True)
+        with self.assertRaises(Refused):
+            audit.inspect_raw_storage(alias, self.archive)
+        self.assertEqual((run / "stdout.raw").read_bytes(), before)
+
     def test_raw_hardlink_refused(self):
         run, _ = self.launch("Worldserver")
         os.link(run / "stderr.raw", self.base / "extra-hardlink")
