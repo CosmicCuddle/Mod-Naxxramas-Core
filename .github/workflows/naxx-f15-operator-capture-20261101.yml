@@ -7,8 +7,10 @@ on:
   pull_request:
     paths:
       - scripts/f15_operator_collector.py
+      - scripts/f15_archive_retention.py
       - scripts/f15_process_supervisor.py
       - tests/test_f15_operator_collector.py
+      - tests/test_f15_archive_retention.py
       - tests/test_f15_process_supervisor.py
       - docs/research/F15-OPERATIONAL-CAPTURE-FIRST-DRAFT.md
       - .github/workflows/naxx-f15-operator-capture-20261101.yml
@@ -22,10 +24,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Compile actual operator program
-        run: python3 -m py_compile scripts/f15_operator_collector.py scripts/f15_process_supervisor.py tests/test_f15_operator_collector.py tests/test_f15_process_supervisor.py
+        run: python3 -m py_compile scripts/f15_operator_collector.py scripts/f15_archive_retention.py scripts/f15_process_supervisor.py tests/test_f15_operator_collector.py tests/test_f15_archive_retention.py tests/test_f15_process_supervisor.py
       - name: Execute operator implementation against disposable fake files
         run: |
           python3 -m unittest discover -s tests -p test_f15_operator_collector.py -v
+          python3 -m unittest discover -s tests -p test_f15_archive_retention.py -v
           python3 -m unittest discover -s tests -p test_f15_process_supervisor.py -v
       - name: Check deliberate no-delete stage boundary
         run: |
@@ -34,9 +37,13 @@ jobs:
           p = Path("scripts/f15_operator_collector.py").read_text()
           assert "def collect_once(" in p and "def main(" in p
           assert "--capture" in p and "--include-existing-on-first-poll" in p
+          assert "--retention-30d" in p
+          assert "retention-intent.json" in p
+          assert "def retain_once(" in Path("scripts/f15_archive_retention.py").read_text()
           supervisor = Path("scripts/f15_process_supervisor.py").read_text()
           assert "--execute" in supervisor and "subprocess.Popen(" in supervisor
           assert "os.unlink(" not in p and ".unlink(" not in p
           assert "shutil.rmtree" not in p and "subprocess." not in p
-          print("PASS: actual capture and exit/signal observation, no retention deletion API")
+          assert "--retention-30d" in p and 'action="store_true"' in p
+          print("PASS: real capture, supervisor and explicit-ONLY 30d retention tested on disposable files")
           PY
