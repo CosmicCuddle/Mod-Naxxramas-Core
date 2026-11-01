@@ -112,14 +112,14 @@ jobs:
           grep -qx OK /tmp/p4.txt
           grep -qx 'CHECKS 36 passed, 0 failed' /tmp/p4.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/p4.txt
-      - name: "Must-fail mutants of the real authorization header (5)"
+      - name: "Must-fail mutants of the real authorization header (6)"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
         run: |
           set -euo pipefail
           python3 -I -B module/tests/p4_h1_pickup/mutants.py | tee /tmp/mutants.txt
-          grep -qx '5/5 pickup mutants caught' /tmp/mutants.txt
+          grep -qx '6/6 pickup mutants caught' /tmp/mutants.txt
       - name: "Regression: unchanged #264 guard (24 checks) and #262 baseline (71 checks)"
         env:
           A04_CORE: ${{ github.workspace }}/core

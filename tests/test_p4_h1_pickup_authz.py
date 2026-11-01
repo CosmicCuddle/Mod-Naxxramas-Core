@@ -33,7 +33,7 @@ REQUIRED = [
     "MATRIX.view_only.T1_A_awarded_iff_view_guard", "MATRIX.view_only.hidden_slot_refused_iff_pickup_check",
     "MATRIX.pickup_only.T1_A_awarded_iff_view_guard", "MATRIX.pickup_only.hidden_slot_refused_iff_pickup_check",
     "MATRIX.both_on.T1_A_awarded_iff_view_guard", "MATRIX.both_on.hidden_slot_refused_iff_pickup_check",
-    "FOOTPRINT.view_off_check_marks_only_requester_row", "FOOTPRINT.view_off_A_still_awarded_after_check",
+    "FOOTPRINT.view_off_check_changes_no_flag", "FOOTPRINT.view_off_A_still_awarded_after_check",
 ]
 
 SCRIPT = (ROOT / "src" / "Systems" / "QuestLootPickupAuthorization.cpp").read_text()
@@ -103,10 +103,14 @@ class SourceContract(unittest.TestCase):
         refusal = SCRIPT.index("return false;")
         self.assertLess(SCRIPT.index("SlotVisibleInServerView(player, loot, permission, requestedSlot)"), refusal)
 
-    def test_header_does_not_write_loot_state(self):
+    def test_header_restores_what_the_helper_marks(self):
         code = re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", HEADER, flags=re.S))
-        self.assertIsNone(re.search(r"\b(is_looted|unlootedCount|roundRobinPlayer|is_blocked)\s*=[^=]", code))
-        self.assertIn("NaxxramasQuestLootViewGuard::HideOwnSatisfiedQuestRows(viewer, loot);", code)
+        writes = re.findall(r"\b(\S+)\s*=\s*[^=;]+;", code)
+        self.assertEqual([w for w in writes if "is_looted" in w], ["saved.first->is_looted"])
+        self.assertIsNone(re.search(r"\b(unlootedCount|roundRobinPlayer|is_blocked)\s*=[^=]", code))
+        helper = code.index("NaxxramasQuestLootViewGuard::HideOwnSatisfiedQuestRows(viewer, loot);")
+        self.assertLess(code.index("savedRows.emplace_back(&row, row.is_looted);"), helper)
+        self.assertLess(code.index("} restore{savedRows};"), helper)
 
     def test_loader_registers_once(self):
         self.assertEqual(LOADER.count("void AddQuestLootPickupAuthorizationScripts();"), 1)

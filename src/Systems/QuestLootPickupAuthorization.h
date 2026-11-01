@@ -22,6 +22,9 @@
 #include "LootMgr.h"
 #include "QuestLootViewGuard.h"
 
+#include <utility>
+#include <vector>
+
 namespace NaxxramasQuestLootPickupAuthorization
 {
     // The non-skinning creature-corpse branch of pinned Player::SendLoot
@@ -51,17 +54,33 @@ namespace NaxxramasQuestLootPickupAuthorization
     // True when 'slot' is one of the rows the original serializer would send
     // to this player NOW (the current server view, not a remembered window).
     //
-    // Deliberate dependency on the view guard helper, whatever the H0 config
-    // says: serializing a LootView without it would itself run the pinned
-    // shared-is_looted write (the #262 T1 bug). With the helper first, the
-    // only state this check can change is the requester's own quest rows that
-    // the core already hides from them (a real view marks those too), and
-    // never the shared flag or another player's rows. Tested for all four
-    // H0/H1 ON/OFF combinations.
+    // NON-MUTATING, whatever the H0 config says. The pinned serializer writes
+    // only two flags (LootMgr.cpp L1115 the viewer's own row, L1118 the shared
+    // item). The view guard helper pre-marks those rows so both writes are
+    // skipped, and the requester's own row flags are saved first and restored
+    // on return. Net change to loot state: none, so H1 never acts as a hidden
+    // H0. Tested for all four H0/H1 ON/OFF combinations and by snapshots.
     inline bool SlotVisibleInServerView(Player* viewer, Loot& loot, PermissionTypes permission, uint8 slot)
     {
         if (!viewer || permission == NONE_PERMISSION)
             return false;
+
+        // Save the requester's own row flags; restored on every return below.
+        std::vector<std::pair<QuestItem*, bool>> savedRows;
+        QuestItemMap const& questLists = loot.GetPlayerQuestItems();
+        QuestItemMap::const_iterator own = questLists.find(viewer->GetGUID());
+        if (own != questLists.end() && own->second)
+            for (QuestItem& row : *own->second)
+                savedRows.emplace_back(&row, row.is_looted);
+        struct RestoreRows
+        {
+            std::vector<std::pair<QuestItem*, bool>>& rows;
+            ~RestoreRows()
+            {
+                for (std::pair<QuestItem*, bool>& saved : rows)
+                    saved.first->is_looted = saved.second;
+            }
+        } restore{savedRows};
 
         NaxxramasQuestLootViewGuard::HideOwnSatisfiedQuestRows(viewer, loot);
 
