@@ -1,0 +1,40 @@
+name: F15/P3 read-only supervised storage age audit (DRAFT, NO HOST)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/f15_supervised_storage_audit.py'
+      - 'tests/test_f15_supervised_storage_audit.py'
+      - '.github/workflows/f15-supervised-storage-audit-20261101.yml'
+  push:
+    paths:
+      - 'scripts/f15_supervised_storage_audit.py'
+      - 'tests/test_f15_supervised_storage_audit.py'
+      - '.github/workflows/f15-supervised-storage-audit-20261101.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-raw-metadata-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check read-only storage accounting and synthetic tests
+        run: python3 -m py_compile scripts/f15_supervised_storage_audit.py tests/test_f15_supervised_storage_audit.py
+      - name: Run temp-folder World/Auth simulations only
+        run: |
+          python3 -m unittest discover -s tests -p test_f15_supervised_storage_audit.py -v
+      - name: Prove storage audit contains no destructive calls
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast
+          tree = ast.parse(Path('scripts/f15_supervised_storage_audit.py').read_text())
+          forbidden = {'unlink', 'remove', 'rmdir', 'mkdir', 'rename', 'replace', 'write_text', 'write_bytes'}
+          found = [(n.func.attr, n.lineno) for n in ast.walk(tree)
+                   if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in forbidden]
+          assert not found, found
+          print('PASS: no destructive or create path in storage audit; no host actions')
+          PY
