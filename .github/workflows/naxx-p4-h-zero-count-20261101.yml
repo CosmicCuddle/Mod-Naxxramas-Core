@@ -1,0 +1,40 @@
+name: P4-H zero-count defensive guard (DRAFT, default OFF, NO HOST)
+
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/MasterLootQuestGive.h'
+      - 'tests/test_p4_h_zero_count_source.py'
+      - 'tests/p4_h_master_loot/**'
+      - 'tests/p4_h_interop/**'
+      - 'tests/test_p4_h_master_loot.py'
+      - 'tests/test_p4_h_interop.py'
+      - '.github/workflows/naxx-p4-h-zero-count-20261101.yml'
+  push:
+    paths:
+      - 'src/Systems/MasterLootQuestGive.h'
+      - 'tests/test_p4_h_zero_count_source.py'
+      - 'tests/p4_h_master_loot/**'
+      - 'tests/p4_h_interop/**'
+      - 'tests/test_p4_h_master_loot.py'
+      - 'tests/test_p4_h_interop.py'
+      - '.github/workflows/naxx-p4-h-zero-count-20261101.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  zero-count-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify early fail-closed count guard and matching native fixtures
+        run: python3 -m unittest discover -s tests -p test_p4_h_zero_count_source.py -v
+      - name: Syntax-check modified native harness drivers and mutants
+        run: |
+          python3 -m py_compile tests/p4_h_interop/mutants.py tests/p4_h_master_loot/mutants.py tests/test_p4_h_interop.py tests/test_p4_h_master_loot.py
+      - name: Note limits
+        run: |
+          echo 'Source-only guard PASS is NOT a full Core/native/loot gameplay test.'
+          echo 'Pinned native corpse/GO harnesses remain in inherited P4-H/interop workflows.'
