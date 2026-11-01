@@ -57,3 +57,29 @@ Rollback: discard the unmerged PR and branch; the owner host was never touched. 
 ## Retention failure/review contract
 
 Automatic expiry is deliberately opt-in. A private owner-only retention-intent.json is written and fsynced BEFORE any archive/receipt/journal unlink. If a power interruption or simulated exception occurs before the full operation completes, the intent remains and future collector polls fail closed rather than claim an expired archive. An operator must investigate; this draft intentionally has NO automatic intent-clear command. A separate retained metadata receipt under retention-history tracks a completed removal. Old raw journal segments are removed with the expired archive rather than silently retained forever. A later active-day journal remains contiguous after updating origin.start. The code intentionally stops if original archive/receipt is absent or differs from reconstructed journal, even after it becomes old. These guarantees are conditional on the private 0700 workspace and current test assumptions; see unresolved same-UID race/power-loss limits above. This is NOT an approved destructive service setting.
+
+## Existing PM2 read-only observer — new development-only code (1 November 2026)
+
+`scripts/f15_pm2_observer.py` is an **actual opt-in source implementation** for the PM2-hosted part of the owner's request. Unlike the new-child supervisor, it does **not** spawn, stop, kill, restart, signal or reconfigure Worldserver/Authserver. An explicit `--observe` lets it execute PM2's read-only `jlist` query for **one exact process name**, select the named service's out/err regular log paths, and use the existing private collector to capture bytes written *after* first admission. Explicit `--include-existing-on-first-poll` allows backfill, and `--retention-30d` independently opts into experimental owned-archive expiry. No default log deletion and no original PM2 source deletion.
+
+It persists **only selected fields** (service, PM2 name, PID, status, two source paths) in a private observer state, plus an event when the selected PID/status/path changes. A PID change is deliberately classified `unclassified_process_change`; PM2 JSON alone does not prove engine crash, exit code/signal or stack trace. Raw PM2 JSON (which may contain environment values or secrets) is **never written to the archive**. Duplicate app names, ambiguous fields, missing paths, untrusted links, duplicate inodes, modified records, unknown prior root and source replacement fail closed. The same private root must not be reused for different app identities.
+
+**Disposable demonstration only (not permission to attach to CosmicCuddle's running server):**
+
+~~~sh
+python3 scripts/f15_pm2_observer.py \
+  --root /tmp/f15-disposable-pm2-private --pm2-name fake-world \
+  --service Worldserver --observe --once
+~~~
+
+This only works when a deliberately controlled fake PM2 listing supplies **existing regular out and err files**. It cannot create console log files that PM2/tmux never saved. The CLI does not install an unattended service/scheduler; real PM2 names, source paths, permissions, Authserver hosting mode and process control are still unknown.
+
+**Critical remaining gap:** PM2 log *rotation*, truncate or inode swap still deliberately refuses capture until reviewed. This is a safe failure, **not seamless automatic rotation**; the old rotated inode's unread tail could be unavailable by the next poll. Native/tmux Authserver (when not PM2-managed), independent process exit attribution, disk quota/redaction, full restart/rotation integration and safe unattended retention remain blocked for production. Do not enable on the owner host until those are resolved, an actual inventory and backup/restore drill succeed, and CosmicCuddle approves.
+
+New disposable suite (uses fake JSON and temporary log files only):
+
+~~~sh
+python3 -m unittest discover -s tests -p test_f15_pm2_observer.py -v
+~~~
+
+This adds tests for exact app-name matching, default-OFF gating, private redacted state, append-only capture, PID changes without false crash claims, symlink/inode rotation refusal and invalid log paths. It does not exercise a real PM2 instance or actual Worldserver/Authserver; the exact-head hosted CI result must be checked separately.
