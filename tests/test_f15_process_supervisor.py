@@ -24,6 +24,23 @@ class SupervisorTests(unittest.TestCase):
         return sup.supervise(self.outputs, self.archive, service,
                              [sys.executable, "-c", code], poll_seconds=0.03)
 
+    def archived(self, run, label):
+        return self.archive / "runs" / run.name / "archives" / label
+
+    def test_consecutive_runs_have_independent_archive_origins(self):
+        first, first_report = self.launch("Worldserver", "print('first-run', flush=True)")
+        second, second_report = self.launch("Worldserver", "print('second-run', flush=True)")
+        self.assertNotEqual(first, second)
+        self.assertEqual(first_report["capture"], "complete_for_observed_run")
+        self.assertEqual(second_report["capture"], "complete_for_observed_run")
+        self.assertEqual(Path(first_report["capture_root"]), self.archive / "runs" / first.name)
+        self.assertEqual(Path(second_report["capture_root"]), self.archive / "runs" / second.name)
+        first_bytes = next(self.archived(first, "Worldserver-out").glob("*.txt")).read_bytes()
+        second_bytes = next(self.archived(second, "Worldserver-out").glob("*.txt")).read_bytes()
+        self.assertEqual(first_bytes, b"first-run\n")
+        self.assertEqual(second_bytes, b"second-run\n")
+        self.assertEqual(len(list((self.archive / "runs").iterdir())), 2)
+
     def test_clean_exit_with_both_console_streams(self):
         run, report = self.launch("Worldserver",
             "import sys; print('world out',flush=True); sys.stderr.write('world err\\n')")
@@ -32,9 +49,9 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(report["capture"], "complete_for_observed_run")
         self.assertEqual((run/"stdout.raw").read_bytes(),b"world out\n")
         self.assertEqual((run/"stderr.raw").read_bytes(),b"world err\n")
-        self.assertEqual(len(list((self.archive/"archives"/"Worldserver-out").glob("*.txt"))),1)
-        self.assertEqual(next((self.archive/"archives"/"Worldserver-out").glob("*.txt")).read_bytes(),b"world out\n")
-        self.assertEqual(next((self.archive/"archives"/"Worldserver-err").glob("*.txt")).read_bytes(),b"world err\n")
+        self.assertEqual(len(list(self.archived(run, "Worldserver-out").glob("*.txt"))),1)
+        self.assertEqual(next(self.archived(run, "Worldserver-out").glob("*.txt")).read_bytes(),b"world out\n")
+        self.assertEqual(next(self.archived(run, "Worldserver-err").glob("*.txt")).read_bytes(),b"world err\n")
         self.assertEqual(json.loads((run/"exit.json").read_text())["exit_kind"],"clean_exit")
 
     def test_nonzero_is_not_mislabelled_crash(self):
@@ -42,7 +59,7 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(report["exit_code"],7)
         self.assertEqual(report["exit_kind"],"nonzero_exit")
         self.assertEqual(report["capture"],"complete_for_observed_run")
-        self.assertEqual(next((self.archive/"archives"/"Authserver-out").glob("*.txt")).read_bytes(), b"before failure\n")
+        self.assertEqual(next(self.archived(run, "Authserver-out").glob("*.txt")).read_bytes(), b"before failure\n")
         self.assertNotIn("crash", (run/"exit.json").read_text())
 
     @unittest.skipUnless(os.name == "posix", "signal status is POSIX-specific")
