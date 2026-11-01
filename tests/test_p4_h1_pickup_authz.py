@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests" / "p4_h1_pickup"))
 import build_pickup  # noqa: E402
 
-EXPECTED_CHECKS = 26
+EXPECTED_CHECKS = 36
 REQUIRED = [
     "STOCK.O2_hidden_round_robin_slot_awarded_to_B",
     "AUTH.O2_hidden_slot_refused_B_gets_nothing",
@@ -29,6 +29,11 @@ REQUIRED = [
     "AUTH.check_has_no_shared_side_effect",
     "AUTH.ffa_both_copies_allowed",
     "AUTH.master_row_passed_to_core_core_denies_A_awarded",
+    "MATRIX.both_off.T1_A_awarded_iff_view_guard", "MATRIX.both_off.hidden_slot_refused_iff_pickup_check",
+    "MATRIX.view_only.T1_A_awarded_iff_view_guard", "MATRIX.view_only.hidden_slot_refused_iff_pickup_check",
+    "MATRIX.pickup_only.T1_A_awarded_iff_view_guard", "MATRIX.pickup_only.hidden_slot_refused_iff_pickup_check",
+    "MATRIX.both_on.T1_A_awarded_iff_view_guard", "MATRIX.both_on.hidden_slot_refused_iff_pickup_check",
+    "FOOTPRINT.view_off_check_marks_only_requester_row", "FOOTPRINT.view_off_A_still_awarded_after_check",
 ]
 
 SCRIPT = (ROOT / "src" / "Systems" / "QuestLootPickupAuthorization.cpp").read_text()

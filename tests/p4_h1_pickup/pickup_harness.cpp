@@ -186,6 +186,72 @@ static void hPermission()
     check("PERM.solo_other", PA::CorpsePermission(false, false, false, FREE_FOR_ALL, false) == NONE_PERMISSION);
 }
 
+// ---- H0 (view guard) x H1 (pickup check) ON/OFF matrix ----
+// H0 runs where SendLoot calls OnPlayerBeforeSendLoot; H1 runs before the
+// autostore handler. Expected: H0 alone fixes T1, H1 alone fixes the hidden
+// slot, neither adds the other's effect, both ON fixes both.
+static std::vector<Row> openWith(Scene& s, Player& p, PermissionTypes perm, bool viewGuard)
+{
+    if (viewGuard)
+    {
+        p.lootGuid = s.corpse;
+        NaxxramasQuestLootViewGuard::HideOwnSatisfiedQuestRows(&p, s.loot);
+    }
+    return s.open(p, perm);
+}
+
+static void hToggleMatrix()
+{
+    for (int combo = 0; combo < 4; ++combo)
+    {
+        bool const viewOn = combo & 1;
+        bool const pickOn = combo & 2;
+        char const* tag[4] = {"both_off", "view_only", "pickup_only", "both_on"};
+        char id[96];
+
+        {   // T1 order: A opens, banked B opens, B clicks, A clicks
+            Scene s;
+            Scene::accept(s.A, Q_QUEST);
+            bankedB(s);
+            s.kill({rowQuestSeed()}, s.A);
+            openWith(s, s.A, GROUP_PERMISSION, viewOn);
+            openWith(s, s.B, GROUP_PERMISSION, viewOn);
+            bool bGot = autostore(s, s.B, GROUP_PERMISSION, 0, pickOn);
+            bool aGot = autostore(s, s.A, GROUP_PERMISSION, 0, pickOn);
+            std::snprintf(id, sizeof(id), "MATRIX.%s.T1_A_awarded_iff_view_guard", tag[combo]);
+            check(id, !bGot && aGot == viewOn && s.received(s.B, Q_ITEM) == 0);
+        }
+        {   // hidden round-robin slot requested by B
+            Scene s;
+            s.kill({rowJunk()}, s.A);
+            openWith(s, s.B, GROUP_PERMISSION, viewOn);
+            bool bGot = autostore(s, s.B, GROUP_PERMISSION, 0, pickOn);
+            std::snprintf(id, sizeof(id), "MATRIX.%s.hidden_slot_refused_iff_pickup_check", tag[combo]);
+            check(id, bGot == !pickOn);
+        }
+    }
+}
+
+// With H0 OFF, H1's check may touch only the requester's own quest rows that
+// the core itself hides from them; it never writes the shared flag.
+static void hPickupFootprintWithViewGuardOff()
+{
+    Scene s;
+    Scene::accept(s.A, Q_QUEST);
+    Scene::accept(s.B, Q_QUEST);
+    s.kill({rowQuestSeed()}, s.A);
+    openWith(s, s.A, GROUP_PERMISSION, false);
+    openWith(s, s.B, GROUP_PERMISSION, false);  // B still needed the seed when it opened
+    Scene::gainToBags(s.B, Q_ITEM);             // B gets one elsewhere and banks it
+    Scene::bagToBank(s.B, Q_ITEM);
+    bool const sharedBefore = s.q().is_looted, aRowBefore = s.ownQuestRowLooted(s.A);
+    bool refused = false;
+    autostore(s, s.B, GROUP_PERMISSION, 0, true, &refused);
+    check("FOOTPRINT.view_off_check_marks_only_requester_row",
+          refused && s.ownQuestRowLooted(s.B) && !sharedBefore && !s.q().is_looted && aRowBefore == s.ownQuestRowLooted(s.A));
+    check("FOOTPRINT.view_off_A_still_awarded_after_check", autostore(s, s.A, GROUP_PERMISSION, 0, true) && s.received(s.A, Q_ITEM) == 1);
+}
+
 int main()
 {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
@@ -195,6 +261,8 @@ int main()
     hQuestItems();
     hControls();
     hPermission();
+    hToggleMatrix();
+    hPickupFootprintWithViewGuardOff();
     std::printf("CHECKS %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
