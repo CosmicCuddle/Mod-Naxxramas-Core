@@ -59,18 +59,21 @@ clarification); the A/B/C alternatives there are superseded research.
 **0**. It is read once per config load on the world thread and published
 through an atomic.
 
-## H0 (view guard) and H1 (this check): deliberate dependency
+## H0 (view guard) and H1 (this check): independent, and H1 changes nothing
 
-The check always runs the view guard's helper before it serializes the
-scratch `LootView`, **whatever `QuestLootViewGuard.Enabled` says**.
-Serializing without it would itself perform the pinned shared-`is_looted`
-write, which is the #262 T1 bug. With the helper first:
-- the only state the check can change is the requester's own quest rows that
-  the core already hides from that player (a real view marks those too);
-- it never writes the shared flag or touches another player's rows.
+The check runs the view guard's helper before it serializes its scratch
+`LootView`, whatever `QuestLootViewGuard.Enabled` says, and then **puts
+everything back**:
+- The pinned serializer writes only two flags (`LootMgr.cpp` L1115 for the
+  viewer's own row, and L1118 for the shared item).
+- The helper pre-marks those rows, so the serializer skips both writes.
+- The requester's own row flags are saved first and restored when the check
+  returns, so the net change to loot state is **zero**.
 
-It checks the **current** server view, not the window the client last
-received.
+H1 therefore never acts as a hidden H0. The two switches are independent. The
+check uses the **current** server view, not the window the client last
+received; with H0 off, the core hides the same rows from that player when they
+open the window.
 
 | H0 view guard | H1 pickup check | T1 (A after banked B's view) | Hidden round-robin slot requested by B |
 |---|---|---|---|
@@ -80,8 +83,8 @@ received.
 | ON | ON | **A awarded** | **refused** |
 
 All four combinations are tested. A footprint test also covers H0 OFF: the
-requester banks the item after opening the window. The check then marks only
-that requester's row, never the shared flag, and A is still awarded.
+requester banks the item after opening the window. The check then changes
+**no flag at all**, and A is still awarded.
 
 ## Evidence
 
@@ -108,9 +111,10 @@ SHA and the exact text of each seam:
 - the `PROCESS_INPLACE` opcode;
 - the release that clears `roundRobinPlayer`.
 
-**Mutants.** There are 5 must-fail mutants of the real header, and all are
+**Mutants.** There are 6 must-fail mutants of the real header, and all are
 caught:
 - allows any slot;
+- keeps the requester-row write (no restore);
 - skips the view guard;
 - master looter gets restricted rights;
 - another group gets rights;
@@ -142,7 +146,9 @@ Information (#143, 6559084691) asked for a deliberate ON/OFF dependency between
 H0 and H1, and for all four combinations to be tested. The dependency is
 documented in the header and in the section above. Ten checks were added: the
 matrix plus the footprint test. The A/B/C wording was replaced with the owner's
-stock-parity choice.
+stock-parity choice. Following CS01 (6559452215) and the matching H2 blocker
+(#270), the check now also restores the requester's own row flags, so H1 alone
+changes no loot state.
 
 ## Rollback
 

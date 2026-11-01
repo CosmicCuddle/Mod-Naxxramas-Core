@@ -232,8 +232,8 @@ static void hToggleMatrix()
     }
 }
 
-// With H0 OFF, H1's check may touch only the requester's own quest rows that
-// the core itself hides from them; it never writes the shared flag.
+// With H0 OFF, H1's check changes nothing at all: not the shared flag, not
+// the requester's own row, not anyone else's.
 static void hPickupFootprintWithViewGuardOff()
 {
     Scene s;
@@ -247,8 +247,8 @@ static void hPickupFootprintWithViewGuardOff()
     bool const sharedBefore = s.q().is_looted, aRowBefore = s.ownQuestRowLooted(s.A);
     bool refused = false;
     autostore(s, s.B, GROUP_PERMISSION, 0, true, &refused);
-    check("FOOTPRINT.view_off_check_marks_only_requester_row",
-          refused && s.ownQuestRowLooted(s.B) && !sharedBefore && !s.q().is_looted && aRowBefore == s.ownQuestRowLooted(s.A));
+    check("FOOTPRINT.view_off_check_changes_no_flag",
+          refused && !s.ownQuestRowLooted(s.B) && !sharedBefore && !s.q().is_looted && aRowBefore == s.ownQuestRowLooted(s.A));
     check("FOOTPRINT.view_off_A_still_awarded_after_check", autostore(s, s.A, GROUP_PERMISSION, 0, true) && s.received(s.A, Q_ITEM) == 1);
 }
 
