@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BASE_272: 9d6f5a3c531bccbdd5744db2d23d2de1d1539951
+  BASE_272: a4893faf5b3ab3e936b70b7963ace2c686f48d6f
   CORE_PIN: 8daffdabe9202c228e45d833c9a1d399597a15cd
   PB_PIN: 037c01418b5d01506917a3db9b44fd56ac5f965c
   IP_PIN: 4ff4b5fcc1480348f058c632573143e62d4e3a41
