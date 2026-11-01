@@ -40,7 +40,7 @@ exact current clock (no fake `--now` CLI flag).
 
 - Valid source-created journal record filename ranges, contiguous offsets,
   nondecreasing observation day, exact byte size and SHA-256.
-- One private `records`/ `archives` pair for a known World/Auth stream label.
+- One private `records`/ `archives` pair for a known World/Auth stream label, with **matching complete stream-directory sets**; orphan archive-only or journal-only labels cause refusal, not a misleading empty/partial preview.
 - No symbolic-link directory components in the selected collector root or its ancestor chain (including aliases to otherwise private directories).
 - Valid origin metadata and no unknown, hardlinked, missing or replaced file.
 - Matching complete archive bytes plus receipt for each candidate day.
@@ -73,10 +73,10 @@ has not run this against CosmicCuddle's host.
 
 ## Testing and ownership
 
-`tests/test_f15_retention_preview.py` checks nine disposable scenarios:
+`tests/test_f15_retention_preview.py` checks ten disposable scenarios:
 no file mutation, exact boundary, newer-day preservation, corrupt/missing
 archive refusal, symlink/pending-intent refusal, untrusted root/journal
-refusal, nested symlink ancestor refusal, cooperative collector-lock refusal,
+refusal, orphaned/mismatched stream-directory refusal, nested symlink ancestor refusal, cooperative collector-lock refusal,
 and explicit opt-in CLI without leaking source paths/log contents.
 
 The existing [F15 source workflow](../../.github/workflows/naxx-f15-operator-capture-20261101.yml)
