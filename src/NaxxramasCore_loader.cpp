@@ -49,6 +49,7 @@ void AddBattlemasterQueueProgressionScripts();
 void AddNaxxramasEasternPlaguelandsTowerLockScripts();
 void AddQuestLootProtectionScripts();
 void AddQuestLootViewGuardScripts();
+void AddQuestLootPickupAuthorizationScripts();
 void AddBotGolemaggActionAuditScripts();
 
 void Addmod_naxxramas_coreScripts()
@@ -97,5 +98,6 @@ void Addmod_naxxramas_coreScripts()
     AddNaxxramasEasternPlaguelandsTowerLockScripts();
     AddQuestLootProtectionScripts();
     AddQuestLootViewGuardScripts();
+    AddQuestLootPickupAuthorizationScripts();
     AddBotGolemaggActionAuditScripts();
 }
