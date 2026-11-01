@@ -50,6 +50,7 @@ void AddNaxxramasEasternPlaguelandsTowerLockScripts();
 void AddQuestLootProtectionScripts();
 void AddQuestLootViewGuardScripts();
 void AddQuestLootPickupAuthorizationScripts();
+void AddQuestLootSparkleGuardScripts();
 void AddBotGolemaggActionAuditScripts();
 
 void Addmod_naxxramas_coreScripts()
@@ -99,5 +100,6 @@ void Addmod_naxxramas_coreScripts()
     AddQuestLootProtectionScripts();
     AddQuestLootViewGuardScripts();
     AddQuestLootPickupAuthorizationScripts();
+    AddQuestLootSparkleGuardScripts();
     AddBotGolemaggActionAuditScripts();
 }
