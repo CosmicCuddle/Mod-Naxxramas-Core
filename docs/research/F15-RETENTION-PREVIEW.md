@@ -33,7 +33,9 @@ retention intent causes a refusal requiring manual review.
 
 Its JSON output contains only the stream label, UTC observation day, checked
 journal byte count and record count; it does **not** print original log paths,
-packet payloads, command lines, credentials or console contents. It uses the
+packet payloads, command lines, credentials or console contents. Refusals
+print a **generic error** without revealing private source or collector paths,
+including when an input directory is missing. It uses the
 exact current clock (no fake `--now` CLI flag).
 
 ## What this checks
@@ -73,11 +75,12 @@ has not run this against CosmicCuddle's host.
 
 ## Testing and ownership
 
-`tests/test_f15_retention_preview.py` checks ten disposable scenarios:
+`tests/test_f15_retention_preview.py` checks eleven disposable scenarios:
 no file mutation, exact boundary, newer-day preservation, corrupt/missing
 archive refusal, symlink/pending-intent refusal, untrusted root/journal
 refusal, orphaned/mismatched stream-directory refusal, nested symlink ancestor refusal, cooperative collector-lock refusal,
-and explicit opt-in CLI without leaking source paths/log contents.
+and explicit opt-in CLI without leaking source paths/log contents, including
+missing private collector directories and their path-bearing OS errors.
 
 The existing [F15 source workflow](../../.github/workflows/naxx-f15-operator-capture-20261101.yml)
 will execute this suite and assert the preview program includes no file
