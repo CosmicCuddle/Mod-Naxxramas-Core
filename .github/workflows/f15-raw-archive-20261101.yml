@@ -1,0 +1,79 @@
+name: "F15/P3 opt-in non-deleting raw archive of completed supervised runs (DRAFT, NO HOST)"
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/f15_raw_archive.py'
+      - 'scripts/f15_supervised_storage_audit.py'
+      - 'scripts/f15_supervised_retention.py'
+      - 'scripts/f15_process_supervisor.py'
+      - 'scripts/f15_operator_collector.py'
+      - 'tests/test_f15_raw_archive.py'
+      - 'tests/f15_raw_archive_mutants.py'
+      - 'docs/P3-F15-RAW-ARCHIVE-20261101.md'
+      - '.github/workflows/f15-raw-archive-20261101.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BASE_280: deebd7b68d2966ede6dc80a8da92d1351e4cb7eb
+
+jobs:
+  synthetic-raw-archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: "Exact scope: child of #280, five new paths only"
+        if: github.event_name == 'workflow_dispatch' || github.head_ref == 'claude/cs03-p3-f15-raw-archive-20261101'
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_280" HEAD
+          python3 - <<'PY'
+          import os, subprocess
+          rows = subprocess.check_output(["git", "diff", "--name-status", os.environ["BASE_280"], "HEAD"], text=True).splitlines()
+          actual = {tuple(r.split("\t")) for r in rows}
+          allowed = {("A", p) for p in (
+              "scripts/f15_raw_archive.py",
+              "tests/test_f15_raw_archive.py",
+              "tests/f15_raw_archive_mutants.py",
+              "docs/P3-F15-RAW-ARCHIVE-20261101.md",
+              ".github/workflows/f15-raw-archive-20261101.yml",
+          )}
+          assert actual == allowed, (actual ^ allowed)
+          print("PASS: five new paths; no existing F15 script, workflow, C++ or config changed")
+          PY
+      - name: "Syntax check"
+        run: python3 -m py_compile scripts/f15_raw_archive.py tests/test_f15_raw_archive.py tests/f15_raw_archive_mutants.py
+      - name: "Temp-folder World/Auth archive tests (20), no skips"
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_f15_raw_archive.py -v > /tmp/raw.txt 2>&1 || { cat /tmp/raw.txt; exit 1; }
+          cat /tmp/raw.txt
+          grep -Eq '^Ran 20 tests in [0-9.]+s$' /tmp/raw.txt
+          grep -qx OK /tmp/raw.txt
+          ! grep -Eq 'skipped|^FAIL|^ERROR' /tmp/raw.txt
+      - name: "Must-fail mutants of the real archiver (13)"
+        run: |
+          set -euo pipefail
+          python3 tests/f15_raw_archive_mutants.py | tee /tmp/mut.txt
+          grep -qx '13/13 raw archive mutants caught' /tmp/mut.txt
+      - name: "Unchanged F15 suites the archiver imports still pass"
+        # test_f15_supervised_retention.py is not run here: at #280 it depends on
+        # the runner umask (a bare mkdir() fixture), reported to CS01 on #143.
+        run: |
+          set -euo pipefail
+          for t in test_f15_supervised_storage_audit.py test_f15_process_supervisor.py; do
+            python3 -m unittest discover -s tests -p "$t"
+          done
+      - name: "Scope of proof"
+        if: always()
+        run: |
+          echo "Synthetic temp-folder subprocesses only. No owner host, PM2/tmux/systemd, scheduler, real World/Auth or deletion."
+          echo "The archiver copies; originals are never removed. Exit kind is not an engine crash diagnosis."
