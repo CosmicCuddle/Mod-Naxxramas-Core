@@ -402,6 +402,19 @@ NaxxramasCore.QuestLootPickupAuthorization.Enabled = 0
 # Default: 0
 NaxxramasCore.QuestLootSparkleGuard.Enabled = 0
 
+# Master Loot quest-slot give (P4-H). The core gives the wrong quest item
+# when the leader's quest rows are numbered differently from the loot's
+# quest list, tells other looters to remove the wrong row, and can give a
+# quest item that was already looted. When enabled, a give of a QUEST slot
+# uses the leader's own row, the stock checks and errors, and per-player
+# removal notices. Normal slots, and every request that fails the core's own
+# checks, are left to the core. Who may give, and to whom, is unchanged.
+# Uses ServerScript::CanPacketReceive for CMSG_LOOT_MASTER_GIVE.
+# DISABLED until review and owner-approved gameplay tests.
+# 1 = enable; 0 = native AzerothCore handling only.
+# Default: 0
+NaxxramasCore.MasterLootQuestGive.Enabled = 0
+
 #####################################
 # Molten Core / Golemagg — READ-ONLY Playerbot action probe
 #####################################
