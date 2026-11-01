@@ -7,7 +7,9 @@ on:
   pull_request:
     paths:
       - scripts/f15_operator_collector.py
+      - scripts/f15_process_supervisor.py
       - tests/test_f15_operator_collector.py
+      - tests/test_f15_process_supervisor.py
       - docs/research/F15-OPERATIONAL-CAPTURE-FIRST-DRAFT.md
       - .github/workflows/naxx-f15-operator-capture-20261101.yml
   workflow_dispatch:
@@ -20,17 +22,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Compile actual operator program
-        run: python3 -m py_compile scripts/f15_operator_collector.py tests/test_f15_operator_collector.py
+        run: python3 -m py_compile scripts/f15_operator_collector.py scripts/f15_process_supervisor.py tests/test_f15_operator_collector.py tests/test_f15_process_supervisor.py
       - name: Execute operator implementation against disposable fake files
-        run: python3 -m unittest discover -s tests -p test_f15_operator_collector.py -v
+        run: |
+          python3 -m unittest discover -s tests -p test_f15_operator_collector.py -v
+          python3 -m unittest discover -s tests -p test_f15_process_supervisor.py -v
       - name: Check deliberate no-delete stage boundary
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path("scripts/f15_operator_collector.py").read_text()
           assert "def collect_once(" in p and "def main(" in p
-          assert "--capture" in p
+          assert "--capture" in p and "--include-existing-on-first-poll" in p
+          supervisor = Path("scripts/f15_process_supervisor.py").read_text()
+          assert "--execute" in supervisor and "subprocess.Popen(" in supervisor
           assert "os.unlink(" not in p and ".unlink(" not in p
           assert "shutil.rmtree" not in p and "subprocess." not in p
-          print("PASS: actual source capture, no retention deletion API")
+          print("PASS: actual capture and exit/signal observation, no retention deletion API")
           PY
