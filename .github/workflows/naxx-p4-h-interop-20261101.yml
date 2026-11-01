@@ -1,0 +1,153 @@
+name: "P4-H follow-on: gameobject loot + packet-hook interop (tests only, NO HOST)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - "src/Systems/MasterLootQuestGive.h"
+      - "src/Systems/MasterLootQuestGive.cpp"
+      - "src/Systems/QuestLootProtection.cpp"
+      - "src/Systems/QuestLootPickupAuthorization.cpp"
+      - "tests/p4_h_interop/**"
+      - "tests/test_p4_h_interop.py"
+      - "tests/p4_h_master_loot/**"
+      - "tests/a04_native/**"
+      - "docs/P4-H-GO-INTEROP.md"
+      - ".github/workflows/naxx-p4-h-interop-20261101.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p4-h-interop-${{ github.event.pull_request.number || github.ref }}-${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  BASE_272: a4893faf5b3ab3e936b70b7963ace2c686f48d6f
+  CORE_PIN: 8daffdabe9202c228e45d833c9a1d399597a15cd
+  PB_PIN: 037c01418b5d01506917a3db9b44fd56ac5f965c
+  IP_PIN: 4ff4b5fcc1480348f058c632573143e62d4e3a41
+
+jobs:
+  harness:
+    name: "Seam matrix + gameobject loot (${{ matrix.cxx }})"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+    steps:
+      - name: "Checkout exact module head"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: module
+          fetch-depth: 0
+          persist-credentials: false
+      - name: "Checkout pinned Grimfeather core (read-only sources, content scripts and public SQL)"
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: ${{ env.CORE_PIN }}
+          path: core
+          persist-credentials: false
+          sparse-checkout: |
+            src/common
+            src/server/shared
+            src/server/game
+            src/server/scripts
+            deps/fmt
+            data/sql/base/db_world
+      - name: "Checkout pinned Playerbots (read-only)"
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/mod-playerbots
+          ref: ${{ env.PB_PIN }}
+          path: playerbots
+          persist-credentials: false
+      - name: "Checkout pinned Individual Progression (read-only)"
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/mod-individual-progression
+          ref: ${{ env.IP_PIN }}
+          path: ip
+          persist-credentials: false
+      - name: "Exact heads, child of #272, tests and docs only"
+        # Exact scope belongs to this branch's own PR; stacked or integration PRs
+        # run every test step below but carry other files by design.
+        if: github.event_name == 'workflow_dispatch' || github.head_ref == 'claude/cs03-p4-h-go-interop-20261101'
+        working-directory: module
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C ../core rev-parse HEAD)" = "$CORE_PIN"
+          test "$(git -C ../playerbots rev-parse HEAD)" = "$PB_PIN"
+          test "$(git -C ../ip rev-parse HEAD)" = "$IP_PIN"
+          git merge-base --is-ancestor "$BASE_272" HEAD
+          python3 - <<'PY'
+          import os, subprocess
+          base = os.environ["BASE_272"]
+          rows = subprocess.check_output(["git", "diff", "--name-status", base, "HEAD"], text=True).splitlines()
+          actual = {tuple(r.split("\t")) for r in rows}
+          allowed = {("A", p) for p in (
+              "tests/p4_h_interop/seam_env.h",
+              "tests/p4_h_interop/seam_harness.cpp",
+              "tests/p4_h_interop/go_loot_harness.cpp",
+              "tests/p4_h_interop/build_interop.py",
+              "tests/p4_h_interop/mutants.py",
+              "tests/test_p4_h_interop.py",
+              "docs/P4-H-GO-INTEROP.md",
+              ".github/workflows/naxx-p4-h-interop-20261101.yml",
+          )}
+          assert actual == allowed, (actual ^ allowed)
+          print("PASS: exact change allowlist; no src/, conf or loader change from #272")
+          PY
+      - name: "Compiler"
+        run: ${{ matrix.cxx }} --version
+      - name: "Interop: 8 tests, seam 28 + gameobject 13 checks on original bodies, no skips"
+        env:
+          A04_CORE: ${{ github.workspace }}/core
+          PB_DIR: ${{ github.workspace }}/playerbots
+          IP_DIR: ${{ github.workspace }}/ip
+          CXX: ${{ matrix.cxx }}
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error module/tests/test_p4_h_interop.py -v > /tmp/hi.txt 2>&1 || { cat /tmp/hi.txt; exit 1; }
+          cat /tmp/hi.txt
+          grep -Eq '^Ran 8 tests in [0-9.]+s$' /tmp/hi.txt
+          grep -qx OK /tmp/hi.txt
+          grep -qx 'CHECKS 28 passed, 0 failed' /tmp/hi.txt
+          grep -qx 'CHECKS 13 passed, 0 failed' /tmp/hi.txt
+          ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/hi.txt
+      - name: "Must-fail mutants: 12 of the real #272 .cpp, 3 of the real header"
+        env:
+          A04_CORE: ${{ github.workspace }}/core
+          CXX: ${{ matrix.cxx }}
+        run: |
+          set -euo pipefail
+          python3 -I -B module/tests/p4_h_interop/mutants.py | tee /tmp/mutants.txt
+          grep -qx '15/15 interop mutants caught' /tmp/mutants.txt
+      - name: "Regression: unchanged #272 (29), H2 (21), H1 (36), #264 (24), #262 (71)"
+        env:
+          A04_CORE: ${{ github.workspace }}/core
+          CXX: ${{ matrix.cxx }}
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error module/tests/test_p4_h_master_loot.py > /tmp/h.txt 2>&1 || { cat /tmp/h.txt; exit 1; }
+          grep -qx 'CHECKS 29 passed, 0 failed' /tmp/h.txt
+          python3 -I -B -W error module/tests/test_p4_h2_sparkle.py > /tmp/h2.txt 2>&1 || { cat /tmp/h2.txt; exit 1; }
+          grep -qx 'CHECKS 21 passed, 0 failed' /tmp/h2.txt
+          python3 -I -B -W error module/tests/test_p4_h1_pickup_authz.py > /tmp/h1.txt 2>&1 || { cat /tmp/h1.txt; exit 1; }
+          grep -qx 'CHECKS 36 passed, 0 failed' /tmp/h1.txt
+          python3 -I -B -W error module/tests/test_p4_quest_loot_view_guard.py > /tmp/guard.txt 2>&1 || { cat /tmp/guard.txt; exit 1; }
+          grep -qx 'CHECKS 24 passed, 0 failed' /tmp/guard.txt
+          python3 -I -B -W error module/tests/test_a04_native_quest_loot.py > /tmp/a04.txt 2>&1 || { cat /tmp/a04.txt; exit 1; }
+          grep -qx 'CHECKS 71 passed, 0 failed' /tmp/a04.txt
+          grep -qx OK /tmp/a04.txt
+      - name: "Scope of proof"
+        if: always()
+        run: |
+          echo "Tests only: no module source changes from #272; #272's own workflow links the full Worldserver."
+          echo "Extracted-source harnesses are NOT in-game Master Loot tests. No owner server, database, SQL, config, merge or deployment."
