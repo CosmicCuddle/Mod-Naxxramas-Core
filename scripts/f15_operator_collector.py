@@ -82,6 +82,8 @@ def read_receipt(path):
 def collect_once(root, sources, now=None, include_existing=False):
     """Poll one bounded chunk from each explicit file and rebuild changed UTC archives."""
     root = private_dir(root)
+    if (root / "retention-intent.json").exists() or (root / "retention-intent.json").is_symlink():
+        raise Refused("unfinished retention intent; refuse capture until manual review")
     record_root = private_dir(root / "records")
     archive_root = private_dir(root / "archives")
     lockpath = root / "collector.lock"
@@ -189,6 +191,7 @@ def main(argv=None):
     parser.add_argument("--source", action="append", required=True, help="LABEL=/absolute/logfile; repeat for World/Auth out/err")
     parser.add_argument("--capture", action="store_true", help="explicitly enable read-only source capture")
     parser.add_argument("--include-existing-on-first-poll", action="store_true", help="EXPLICIT initial backfill; reads already-written source bytes (never resets an established cursor)")
+    parser.add_argument("--retention-30d", action="store_true", help="EXPERIMENTAL: explicitly enable deletion of collector-owned archives AND raw journal records older than 30 UTC days; never originals")
     parser.add_argument("--once", action="store_true", help="poll once then exit")
     parser.add_argument("--interval", type=float, default=2.0)
     args = parser.parse_args(argv)
@@ -205,6 +208,9 @@ def main(argv=None):
     try:
         while True:
             collect_once(args.root, sources, include_existing=args.include_existing_on_first_poll)
+            if args.retention_30d:
+                from f15_archive_retention import retain_once
+                retain_once(args.root)
             if args.once:
                 break
             time.sleep(args.interval)
