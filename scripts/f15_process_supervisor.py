@@ -41,9 +41,13 @@ def supervise(output_root, archive_root, service, command, poll_seconds=0.2):
         raise Refused("output and archive roots must be separate, non-nested directories")
     runs_root = private_dir(output_root / "runs")
     run = private_dir(runs_root / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(8)))
+    # Every child run uses new raw file inodes. A shared capture origin
+    # would reject the second run as source replacement and lose its logs.
+    capture_root = private_dir(private_dir(archive_root / "runs") / run.name)
     stdout_path, stderr_path = run / "stdout.raw", run / "stderr.raw"
     intent = {"service": service, "time_utc": utc_now(), "state": "planned",
-              "stdout": str(stdout_path), "stderr": str(stderr_path)}
+              "stdout": str(stdout_path), "stderr": str(stderr_path),
+              "capture_root": str(capture_root)}
     atomic_write(run / "start.json", json.dumps(intent, sort_keys=True).encode())
     sources = {service + "-out": str(stdout_path), service + "-err": str(stderr_path)}
     with _new_log(stdout_path) as stdout, _new_log(stderr_path) as stderr:
@@ -64,7 +68,7 @@ def supervise(output_root, archive_root, service, command, poll_seconds=0.2):
             while True:
                 if capture_error is None:
                     try:
-                        collect_once(archive_root, sources, include_existing=True)
+                        collect_once(capture_root, sources, include_existing=True)
                     except (Refused, OSError, ValueError) as exc:
                         # Do not kill/restart the child on an archive failure.
                         capture_error = type(exc).__name__
@@ -74,7 +78,7 @@ def supervise(output_root, archive_root, service, command, poll_seconds=0.2):
                 time.sleep(poll_seconds)
             if capture_error is None:
                 try:
-                    collect_once(archive_root, sources, include_existing=True)
+                    collect_once(capture_root, sources, include_existing=True)
                 except (Refused, OSError, ValueError) as exc:
                     capture_error = type(exc).__name__
         except KeyboardInterrupt:
@@ -87,7 +91,8 @@ def supervise(output_root, archive_root, service, command, poll_seconds=0.2):
     outcome = {"service": service, "time_utc": utc_now(), "state": "exit_observed",
                "exit_code": result, "exit_kind": classification,
                "capture": "complete_for_observed_run" if capture_error is None else "fail_closed",
-               "capture_error_type": capture_error, "pid": child.pid}
+               "capture_error_type": capture_error, "pid": child.pid,
+               "capture_root": str(capture_root)}
     atomic_write(run / "exit.json", json.dumps(outcome, sort_keys=True).encode())
     return run, outcome
 
