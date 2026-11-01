@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """F15 opt-in read-only log capture prototype (POSIX).
 
-No deletion, launcher control, crash attribution or automatic log rotation.
+Archive AND raw-journal deletion occurs ONLY with explicit experimental --retention-30d;\nno original-log deletion, unattended launcher control or automatic rotation.
 Captures only explicitly selected World/Auth regular single-link files.
 All outputs are confined to a private 0700 collector root.
 """
@@ -186,7 +186,7 @@ def collect_once(root, sources, now=None, include_existing=False):
         os.close(lockfd)
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="F15 opt-in console log capture (no deletion or crash attribution)")
+    parser = argparse.ArgumentParser(description="F15 opt-in capture; experimental explicit-only 30-day owned-archive retention")
     parser.add_argument("--root", required=True, help="private 0700 capture directory")
     parser.add_argument("--source", action="append", required=True, help="LABEL=/absolute/logfile; repeat for World/Auth out/err")
     parser.add_argument("--capture", action="store_true", help="explicitly enable read-only source capture")
