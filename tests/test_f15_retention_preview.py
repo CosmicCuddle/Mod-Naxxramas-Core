@@ -1,5 +1,5 @@
 """F15 preview-only tests on disposable files; no live server or deletions."""
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 import fcntl
@@ -140,6 +140,19 @@ class PreviewTests(unittest.TestCase):
                 fcntl.flock(held.fileno(), fcntl.LOCK_UN)
         self.assertEqual(self.archive.read_bytes(), before)
         self.assertTrue(self.receipt.exists())
+
+    def test_cli_missing_private_directory_does_not_expose_path(self):
+        missing = self.home / "private_owner_name" / "missing_collector"
+        self.assertFalse(missing.exists())
+        out, errors = StringIO(), StringIO()
+        with redirect_stdout(out), redirect_stderr(errors):
+            self.assertEqual(main(["--root", str(missing), "--preview"]), 2)
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("F15 RETENTION PREVIEW REFUSED", errors.getvalue())
+        self.assertNotIn("private_owner_name", errors.getvalue())
+        self.assertNotIn(str(missing), errors.getvalue())
+        self.assertFalse(missing.exists())
+        self.assertTrue(self.archive.exists())
 
     def test_explicit_cli_never_prints_private_source_or_log_contents(self):
         with self.assertRaises(SystemExit):
