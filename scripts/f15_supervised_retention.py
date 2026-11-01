@@ -116,7 +116,9 @@ def expire_completed_runs_once(output_root, archive_root, now=None):
     """Expire owned journal days only for validated, fully exited child runs.
 
     Source-side raw .raw logs and start/running/exit receipts are NEVER deleted.
-    A corrupt/foreign run blocks the entire sweep before any change.
+    Foreign run identities and receipts are rejected before any deletion.
+    Per-root archive integrity is checked by retain_once when processed;
+    a later corrupt root can stop the sweep after earlier valid expirations.
     """
     completed, skipped = _validated_runs(output_root, archive_root)
     deleted_days = 0
