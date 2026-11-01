@@ -81,6 +81,23 @@ class CollectorTests(unittest.TestCase):
         self.src.write_bytes(b'')
         with self.assertRaises(f15.Refused): self.poll()
 
+    def test_copytruncate_regrow_same_inode_never_claims_continuity(self):
+        self.poll()
+        original = b"authenticated-journal-tail"
+        with self.src.open("ab") as fp:
+            fp.write(original)
+        self.poll()
+        old_archive = self.archives()[0].read_bytes()
+        # Same path and inode; replacement has already regrown beyond the
+        # old cursor, so size and inode checks alone would miss the loss.
+        previous_inode = self.src.stat().st_ino
+        self.src.write_bytes(b"Z" * (self.src.stat().st_size + 19))
+        self.assertEqual(self.src.stat().st_ino, previous_inode)
+        with self.assertRaisesRegex(f15.Refused, "source rewritten in place"):
+            self.poll()
+        self.assertEqual(self.archives()[0].read_bytes(), old_archive)
+        self.assertEqual(len(list((self.root/"records"/"Worldserver-out").glob("*.bin"))), 1)
+
     def test_reject_hardlink_and_symlink(self):
         other = self.home/'linked'
         os.link(self.src,other)
