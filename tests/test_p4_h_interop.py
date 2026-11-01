@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "tests" / "p4_h_interop"))
 import build_interop  # noqa: E402
 
 SEAM_CHECKS = 28
-GO_CHECKS = 13
+GO_CHECKS = 15
 SEAM_REQUIRED = [
     "SEAM.no_group", "SEAM.not_master_looter", "SEAM.group_loot_method", "SEAM.need_before_greed_method",
     "SEAM.free_for_all_method", "SEAM.target_missing", "SEAM.loot_guid_mismatch", "SEAM.not_in_raid",
@@ -35,6 +35,7 @@ GO_REQUIRED = [
     "GO.FIXTURE.personal_only_opener_has_rows", "GO.GIVE.personal_same_award_only_row_holder_notified",
     "GO.FIXTURE.personal_other_opener_leader_has_no_row", "GO.STOCK.crafted_slot_gives_item_leader_not_shown",
     "GO.GIVE.crafted_slots_refused_no_row", "GO.GIVE.A_still_loots_own_row", "GO.PASS.normal_slot_left_to_core",
+    "GO.FIXTURE.zero_count_both_unlooted", "GO.GIVE.zero_count_refused_without_side_effects",
 ]
 
 SEAM_ENV = (ROOT / "tests" / "p4_h_interop" / "seam_env.h").read_text()

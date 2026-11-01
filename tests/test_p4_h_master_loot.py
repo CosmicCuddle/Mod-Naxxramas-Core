@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests" / "p4_h_master_loot"))
 import build_master_loot  # noqa: E402
 
-EXPECTED_CHECKS = 29
+EXPECTED_CHECKS = 30
 REQUIRED = [
     "FIXTURE.D3_leader_sees_Q1_at_N1_recipient_at_N0",
     "STOCK.D3_A_told_to_remove_slot_it_does_not_have",
@@ -27,6 +27,7 @@ REQUIRED = [
     "PASS.normal_slot_left_to_core", "FFA.copy_refused_not_a_master_row", "FFA.both_copies_still_lootable",
     "STOCK.ROW_gives_an_item_the_leader_is_not_shown", "ROW.leader_without_row_refused",
     "FIXTURE.leader_at_fill_gets_every_quest_row", "SAME.prefix_case_matches_stock",
+    "GIVE.zero_count_unlooted_refused_no_effects",
 ]
 
 SCRIPT = (ROOT / "src" / "Systems" / "MasterLootQuestGive.cpp").read_text()

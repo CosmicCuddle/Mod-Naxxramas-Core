@@ -49,8 +49,11 @@ SEAM_MUTANTS = [
 GO_MUTANTS = [
     ("leader's slot sent to every looter",
      "        loot.NotifyQuestItemRemoved(row.index);\n", "        loot.NotifyItemRemoved(slot);\n"),
+    ("zero-count still awarded",
+     "        if (item.count == 0 || row.is_looted || item.is_looted)\n",
+     "        if (row.is_looted || item.is_looted)\n"),
     ("shared looted flag not checked",
-     "        if (row.is_looted || item.is_looted)\n", "        if (row.is_looted)\n"),
+     "        if (item.count == 0 || row.is_looted || item.is_looted)\n", "        if (row.is_looted)\n"),
     ("normal slots taken over",
      "        if (slot < loot.items.size())\n", "        if (false)\n"),
 ]

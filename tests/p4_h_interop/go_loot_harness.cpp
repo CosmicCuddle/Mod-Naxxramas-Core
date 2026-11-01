@@ -196,6 +196,41 @@ static void goPersonalOpenedByOther()
     }
 }
 
+// Deliberately inconsistent, unlooted quest entry with zero stack count.
+// This is an explicit negative fixture, not a claim that normal Core loot
+// creation produces it. The module must refuse BEFORE touching inventory,
+// achievements, unlootedCount or per-viewer quest removal notifications.
+static void goZeroCountUnlooted()
+{
+    ChestScene s;
+    Scene::accept(s.M, T5_QUEST, 0);
+    Scene::accept(s.A, T5_QUEST, 0);
+    s.openChestFirst(s.A, true, {rowT5()});
+    auto rowsM = s.open(s.M, MASTER_PERMISSION);
+    s.open(s.A, RESTRICTED_PERMISSION);
+    int const slot = s.slotOf(rowsM, T5_ITEM);
+    s.clearEvents();
+
+    auto const& map = s.loot.GetPlayerQuestItems();
+    auto const own = map.find(s.M.GetGUID());
+    bool const ownerRowUnlooted = own != map.end() && own->second &&
+                                  !own->second->empty() && !own->second->at(0).is_looted;
+    s.q(0).count = 0;  // malformed item, both looted bits still FALSE
+    std::size_t const beforeUnlooted = s.loot.unlootedCount;
+    check("GO.FIXTURE.zero_count_both_unlooted",
+          slot == 0 && ownerRowUnlooted && !s.q(0).is_looted &&
+          s.q(0).count == 0 && beforeUnlooted > 0);
+
+    MG::Outcome const outcome = MG::GiveQuestSlot(&s.M, &s.A, s.loot, uint8(slot));
+    check("GO.GIVE.zero_count_refused_without_side_effects",
+          outcome.result == MG::Result::AlreadyLooted &&
+          s.received(s.A, T5_ITEM) == 0 && s.received(s.M, T5_ITEM) == 0 &&
+          s.q(0).count == 0 && !s.q(0).is_looted &&
+          !own->second->at(0).is_looted &&
+          s.loot.unlootedCount == beforeUnlooted &&
+          s.M.ev.removedSlots.empty() && s.A.ev.removedSlots.empty());
+}
+
 // Group-rules chest with a normal item: the header leaves it to the core.
 static void goNormalSlot()
 {
@@ -216,6 +251,7 @@ int main()
     goGroupRulesD2();
     goPersonalOpenedByLeader();
     goPersonalOpenedByOther();
+    goZeroCountUnlooted();
     goNormalSlot();
     std::printf("CHECKS %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
