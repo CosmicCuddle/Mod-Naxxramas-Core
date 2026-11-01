@@ -110,8 +110,10 @@ def main(argv=None):
         # Only aggregate metadata. Never print original source paths or log contents.
         print(json.dumps({"eligible_stream_days": len(rows), "candidates": rows}, sort_keys=True))
         return 0
-    except (Refused, OSError, ValueError, TypeError) as exc:
-        print("F15 RETENTION PREVIEW REFUSED: " + str(exc), file=sys.stderr)
+    except (Refused, OSError, ValueError, TypeError):
+        # OS errors include private filenames by default. Do not echo their
+        # text (or potentially path-bearing future validation exceptions).
+        print("F15 RETENTION PREVIEW REFUSED: collector state failed validation", file=sys.stderr)
         return 2
 
 
