@@ -79,7 +79,7 @@ def read_receipt(path):
     except (OSError, ValueError, TypeError) as exc:
         raise Refused("invalid archive receipt") from exc
 
-def collect_once(root, sources, now=None):
+def collect_once(root, sources, now=None, include_existing=False):
     """Poll one bounded chunk from each explicit file and rebuild changed UTC archives."""
     root = private_dir(root)
     record_root = private_dir(root / "records")
@@ -117,7 +117,7 @@ def collect_once(root, sources, now=None):
                 else:
                     if list(records.iterdir()):
                         raise Refused("missing origin with existing records")
-                    origin = {"path": str(path), "dev": st.st_dev, "ino": st.st_ino, "start": st.st_size}
+                    origin = {"path": str(path), "dev": st.st_dev, "ino": st.st_ino, "start": 0 if include_existing else st.st_size}
                     atomic_write(origin_path, json.dumps(origin, sort_keys=True).encode("utf-8"))
                 offset = origin["start"]
                 days = {}
@@ -188,6 +188,7 @@ def main(argv=None):
     parser.add_argument("--root", required=True, help="private 0700 capture directory")
     parser.add_argument("--source", action="append", required=True, help="LABEL=/absolute/logfile; repeat for World/Auth out/err")
     parser.add_argument("--capture", action="store_true", help="explicitly enable read-only source capture")
+    parser.add_argument("--include-existing-on-first-poll", action="store_true", help="EXPLICIT initial backfill; reads already-written source bytes (never resets an established cursor)")
     parser.add_argument("--once", action="store_true", help="poll once then exit")
     parser.add_argument("--interval", type=float, default=2.0)
     args = parser.parse_args(argv)
@@ -203,7 +204,7 @@ def main(argv=None):
         sources[label] = filename
     try:
         while True:
-            collect_once(args.root, sources)
+            collect_once(args.root, sources, include_existing=args.include_existing_on_first_poll)
             if args.once:
                 break
             time.sleep(args.interval)
