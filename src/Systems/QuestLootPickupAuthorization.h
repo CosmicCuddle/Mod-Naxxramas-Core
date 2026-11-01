@@ -49,8 +49,15 @@ namespace NaxxramasQuestLootPickupAuthorization
     }
 
     // True when 'slot' is one of the rows the original serializer would send
-    // to this player now. The view guard runs first, so serializing has no
-    // shared side effect (it only hides rows the core hides from this viewer).
+    // to this player NOW (the current server view, not a remembered window).
+    //
+    // Deliberate dependency on the view guard helper, whatever the H0 config
+    // says: serializing a LootView without it would itself run the pinned
+    // shared-is_looted write (the #262 T1 bug). With the helper first, the
+    // only state this check can change is the requester's own quest rows that
+    // the core already hides from them (a real view marks those too), and
+    // never the shared flag or another player's rows. Tested for all four
+    // H0/H1 ON/OFF combinations.
     inline bool SlotVisibleInServerView(Player* viewer, Loot& loot, PermissionTypes permission, uint8 slot)
     {
         if (!viewer || permission == NONE_PERMISSION)
