@@ -7,6 +7,7 @@ import signal
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -40,6 +41,36 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(first_bytes, b"first-run\n")
         self.assertEqual(second_bytes, b"second-run\n")
         self.assertEqual(len(list((self.archive / "runs").iterdir())), 2)
+
+    def test_large_final_console_burst_is_fully_archived(self):
+        # Child exits quickly with far more than one 64-KiB read per stream.
+        out_size = 3 * 65536 + 17
+        err_size = 2 * 65536 + 37
+        code = (
+            "import sys; "
+            f"sys.stdout.buffer.write(b\'A\'*{out_size}); "
+            f"sys.stderr.buffer.write(b\'B\'*{err_size})"
+        )
+        run, report = self.launch("Worldserver", code)
+        self.assertEqual(report["exit_code"], 0)
+        self.assertEqual(report["capture"], "complete_for_observed_run")
+        self.assertIsNone(report["capture_error_type"])
+        self.assertEqual((run / "stdout.raw").read_bytes(), b"A" * out_size)
+        self.assertEqual((run / "stderr.raw").read_bytes(), b"B" * err_size)
+        self.assertEqual(next(self.archived(run, "Worldserver-out").glob("*.txt")).read_bytes(), b"A" * out_size)
+        self.assertEqual(next(self.archived(run, "Worldserver-err").glob("*.txt")).read_bytes(), b"B" * err_size)
+
+    def test_final_drain_limit_never_claims_complete(self):
+        # Simulate a source that cannot be fully caught up by the bound.
+        with mock.patch.object(sup, "MAX_FINAL_DRAIN_POLLS", 2):
+            with mock.patch.object(sup, "collect_once", return_value={
+                    "Authserver-out": 1, "Authserver-err": 0}):
+                run, report = self.launch("Authserver", "print(123, flush=True)")
+        self.assertEqual(report["exit_code"], 0)
+        self.assertEqual(report["capture"], "fail_closed")
+        self.assertEqual(report["capture_error_type"], "UncapturedConsoleBytes")
+        self.assertEqual(json.loads((run / "exit.json").read_text())["capture"], "fail_closed")
+        self.assertEqual((run / "stdout.raw").read_bytes(), b"123\n")
 
     def test_clean_exit_with_both_console_streams(self):
         run, report = self.launch("Worldserver",
