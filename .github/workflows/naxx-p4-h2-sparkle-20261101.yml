@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BASE_268: e976b2229f970848f7ca81248f30ef4ec10bd341
+  BASE_268: 92552e3f47bf21535fab7cfe601d24e295c1c276
   CORE_PIN: 8daffdabe9202c228e45d833c9a1d399597a15cd
 
 jobs:
