@@ -137,6 +137,49 @@ class RawArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(Refused, "digest mismatch"):
             self.plan([w], execute=True)
 
+    def _replace_in_archive(self, run, name, data):
+        """Swap one file of OUR temp archive for a new 0600 file (fixture only)."""
+        final = self.dest / "runs" / run.name
+        os.rename(final / name, self.dest / ("parked-" + name))
+        fd = os.open(final / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.write(fd, data)
+        os.close(fd)
+
+    def test_symlinked_archived_receipt_refused_before_read(self):
+        w = self.launch("Worldserver")
+        self.plan([w], execute=True)
+        final = self.dest / "runs" / w.name
+        twin = self.dest / "twin-start.json"
+        os.rename(final / "start.json", twin)  # identical bytes, now behind a symlink
+        os.symlink(twin, final / "start.json")
+        with self.assertRaisesRegex(Refused, "symlink"):
+            self.plan([w], execute=True)
+
+    def test_hardlinked_archived_receipt_refused(self):
+        w = self.launch("Worldserver")
+        self.plan([w], execute=True)
+        os.link(self.dest / "runs" / w.name / "exit.json", self.dest / "extra-exit-link.json")
+        with self.assertRaisesRegex(Refused, "single-link"):
+            self.plan([w], execute=True)
+
+    def test_forged_manifest_exit_code_refused(self):
+        w = self.launch("Authserver", exit_code=3)
+        self.plan([w], execute=True)
+        manifest = json.loads((self.dest / "runs" / w.name / "manifest.json").read_text())
+        manifest["exit_code"] = 0
+        self._replace_in_archive(w, "manifest.json", json.dumps(manifest, sort_keys=True).encode())
+        with self.assertRaisesRegex(Refused, "manifest does not match"):
+            self.plan([w], execute=True)
+
+    def test_forged_manifest_exit_time_refused(self):
+        w = self.launch("Worldserver")
+        self.plan([w], execute=True)
+        manifest = json.loads((self.dest / "runs" / w.name / "manifest.json").read_text())
+        manifest["exit_time_utc"] = "2020-01-01T00:00:00+00:00"
+        self._replace_in_archive(w, "manifest.json", json.dumps(manifest, sort_keys=True).encode())
+        with self.assertRaisesRegex(Refused, "manifest does not match"):
+            self.plan([w], execute=True)
+
     def test_source_changed_after_archive_refused(self):
         w = self.launch("Worldserver")
         self.plan([w], execute=True)

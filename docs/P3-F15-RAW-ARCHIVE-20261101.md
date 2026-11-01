@@ -78,7 +78,7 @@ Archive files are 0600 and folders 0700.
 
 ## Tests
 
-`tests/test_f15_raw_archive.py` has 16 tests. They run in disposable temporary
+`tests/test_f15_raw_archive.py` has 20 tests. They run in disposable temporary
 folders, using real `f15_process_supervisor.supervise` child processes.
 
 | Area | Checked |
@@ -89,6 +89,8 @@ folders, using real `f15_process_supervisor.supervise` child processes.
 | Duplicate invocation | `already_archived`; no file is rewritten |
 | Interrupted copy, then restart | nothing is published while interrupted; the restart archives; the stale staging is reported, not removed |
 | Archive digest mismatch | refused |
+| Symlinked or hardlinked archived receipt | refused before any byte is read |
+| Forged manifest `exit_code` or `exit_time_utc` | refused |
 | Source changed after archiving | refused |
 | Symlink, hardlink or replaced-inode stream | refused; nothing published |
 | Incomplete run, `fail_closed` capture | refused |
@@ -96,7 +98,7 @@ folders, using real `f15_process_supervisor.supervise` child processes.
 | CLI | dry run unless `--archive-owned-completed` is given |
 | Static check | no unlink, remove, rmtree, truncate, replace, chmod, process calls or `O_TRUNC`; does not import `subprocess`, `shutil` or `signal` |
 
-`tests/f15_raw_archive_mutants.py` has 10 must-fail mutants of the real
+`tests/f15_raw_archive_mutants.py` has 13 must-fail mutants of the real
 script, all caught:
 - incomplete run accepted;
 - `fail_closed` accepted;
@@ -107,7 +109,10 @@ script, all caught:
 - wrong 30-day boundary;
 - nested destination allowed;
 - duplicate selection allowed;
-- interrupted staging published.
+- interrupted staging published;
+- manifest `exit_code` not cross-checked;
+- manifest `exit_time_utc` not cross-checked;
+- archived receipt read following links.
 
 ## Custom Modifications Register — NAXX-CS03-P3-RAW-ARCHIVE
 
@@ -147,15 +152,28 @@ script, all caught:
 
 | Level | Result |
 |---|---|
-| Local (Python 3, umask 022) | 16/16 tests and 10/10 mutants pass; the storage-audit and supervisor suites pass |
+| Local (Python 3, umask 022) | 20/20 tests and 13/13 mutants pass; the storage-audit and supervisor suites pass |
 | Hosted | `f15-raw-archive-20261101.yml`. **Not yet run** |
 | Owner host / real World/Auth | **none** |
+
+## Review revision (1 Nov 2026)
+
+CS01 (#143, 6564100860) found two gaps in re-verifying an existing archive:
+
+1. **Receipts were read with `read_bytes()`, which follows a symlink.** The
+   manifest and both archived receipts are now read through `_read_private`.
+   It opens with `O_NOFOLLOW` and refuses anything that isn't a private
+   single-link regular file before reading a byte.
+2. **The manifest's `exit_code` and `exit_time_utc` were not compared with the
+   source exit receipt.** Both are now checked.
+
+The four new negative tests fail on the previous head `64d820e` and pass now.
+Three new mutants cover the fixes.
 
 ## Finding outside this change (reported to CS01)
 
 At #280, `tests/test_f15_supervised_retention.py::test_unfinished_child_is_skipped_with_no_data_change`
 passes under umask 077 but fails under the common default 022. Its fixture
 creates run folders with bare `mkdir()`, giving 0755, which the collector's
-`private_dir` correctly refuses. No workflow currently runs that suite. The
-likely fix is in the test fixture only: `mkdir(mode=0o700)`. It is not part of
-this change.
+`private_dir` correctly refuses. No workflow currently runs that suite. CS01
+fixed the fixture separately in #282; it is not part of this change.

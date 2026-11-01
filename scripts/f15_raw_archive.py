@@ -133,6 +133,31 @@ def _hash_file(path):
         os.close(fd)
 
 
+def _read_private(path):
+    """Read a file we archived: no symlink, regular, single link, 0600-private.
+
+    The checks run on the opened descriptor (O_NOFOLLOW), so a symlink or a
+    hardlink is refused before any byte is read.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise Refused("archived file is missing or a symlink; manual review") from exc
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("archived file is not a private single-link regular file")
+        chunks = []
+        while True:
+            chunk = os.read(fd, CHUNK)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+    finally:
+        os.close(fd)
+
+
 def _fsync_dir(path):
     fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
@@ -193,10 +218,19 @@ def _verify_published(final, info, run_id):
     names = {p.name for p in final.iterdir()}
     if names != set(STREAMS) | set(RECEIPTS) | {"manifest.json"}:
         raise Refused("existing archive has unexpected contents; manual review")
-    manifest = _receipt(final / "manifest.json", MANIFEST_FIELDS)
+    try:
+        manifest = json.loads(_read_private(final / "manifest.json"))
+    except (UnicodeError, ValueError) as exc:
+        raise Refused("existing archive manifest is unreadable") from exc
+    if not isinstance(manifest, dict) or set(manifest) != MANIFEST_FIELDS:
+        raise Refused("existing archive manifest has an unexpected schema")
+    ended = info["ended"]
     if (manifest["format"] != FORMAT or manifest["run_id"] != run_id
             or manifest["service"] != info["service"]
-            or manifest["exit_kind"] != info["ended"]["exit_kind"]
+            or manifest["exit_kind"] != ended["exit_kind"]
+            or type(manifest["exit_code"]) is not int
+            or manifest["exit_code"] != ended["exit_code"]
+            or manifest["exit_time_utc"] != ended["time_utc"]
             or not isinstance(manifest["files"], dict) or set(manifest["files"]) != set(STREAMS)):
         raise Refused("existing archive manifest does not match this run")
     for name in STREAMS:
@@ -215,7 +249,7 @@ def _verify_published(final, info, run_id):
         if _hash_file(info["run"] / name) != (entry["sha256"], entry["size"]):
             raise Refused("source no longer matches its archive; manual review")
     for name in RECEIPTS:
-        if (final / name).read_bytes() != (info["run"] / name).read_bytes():
+        if _read_private(final / name) != _read_private(info["run"] / name):
             raise Refused("archived receipt differs from the supervisor receipt")
 
 

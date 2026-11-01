@@ -43,6 +43,13 @@ MUTANTS = [
     ("interrupted staging published anyway",
      '            raise KeyboardInterrupt("test interruption")  # staging stays for review\n',
      '            break\n'),
+    ("manifest exit_code not cross-checked",
+     '            or manifest["exit_code"] != ended["exit_code"]\n', ''),
+    ("manifest exit_time not cross-checked",
+     '            or manifest["exit_time_utc"] != ended["time_utc"]\n', ''),
+    ("archived receipt read follows links",
+     '        if _read_private(final / name) != _read_private(info["run"] / name):\n',
+     '        if (final / name).read_bytes() != (info["run"] / name).read_bytes():\n'),
 ]
 
 
