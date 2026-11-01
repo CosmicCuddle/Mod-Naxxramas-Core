@@ -132,6 +132,94 @@ static void hKeptCases()
     }
 }
 
+// ---- The passive sparkle check must not change ANY loot state ----
+struct LootSnapshot
+{
+    std::vector<int> rowsA, rowsB, questFlags, itemFlags;
+    unsigned unlooted;
+    uint32 gold;
+    ObjectGuid roundRobin;
+    bool operator==(LootSnapshot const& o) const
+    {
+        return rowsA == o.rowsA && rowsB == o.rowsB && questFlags == o.questFlags && itemFlags == o.itemFlags &&
+               unlooted == o.unlooted && gold == o.gold && roundRobin == o.roundRobin;
+    }
+};
+
+static std::vector<int> ownRows(Scene& s, Player& p)
+{
+    std::vector<int> out;
+    auto it = s.loot.GetPlayerQuestItems().find(p.GetGUID());
+    if (it != s.loot.GetPlayerQuestItems().end() && it->second)
+        for (QuestItem const& r : *it->second)
+            out.push_back(r.is_looted);
+    return out;
+}
+
+static LootSnapshot snapshot(Scene& s)
+{
+    LootSnapshot snap;
+    snap.rowsA = ownRows(s, s.A);
+    snap.rowsB = ownRows(s, s.B);
+    for (LootItem const& q : s.loot.quest_items)
+        snap.questFlags.push_back(int(q.is_looted) | int(q.is_counted) << 1 | int(q.is_blocked) << 2);
+    for (LootItem const& i : s.loot.items)
+        snap.itemFlags.push_back(int(i.is_looted) | int(i.is_blocked) << 1 | int(i.is_underthreshold) << 2);
+    snap.unlooted = s.loot.unlootedCount;
+    snap.gold = s.loot.gold;
+    snap.roundRobin = s.loot.roundRobinPlayer;
+    return snap;
+}
+
+// Passive reads for both viewers before anyone opens the corpse.
+static bool passiveReadsChangeNothing(Scene& s)
+{
+    LootSnapshot const before = snapshot(s);
+    SG::ViewOffersSomething(&s.B, s.loot, GROUP_PERMISSION);
+    SG::ViewOffersSomething(&s.A, s.loot, GROUP_PERMISSION);
+    return snapshot(s) == before;
+}
+
+static void hNoMutation()
+{
+    {
+        Scene s;  // T1: B banked (the view guard helper WOULD mark B's row)
+        Scene::accept(s.A, Q_QUEST);
+        bankedB(s);
+        s.kill({rowQuestSeed()}, s.A);
+        check("NOMUT.T1_passive_reads_change_nothing", !ownRows(s, s.B).empty() && passiveReadsChangeNothing(s));
+    }
+    {
+        Scene s;  // T3: B retrieved the seed after the corpse filled
+        Scene::accept(s.A, Q_QUEST);
+        bankedB(s);
+        s.kill({rowQuestSeed()}, s.A);
+        Scene::bankToBag(s.B, Q_ITEM);
+        check("NOMUT.T3_passive_reads_change_nothing", passiveReadsChangeNothing(s));
+    }
+    {
+        Scene s;  // MULTI_DROP with banked B
+        Scene::accept(s.A, FFA_QUEST);
+        Scene::accept(s.B, FFA_QUEST);
+        Scene::gainToBags(s.B, FFA_ITEM);
+        Scene::bagToBank(s.B, FFA_ITEM);
+        s.kill({rowFfaClaw()}, s.A);
+        check("NOMUT.ffa_passive_reads_change_nothing", passiveReadsChangeNothing(s));
+    }
+    {
+        Scene s;  // B needs the seed again after a passive read: B must still get a real row
+        Scene::accept(s.B, Q_QUEST);
+        Scene::gainToBags(s.B, Q_ITEM);
+        Scene::bagToBank(s.B, Q_ITEM);  // B banked one: not needed right now
+        s.kill({rowQuestSeed()}, s.A);
+        bool const hidden = !SG::ViewOffersSomething(&s.B, s.loot, GROUP_PERMISSION);
+        s.B.bankCount[Q_ITEM] = 0;      // the banked seed is gone (e.g. destroyed): B needs it again
+        auto b = s.open(s.B, GROUP_PERMISSION);
+        check("NOMUT.B_needs_again_after_passive_read_gets_row_and_item",
+              hidden && oneRow(b, Q_ITEM, LOOT_SLOT_TYPE_ALLOW_LOOT) && s.take(s.B, 0) && s.received(s.B, Q_ITEM) == 1);
+    }
+}
+
 int main()
 {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
@@ -139,6 +227,7 @@ int main()
     hT3StaleLockedRow();
     hT1BankedViewer();
     hKeptCases();
+    hNoMutation();
     std::printf("CHECKS %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

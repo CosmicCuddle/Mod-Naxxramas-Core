@@ -15,13 +15,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests" / "p4_h2_sparkle"))
 import build_sparkle  # noqa: E402
 
-EXPECTED_CHECKS = 17
+EXPECTED_CHECKS = 21
 REQUIRED = [
     "STOCK.T3_core_sparkles_for_B", "SPARKLE.T3_cleared_for_B", "SPARKLE.T3_kept_for_A",
     "SPARKLE.T3_no_shared_side_effect", "SPARKLE.T3_A_still_awarded",
     "SPARKLE.T1_banked_B_core_yes_guard_no_view_guard_off", "SPARKLE.T1_banked_B_core_yes_guard_no_view_guard_on",
     "SPARKLE.both_need_kept", "SPARKLE.round_robin_owner_kept", "SPARKLE.gold_kept_when_core_sparkles",
     "SPARKLE.ffa_copies_kept", "SPARKLE.master_rows_kept", "SPARKLE.master_locked_normal_row_kept",
+    "NOMUT.T1_passive_reads_change_nothing", "NOMUT.T3_passive_reads_change_nothing",
+    "NOMUT.ffa_passive_reads_change_nothing", "NOMUT.B_needs_again_after_passive_read_gets_row_and_item",
 ]
 
 SCRIPT = (ROOT / "src" / "Systems" / "QuestLootSparkleGuard.cpp").read_text()
@@ -66,10 +68,18 @@ class SourceContract(unittest.TestCase):
         self.assertIn("if (loot.loot_type != LOOT_CORPSE && loot.loot_type != LOOT_NONE)", SCRIPT)
         self.assertIn("if (permission == NONE_PERMISSION)", SCRIPT)
 
-    def test_header_reads_only(self):
+    def test_header_restores_what_the_helper_marks(self):
+        # The helper it calls marks the viewer's own rows; the only write in this
+        # header is the scoped restore of those same rows. Behaviour is proven by
+        # the NOMUT snapshot checks in the harness, not by this text check.
         code = re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", HEADER, flags=re.S))
-        self.assertIsNone(re.search(r"\b(is_looted|unlootedCount|roundRobinPlayer|is_blocked)\s*=[^=]", code))
-        self.assertIn("NaxxramasQuestLootViewGuard::HideOwnSatisfiedQuestRows(viewer, loot);", code)
+        writes = re.findall(r"\b(\S+)\s*=\s*[^=;]+;", code)
+        self.assertEqual([w for w in writes if "is_looted" in w], ["saved.first->is_looted"])
+        self.assertIsNone(re.search(r"\b(unlootedCount|roundRobinPlayer|is_blocked)\s*=[^=]", code))
+        save = code.index("savedRows.emplace_back(&row, row.is_looted);")
+        helper = code.index("NaxxramasQuestLootViewGuard::HideOwnSatisfiedQuestRows(viewer, loot);")
+        self.assertLess(save, helper)
+        self.assertLess(code.index("} restore{savedRows};"), helper)
 
     def test_loader(self):
         self.assertEqual(LOADER.count("void AddQuestLootSparkleGuardScripts();"), 1)

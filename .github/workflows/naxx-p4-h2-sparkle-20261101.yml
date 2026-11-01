@@ -99,7 +99,7 @@ jobs:
           PY
       - name: "Compiler"
         run: ${{ matrix.cxx }} --version
-      - name: "Sparkle guard: 6 tests, 17 checks on original pinned bodies, no skips"
+      - name: "Sparkle guard: 6 tests, 21 checks on original pinned bodies, no skips"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
@@ -109,16 +109,16 @@ jobs:
           cat /tmp/p4.txt
           grep -Eq '^Ran 6 tests in [0-9.]+s$' /tmp/p4.txt
           grep -qx OK /tmp/p4.txt
-          grep -qx 'CHECKS 17 passed, 0 failed' /tmp/p4.txt
+          grep -qx 'CHECKS 21 passed, 0 failed' /tmp/p4.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/p4.txt
-      - name: "Must-fail mutants of the real sparkle-guard header (5)"
+      - name: "Must-fail mutants of the real sparkle-guard header (6)"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
         run: |
           set -euo pipefail
           python3 -I -B module/tests/p4_h2_sparkle/mutants.py | tee /tmp/mutants.txt
-          grep -qx '5/5 sparkle mutants caught' /tmp/mutants.txt
+          grep -qx '6/6 sparkle mutants caught' /tmp/mutants.txt
       - name: "Regression: unchanged #268 H1 (36), #264 guard (24) and #262 baseline (71)"
         env:
           A04_CORE: ${{ github.workspace }}/core

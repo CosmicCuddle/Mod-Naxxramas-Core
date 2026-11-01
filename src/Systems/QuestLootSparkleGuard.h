@@ -14,13 +14,21 @@
  * rows of every slot type (including Master Loot's LOCKED rows), roll rows,
  * FFA copies and gold all count as something, exactly as stock.
  *
- * The view guard helper runs first, so serializing writes no shared state;
- * it may only hide the viewer's own quest rows that the core hides from them.
+ * NON-MUTATING. This runs while a values update is being built, before the
+ * player may have opened anything, so it must leave every loot flag exactly
+ * as it found it. The pinned serializer writes only two things (LootMgr.cpp
+ * L1115 the viewer's own QuestItem row, L1118 the shared item); the view
+ * guard helper pre-marks those rows so the serializer skips both writes,
+ * and the viewer's own row flags are saved first and restored on return.
+ * Net effect on loot state: none (tested by exact snapshots).
  */
 #ifndef NAXXRAMAS_QUEST_LOOT_SPARKLE_GUARD_H
 #define NAXXRAMAS_QUEST_LOOT_SPARKLE_GUARD_H
 
 #include "QuestLootPickupAuthorization.h"
+
+#include <utility>
+#include <vector>
 
 namespace NaxxramasQuestLootSparkleGuard
 {
@@ -28,6 +36,23 @@ namespace NaxxramasQuestLootSparkleGuard
     {
         if (!viewer || permission == NONE_PERMISSION)
             return false;
+
+        // Save the viewer's own row flags; restored on every return below.
+        std::vector<std::pair<QuestItem*, bool>> savedRows;
+        QuestItemMap const& questLists = loot.GetPlayerQuestItems();
+        QuestItemMap::const_iterator own = questLists.find(viewer->GetGUID());
+        if (own != questLists.end() && own->second)
+            for (QuestItem& row : *own->second)
+                savedRows.emplace_back(&row, row.is_looted);
+        struct RestoreRows
+        {
+            std::vector<std::pair<QuestItem*, bool>>& rows;
+            ~RestoreRows()
+            {
+                for (std::pair<QuestItem*, bool>& saved : rows)
+                    saved.first->is_looted = saved.second;
+            }
+        } restore{savedRows};
 
         NaxxramasQuestLootViewGuard::HideOwnSatisfiedQuestRows(viewer, loot);
 

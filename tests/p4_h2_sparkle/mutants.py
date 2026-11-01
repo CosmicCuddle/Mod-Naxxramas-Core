@@ -30,6 +30,8 @@ MUTANTS = [
      "        view.read<uint32>();\n"),
     ("guard skips the view guard helper",
      "        NaxxramasQuestLootViewGuard::HideOwnSatisfiedQuestRows(viewer, loot);\n", ""),
+    ("passive read keeps the personal-row write (no restore)",
+     "                    saved.first->is_looted = saved.second;\n", "                    (void)saved;\n"),
     ("view always offers something",
      "        return false;\n    }\n}\n\n#endif\n", "        return true;\n    }\n}\n\n#endif\n"),
 ]

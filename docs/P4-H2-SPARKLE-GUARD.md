@@ -34,8 +34,17 @@ when **all** of these hold:
 - the viewer has corpse permission (using the same `CorpsePermission` as #268).
 
 When it acts, it asks the **original `LootView` serializer** what this viewer
-would see. The #264 helper runs first, so there is no shared side effect. The
-hook then clears LOOTABLE **in this viewer's packet only** when the window
+would see, **without changing any loot state**:
+
+- The pinned serializer writes only two flags (`LootMgr.cpp` L1115 for the
+  viewer's own `QuestItem` row, and L1118 for the shared item).
+- The #264 helper pre-marks those rows, so the serializer skips both writes.
+- The viewer's own row flags are saved first and restored when the check
+  returns, so the net change to loot state is **zero**. This matters because
+  the check runs while an update packet is being built, possibly before the
+  player has opened anything.
+
+The hook then clears LOOTABLE **in this viewer's packet only** when the window
 would hold:
 
 - no gold, **and**
@@ -53,7 +62,7 @@ it never forces an update.
 **Config.** `NaxxramasCore.QuestLootSparkleGuard.Enabled` defaults to **0**.
 It is read on the world thread and published through an atomic.
 
-## Evidence (original pinned bodies, 17 checks)
+## Evidence (original pinned bodies, 21 checks)
 
 **How the stock sparkle is computed.** The pinned `isAllowedToLoot` body needs
 a full Creature, so it is not extracted. Instead, the harness rebuilds its
@@ -70,12 +79,15 @@ group-loot decision from the original `hasItemForAll`, `hasItemFor`,
 | Gold | yes | kept |
 | FFA copies | yes | kept for both |
 | Master Loot: MASTER row, own quest row, LOCKED normal row | as stock | kept |
+| **No mutation**: passive reads for A and B before any window opens, in T1, T3 and FFA | — | **exact snapshot equality** of every player's own rows, the quest and normal item flags, `unlootedCount`, gold and round robin |
+| B needs the item again after a passive read | — | B still gets an ALLOW_LOOT row on opening and is awarded |
 
-**Mutants.** There are 5 must-fail mutants of the real header, all caught:
+**Mutants.** There are 6 must-fail mutants of the real header, all caught:
 - locked quest rows count as something;
 - locked normal rows count as nothing;
 - gold ignored;
 - the view guard helper skipped;
+- **the restore removed** (personal-row write kept);
 - always offers something.
 
 **Regression and CI.** The H1 (36), #264 (24) and #262 (71) suites still pass.
@@ -95,6 +107,15 @@ full Worldserver, and checks the defined symbols.
   slot notification).
 - **Not exercised.** The client, `SendLoot` itself, and the owner's binary and
   database.
+
+## Review revision (1 Nov 2026)
+
+Information (#270, 6559597559) found a blocker: the first version left the
+viewer's own `QuestItem::is_looted` set after a passive sparkle read. That
+could strand the row if the player later needed the item again. The check now
+saves and restores those flags, so it changes nothing. The tests now compare
+full loot snapshots before and after, cover a player who needs the item again,
+and include a mutant that removes the restore.
 
 ## Rollback
 
