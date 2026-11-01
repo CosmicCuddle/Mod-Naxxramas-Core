@@ -48,7 +48,7 @@ def _observed_exit(value, now):
     if type(value) is not str:
         raise Refused("exit timestamp must be a string")
     try:
-        when = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        when = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
     except ValueError as exc:
         raise Refused("invalid exit timestamp") from exc
     if when.tzinfo is None:
