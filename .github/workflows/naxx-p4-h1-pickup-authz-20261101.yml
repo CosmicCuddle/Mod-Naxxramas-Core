@@ -100,7 +100,7 @@ jobs:
           PY
       - name: "Compiler"
         run: ${{ matrix.cxx }} --version
-      - name: "Authorization: 7 tests, 26 checks on original pinned bodies, no skips"
+      - name: "Authorization: 7 tests, 36 checks on original pinned bodies, no skips"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
@@ -110,7 +110,7 @@ jobs:
           cat /tmp/p4.txt
           grep -Eq '^Ran 7 tests in [0-9.]+s$' /tmp/p4.txt
           grep -qx OK /tmp/p4.txt
-          grep -qx 'CHECKS 26 passed, 0 failed' /tmp/p4.txt
+          grep -qx 'CHECKS 36 passed, 0 failed' /tmp/p4.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/p4.txt
       - name: "Must-fail mutants of the real authorization header (5)"
         env:
