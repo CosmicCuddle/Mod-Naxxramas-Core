@@ -51,6 +51,7 @@ void AddQuestLootProtectionScripts();
 void AddQuestLootViewGuardScripts();
 void AddQuestLootPickupAuthorizationScripts();
 void AddQuestLootSparkleGuardScripts();
+void AddMasterLootQuestGiveScripts();
 void AddBotGolemaggActionAuditScripts();
 
 void Addmod_naxxramas_coreScripts()
@@ -101,5 +102,6 @@ void Addmod_naxxramas_coreScripts()
     AddQuestLootViewGuardScripts();
     AddQuestLootPickupAuthorizationScripts();
     AddQuestLootSparkleGuardScripts();
+    AddMasterLootQuestGiveScripts();
     AddBotGolemaggActionAuditScripts();
 }
