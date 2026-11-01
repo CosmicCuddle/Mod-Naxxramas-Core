@@ -75,6 +75,13 @@ def _validated_runs(output_root, archive_root):
         if capture is None:
             raise Refused("completed child has no archived collector root")
         expected = str(capture.resolve())
+        # JSON can carry arrays/maps where a string is expected. Reject them
+        # explicitly instead of allowing unhashable values to raise TypeError.
+        for value in (start["service"], exit_state["service"],
+                      start["capture_root"], exit_state["capture_root"],
+                      start["stdout"], start["stderr"]):
+            if type(value) is not str:
+                raise Refused("non-string supervisor receipt identity")
         if (start["service"] not in SERVICES
                 or exit_state["service"] != start["service"]
                 or start["state"] != "planned"
