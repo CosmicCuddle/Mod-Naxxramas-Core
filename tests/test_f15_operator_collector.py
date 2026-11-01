@@ -38,6 +38,27 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(len(self.archives()), 1)
         self.assertEqual(self.archives()[0].read_bytes(), b'hello \xff\n')
 
+    def test_opt_in_backfill_reads_existing_bytes_exactly_once(self):
+        existing = self.src.read_bytes()
+        f15.collect_once(self.root, self.sources, now=1720000000, include_existing=True)
+        self.assertEqual(self.archives()[0].read_bytes(), existing)
+        self.poll()
+        self.assertEqual(self.archives()[0].read_bytes(), existing)
+        self.assertEqual(len(list((self.root/'records'/'Worldserver-out').glob('*.bin'))), 1)
+
+    def test_backfill_switch_cannot_rewind_existing_eof_cursor(self):
+        self.poll()
+        f15.collect_once(self.root, self.sources, now=1720000000, include_existing=True)
+        self.assertEqual(self.archives(), [])
+        with self.src.open('ab') as fp: fp.write(b'new only')
+        f15.collect_once(self.root, self.sources, now=1720000000, include_existing=True)
+        self.assertEqual(self.archives()[0].read_bytes(), b'new only')
+
+    def test_explicit_cli_backfill_fake_file(self):
+        code = f15.main(['--root', str(self.root), '--source', f'Worldserver-out={self.src}', '--capture', '--once', '--include-existing-on-first-poll'])
+        self.assertEqual(code, 0)
+        self.assertEqual(self.archives()[0].read_bytes(), self.src.read_bytes())
+
     def test_restart_and_day_split(self):
         self.poll()
         with self.src.open('ab') as fp: fp.write(b'first')
