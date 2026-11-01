@@ -106,7 +106,7 @@ jobs:
           PY
       - name: "Compiler"
         run: ${{ matrix.cxx }} --version
-      - name: "Interop: 8 tests, seam 28 + gameobject 13 checks on original bodies, no skips"
+      - name: "Interop: 8 tests, seam 28 + gameobject 15 checks on original bodies, no skips"
         env:
           A04_CORE: ${{ github.workspace }}/core
           PB_DIR: ${{ github.workspace }}/playerbots
@@ -119,7 +119,7 @@ jobs:
           grep -Eq '^Ran 8 tests in [0-9.]+s$' /tmp/hi.txt
           grep -qx OK /tmp/hi.txt
           grep -qx 'CHECKS 28 passed, 0 failed' /tmp/hi.txt
-          grep -qx 'CHECKS 13 passed, 0 failed' /tmp/hi.txt
+          grep -qx 'CHECKS 15 passed, 0 failed' /tmp/hi.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/hi.txt
       - name: "Must-fail mutants: 12 of the real #272 .cpp, 3 of the real header"
         env:
