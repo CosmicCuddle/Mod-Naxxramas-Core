@@ -402,6 +402,17 @@ NaxxramasCore.QuestLootViewGuard.Enabled = 0
 # Default: 0
 NaxxramasCore.QuestLootPickupAuthorization.Enabled = 0
 
+# Do not show a corpse as lootable (sparkle) to a player whose loot window
+# would hold no gold and nothing they can act on (no rows, or only quest rows
+# marked LOCKED, e.g. a quest the player no longer needs). Never adds a
+# sparkle; normal rows, rolls, Master Loot rows, FFA copies and gold keep the
+# stock behaviour. Changes only that player's update packet.
+# Uses UnitScript::OnPatchValuesUpdate.
+# DISABLED until review and owner-approved gameplay tests.
+# 1 = enable; 0 = native AzerothCore handling only.
+# Default: 0
+NaxxramasCore.QuestLootSparkleGuard.Enabled = 0
+
 #####################################
 # Molten Core / Golemagg — READ-ONLY Playerbot action probe
 #####################################
