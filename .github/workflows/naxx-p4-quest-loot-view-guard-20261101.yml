@@ -56,6 +56,9 @@ jobs:
             deps/fmt
             data/sql/base/db_world
       - name: "Exact heads, child of #262, exact change allowlist"
+        # Exact scope belongs to this branch's own PR; stacked or integration PRs
+        # run every test step below but carry other files by design.
+        if: github.event_name == 'workflow_dispatch' || github.head_ref == 'claude/cs03-p4-quest-loot-view-guard-20261101'
         working-directory: module
         run: |
           set -euo pipefail
