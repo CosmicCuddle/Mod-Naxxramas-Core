@@ -85,6 +85,19 @@ class SupervisedRetentionTests(unittest.TestCase):
         self.assertTrue(all(p.exists() for p in original_archives))
         self.assertTrue((first / "stdout.raw").exists())
 
+    def test_malformed_identity_json_fails_closed_before_retention(self):
+        run, report = self.launch("safe")
+        receipt = run / "start.json"
+        payload = json.loads(receipt.read_text())
+        payload["service"] = ["Worldserver"]  # unhashable JSON identity
+        receipt.write_text(json.dumps(payload))
+        protected = next((Path(report["capture_root"]) / "archives" /
+                          "Worldserver-out").glob("*.txt"))
+        with self.assertRaisesRegex(Refused, "non-string supervisor receipt"):
+            self.expire()
+        self.assertTrue(protected.exists())
+        self.assertTrue((run / "stdout.raw").exists())
+
     def test_foreign_archives_are_refused_and_not_deleted(self):
         run, state = self.launch("safe")
         foreign = self.archive / "runs" / "alien"
