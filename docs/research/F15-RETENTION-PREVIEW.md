@@ -83,9 +83,14 @@ and explicit opt-in CLI without leaking source paths/log contents, including
 missing private collector directories and their path-bearing OS errors.
 
 The existing [F15 source workflow](../../.github/workflows/naxx-f15-operator-capture-20261101.yml)
-will execute this suite and assert the preview program includes no file
-delete or process-control calls. **This DRAFT is not a hosted PASS until the
-workflow completes on its exact SHA.**
+will execute this suite **after** the full collector/PM2 suite; an unrelated
+parent-test failure can stop it before preview cases run. The independent
+[preview-only workflow](../../.github/workflows/f15-retention-preview-isolated-20261101.yml)
+therefore syntax-checks the same source helpers, runs **only the eleven preview
+tests against disposable fake files**, and AST-checks the preview script for
+destructive/process-control calls. It does not bypass or repair an inherited
+parent-suite failure, which remains a separate release blocker. **Neither
+workflow is a hosted PASS until its exact-head run succeeds.**
 
 **Handover:** Information temporarily covers this P3 subtask while Claude
 takes an owner-reported break. CS01 Maintenance owns combined branch
