@@ -744,11 +744,31 @@ namespace
                     ? "not enough free inventory capacity for a complete ammo top-up"
                     : "ammo template, level, item source or native usability check failed");
         }
+        else if (result.status == Status::NoCompatibleRangedWeapon)
+        {
+            AddConsumableDebugMessage(stats,
+                bot->GetName() +
+                ": Hunter ammo skipped (no compatible, intact ranged weapon equipped).");
+        }
+        else if (result.status == Status::UnsupportedSelection)
+        {
+            // An existing selection may be a legitimately earned rare
+            // projectile (such as Doomshot), not a broken ranged weapon.
+            // Never swap, equip, or mint that selected item to hide a skip.
+            bool const hasSelectedAmmo =
+                bot->GetUInt32Value(PLAYER_AMMO_ID) != 0;
+
+            AddConsumableDebugMessage(stats,
+                bot->GetName() +
+                (hasSelectedAmmo
+                    ? ": Hunter ammo skipped (selected ammunition is outside the approved supply catalogue or level/weapon limits)."
+                    : ": Hunter ammo skipped (no level-eligible approved vendor ammunition available)."));
+        }
         else
         {
             AddConsumableDebugMessage(stats,
                 bot->GetName() +
-                ": Hunter ammo skipped (unsupported ranged weapon or selected ammunition).");
+                ": Hunter ammo skipped (unclassified preparation status).");
         }
     }
 
