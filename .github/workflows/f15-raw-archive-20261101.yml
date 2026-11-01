@@ -9,6 +9,7 @@ on:
       - 'scripts/f15_process_supervisor.py'
       - 'scripts/f15_operator_collector.py'
       - 'tests/test_f15_raw_archive.py'
+      - 'tests/test_f15_supervised_retention.py'
       - 'tests/f15_raw_archive_mutants.py'
       - 'docs/P3-F15-RAW-ARCHIVE-20261101.md'
       - '.github/workflows/f15-raw-archive-20261101.yml'
@@ -30,8 +31,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: "Exact scope: child of #280, five new paths only"
-        if: github.event_name == 'workflow_dispatch' || github.head_ref == 'claude/cs03-p3-f15-raw-archive-20261101'
+      - name: "Exact scope: original #281 source branch only"
+        # The five-path freeze applies to Claude's original #281 branch;
+        # descendant integration branches intentionally include the F15 fixture.
+        if: >-
+          (github.event_name == 'pull_request' && github.head_ref == 'claude/cs03-p3-f15-raw-archive-20261101') ||
+          (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/claude/cs03-p3-f15-raw-archive-20261101')
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$BASE_280" HEAD
@@ -64,12 +69,12 @@ jobs:
           set -euo pipefail
           python3 tests/f15_raw_archive_mutants.py | tee /tmp/mut.txt
           grep -qx '13/13 raw archive mutants caught' /tmp/mut.txt
-      - name: "Unchanged F15 suites the archiver imports still pass"
-        # test_f15_supervised_retention.py is not run here: at #280 it depends on
-        # the runner umask (a bare mkdir() fixture), reported to CS01 on #143.
+      - name: "Complete original F15 supervisor, retention and storage suites"
+        # The disposable unfinished-run fixture now creates 0700 directories
+        # (the production privacy validator is unchanged).
         run: |
           set -euo pipefail
-          for t in test_f15_supervised_storage_audit.py test_f15_process_supervisor.py; do
+          for t in test_f15_supervised_storage_audit.py test_f15_process_supervisor.py test_f15_supervised_retention.py; do
             python3 -m unittest discover -s tests -p "$t"
           done
       - name: "Scope of proof"

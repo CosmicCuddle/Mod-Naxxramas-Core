@@ -8,6 +8,13 @@ on:
       # link check even when the child changes only P3 operator tooling.
       - "scripts/f15_retention_preview.py"
       - "scripts/f15_supervised_storage_audit.py"
+      # Any change to the composed P3 raw archive must repeat the pinned
+      # full Worldserver link even when it is Python-only.
+      - "scripts/f15_raw_archive.py"
+      - "tests/test_f15_raw_archive.py"
+      - "tests/f15_raw_archive_mutants.py"
+      - "tests/test_f15_supervised_retention.py"
+      - ".github/workflows/f15-raw-archive-20261101.yml"
       - "tests/test_f15_retention_preview.py"
       - "tests/test_f15_supervised_storage_audit.py"
       - ".github/workflows/naxx-f15-operator-capture-20261101.yml"
