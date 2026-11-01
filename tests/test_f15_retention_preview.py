@@ -101,6 +101,21 @@ class PreviewTests(unittest.TestCase):
             self.check(DAY_END + timedelta(days=31))
         self.assertTrue(self.archive.exists())
 
+    def test_archive_and_journal_stream_mismatch_refuses_without_mutation(self):
+        original = self.archive.read_bytes()
+        extra_archive = self.root / "archives" / "Authserver-out"
+        extra_archive.mkdir(mode=0o700)
+        with self.assertRaises(Refused):
+            self.check(DAY_END + timedelta(days=31))
+        extra_archive.rmdir()
+        extra_journal = self.root / "records" / "Authserver-out"
+        extra_journal.mkdir(mode=0o700)
+        with self.assertRaises(Refused):
+            self.check(DAY_END + timedelta(days=31))
+        self.assertEqual(self.archive.read_bytes(), original)
+        self.assertEqual(self.source.read_bytes(),
+                         b"UNPUBLISHED_SERVER_LOG_SENTINEL\n")
+
     def test_symlinked_parent_refuses_before_archive_read(self):
         # Leaf is a real 0700 directory, but an earlier component is a symlink.
         alias = self.home / "alias"
