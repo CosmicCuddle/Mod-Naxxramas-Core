@@ -2,6 +2,7 @@
 from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from io import StringIO
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -99,6 +100,31 @@ class PreviewTests(unittest.TestCase):
         with self.assertRaises(Refused):
             self.check(DAY_END + timedelta(days=31))
         self.assertTrue(self.archive.exists())
+
+    def test_symlinked_parent_refuses_before_archive_read(self):
+        # Leaf is a real 0700 directory, but an earlier component is a symlink.
+        alias = self.home / "alias"
+        alias.symlink_to(self.home, target_is_directory=True)
+        before = self.archive.read_bytes()
+        with self.assertRaises(Refused):
+            preview_once(alias / self.root.name,
+                         now=(DAY_END + timedelta(days=31)).timestamp())
+        self.assertEqual(self.archive.read_bytes(), before)
+        self.assertEqual(self.source.read_bytes(),
+                         b"UNPUBLISHED_SERVER_LOG_SENTINEL\n")
+
+    def test_busy_collector_lock_refuses_without_any_archive_change(self):
+        # Independent descriptor holds the same cooperative lock.
+        before = self.archive.read_bytes()
+        with (self.root / "collector.lock").open("rb") as held:
+            fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                with self.assertRaises(Refused):
+                    self.check(DAY_END + timedelta(days=31))
+            finally:
+                fcntl.flock(held.fileno(), fcntl.LOCK_UN)
+        self.assertEqual(self.archive.read_bytes(), before)
+        self.assertTrue(self.receipt.exists())
 
     def test_explicit_cli_never_prints_private_source_or_log_contents(self):
         with self.assertRaises(SystemExit):
