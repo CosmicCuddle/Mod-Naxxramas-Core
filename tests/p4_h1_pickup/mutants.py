@@ -21,6 +21,8 @@ HEADER = SYSTEMS / "QuestLootPickupAuthorization.h"
 MUTANTS = [
     ("check allows any slot",
      "        return false;\n    }\n}\n\n#endif\n", "        return true;\n    }\n}\n\n#endif\n"),
+    ("check keeps the requester-row write (no restore)",
+     "                    saved.first->is_looted = saved.second;\n", "                    (void)saved;\n"),
     ("check skips the view guard (shared side effect)",
      "        NaxxramasQuestLootViewGuard::HideOwnSatisfiedQuestRows(viewer, loot);\n", ""),
     ("master looter gets restricted rights",
