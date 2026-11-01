@@ -22,10 +22,18 @@ from f15_archive_retention import (
 
 
 def existing_private_dir(path):
-    """Require an existing 0700 directory; do not create it on preview."""
-    path = Path(path)
-    st = path.lstat()
-    if not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o077:
+    """Require a pre-existing 0700 leaf with no symlinked path ancestors.
+
+    This is read-only path validation, not a same-UID TOCTOU security boundary.
+    """
+    path = Path(path).absolute()
+    if ".." in path.parts:
+        raise Refused("preview refuses parent-directory traversal")
+    for ancestor in (path, *path.parents):
+        st = ancestor.lstat()
+        if not stat.S_ISDIR(st.st_mode):
+            raise Refused("preview refuses symlinked/non-directory ancestor")
+    if path.lstat().st_mode & 0o077:
         raise Refused("preview needs an existing private 0700 directory")
     return path
 
