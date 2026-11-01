@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "tests" / "p4_h_interop"))
 import build_interop  # noqa: E402
 
 SEAM_CHECKS = 28
-GO_CHECKS = 13
+GO_CHECKS = 15
 SEAM_REQUIRED = [
     "SEAM.no_group", "SEAM.not_master_looter", "SEAM.group_loot_method", "SEAM.need_before_greed_method",
     "SEAM.free_for_all_method", "SEAM.target_missing", "SEAM.loot_guid_mismatch", "SEAM.not_in_raid",
@@ -35,6 +35,7 @@ GO_REQUIRED = [
     "GO.FIXTURE.personal_only_opener_has_rows", "GO.GIVE.personal_same_award_only_row_holder_notified",
     "GO.FIXTURE.personal_other_opener_leader_has_no_row", "GO.STOCK.crafted_slot_gives_item_leader_not_shown",
     "GO.GIVE.crafted_slots_refused_no_row", "GO.GIVE.A_still_loots_own_row", "GO.PASS.normal_slot_left_to_core",
+    "GO.ZERO.original_AddItem_emits_no_zero_count_quest_row", "GO.ZERO.crafted_master_give_denied_without_side_effects",
 ]
 
 SEAM_ENV = (ROOT / "tests" / "p4_h_interop" / "seam_env.h").read_text()
@@ -60,6 +61,9 @@ CORE_FACTS = {
         "                        permission = group->GetMasterLooterGuid() == GetGUID() ? MASTER_PERMISSION : RESTRICTED_PERMISSION;\n",
     ]),
     "src/server/game/Loot/LootMgr.cpp": ("a103aab09b8f93aaef8ddd58239893ec9fb91184", [
+        "    uint32 count = urand(item.mincount, item.maxcount);\n",
+        "    uint32 stacks = count / proto->GetMaxStackSize() + (count % proto->GetMaxStackSize() ? 1 : 0);\n",
+        "    for (uint32 i = 0; i < stacks && lootItems.size() < limit; ++i)\n",
         "    if (!personal && group)\n    {\n        roundRobinPlayer = lootOwner->GetGUID();\n",
         "                if (player->IsAtLootRewardDistance(lootSource ? lootSource : lootOwner))\n",
         "    // ... for personal loot\n    else\n        FillNotNormalLootFor(lootOwner);\n",
