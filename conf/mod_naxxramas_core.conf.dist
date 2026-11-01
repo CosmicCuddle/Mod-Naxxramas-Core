@@ -391,6 +391,17 @@ NaxxramasCore.QuestLootProtection.Debug = 0
 # Default: 0
 NaxxramasCore.QuestLootViewGuard.Enabled = 0
 
+# Refuse a creature-loot pickup (autostore) for a slot that the server's own
+# loot window does not show to that player right now, e.g. a below-threshold
+# item that round robin still reserves for its current owner. A slot the
+# player can see is never refused, so round robin, release, FFA copies,
+# Master Loot, rolls, gold and quest eligibility stay exactly as stock.
+# Uses ServerScript::CanPacketReceive for CMSG_AUTOSTORE_LOOT_ITEM.
+# DISABLED until review and owner-approved gameplay tests.
+# 1 = enable; 0 = native AzerothCore handling only.
+# Default: 0
+NaxxramasCore.QuestLootPickupAuthorization.Enabled = 0
+
 #####################################
 # Molten Core / Golemagg — READ-ONLY Playerbot action probe
 #####################################
