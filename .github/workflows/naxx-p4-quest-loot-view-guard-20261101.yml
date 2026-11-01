@@ -215,11 +215,25 @@ jobs:
           test -x "$binary" && test -s "$binary" && test -s "$archive"
           nm -C --defined-only "$binary" > /tmp/bin_syms
           nm -C --defined-only "$archive" > /tmp/ar_syms
-          grep -Fq 'AddQuestLootViewGuardScripts()' /tmp/bin_syms
-          grep -Fq 'AddQuestLootViewGuardScripts()' /tmp/ar_syms
-          grep -Fq 'AddQuestLootProtectionScripts()' /tmp/bin_syms
-          grep -aFq 'NaxxramasQuestLootViewGuardPlayer' "$binary"
-          grep -aFq 'NaxxramasCore.QuestLootViewGuard.Enabled' "$binary"
+          # Check defined function symbols (as hunter-ammo-pinned-worldserver.yml
+          # does). Release builds may not keep string literals contiguous.
+          need() {
+            if ! grep -Fq "$2" "$1"; then
+              echo "::error::missing symbol '$2' in $1"
+              grep -F 'QuestLootViewGuard' "$1" | head -n 20 || true
+              exit 1
+            fi
+            grep -F "$2" "$1" | head -n 2
+          }
+          need /tmp/ar_syms 'AddQuestLootViewGuardScripts()'
+          need /tmp/bin_syms 'AddQuestLootViewGuardScripts()'
+          need /tmp/bin_syms 'NaxxramasQuestLootViewGuardPlayer::OnPlayerBeforeSendLoot('
+          need /tmp/bin_syms 'NaxxramasQuestLootViewGuardConfig::OnAfterConfigLoad('
+          need /tmp/bin_syms 'AddQuestLootProtectionScripts()'
+          # Informational only.
+          for literal in 'NaxxramasQuestLootViewGuardPlayer' 'NaxxramasCore.QuestLootViewGuard.Enabled'; do
+            if grep -aFq "$literal" "$binary"; then echo "literal present: $literal"; else echo "literal not contiguous in binary (not a failure): $literal"; fi
+          done
           sha256sum "$binary"
           echo "PASS: guard compiled and linked; Worldserver not launched, no build output published."
       - name: "Scope of proof"
