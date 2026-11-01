@@ -117,6 +117,16 @@ saves and restores those flags, so it changes nothing. The tests now compare
 full loot snapshots before and after, cover a player who needs the item again,
 and include a mutant that removes the restore.
 
+## Build fix (1 Nov 2026)
+
+The first hosted full build of this file failed: it included pinned
+`UnitUtils.h` directly, but that header has no include guard and already
+arrives through `Creature.h` → `Unit.h`, so its classes were defined twice.
+The direct include is removed, and nothing else changes. A source-contract
+test now forbids the include, and a pinned test records that the header is
+unguarded. The real `.cpp` was syntax-compiled locally against the configured
+pinned build before this push.
+
 ## Rollback
 
 Leave `NaxxramasCore.QuestLootSparkleGuard.Enabled = 0`, which is the default.
