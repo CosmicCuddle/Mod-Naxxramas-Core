@@ -48,7 +48,24 @@ PINNED = {
     "src/server/game/Entities/Player/Player.cpp": ("138e7eab4905ec366338a54cc18e6cfe749a3670", [
         "    loot->loot_type = loot_type;\n",
     ]),
+    "src/server/game/Entities/Unit/Unit.h": ("cdff5aa27534c58eeaa597c24ce9c2dba46e4cba", [
+        "#include \"UnitUtils.h\"\n",
+    ]),
 }
+
+
+class UnitUtilsHasNoGuard(unittest.TestCase):
+    def test_pinned_header_is_unguarded(self):
+        core = Path(os.environ.get("A04_CORE") or "")
+        if not os.environ.get("A04_CORE"):
+            raise AssertionError("A04_CORE is not set")
+        path = core / "src/server/game/Entities/Unit/UnitUtils.h"
+        data = path.read_bytes()
+        self.assertEqual(hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest(),
+                         "3d9184bc20b9e305aa3a90b285d016342f033d57")
+        text = data.decode()
+        self.assertNotIn("#pragma once", text)
+        self.assertNotRegex(text, r"#ifndef\s+\w+")
 
 
 class SourceContract(unittest.TestCase):
@@ -80,6 +97,13 @@ class SourceContract(unittest.TestCase):
         helper = code.index("NaxxramasQuestLootViewGuard::HideOwnSatisfiedQuestRows(viewer, loot);")
         self.assertLess(save, helper)
         self.assertLess(code.index("} restore{savedRows};"), helper)
+
+    def test_no_direct_unitutils_include(self):
+        # Pinned UnitUtils.h has no include guard and already arrives through
+        # Creature.h -> Unit.h; including it again redefines its classes
+        # (the first hosted full build of this file failed exactly so).
+        self.assertNotIn('#include "UnitUtils.h"', SCRIPT)
+        self.assertIn('#include "Creature.h"', SCRIPT)
 
     def test_loader(self):
         self.assertEqual(LOADER.count("void AddQuestLootSparkleGuardScripts();"), 1)
