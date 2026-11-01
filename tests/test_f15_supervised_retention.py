@@ -57,9 +57,14 @@ class SupervisedRetentionTests(unittest.TestCase):
     def test_unfinished_child_is_skipped_with_no_data_change(self):
         run, report = self.launch("safe")
         source = self.source / "runs" / ("20240101T010101-" + "f" * 16)
-        source.mkdir()
+        # The real supervisor creates private 0700 run folders. A bare
+        # mkdir() inherits the runner's umask (often 022 => 0755), causing
+        # the retention safety guard to refuse this otherwise valid fixture.
+        source.mkdir(mode=0o700)
         incomplete = self.archive / "runs" / source.name
-        incomplete.mkdir()
+        incomplete.mkdir(mode=0o700)
+        self.assertEqual(source.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(incomplete.stat().st_mode & 0o777, 0o700)
         valid_archive = next((Path(report["capture_root"]) / "archives" /
                               "Worldserver-out").glob("*.txt"))
         result = self.expire(days=1)
