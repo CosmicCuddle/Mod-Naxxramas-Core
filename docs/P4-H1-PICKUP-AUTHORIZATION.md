@@ -14,11 +14,11 @@ are in one party, and A is the round-robin owner.
 | Path | Stock result | Class |
 |---|---|---|
 | Quest-required loot (`quest_items`); B has no quest, or the quest is already complete | B sees no row and is refused | stock-entitled, safe |
-| Quest-required loot; both A and B need it | Both see it; **the first taker gets the single copy** | owner policy (A/B/C, #117) |
-| One-copy quest loot during A's round-robin turn | Visible to both; the existing default-OFF `QuestLootProtection` can reserve it for A | owner policy (existing guard) |
+| Quest-required loot; both A and B need it | Both see it; **the first taker gets the single copy** | stock group-loot parity (owner's choice, #117 clarification) |
+| One-copy quest loot during A's round-robin turn | Visible to both; the existing default-OFF `QuestLootProtection` can reserve it for A | stock parity; existing default-OFF guard |
 | **Quest item in ordinary loot** (`QuestRequired=0`); B has no quest; during A's turn | B's view **hides** the row, but if B asks for that slot index, **`StoreLootItem` awards it to B** | **server-inconsistent: fixed here** |
 | Any below-threshold ordinary item during A's turn | Same: hidden from B, but awarded on request | **server-inconsistent: fixed here** |
-| The same items after A releases the corpse | Shown to B and awarded | owner policy (released turn), unchanged |
+| The same items after A releases the corpse | Shown to B and awarded | stock parity (released turn), unchanged |
 | FFA/MULTI_DROP copies, Master Loot, gold | stock | unchanged |
 
 **Why it happens.** Pinned `Player::StoreLootItem` (`Player.cpp` L13861) never
@@ -28,7 +28,7 @@ to collect an item that the server itself shows as reserved for someone else.
 
 **What is not proven.** The harness does not prove that this is the owner's
 reported incident. The normal-client paths that end with a wrong human holding
-an item are the policy rows above (both eligible, or a released turn), and this
+an item are the stock-parity rows above (both eligible, or a released turn), and this
 change leaves them as they are.
 
 ## The change
@@ -52,16 +52,44 @@ the hook:
 
 **What it never does.** It never refuses a visible slot, so round robin,
 release, FFA copies, Master Loot, rolls, gold and quest eligibility all behave
-exactly as the core shows them. It does not choose an A/B/C policy.
+exactly as the core shows them. It keeps stock WoW group-loot parity, which the owner chose (#117
+clarification); the A/B/C alternatives there are superseded research.
 
 **Config.** `NaxxramasCore.QuestLootPickupAuthorization.Enabled` defaults to
 **0**. It is read once per config load on the world thread and published
 through an atomic.
 
+## H0 (view guard) and H1 (this check): independent, and H1 changes nothing
+
+The check runs the view guard's helper before it serializes its scratch
+`LootView`, whatever `QuestLootViewGuard.Enabled` says, and then **puts
+everything back**:
+- The pinned serializer writes only two flags (`LootMgr.cpp` L1115 for the
+  viewer's own row, and L1118 for the shared item).
+- The helper pre-marks those rows, so the serializer skips both writes.
+- The requester's own row flags are saved first and restored when the check
+  returns, so the net change to loot state is **zero**.
+
+H1 therefore never acts as a hidden H0. The two switches are independent. The
+check uses the **current** server view, not the window the client last
+received; with H0 off, the core hides the same rows from that player when they
+open the window.
+
+| H0 view guard | H1 pickup check | T1 (A after banked B's view) | Hidden round-robin slot requested by B |
+|---|---|---|---|
+| OFF | OFF | A denied (pinned bug) | awarded to B (stock) |
+| ON | OFF | **A awarded** | awarded to B |
+| OFF | ON | A denied: H1 does not fix T1, because the core's own view already wrote the flag | **refused** |
+| ON | ON | **A awarded** | **refused** |
+
+All four combinations are tested. A footprint test also covers H0 OFF: the
+requester banks the item after opening the window. The check then changes
+**no flag at all**, and A is still awarded.
+
 ## Evidence
 
 The harness (`tests/p4_h1_pickup/pickup_harness.cpp`) uses the unchanged #262
-harness and the module's real headers. It has 26 checks. Each path is run
+harness and the module's real headers. It has 36 checks, including the H0/H1 matrix above. Each path is run
 twice: once as stock, recording the witness, and once with the check.
 
 | Area | Result |
@@ -83,9 +111,10 @@ SHA and the exact text of each seam:
 - the `PROCESS_INPLACE` opcode;
 - the release that clears `roundRobinPlayer`.
 
-**Mutants.** There are 5 must-fail mutants of the real header, and all are
+**Mutants.** There are 6 must-fail mutants of the real header, and all are
 caught:
 - allows any slot;
+- keeps the requester-row write (no restore);
 - skips the view guard;
 - master looter gets restricted rights;
 - another group gets rights;
@@ -104,12 +133,22 @@ all of that workflow's tests still run.
 - **Other award paths:** group rolls, Master Loot give (`CMSG_LOOT_MASTER_GIVE`),
   gameobject, item and corpse containers, and bot packets
   (`HandleBotPackets`) are outside this hook.
-- **Owner policy:** both-eligible and released-turn awards are left to the
-  owner (A/B/C).
+- **Stock parity kept:** both-eligible and released-turn awards stay as in
+  stock WoW group loot, which the owner chose (#117 clarification).
 - **Still to do:** H2 (viewer-specific sparkle) and P4-H (Master Loot slot
   notification).
 - **Not exercised:** `SendLoot` itself, real storage, the client, and the
   owner's installed binary and database.
+
+## Review revision (1 Nov 2026)
+
+Information (#143, 6559084691) asked for a deliberate ON/OFF dependency between
+H0 and H1, and for all four combinations to be tested. The dependency is
+documented in the header and in the section above. Ten checks were added: the
+matrix plus the footprint test. The A/B/C wording was replaced with the owner's
+stock-parity choice. Following CS01 (6559452215) and the matching H2 blocker
+(#270), the check now also restores the requester's own row flags, so H1 alone
+changes no loot state.
 
 ## Rollback
 
