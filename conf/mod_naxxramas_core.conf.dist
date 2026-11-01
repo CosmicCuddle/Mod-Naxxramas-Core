@@ -368,6 +368,18 @@ NaxxramasCore.QuestLootProtection.Enabled = 0
 # Default: 0
 NaxxramasCore.QuestLootProtection.Debug = 0
 
+# Stop a player's loot window from consuming another player's single-copy
+# quest item. Pinned AzerothCore hides a quest row from a viewer who already
+# owns enough of the item (bank included) and, for a non-FFA item, also marks
+# it looted for everyone, with no award. With this ON, only that viewer's own
+# row is hidden; what each viewer sees is unchanged and nothing is awarded.
+# Does not change loot ownership, round robin, FFA, Master Loot, rolls or gold.
+# Uses PlayerScript::OnPlayerBeforeSendLoot.
+# DISABLED until review and owner-approved gameplay tests.
+# 1 = enable; 0 = native AzerothCore handling only.
+# Default: 0
+NaxxramasCore.QuestLootViewGuard.Enabled = 0
+
 #####################################
 # Molten Core / Golemagg — READ-ONLY Playerbot action probe
 #####################################
