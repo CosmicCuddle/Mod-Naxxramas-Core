@@ -62,7 +62,10 @@ namespace NaxxramasMasterLootQuestGive
         if (row.index >= loot.quest_items.size())
             return {Result::AlreadyLooted, LOOT_ERROR_DIDNT_KILL};
         LootItem& item = loot.quest_items[row.index];
-        if (row.is_looted || item.is_looted)
+        // A zero-count quest entry with both loot flags unset is an
+        // inconsistent/inert row, never a transferable item. Refuse before
+        // CanStoreNewItem/StoreNewItem or changing loot counters/notifications.
+        if (item.count == 0 || row.is_looted || item.is_looted)
             return {Result::AlreadyLooted, LOOT_ERROR_DIDNT_KILL};
 
         // Everyone has a personal copy of a free-for-all quest item; the
