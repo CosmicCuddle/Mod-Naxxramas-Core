@@ -48,6 +48,7 @@ void AddMeetingStoneProgressionScripts();
 void AddBattlemasterQueueProgressionScripts();
 void AddNaxxramasEasternPlaguelandsTowerLockScripts();
 void AddQuestLootProtectionScripts();
+void AddQuestLootViewGuardScripts();
 void AddBotGolemaggActionAuditScripts();
 
 void Addmod_naxxramas_coreScripts()
@@ -95,5 +96,6 @@ void Addmod_naxxramas_coreScripts()
     AddBattlemasterQueueProgressionScripts();
     AddNaxxramasEasternPlaguelandsTowerLockScripts();
     AddQuestLootProtectionScripts();
+    AddQuestLootViewGuardScripts();
     AddBotGolemaggActionAuditScripts();
 }
