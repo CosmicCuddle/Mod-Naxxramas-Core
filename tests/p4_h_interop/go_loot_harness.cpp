@@ -196,6 +196,37 @@ static void goPersonalOpenedByOther()
     }
 }
 
+// Deliberately malformed zero-count loot-template row. This bypasses the
+// database LootStoreItem::IsValid loader (test-only), and exercises pinned
+// Loot::AddItem: count=0 computes stacks=0 and emits NO LootItem at all.
+// Thus a normal freshly filled chest cannot yield (count=0, is_looted=false)
+// via this source path. An arbitrary other script mutating a filled loot item
+// later is outside this narrow test and must not be claimed impossible.
+static void goZeroCountTemplateCannotEmitRow()
+{
+    ChestScene s;
+    Scene::accept(s.M, T5_QUEST, 0);
+    Scene::accept(s.A, T5_QUEST, 0);
+    s.openChestFirst(s.A, true, {LootStoreItem(T5_ITEM, 0, 100.0f, true, 1, 0, 0, 0)});
+    auto const rowsM = s.open(s.M, MASTER_PERMISSION);
+    auto const rowsA = s.open(s.A, RESTRICTED_PERMISSION);
+    s.clearEvents();
+
+    check("GO.ZERO.original_AddItem_emits_no_zero_count_quest_row",
+          s.loot.items.empty() && s.loot.quest_items.empty() &&
+          rowsM.empty() && rowsA.empty() && s.loot.unlootedCount == 0);
+
+    // A crafted quest-slot request must be refused, without an award,
+    // quest counter, removed-slot notification or unlootedCount underflow.
+    MG::Outcome const o = MG::GiveQuestSlot(&s.M, &s.A, s.loot, 0);
+    check("GO.ZERO.crafted_master_give_denied_without_side_effects",
+          o.result == MG::Result::AlreadyLooted &&
+          s.received(s.A, T5_ITEM) == 0 && s.received(s.M, T5_ITEM) == 0 &&
+          s.A.ev.removedSlots.empty() && s.M.ev.removedSlots.empty() &&
+          s.loot.unlootedCount == 0 &&
+          s.A.m_QuestStatus[T5_QUEST].ItemCount[0] == 0);
+}
+
 // Group-rules chest with a normal item: the header leaves it to the core.
 static void goNormalSlot()
 {
@@ -217,6 +248,7 @@ int main()
     goPersonalOpenedByLeader();
     goPersonalOpenedByOther();
     goNormalSlot();
+    goZeroCountTemplateCannotEmitRow();
     std::printf("CHECKS %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
