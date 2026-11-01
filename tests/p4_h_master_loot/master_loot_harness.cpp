@@ -213,6 +213,32 @@ static void hErrorParity()
     }
 }
 
+// Malformed quest item: count zero but shared and viewer looted bits FALSE.
+// Normal loot creation is not claimed to produce this state. Refuse cleanly
+// without item, achievement, notification or counter changes.
+static void hZeroCountUnlooted()
+{
+    MasterScene s;
+    Scene::accept(s.M, T5_QUEST, 0);
+    Scene::accept(s.A, T5_QUEST, 0);
+    s.kill({rowT5()}, s.A);
+    s.openBoth();
+    auto const& map = s.loot.GetPlayerQuestItems();
+    auto const it = map.find(s.M.GetGUID());
+    bool const leaderRow = it != map.end() && it->second &&
+                           !it->second->empty() && !it->second->at(0).is_looted;
+    s.q(0).count = 0;
+    unsigned const before = s.loot.unlootedCount;
+    MG::Outcome const o = MG::GiveQuestSlot(&s.M, &s.A, s.loot, 0);
+    check("GIVE.zero_count_unlooted_refused_no_effects",
+          !s.rowsM.empty() && leaderRow && before > 0 &&
+          o.result == MG::Result::AlreadyLooted &&
+          s.received(s.A, T5_ITEM) == 0 && s.received(s.M, T5_ITEM) == 0 &&
+          s.q(0).count == 0 && !s.q(0).is_looted &&
+          !it->second->at(0).is_looted && s.loot.unlootedCount == before &&
+          s.A.ev.removedSlots.empty() && s.M.ev.removedSlots.empty());
+}
+
 static void hLeftAlone()
 {
     {
@@ -282,6 +308,7 @@ int main()
     hD3WrongRemovedSlot();
     hD1WrongItem();
     hD2AlreadyLooted();
+    hZeroCountUnlooted();
     hErrorParity();
     hLeftAlone();
     std::printf("CHECKS %d passed, %d failed\n", g_pass, g_fail);
