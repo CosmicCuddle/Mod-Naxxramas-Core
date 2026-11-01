@@ -150,6 +150,14 @@ def collect_once(root, sources, now=None, include_existing=False):
                 # Commit journal first; a published record is replayable on restart.
                 if chunk:
                     day = datetime.fromtimestamp(now if now is not None else time.time(), timezone.utc).strftime("%Y%m%d")
+                    history = root / "retention-history"
+                    if history.exists() or history.is_symlink():
+                        history = private_dir(history)
+                        for old in history.iterdir():
+                            if old.name.startswith(label + "-" + day + "-"):
+                                # A backward wall-clock jump must not recreate an
+                                # already-expired UTC observation day.
+                                raise Refused("clock returned to an expired archive day")
                     name = f"{offset:020d}-{offset+len(chunk):020d}-{day}-{digest(chunk)}.bin"
                     dest = records / name
                     if dest.exists():
