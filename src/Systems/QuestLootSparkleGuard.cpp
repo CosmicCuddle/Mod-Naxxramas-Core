@@ -15,7 +15,6 @@
 #include "ScriptMgr.h"
 #include "ScriptDefines/UnitScript.h"
 #include "ScriptDefines/WorldScript.h"
-#include "UnitUtils.h"
 #include "QuestLootSparkleGuard.h"
 
 #include <atomic>
