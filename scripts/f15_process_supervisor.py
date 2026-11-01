@@ -19,6 +19,10 @@ import time
 from f15_operator_collector import Refused, atomic_write, collect_once, private_dir
 
 SERVICES = {"Worldserver", "Authserver"}
+# Bound post-exit reconciliation; leave raw originals and fail closed if the
+# final output exceeds this limit. The collector copies at most 64 KiB/stream
+# each pass; no "complete" receipt is written while unread bytes remain.
+MAX_FINAL_DRAIN_POLLS = 1024
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
@@ -78,7 +82,19 @@ def supervise(output_root, archive_root, service, command, poll_seconds=0.2):
                 time.sleep(poll_seconds)
             if capture_error is None:
                 try:
-                    collect_once(capture_root, sources, include_existing=True)
+                    # The collector copies at most one 64-KiB chunk per stream
+                    # on every call. A single final poll can leave most of a
+                    # short-lived server's last console burst uncaptured.
+                    for _ in range(MAX_FINAL_DRAIN_POLLS):
+                        unread = collect_once(capture_root, sources, include_existing=True)
+                        if set(unread) != set(sources):
+                            raise Refused("collector did not report both console streams")
+                        if not any(unread.values()):
+                            break
+                    else:
+                        # Save exit evidence without ever misreporting capture
+                        # as complete; all original .raw bytes stay untouched.
+                        capture_error = "UncapturedConsoleBytes"
                 except (Refused, OSError, ValueError) as exc:
                     capture_error = type(exc).__name__
         except KeyboardInterrupt:
