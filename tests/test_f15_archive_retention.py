@@ -49,6 +49,16 @@ class RetentionTests(unittest.TestCase):
         self.assertFalse(self.arch.exists())
         self.assertTrue(list((self.root/"retention-history").iterdir()))
 
+    def test_clock_rewind_cannot_republish_expired_day(self):
+        self.assertEqual(self.expire(), 1)
+        before = self.source.read_bytes()
+        with self.source.open("ab") as fp: fp.write(b"later bytes")
+        with self.assertRaisesRegex(Refused, "clock returned"):
+            collect_once(self.root,self.input,now=timestamp(OLD))
+        self.assertFalse(self.arch.exists())
+        self.assertEqual(list(self.records.glob("*.bin")), [])
+        self.assertEqual(self.source.read_bytes(), before+b"later bytes")
+
     def test_retention_at_exact_boundary_does_not_delete(self):
         self.assertEqual(self.expire(DAY_END+timedelta(days=30)),0)
         self.assertEqual(self.expire(DAY_END+timedelta(days=30)-timedelta(seconds=1)),0)
