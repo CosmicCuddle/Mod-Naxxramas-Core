@@ -27,12 +27,14 @@
 
 #include "QuestLootPickupAuthorization.h"
 
+#include <functional>
 #include <utility>
 #include <vector>
 
 namespace NaxxramasQuestLootSparkleGuard
 {
-    inline bool ViewOffersSomething(Player* viewer, Loot& loot, PermissionTypes permission)
+    inline bool ViewOffersSomething(Player* viewer, Loot& loot, PermissionTypes permission,
+        std::function<bool(uint8)> const& deniedPickup = {})
     {
         if (!viewer || permission == NONE_PERMISSION)
             return false;
@@ -68,7 +70,13 @@ namespace NaxxramasQuestLootSparkleGuard
             uint8 const slot = view.read<uint8>();
             view.read_skip(5 * sizeof(uint32));     // item id, count, display, suffix, property
             uint8 const slotType = view.read<uint8>();
-            if (slot < normalRows || slotType != LOOT_SLOT_TYPE_LOCKED)
+            // Normal loot (including locked Master Loot rows) is unchanged.
+            // A quest row is actionable only if it isn't LOCKED and the
+            // enabled H1 pickup gate would actually allow this viewer.
+            if (slot < normalRows)
+                return true;
+            if (slotType != LOOT_SLOT_TYPE_LOCKED &&
+                (!deniedPickup || !deniedPickup(slot)))
                 return true;
         }
         return false;
