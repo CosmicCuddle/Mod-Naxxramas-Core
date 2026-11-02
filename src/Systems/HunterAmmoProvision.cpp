@@ -86,7 +86,7 @@ namespace NaxxramasHunterAmmo
         // If there is no matching 16-slot quiver, do not grant several
         // thousand free projectiles through ordinary inventory bags.
         if (!quiver)
-            return {0, chosen.itemId, Status::UnsupportedSelection};
+            return {0, chosen.itemId, Status::NoMatchingQuiver};
 
         uint32_t const fallbackSlotTarget =
             QuiverSlotTarget(vendorTemplate->Stackable);
@@ -140,14 +140,29 @@ namespace NaxxramasHunterAmmo
             }
         }
 
+        // If the bot has a full Doomshot allocation outside the quiver,
+        // never copy or move it. Instead reserve one empty quiver slot so
+        // that legitimate stack can later be placed there by the owner/bot.
+        bool rarePresentInQuiver = false;
+        for (uint8 i = 0; i < quiver->GetBagSize(); ++i)
+        {
+            Item* slotItem = bot->GetItemByPos(quiverPos, i);
+            if (slotItem && slotItem->GetEntry() == DoomshotItemId)
+                rarePresentInQuiver = true;
+        }
+        bool reserveEmptyForOwnedRare = rareTarget && !rarePresentInQuiver;
         // Fill compatible vendor arrows/bullets into existing matching
         // stacks and remaining empty quiver slots. Keep unusual items as-is.
-        // If a Doomshot slot exists, it occupies one of the 16 positions.
         for (uint8 i = 0; i < quiver->GetBagSize(); ++i)
         {
             Item* slotItem = bot->GetItemByPos(quiverPos, i);
             if (slotItem && slotItem->GetEntry() != chosen.itemId)
                 continue;
+            if (!slotItem && reserveEmptyForOwnedRare)
+            {
+                reserveEmptyForOwnedRare = false;
+                continue;
+            }
             uint32_t const current = slotItem ? slotItem->GetCount() : 0;
             uint32_t const toAdd = Shortfall(current, fallbackSlotTarget);
             vendorAdded += StoreAmmoInQuiverSlot(
