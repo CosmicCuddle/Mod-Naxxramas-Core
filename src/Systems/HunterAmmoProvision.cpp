@@ -107,6 +107,7 @@ namespace NaxxramasHunterAmmo
             ItemTemplate const* rareTemplate =
                 sObjectMgr->GetItemTemplate(DoomshotItemId);
 
+            // The separate owner setting explicitly permits this one item.
             // Doomshot itself is RARE; do not weaken the ordinary
             // uncommon-or-below vendor catalogue validation above.
             if (!rareTemplate ||
