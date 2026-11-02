@@ -63,9 +63,14 @@ class HunterAmmoSafetyContract(unittest.TestCase):
             PROVISION,
         )
         self.assertIn("allowSelectedNonVendor", POLICY)
-        self.assertIn("!item.vendorFallback && !allowSelectedNonVendor", POLICY)
+        self.assertIn("item.vendorFallback || allowSelectedNonVendor", POLICY)
         self.assertIn("allowSelectedNonVendor);", PROVISION)
         self.assertIn("UnsupportedSelectedAmmo", POLICY)
+        self.assertIn("Decision::VendorFallback", PROVISION)
+        self.assertIn("selectedAmmoId", POLICY)
+        self.assertIn("Never mint the rare item or overwrite PLAYER_AMMO_ID", POLICY)
+        self.assertIn("chosen.decision == Decision::VendorFallback", PROVISION)
+        self.assertIn("backup must be selected when needed", COMMAND)
 
     def test_bag_preflight_and_real_delta_accounting(self):
         self.assertIn("CanStoreNewItem(", PROVISION)
