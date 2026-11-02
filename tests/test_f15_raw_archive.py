@@ -1,5 +1,8 @@
 """Disposable F15 raw-archive tests: synthetic subprocesses in temp folders only."""
 import ast
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -270,6 +273,28 @@ class RawArchiveTests(unittest.TestCase):
                            "--archive-owned-completed"])
         self.assertEqual(rc, 0)
         self.assertTrue((self.dest / "runs" / w.name / "manifest.json").exists())
+
+        # The CLI must not leak private filesystem paths from exceptions.
+        secret = str(self.raw / "PRIVATE_PATH_NOT_FOR_LOGS")
+        existing_manifest = self.dest / "runs" / w.name / "manifest.json"
+        manifest_digest = sha(existing_manifest)
+        original_files = self.originals(w)
+        for error in (Refused(secret), FileNotFoundError(2, "missing", secret),
+                      PermissionError(13, "denied", secret), ValueError(secret),
+                      TypeError(secret)):
+            with self.subTest(error=type(error).__name__):
+                stdout, stderr = StringIO(), StringIO()
+                with mock.patch.object(archive, "plan", side_effect=error):
+                    with redirect_stdout(stdout), redirect_stderr(stderr):
+                        result = archive.main([
+                            "--output-root", str(self.raw), "--archive-root", str(self.captures),
+                            "--raw-archive-root", str(self.dest), "--run", w.name])
+                self.assertEqual(result, 2)
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertEqual(stderr.getvalue().strip(), "F15 RAW ARCHIVE REFUSED")
+                self.assertNotIn(secret, stderr.getvalue())
+                self.assertEqual(sha(existing_manifest), manifest_digest)
+                self.assertUnchanged(original_files)
 
 
 class NoDestructiveCalls(unittest.TestCase):
