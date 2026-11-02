@@ -160,8 +160,10 @@ def main(argv=None):
             if args.once:
                 return 0
             time.sleep(args.interval)
-    except (Refused, OSError, ValueError) as exc:
-        print("F15 PM2 OBSERVER REFUSED: " + str(exc), file=sys.stderr)
+    except (Refused, OSError, ValueError):
+        # File-system and validation exception text may include the owner's
+        # private World/Auth log paths. Do not echo it to stderr/CI logs.
+        print("F15 PM2 OBSERVER REFUSED: operator state failed validation", file=sys.stderr)
         return 2
 
 
