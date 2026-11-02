@@ -16,7 +16,7 @@ NaxxramasCore.BotConsumables.HunterAmmo.TargetCount = 600
 
 Code fallbacks match those defaults (`HunterAmmoProvision.cpp`). `AllowSelectedNonVendor` denies free copies of quest-exchanged Thorium Headed Arrow (18042) and crafted Thorium Shells (15997) unless that second switch is explicitly on. The catalog is Classic-only. Effective level is `min(bot level, profile level, 60)`. Before any grant the code rechecks `ItemLevel <= 60`, quality at or below Uncommon, `CheckAmmoCompatibility`, and `CanUseAmmo`. The full shortfall must pass `CanStoreNewItem`; the reported amount is the actual before/after count. Target is clamped to 1..1000 and to the item `MaxCount`.
 
-Vendor fallback when nothing is selected: Rough/Sharp/Razor/Jagged arrows (2512/2515/3030/11285) and Light/Heavy/Solid/Accurate shot (2516/2519/3033/11284). Unselected Thorium is never the fallback. Unknown, quest, reputation, PvP, or expansion selections are left unchanged.
+Vendor fallback when nothing is selected: Rough/Sharp/Razor/Jagged arrows (2512/2515/3030/11285) and Light/Heavy/Solid/Accurate shot (2516/2519/3033/11284). Unselected Thorium is never the fallback. Unknown, quest, reputation, PvP, or expansion selections remain selected and unchanged, but if the module cannot safely refill them it instead supplies the highest level-appropriate standard vendor ammunition matching the equipped weapon in the bot's bags. For example, Doomshot (12654) is **never duplicated**, while a level-60 crossbow Hunter can receive Jagged Arrows (11285) as separate backup. No auto-select/equip occurs: the Hunter must select that backup when needed. If the original selected ammo *is* approved and supplyable, the module still refills the preferred ammunition first.
 
 ## Known caveats
 
