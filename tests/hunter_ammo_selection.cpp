@@ -48,6 +48,11 @@ int main()
     assert(QuiverSlotTarget(120) == 120);
     assert(QuiverSlotTarget(0) == 0);
     assert(MoltenCoreQuiverSlotCount == 16);
+    assert(IsApprovedVendorAmmo(11285));
+    assert(IsApprovedVendorAmmo(11284));
+    assert(!IsApprovedVendorAmmo(12654));
+    assert(!IsApprovedVendorAmmo(18042));
+    assert(!IsApprovedVendorAmmo(15997));
     assert(MoltenCoreQuiverSlotCount * MoltenCoreQuiverSlotTarget == 3200);
 
     // Owner-approved rare allocation is a separate, default-DENY permission.
