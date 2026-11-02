@@ -9,6 +9,7 @@
 #include "HunterAmmoProvision.h"
 #include "HunterAmmoSelection.h"
 
+#include "Bag.h"
 #include "Config.h"
 #include "Item.h"
 #include "ItemTemplate.h"
@@ -22,7 +23,150 @@
 
 namespace NaxxramasHunterAmmo
 {
-    Result TopUpHunterAmmo(Player* bot, uint32_t effectiveLevel)
+    // Place projectiles in the explicitly selected equipped quiver slot.
+    // This is NOT a generic bag insertion and never moves existing items.
+    static uint32_t StoreAmmoInQuiverSlot(Player* bot, uint8 bagSlot,
+                                          uint8 itemSlot, uint32_t itemId,
+                                          uint32_t count)
+    {
+        if (!count)
+            return 0;
+
+        ItemPosCountVec dest;
+        uint32 noSpace = 0;
+        if (bot->CanStoreNewItem(bagSlot, itemSlot, dest, itemId,
+                                count, &noSpace) != EQUIP_ERR_OK ||
+            noSpace || dest.empty())
+            return 0;
+
+        uint32 const before = bot->GetItemCount(itemId, false);
+        Item* addedItem = bot->StoreNewItem(dest, itemId, true);
+        if (!addedItem)
+            return 0;
+
+        uint32 const after = bot->GetItemCount(itemId, false);
+        uint32 const added = ObservedAdded(before, after, count);
+        if (added)
+            bot->SendNewItem(addedItem, added, true, false);
+        return added;
+    }
+
+    // Explicitly MC-only and default OFF. Restrict to a real equipped
+    // 16-slot quiver or ammo pouch and to actual item_template stack sizes.
+    // Existing items (including non-catalogue arrows) are never removed.
+    static Result FillMoltenCoreQuiver(Player* bot, uint32_t level,
+                                      uint32_t selected, uint32_t weaponSubclass,
+                                      Selection chosen,
+                                      ItemTemplate const* vendorTemplate)
+    {
+        uint32_t const wanted = ProjectileForWeapon(weaponSubclass);
+        if (!wanted)
+            return {0, 0, Status::NoCompatibleRangedWeapon};
+
+        Bag* quiver = nullptr;
+        uint8 quiverPos = NULL_BAG;
+        for (uint8 slot = INVENTORY_SLOT_BAG_START;
+             slot < INVENTORY_SLOT_BAG_END; ++slot)
+        {
+            Bag* equipped = bot->GetBagByPos(slot);
+            ItemTemplate const* bagTemplate =
+                equipped ? equipped->GetTemplate() : nullptr;
+            if (!bagTemplate ||
+                bagTemplate->Class != ITEM_CLASS_QUIVER ||
+                bagTemplate->SubClass !=
+                    (wanted == 2 ? ITEM_SUBCLASS_QUIVER
+                                 : ITEM_SUBCLASS_AMMO_POUCH) ||
+                equipped->GetBagSize() != MoltenCoreQuiverSlotCount)
+                continue;
+            quiver = equipped;
+            quiverPos = slot;
+            break;
+        }
+
+        // If there is no matching 16-slot quiver, do not grant several
+        // thousand free projectiles through ordinary inventory bags.
+        if (!quiver)
+            return {0, chosen.itemId, Status::UnsupportedSelection};
+
+        uint32_t const fallbackSlotTarget =
+            QuiverSlotTarget(vendorTemplate->Stackable);
+        if (!fallbackSlotTarget)
+            return {0, chosen.itemId, Status::ItemRejected};
+
+        uint32_t rareAdded = 0;
+        uint32_t vendorAdded = 0;
+        bool const allowRare = sConfigMgr->GetOption<bool>(
+            "NaxxramasCore.BotConsumables.HunterAmmo.AllowOneDoomshotAllocation",
+            false);
+        uint32_t const beforeRare = bot->GetItemCount(DoomshotItemId, false);
+        uint32_t rareTarget = DoomshotAllocationTarget(
+            MoltenCoreQuiverSlotCount * MoltenCoreQuiverSlotTarget,
+            selected, weaponSubclass, level, beforeRare, allowRare);
+
+        ItemTemplate const* rareTemplate =
+            rareTarget ? sObjectMgr->GetItemTemplate(DoomshotItemId) : nullptr;
+        if (!rareTemplate ||
+            rareTemplate->Class != ITEM_CLASS_PROJECTILE ||
+            rareTemplate->SubClass != wanted ||
+            rareTemplate->InventoryType != INVTYPE_AMMO ||
+            rareTemplate->RequiredLevel > level ||
+            rareTemplate->ItemLevel > 60 ||
+            rareTemplate->Quality != ITEM_QUALITY_RARE ||
+            !(rareTemplate->BagFamily & BAG_FAMILY_MASK_ARROWS) ||
+            !bot->CheckAmmoCompatibility(rareTemplate) ||
+            bot->CanUseAmmo(DoomshotItemId) != EQUIP_ERR_OK)
+            rareTarget = 0;
+        else
+            rareTarget = std::min<uint32_t>(
+                rareTarget, QuiverSlotTarget(rareTemplate->Stackable));
+
+        // A single rare quiver slot, with an absolute character-wide
+        // cap of 200 Doomshot. Do not create Doomshot if none existed.
+        if (rareTarget && beforeRare < rareTarget)
+        {
+            uint32_t const shortfall = Shortfall(beforeRare, rareTarget);
+            for (uint8 i = 0; i < quiver->GetBagSize(); ++i)
+            {
+                Item* slotItem = bot->GetItemByPos(quiverPos, i);
+                if (slotItem && slotItem->GetEntry() != DoomshotItemId)
+                    continue;
+                uint32_t const inSlot = slotItem ? slotItem->GetCount() : 0;
+                uint32_t const amount = std::min<uint32_t>(
+                    shortfall, Shortfall(inSlot, rareTarget));
+                rareAdded = StoreAmmoInQuiverSlot(
+                    bot, quiverPos, i, DoomshotItemId, amount);
+                if (rareAdded)
+                    break;
+            }
+        }
+
+        // Fill compatible vendor arrows/bullets into existing matching
+        // stacks and remaining empty quiver slots. Keep unusual items as-is.
+        // If a Doomshot slot exists, it occupies one of the 16 positions.
+        for (uint8 i = 0; i < quiver->GetBagSize(); ++i)
+        {
+            Item* slotItem = bot->GetItemByPos(quiverPos, i);
+            if (slotItem && slotItem->GetEntry() != chosen.itemId)
+                continue;
+            uint32_t const current = slotItem ? slotItem->GetCount() : 0;
+            uint32_t const toAdd = Shortfall(current, fallbackSlotTarget);
+            vendorAdded += StoreAmmoInQuiverSlot(
+                bot, quiverPos, i, chosen.itemId, toAdd);
+        }
+
+        uint32_t const totalAdded = vendorAdded + rareAdded;
+        if (!totalAdded)
+            return {0, chosen.itemId, Status::AlreadySupplied};
+
+        return {totalAdded, chosen.itemId,
+                vendorAdded && chosen.decision == Decision::VendorFallback
+                    ? Status::AddedVendorAmmoNeedsSelection
+                    : Status::AddedSelectedAmmo,
+                rareAdded};
+    }
+
+    Result TopUpHunterAmmo(Player* bot, uint32_t effectiveLevel,
+                           bool moltenCoreProfile)
     {
         // The user must explicitly enable this separately from ordinary
         // consumable auras; never grant on module install or login.
@@ -84,6 +228,19 @@ namespace NaxxramasHunterAmmo
         {
             return {0, chosen.itemId, Status::ItemRejected};
         }
+
+        // A separate MC owner option may fill one *equipped* 16-slot
+        // quiver in 200-arrow allotments; never use this in dungeons.
+        // It does not change the original 600-arrow preparation elsewhere.
+        bool const quiverMode = moltenCoreProfile &&
+            bot->GetMapId() == 409 &&
+            sConfigMgr->GetOption<bool>(
+                "NaxxramasCore.BotConsumables.HunterAmmo.MoltenCore.FillQuiver.Enabled",
+                false);
+        if (quiverMode)
+            return FillMoltenCoreQuiver(
+                bot, level, selected, weaponTemplate->SubClass,
+                chosen, ammo);
 
         uint32_t const totalTarget = TargetCount(
             sConfigMgr->GetOption<int32>(
