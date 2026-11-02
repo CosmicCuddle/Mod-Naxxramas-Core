@@ -30,6 +30,7 @@ namespace NaxxramasHunterAmmo
 
     // Only called by the already authenticated, cooldown-limited
     // Bot Consumables preparation command. NEVER a per-tick refill.
-    Result TopUpHunterAmmo(Player* bot, uint32_t effectiveLevel);
+    Result TopUpHunterAmmo(Player* bot, uint32_t effectiveLevel,
+                           bool moltenCoreProfile = false);
 }
 #endif // NAXXRAMAS_CORE_HUNTER_AMMO_PROVISION_H
