@@ -103,29 +103,21 @@ namespace NaxxramasHunterAmmo
                 if (item.itemId != selectedAmmoId)
                     continue;
 
-                if (item.projectileSubclass != wanted)
-                    return {0, wanted, Decision::UnsupportedSelectedAmmo};
+                // Prefer the existing selection only when it can be supplied
+                // legally. Keep rare/quest/earned ammunition untouched.
+                if (item.projectileSubclass == wanted &&
+                    item.requiredLevel <= effectiveLevel &&
+                    (item.vendorFallback || allowSelectedNonVendor))
+                    return {item.itemId, wanted, Decision::Selected};
 
-                if (item.requiredLevel > effectiveLevel)
-                    return {0, wanted, Decision::LevelTooLow};
-
-                // Important for Individual Progression: a Hunter could have
-                // acquired a quest-reward or engineered ammo stack legitimately.
-                // Merely selecting it is NOT permission to mint extra copies.
-                // Operator must explicitly allow those inventory top-ups.
-                if (!item.vendorFallback && !allowSelectedNonVendor)
-                    return {0, wanted, Decision::UnsupportedSelectedAmmo};
-
-                return {item.itemId, wanted, Decision::Selected};
+                break;
             }
-
-            // Do not silently replace an unusual/quest/PvP/high-era selected
-            // projectile with something weaker or create that item for free.
-            return {0, wanted, Decision::UnsupportedSelectedAmmo};
         }
 
-        // No current ammo selection: give only a level-appropriate vendor
-        // fallback to inventory. Caller NEVER auto-selects/equips it.
+        // Unsupported, mismatched, out-of-level or protected selected ammo
+        // remains SELECTED, but can have separate ordinary vendor backup
+        // placed in bags. Never mint the rare item or overwrite PLAYER_AMMO_ID.
+        // With nothing selected, the same safe vendor fallback applies.
         Selection best{0, wanted, Decision::LevelTooLow};
         for (KnownAmmo const& item : Catalog)
         {
@@ -136,6 +128,8 @@ namespace NaxxramasHunterAmmo
                 best = {item.itemId, wanted, Decision::VendorFallback};
             }
         }
+        if (!best.itemId && selectedAmmoId)
+            return {0, wanted, Decision::UnsupportedSelectedAmmo};
         return best;
     }
 }
