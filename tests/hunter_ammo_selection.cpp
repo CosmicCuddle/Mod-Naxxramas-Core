@@ -30,7 +30,7 @@ int main()
     assert(ChooseAmmo(3, 11285, 60).itemId == 11284);
     assert(ChooseAmmo(2, 11284, 60).itemId == 11285);
     assert(ChooseAmmo(2, 19316, 60).itemId == 11285); // AV/reputation
-    assert(ChooseAmmo(2, 12654, 60).itemId == 11285); // Doomshot backup // quest / unknown
+    assert(ChooseAmmo(2, 12654, 60).itemId == 11285); // Doomshot backup
     assert(ChooseAmmo(3, 15997, 51).itemId == 11284);
     assert(ChooseAmmo(2, 18042, 51).itemId == 11285);
 
@@ -40,6 +40,21 @@ int main()
     assert(ChooseAmmo(18, 11285, 60).decision == Decision::Selected);
     assert(ChooseAmmo(3, 11284, 60).decision == Decision::Selected);
     assert(ChooseAmmo(2, 18042, 60, true).decision == Decision::Selected);
+
+    // Owner-approved rare allocation is a separate, default-DENY permission.
+    assert(DoomshotAllocationTarget(600, 12654, 18, 60, 100, false) == 0);
+    assert(DoomshotAllocationTarget(600, 12654, 18, 60, 100, true) == 200);
+    assert(DoomshotAllocationTarget(600, 12654, 2, 54, 1, true) == 200);
+    assert(DoomshotAllocationTarget(150, 12654, 18, 60, 100, true) == 150);
+    assert(DoomshotAllocationTarget(600, 12654, 18, 53, 100, true) == 0);
+    assert(DoomshotAllocationTarget(600, 12654, 3, 60, 100, true) == 0);
+    assert(DoomshotAllocationTarget(600, 12654, 18, 60, 0, true) == 0);
+    assert(DoomshotAllocationTarget(600, 18042, 18, 60, 100, true) == 0);
+    assert(Shortfall(100, DoomshotRareAllocation) == 100);
+    assert(Shortfall(200, DoomshotRareAllocation) == 0);
+    // 200 rare + 400 vendor = 600; no extra rare or fallback over target.
+    assert(TargetCount(600, 0) - DoomshotRareAllocation == 400);
+    assert(ChooseAmmo(18, 12654, 60).itemId == 11285);
 
     // No selected ammo: conservative level-appropriate VENDOR pairs only.
     assert(ChooseAmmo(2, 0, 1).itemId == 2512);
