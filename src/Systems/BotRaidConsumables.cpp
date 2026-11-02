@@ -348,6 +348,7 @@ namespace
         uint32 CachesAdded = 0;
         uint32 ReagentsAdded = 0;
         uint32 HunterAmmoAdded = 0;
+        uint32 HunterDoomshotAdded = 0;
         uint32 HunterAmmoSkipped = 0;
         uint32 HunterAmmoNeedsSelection = 0;
         uint32 PetBuffsSkipped = 0;
@@ -725,6 +726,7 @@ namespace
         {
             stats.ItemsAdded += result.added;
             stats.HunterAmmoAdded += result.added;
+            stats.HunterDoomshotAdded += result.doomshotAdded;
 
             if (result.status == Status::AddedVendorAmmoNeedsSelection)
                 ++stats.HunterAmmoNeedsSelection;
@@ -3660,6 +3662,13 @@ public:
             handler->PSendSysMessage(
                 "{} Hunter ammunition item(s) supplied (already included in consumable item total).",
                 stats.HunterAmmoAdded);
+        }
+
+        if (stats.HunterDoomshotAdded > 0)
+        {
+            handler->PSendSysMessage(
+                "{} Doomshot arrow(s) added within the 200-arrow rare allowance (counted in Hunter ammo total).",
+                stats.HunterDoomshotAdded);
         }
 
         if (stats.HunterAmmoNeedsSelection > 0)
