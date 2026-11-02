@@ -73,7 +73,8 @@ class SourceContract(unittest.TestCase):
         self.assertEqual(CONF.count("NaxxramasCore.QuestLootSparkleGuard.Enabled"), 1)
         self.assertIn("\nNaxxramasCore.QuestLootSparkleGuard.Enabled = 0\n", CONF)
         self.assertIn('GetOption<bool>("NaxxramasCore.QuestLootSparkleGuard.Enabled", false)', SCRIPT)
-        self.assertEqual(SCRIPT.count("sConfigMgr"), 1)
+        self.assertEqual(SCRIPT.count("sConfigMgr"), 2)
+        self.assertIn('GetOption<bool>("NaxxramasCore.QuestLootProtection.Enabled", false)', SCRIPT)
         self.assertIn("{UNITHOOK_ON_PATCH_VALUES_UPDATE}", SCRIPT)
 
     def test_only_clears_lootable_for_this_packet(self):
@@ -97,6 +98,33 @@ class SourceContract(unittest.TestCase):
         helper = code.index("NaxxramasQuestLootViewGuard::HideOwnSatisfiedQuestRows(viewer, loot);")
         self.assertLess(save, helper)
         self.assertLess(code.index("} restore{savedRows};"), helper)
+
+    def test_h2_skips_only_quest_rows_the_enabled_h1_turn_would_deny(self):
+        # Non-mutating bridge: leave ordinary, FFA, rolls and all other
+        # visible rows untouched. Config reload is read on world thread.
+        h1 = (ROOT / "src/Systems/QuestLootProtection.cpp").read_text()
+        shared = (ROOT / "src/Systems/QuestLootTurnGuard.h").read_text()
+        self.assertIn('bool WouldDenyQuestSlotForViewer(Player* player, Creature* creature, uint8 requestedSlot)', h1)
+        self.assertIn("WouldDenyQuestSlotForViewer(Player* player, Creature* creature, std::uint8_t requestedSlot)", shared)
+        self.assertIn("if (!WouldDenyQuestSlotForViewer(player, creature, requestedSlot))", h1)
+        self.assertIn("SendLootError(sourceGuid, LOOT_ERROR_LOCKED)", h1)
+        self.assertIn("if (slot < normalRows)", HEADER)
+        self.assertIn("slotType != LOOT_SLOT_TYPE_LOCKED", HEADER)
+        self.assertIn("(!deniedPickup || !deniedPickup(slot))", HEADER)
+        self.assertIn("s_pickupTurnEnabled.load(std::memory_order_relaxed) &&", SCRIPT)
+        self.assertIn("NaxxramasQuestLootProtection::WouldDenyQuestSlotForViewer(", SCRIPT)
+        self.assertIn("deniedByTurn))", SCRIPT)
+        # Never infer denial from race, quest eligibility alone or from
+        # the viewer's current loot GUID (not set during create updates).
+        body = h1.split("bool WouldDenyQuestSlotForViewer(", 1)[1].split("    bool PermitPickup(", 1)[0]
+        self.assertNotIn("GetLootGUID()", body)
+        self.assertNotIn("SendLootError(", body)
+        self.assertNotIn("LOOT_ERROR_LOCKED", body)
+        self.assertIn("GetLootRecipientGroup()", body)
+        self.assertIn("ownerHasUnlootedSlot", body)
+        self.assertIn("AllowedForPlayer(owner, loot.sourceWorldObjectGUID)", body)
+        self.assertIn("return true;", body)
+        self.assertEqual(body.count("return true;"), 1)
 
     def test_no_direct_unitutils_include(self):
         # Pinned UnitUtils.h has no include guard and already arrives through
