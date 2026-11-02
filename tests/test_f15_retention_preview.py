@@ -76,6 +76,42 @@ class PreviewTests(unittest.TestCase):
             self.check(DAY_END + timedelta(days=31))
         self.assertTrue(self.archive.exists())
 
+    def test_linked_archive_receipt_refuses_without_reading_outside_data(self):
+        # Both symlinks and multi-linked receipts must be rejected by the
+        # pre-existing strict retention validator, not followed by preview.
+        archive_before = self.archive.read_bytes()
+        source_before = self.source.read_bytes()
+        receipt_before = self.receipt.read_bytes()
+        other = self.home / "external-private-receipt.json"
+        other.write_bytes(receipt_before)
+        self.receipt.unlink()
+        self.receipt.symlink_to(other)
+        with self.assertRaises(Refused):
+            self.check(DAY_END + timedelta(days=31))
+        self.assertEqual(other.read_bytes(), receipt_before)
+        self.receipt.unlink()
+        self.receipt.write_bytes(receipt_before)
+        alias = self.home / "another-hardlink-to-receipt.json"
+        os.link(self.receipt, alias)
+        with self.assertRaises(Refused):
+            self.check(DAY_END + timedelta(days=31))
+        self.assertEqual(alias.read_bytes(), receipt_before)
+        self.assertEqual(self.receipt.read_bytes(), receipt_before)
+        self.assertEqual(self.archive.read_bytes(), archive_before)
+        self.assertEqual(self.source.read_bytes(), source_before)
+
+    def test_unknown_stream_even_if_both_roots_agree_refuses(self):
+        # Equal stream sets are necessary but not sufficient: a forged label
+        # in BOTH roots must never be reported as a known World/Auth stream.
+        archive_before = self.archive.read_bytes()
+        for name in ("records", "archives"):
+            (self.root / name / "UNKNOWN-STREAM").mkdir(mode=0o700)
+        with self.assertRaises(Refused):
+            self.check(DAY_END + timedelta(days=31))
+        self.assertEqual(self.archive.read_bytes(), archive_before)
+        self.assertEqual(self.source.read_bytes(),
+                         b"UNPUBLISHED_SERVER_LOG_SENTINEL\n")
+
     def test_symlink_and_unfinished_intent_refuse(self):
         original = self.archive.read_bytes()
         self.archive.unlink()
