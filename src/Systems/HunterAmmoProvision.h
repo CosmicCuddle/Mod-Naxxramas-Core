@@ -25,6 +25,7 @@ namespace NaxxramasHunterAmmo
         uint32_t added = 0;
         uint32_t itemId = 0;
         Status status = Status::Disabled;
+        uint32_t doomshotAdded = 0;
     };
 
     // Only called by the already authenticated, cooldown-limited
