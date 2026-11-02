@@ -1,9 +1,12 @@
 """Offline tests for real F15 operator CLI using only temporary fake log files."""
 import importlib.util
+import io
 import os
 from pathlib import Path
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
 MODULE = Path(__file__).resolve().parents[1] / 'scripts' / 'f15_operator_collector.py'
 spec = importlib.util.spec_from_file_location('f15_operator_collector', MODULE)
@@ -126,6 +129,33 @@ class CollectorTests(unittest.TestCase):
         with self.src.open('ab') as fp: fp.write(b'hello')
         self.poll()
         self.assertEqual(foreign.read_bytes(),b'keep')
+
+    def test_cli_refusal_never_exposes_private_paths_or_mutates_files(self):
+        # Simulate a failure before the real collector touches any sources.
+        # OSError/Refused text can contain private host paths and must never
+        # be copied into operator stderr or CI logs.
+        private = str(self.home / "PRIVATE_WORLD_AUTH_LOG_PATH")
+        errors = [
+            f15.Refused("private source: " + private),
+            FileNotFoundError(2, "not found", private),
+            PermissionError(13, "permission denied", private),
+            ValueError("private root: " + private),
+        ]
+        original = self.src.read_bytes()
+        for error in errors:
+            with self.subTest(error=type(error).__name__):
+                out, err = io.StringIO(), io.StringIO()
+                with mock.patch.object(f15, 'collect_once', side_effect=error):
+                    with redirect_stdout(out), redirect_stderr(err):
+                        code = f15.main([
+                            '--root', str(self.root), '--source',
+                            f'Worldserver-out={self.src}', '--capture', '--once'])
+                self.assertEqual(code, 2)
+                self.assertEqual(out.getvalue(), '')
+                self.assertIn('F15 capture REFUSED:', err.getvalue())
+                self.assertNotIn(private, err.getvalue())
+                self.assertEqual(self.src.read_bytes(), original)
+                self.assertFalse(self.root.exists())
 
     def test_cli_requires_explicit_capture(self):
         with self.assertRaises(SystemExit):
