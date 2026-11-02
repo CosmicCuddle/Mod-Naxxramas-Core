@@ -91,6 +91,27 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertIn("return current < target ? target - current : 0u;", POLICY)
         self.assertIn("delta < attempted ? delta : attempted", POLICY)
 
+    def test_one_allocation_doomshot_needs_separate_explicit_opt_in(self):
+        self.assertIn(
+            "NaxxramasCore.BotConsumables.HunterAmmo.AllowOneDoomshotAllocation = 0",
+            CONFIG,
+        )
+        self.assertIn(
+            '"NaxxramasCore.BotConsumables.HunterAmmo.AllowOneDoomshotAllocation", false',
+            PROVISION,
+        )
+        self.assertIn("DoomshotRareAllocation = 200", POLICY)
+        self.assertIn("DoomshotAllocationTarget(", POLICY)
+        self.assertIn("beforeRare", PROVISION)
+        self.assertIn("ItemLevel > 60", PROVISION)
+        self.assertIn("ITEM_QUALITY_RARE", PROVISION)
+        self.assertIn("GetItemCount(DoomshotItemId, false)", PROVISION)
+        self.assertIn("rareInBags", PROVISION)
+        self.assertIn("totalTarget - rareInBags", PROVISION)
+        self.assertIn("rareAdded = ObservedAdded(", PROVISION)
+        self.assertIn("result.doomshotAdded", COMMAND)
+        self.assertNotIn("bot->SetAmmo(", PROVISION)
+
     def test_pet_missing_does_not_block_ammunition(self):
         start = COMMAND.index("void PrepareHunter(")
         end = COMMAND.index("Pet* pet = bot->GetPet();", start)
