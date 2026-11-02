@@ -91,6 +91,28 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertIn("return current < target ? target - current : 0u;", POLICY)
         self.assertIn("delta < attempted ? delta : attempted", POLICY)
 
+    def test_mc_quiver_scoped_and_native_slot_storage(self):
+        self.assertIn(
+            "NaxxramasCore.BotConsumables.HunterAmmo.MoltenCore.FillQuiver.Enabled = 0",
+            CONFIG,
+        )
+        self.assertIn(
+            '"NaxxramasCore.BotConsumables.HunterAmmo.MoltenCore.FillQuiver.Enabled",',
+            PROVISION,
+        )
+        self.assertIn("moltenCoreProfile &&", PROVISION)
+        self.assertIn("bot->GetMapId() == 409", PROVISION)
+        self.assertIn("equipped->GetBagSize() != MoltenCoreQuiverSlotCount", PROVISION)
+        self.assertIn("quiverPos, i", PROVISION)
+        self.assertIn("bot->CanStoreNewItem(bagSlot, itemSlot", PROVISION)
+        self.assertIn("bot->StoreNewItem(dest, itemId, true)", PROVISION)
+        self.assertIn("quiver->GetBagSize()", PROVISION)
+        self.assertIn("MoltenCoreQuiverSlotTarget = 200", POLICY)
+        self.assertIn("SupplyHunterAmmoForBot(\n            bot,", COMMAND)
+        self.assertIn("stats, true);", COMMAND)
+        self.assertNotIn("bot->SetAmmo(", PROVISION)
+        self.assertNotIn("bot->DestroyItem(", PROVISION)
+
     def test_one_allocation_doomshot_needs_separate_explicit_opt_in(self):
         self.assertIn(
             "NaxxramasCore.BotConsumables.HunterAmmo.AllowOneDoomshotAllocation = 0",
