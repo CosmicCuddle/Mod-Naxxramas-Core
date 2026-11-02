@@ -75,12 +75,15 @@ has not run this against CosmicCuddle's host.
 
 ## Testing and ownership
 
-`tests/test_f15_retention_preview.py` checks eleven disposable scenarios:
+`tests/test_f15_retention_preview.py` has **thirteen disposable test methods**:
 no file mutation, exact boundary, newer-day preservation, corrupt/missing
 archive refusal, symlink/pending-intent refusal, untrusted root/journal
-refusal, orphaned/mismatched stream-directory refusal, nested symlink ancestor refusal, cooperative collector-lock refusal,
-and explicit opt-in CLI without leaking source paths/log contents, including
-missing private collector directories and their path-bearing OS errors.
+refusal, orphaned/mismatched stream-directory refusal, **matched-but-unknown
+stream labels refused**, nested symlink ancestor refusal, cooperative collector-lock
+refusal, **archive receipt symlink and hardlink refused without reading their
+outside payload**, and explicit opt-in CLI without leaking source paths/log
+contents, including missing private collector directories and their
+path-bearing OS errors. These are regression fixtures, not hosted CI PASS.
 
 The existing [F15 source workflow](../../.github/workflows/naxx-f15-operator-capture-20261101.yml)
 will execute this suite **after** the full collector/PM2 suite; an unrelated
