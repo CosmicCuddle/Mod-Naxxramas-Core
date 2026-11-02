@@ -100,7 +100,7 @@ jobs:
           PY
       - name: "Compiler"
         run: ${{ matrix.cxx }} --version
-      - name: "Sparkle guard: 6 tests, 21 checks on original pinned bodies, no skips"
+      - name: "Sparkle guard: 8 tests, 21 checks on original pinned bodies, no skips"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
@@ -108,7 +108,7 @@ jobs:
           set -euo pipefail
           python3 -I -B -W error module/tests/test_p4_h2_sparkle.py -v > /tmp/p4.txt 2>&1 || { cat /tmp/p4.txt; exit 1; }
           cat /tmp/p4.txt
-          grep -Eq '^Ran 6 tests in [0-9.]+s$' /tmp/p4.txt
+          grep -Eq '^Ran 8 tests in [0-9.]+s$' /tmp/p4.txt
           grep -qx OK /tmp/p4.txt
           grep -qx 'CHECKS 21 passed, 0 failed' /tmp/p4.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/p4.txt

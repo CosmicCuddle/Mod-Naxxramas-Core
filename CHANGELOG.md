@@ -436,3 +436,8 @@ NaxxramasCore.ForcedPvP.Notify
 - Added world SQL bindings for Rend Flurry and racial scripts.
 - Documented existing-character migration risk from obsolete Improved Heroic Strike talent ranks (`12663`, `12664`).
 - Added troubleshooting steps for `_LoadTalents` / `ASSERT(talentPos)` crashes.
+
+
+## 2026-11-02 — CS01 P4-H test count correction (DRAFT)
+
+- CI-only repair for two outdated expected counts on Core #286: Master Loot 10/10 mutants caught (was falsely expecting 9); H2 sparkle 8 Python tests / 21 behavioural checks (was falsely expecting 6). The pinned Worldserver binary had already linked in both historical runs. Source, config, SQL and gameplay unchanged. See `docs/P4-H-CI-COUNT-REPAIR-20261102.md`. All experimental flags remain OFF; exact child CI and owner gameplay acceptance still required.

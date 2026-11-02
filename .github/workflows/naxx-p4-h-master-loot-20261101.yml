@@ -128,14 +128,14 @@ jobs:
           grep -qx OK /tmp/p4.txt
           grep -qx 'CHECKS 30 passed, 0 failed' /tmp/p4.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/p4.txt
-      - name: "Must-fail mutants of the real Master Loot give header (9)"
+      - name: "Must-fail mutants of the real Master Loot give header (10)"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
         run: |
           set -euo pipefail
           python3 -I -B module/tests/p4_h_master_loot/mutants.py | tee /tmp/mutants.txt
-          grep -qx '9/9 master loot mutants caught' /tmp/mutants.txt
+          grep -qx '10/10 master loot mutants caught' /tmp/mutants.txt
       - name: "Regression: unchanged #270 H2 (21), #268 H1 (36), #264 guard (24) and #262 baseline (71)"
         env:
           A04_CORE: ${{ github.workspace }}/core
