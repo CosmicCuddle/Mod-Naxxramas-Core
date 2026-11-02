@@ -137,7 +137,7 @@ namespace NaxxramasHunterAmmo
 
         // Unsupported, mismatched, out-of-level or protected selected ammo
         // remains SELECTED, but can have separate ordinary vendor backup
-        // placed in bags. Never mint the rare item or overwrite PLAYER_AMMO_ID.
+        // placed in bags. Never overwrite PLAYER_AMMO_ID or mint arbitrary rare ammo.
         // With nothing selected, the same safe vendor fallback applies.
         Selection best{0, wanted, Decision::LevelTooLow};
         for (KnownAmmo const& item : Catalog)
