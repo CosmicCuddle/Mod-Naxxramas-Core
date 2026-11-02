@@ -108,7 +108,7 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertIn("bot->StoreNewItem(dest, itemId, true)", PROVISION)
         self.assertIn("IsApprovedVendorAmmo(quiverChoice.itemId)", PROVISION)
         self.assertIn("quiverChoice = ChooseAmmo(", PROVISION)
-        self.assertIn("Never move existing items", "Never move existing items") if False else None
+        self.assertNotIn("bot->SetAmmo(", PROVISION)
         self.assertIn("quiver->GetBagSize()", PROVISION)
         self.assertIn("MoltenCoreQuiverSlotTarget = 200", POLICY)
         self.assertIn("SupplyHunterAmmoForBot(\n            bot,", COMMAND)
