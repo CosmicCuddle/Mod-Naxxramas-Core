@@ -16,6 +16,7 @@ namespace NaxxramasHunterAmmo
         ItemRejected,
         AlreadySupplied,
         NoBagSpace,
+        NoMatchingQuiver,
         AddedSelectedAmmo,
         AddedVendorAmmoNeedsSelection
     };
