@@ -68,7 +68,7 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertIn("UnsupportedSelectedAmmo", POLICY)
         self.assertIn("Decision::VendorFallback", PROVISION)
         self.assertIn("selectedAmmoId", POLICY)
-        self.assertIn("Never mint the rare item or overwrite PLAYER_AMMO_ID", POLICY)
+        self.assertIn("Never overwrite PLAYER_AMMO_ID or mint arbitrary rare ammo", POLICY)
         self.assertIn("chosen.decision == Decision::VendorFallback", PROVISION)
         self.assertIn("backup must be selected when needed", COMMAND)
 
