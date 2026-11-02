@@ -51,3 +51,30 @@ owner's requested total. The current Playerbots build's ability to
 switch to the backup after selected Doomshot runs out remains unverified.
 Verify true live item_template Stackable/MaxCount, AddItem outcomes and
 bot use before any protected branch merge or production deployment.
+
+## 2 Nov 2026 — 16-slot Molten Core quiver mode (DRAFT, default OFF)
+
+The owner clarified that Vanilla ammunition is grouped in **200-arrow stacks**
+and the actual MC quiver has **16 slots**. A new independent config
+`NaxxramasCore.BotConsumables.HunterAmmo.MoltenCore.FillQuiver.Enabled = 0`
+allows **only the Molten Core profile, map 409** to fill an equipped
+**16-slot matching quiver (bow/crossbow)** or ammo pouch (gun). Other
+profiles use the previous TargetCount=600 top-up when enabled.
+
+For a quiver with 16 available slots and genuine item_template stacking
+of 200 or above, one selected, owner-authorized Doomshot allocation to at
+most **200 total owned** and 15 stacks of approved vendor Jagged Arrows
+could give **3,200 arrows maximum in that quiver**. This is an illustration,
+not a tested result. Existing ammunition stacks are never moved/deleted;
+other occupied slots reduce available fill space. The Doomshot exception
+also requires the separate default-OFF permission, an **existing Doomshot
+item** and a compatible, eligible level-54+ Hunter.
+
+This mode uses native per-slot CanStoreNewItem and StoreNewItem, never
+general AddItem; it intends to put the ammunition **in the actual quiver**
+and should not grant thousands to ordinary bags if no correct quiver exists.
+Runtime item templates, specialised-bag compatibility, core compile and
+actual client inventory **are not yet verified**. A 3,200-arrow free refill
+per MC preparation is a significant economy change, not a bag-size-only
+cosmetic change. Roll back by leaving this config OFF; record any inventory
+grants and restore a test-character backup before any production use.
