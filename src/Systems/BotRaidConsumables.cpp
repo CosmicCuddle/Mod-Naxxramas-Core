@@ -3665,7 +3665,7 @@ public:
         if (stats.HunterAmmoNeedsSelection > 0)
         {
             handler->PSendSysMessage(
-                "{} Hunter(s) received basic vendor ammunition but had no selected ammo. They must select it manually before ranged attacks.",
+                "{} Hunter(s) received compatible vendor backup ammunition in bags. The current ammo selection was preserved; backup must be selected when needed.",
                 stats.HunterAmmoNeedsSelection);
         }
 
