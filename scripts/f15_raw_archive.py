@@ -347,8 +347,9 @@ def main(argv=None):
         print(json.dumps(plan(args.output_root, args.archive_root, args.raw_archive_root,
                               args.run, execute=args.archive_owned_completed), sort_keys=True))
         return 0
-    except (Refused, OSError, ValueError, TypeError) as exc:
-        print("F15 RAW ARCHIVE REFUSED: " + str(exc), file=sys.stderr)
+    except (Refused, OSError, ValueError, TypeError):
+        # OS and validation exceptions may contain owner-private absolute paths.
+        print("F15 RAW ARCHIVE REFUSED", file=sys.stderr)
         return 2
 
 
