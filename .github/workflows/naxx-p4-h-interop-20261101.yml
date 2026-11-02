@@ -121,14 +121,14 @@ jobs:
           grep -qx 'CHECKS 28 passed, 0 failed' /tmp/hi.txt
           grep -qx 'CHECKS 15 passed, 0 failed' /tmp/hi.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/hi.txt
-      - name: "Must-fail mutants: 12 of the real #272 .cpp, 3 of the real header"
+      - name: "Must-fail mutants: 12 of the real #272 .cpp, 4 of the real header"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
         run: |
           set -euo pipefail
           python3 -I -B module/tests/p4_h_interop/mutants.py | tee /tmp/mutants.txt
-          grep -qx '15/15 interop mutants caught' /tmp/mutants.txt
+          grep -qx '16/16 interop mutants caught' /tmp/mutants.txt
       - name: "Regression: unchanged #272 (29), H2 (21), H1 (36), #264 (24), #262 (71)"
         env:
           A04_CORE: ${{ github.workspace }}/core
