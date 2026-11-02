@@ -147,8 +147,9 @@ def main(argv=None):
             if args.once:
                 return 0
             time.sleep(args.interval)
-    except (Refused, OSError, ValueError) as exc:
-        print("F15 SUPERVISED RETENTION REFUSED: " + str(exc), file=sys.stderr)
+    except (Refused, OSError, ValueError):
+        # Fail closed without forwarding private run/archive paths from exceptions.
+        print("F15 SUPERVISED RETENTION REFUSED", file=sys.stderr)
         return 2
 
 
