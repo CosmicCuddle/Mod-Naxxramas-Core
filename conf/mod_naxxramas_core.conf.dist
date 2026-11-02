@@ -332,9 +332,12 @@ NaxxramasCore.HallowsEnd.SoloFire.DisableSpread = 0
 # crafted Thorium ammo only. Any unsupported selected/quest/PvP ammo is skipped
 # rather than replaced, duplicated or upgraded beyond the current era.
 #
-# If a Hunter has NO ammo selected, basic level-appropriate vendor ammo may
-# be placed into inventory, but this module NEVER selects/equips ammo for them.
-# The player/bot must select the new ammo in the ammo slot before shooting.
+# If selected ammunition cannot be safely refilled (rare Doomshot, quest,
+# PvP, out-of-level or wrong weapon), compatible level-appropriate vendor
+# ammunition may instead be placed in BAGS as backup. The original selected
+# ammunition is never removed, replaced or duplicated. This also applies when
+# no ammo is selected. The module NEVER selects/equips the backup, so the
+# player/bot must select it before shooting with it.
 #
 # This is an inventory grant (saved to characters DB by native core), not
 # an aura, and no SQL schema/DBC modification is included.
