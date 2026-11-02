@@ -41,6 +41,15 @@ int main()
     assert(ChooseAmmo(3, 11284, 60).decision == Decision::Selected);
     assert(ChooseAmmo(2, 18042, 60, true).decision == Decision::Selected);
 
+    // Real quiver layout: each equipped slot has a 200-arrow logical
+    // ceiling even when the server item_template allows a bigger stack.
+    assert(QuiverSlotTarget(200) == 200);
+    assert(QuiverSlotTarget(1000) == 200);
+    assert(QuiverSlotTarget(120) == 120);
+    assert(QuiverSlotTarget(0) == 0);
+    assert(MoltenCoreQuiverSlotCount == 16);
+    assert(MoltenCoreQuiverSlotCount * MoltenCoreQuiverSlotTarget == 3200);
+
     // Owner-approved rare allocation is a separate, default-DENY permission.
     assert(DoomshotAllocationTarget(600, 12654, 18, 60, 100, false) == 0);
     assert(DoomshotAllocationTarget(600, 12654, 18, 60, 100, true) == 200);
