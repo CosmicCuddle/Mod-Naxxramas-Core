@@ -112,8 +112,14 @@ class ExistingPM2ObserverTests(unittest.TestCase):
         self.assertEqual(self.out.read_bytes(), b"replacement source\n")
         link = self.home / "linked.out"
         link.symlink_to(self.out)
-        with self.assertRaises(obs.Refused):
+        # O_NOFOLLOW rejects the path at os.open with ELOOP on Linux;
+        # other validation paths raise the module's Refused exception.
+        # Both are fail-closed, so do not make the test depend on errno
+        # translation that the collector has never promised to perform.
+        with self.assertRaises((obs.Refused, OSError)):
             self.poll(self.payload(out=link))
+        self.assertEqual(self.out.read_bytes(), b"replacement source\n")
+        self.assertFalse(self.archive().exists())
         self.assertNotEqual(original, self.out.read_bytes())
 
     def test_default_off_cli_and_untrusted_root(self):
