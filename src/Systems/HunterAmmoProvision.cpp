@@ -114,8 +114,12 @@ namespace NaxxramasHunterAmmo
         if (!added)
             return {0, chosen.itemId, Status::NoBagSpace};
 
+        // A legal vendor fallback is NOT the selected ammo when a rare
+        // projectile (e.g. Doomshot) is still selected. Report it as
+        // needing manual selection when the preferred stock runs out.
         return {added, chosen.itemId,
-                selected ? Status::AddedSelectedAmmo
-                         : Status::AddedVendorAmmoNeedsSelection};
+                chosen.decision == Decision::VendorFallback
+                    ? Status::AddedVendorAmmoNeedsSelection
+                    : Status::AddedSelectedAmmo};
     }
 }
