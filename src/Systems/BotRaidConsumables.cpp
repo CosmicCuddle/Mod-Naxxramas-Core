@@ -348,6 +348,7 @@ namespace
         uint32 CachesAdded = 0;
         uint32 ReagentsAdded = 0;
         uint32 HunterAmmoAdded = 0;
+        uint32 HunterDoomshotAdded = 0;
         uint32 HunterAmmoSkipped = 0;
         uint32 HunterAmmoNeedsSelection = 0;
         uint32 PetBuffsSkipped = 0;
@@ -707,13 +708,15 @@ namespace
     void SupplyHunterAmmoForBot(
         Player* bot,
         uint32 effectiveLevel,
-        PreparationStats& stats)
+        PreparationStats& stats,
+        bool moltenCoreProfile = false)
     {
         if (!bot || bot->getClass() != CLASS_HUNTER)
             return;
 
         NaxxramasHunterAmmo::Result const result =
-            NaxxramasHunterAmmo::TopUpHunterAmmo(bot, effectiveLevel);
+            NaxxramasHunterAmmo::TopUpHunterAmmo(
+                bot, effectiveLevel, moltenCoreProfile);
 
         using NaxxramasHunterAmmo::Status;
 
@@ -725,6 +728,7 @@ namespace
         {
             stats.ItemsAdded += result.added;
             stats.HunterAmmoAdded += result.added;
+            stats.HunterDoomshotAdded += result.doomshotAdded;
 
             if (result.status == Status::AddedVendorAmmoNeedsSelection)
                 ++stats.HunterAmmoNeedsSelection;
@@ -743,6 +747,12 @@ namespace
                 result.status == Status::NoBagSpace
                     ? "not enough free inventory capacity for a complete ammo top-up"
                     : "ammo template, level, item source or native usability check failed");
+        }
+        else if (result.status == Status::NoMatchingQuiver)
+        {
+            AddConsumableDebugMessage(stats,
+                bot->GetName() +
+                ": MC quiver mode skipped (no matching equipped 16-slot quiver/ammo pouch).");
         }
         else if (result.status == Status::NoCompatibleRangedWeapon)
         {
@@ -1629,7 +1639,7 @@ void PrepareManaUser(
 
         // A missing pet must NOT prevent the Hunter's ammunition top-up.
         SupplyHunterAmmoForBot(
-            bot, std::min<uint32>(bot->GetLevel(), 60), stats);
+            bot, std::min<uint32>(bot->GetLevel(), 60), stats, true);
 
         Pet* pet = bot->GetPet();
 
@@ -3662,10 +3672,17 @@ public:
                 stats.HunterAmmoAdded);
         }
 
+        if (stats.HunterDoomshotAdded > 0)
+        {
+            handler->PSendSysMessage(
+                "{} Doomshot arrow(s) added within the 200-arrow rare allowance (counted in Hunter ammo total).",
+                stats.HunterDoomshotAdded);
+        }
+
         if (stats.HunterAmmoNeedsSelection > 0)
         {
             handler->PSendSysMessage(
-                "{} Hunter(s) received basic vendor ammunition but had no selected ammo. They must select it manually before ranged attacks.",
+                "{} Hunter(s) received compatible vendor backup ammunition in bags. The current ammo selection was preserved; backup must be selected when needed.",
                 stats.HunterAmmoNeedsSelection);
         }
 
