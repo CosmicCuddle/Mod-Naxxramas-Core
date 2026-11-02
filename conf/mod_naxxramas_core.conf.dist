@@ -468,3 +468,18 @@ NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0
 # Default: "" (no bots are sampled)
 NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
 
+
+# 2 Nov 2026: Molten Core equipped-quiver fill — DEVELOPMENT DRAFT, OFF.
+# If ON during a Molten Core profile ONLY, for a controlled Hunter Altbot
+# with a matching 16-slot equipped quiver/ammo pouch, fill each eligible slot
+# toward at most 200 legal arrows/bullets, respecting item_template stack size.
+# Quiver receives up to 3200 total (16 x 200) if 16 matching empty/part-filled
+# slots exist. Existing dissimilar arrows remain untouched and occupy capacity.
+# One rare Doomshot allotment (<=200 across all bags) applies only if the
+# independent AllowOneDoomshotAllocation flag is also enabled and the Hunter
+# ALREADY owns and selects it. Other slots use suitable vendor ammunition.
+# No quiver or mismatched size: refuse this mode without auto-granting 3200 to
+# ordinary bags. Normal 600-arrow TargetCount remains for all dungeon profiles
+# and MC when this flag is OFF.
+# The arrow selection remains unchanged; automatic switching is NOT proven.
+NaxxramasCore.BotConsumables.HunterAmmo.MoltenCore.FillQuiver.Enabled = 0
