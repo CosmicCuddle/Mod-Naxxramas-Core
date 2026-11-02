@@ -120,6 +120,14 @@ namespace NaxxramasHunterAmmo
             ? totalTarget : DoomshotRareAllocation;
     }
 
+    constexpr bool IsApprovedVendorAmmo(uint32_t itemId)
+    {
+        for (KnownAmmo const& ammo : Catalog)
+            if (ammo.itemId == itemId)
+                return ammo.vendorFallback;
+        return false;
+    }
+
     inline Selection ChooseAmmo(uint32_t weaponSubclass,
                                 uint32_t selectedAmmoId,
                                 uint32_t effectiveLevel,
