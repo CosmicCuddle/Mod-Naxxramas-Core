@@ -1,10 +1,13 @@
 """F15 disposable tests for read-only existing PM2 observer; no real PM2/server."""
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import f15_pm2_observer as obs
@@ -96,10 +99,16 @@ class ExistingPM2ObserverTests(unittest.TestCase):
     def test_rotation_and_symlinks_refuse_without_source_deletion(self):
         original = self.out.read_bytes()
         self.poll()
-        self.out.unlink()
-        self.out.write_bytes(b"replacement source\n")
-        with self.assertRaises(obs.Refused):
-            self.poll()
+        # Keep an FD to the removed inode alive until after the replacement
+        # check: otherwise Linux can immediately reuse the same inode and
+        # make the rotation fixture spuriously pass as an unchanged source.
+        with self.out.open("rb") as former_source:
+            previous_ino = os.fstat(former_source.fileno()).st_ino
+            self.out.unlink()
+            self.out.write_bytes(b"replacement source\n")
+            self.assertNotEqual(previous_ino, self.out.stat().st_ino)
+            with self.assertRaises(obs.Refused):
+                self.poll()
         self.assertEqual(self.out.read_bytes(), b"replacement source\n")
         link = self.home / "linked.out"
         link.symlink_to(self.out)
@@ -118,6 +127,34 @@ class ExistingPM2ObserverTests(unittest.TestCase):
             obs.observe_once(self.root, "auth-other", "Authserver",
                              snapshot=other_name, now=1720000000)
         self.assertEqual(self.out.read_bytes(), b"initial stdout\n")
+
+    def test_cli_refusal_never_exposes_private_paths_or_source_bytes(self):
+        before_out = self.out.read_bytes()
+        before_err = self.err.read_bytes()
+        path_sentinel = str(self.out)
+        for failure in (
+            FileNotFoundError(2, "missing private source", path_sentinel),
+            obs.Refused("confidential diagnostic " + path_sentinel),
+            ValueError("unsafe private data " + path_sentinel),
+        ):
+            with self.subTest(exception=type(failure).__name__):
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with mock.patch.object(obs, "observe_once", side_effect=failure):
+                    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                        code = obs.main([
+                            "--root", str(self.root), "--pm2-name", "world-private",
+                            "--service", "Worldserver", "--observe", "--once",
+                        ])
+                self.assertEqual(code, 2)
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertIn("F15 PM2 OBSERVER REFUSED:", stderr.getvalue())
+                self.assertNotIn(path_sentinel, stderr.getvalue())
+                self.assertNotIn("confidential diagnostic", stderr.getvalue())
+                self.assertNotIn("unsafe private data", stderr.getvalue())
+                self.assertNotIn("initial stdout", stderr.getvalue())
+                self.assertFalse(self.root.exists())
+                self.assertEqual(self.out.read_bytes(), before_out)
+                self.assertEqual(self.err.read_bytes(), before_err)
 
     def test_reject_duplicate_and_nonregular_source(self):
         with self.assertRaises(obs.Refused):
