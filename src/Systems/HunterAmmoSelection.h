@@ -92,6 +92,18 @@ namespace NaxxramasHunterAmmo
     // available for ordinary vendor ammunition.
     constexpr uint32_t DoomshotItemId = 12654;
     constexpr uint32_t DoomshotRareAllocation = 200;
+    constexpr uint32_t MoltenCoreQuiverSlotTarget = 200;
+    constexpr uint32_t MoltenCoreQuiverSlotCount = 16;
+
+    // A true quiver layout is counted per slot, not inferred from inventory
+    // total. The item_template stack size may be smaller than 200.
+    constexpr uint32_t QuiverSlotTarget(int32_t actualStackSize)
+    {
+        return actualStackSize <= 0 ? 0u :
+            static_cast<uint32_t>(actualStackSize) < MoltenCoreQuiverSlotTarget
+                ? static_cast<uint32_t>(actualStackSize)
+                : MoltenCoreQuiverSlotTarget;
+    }
 
     constexpr uint32_t DoomshotAllocationTarget(uint32_t totalTarget,
                                                 uint32_t selectedAmmoId,
