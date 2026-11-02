@@ -1,5 +1,6 @@
 """F15 disposable tests for read-only existing PM2 observer; no real PM2/server."""
 import contextlib
+import errno
 import io
 import json
 import os
@@ -113,11 +114,17 @@ class ExistingPM2ObserverTests(unittest.TestCase):
         link = self.home / "linked.out"
         link.symlink_to(self.out)
         # O_NOFOLLOW rejects the path at os.open with ELOOP on Linux;
-        # other validation paths raise the module's Refused exception.
-        # Both are fail-closed, so do not make the test depend on errno
-        # translation that the collector has never promised to perform.
-        with self.assertRaises((obs.Refused, OSError)):
+        # an explicit preflight may instead raise the module's Refused.
+        # Do not accept an arbitrary OSError (e.g., a disk failure) as a
+        # passing symlink-specific negative test.
+        try:
             self.poll(self.payload(out=link))
+        except obs.Refused:
+            pass
+        except OSError as exc:
+            self.assertEqual(exc.errno, errno.ELOOP)
+        else:
+            self.fail("symlinked source was unexpectedly accepted")
         self.assertEqual(self.out.read_bytes(), b"replacement source\n")
         self.assertFalse(self.archive().exists())
         self.assertNotEqual(original, self.out.read_bytes())
