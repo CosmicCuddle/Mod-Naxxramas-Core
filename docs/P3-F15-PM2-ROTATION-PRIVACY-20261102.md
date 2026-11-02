@@ -32,3 +32,13 @@ On the inherited combined source [Core #284](https://github.com/CosmicCuddle/Mod
 - Run inherited F15 operator, collector, retention, supervisor, 13-case preview, and raw-copy suites plus pinned historical Core/PB Worldserver link; check exact code SHA and keep independent test scopes distinct.
 - Before any owner-staging, verify actual installed PM2/tmux process/output paths and approvals, plus real World/Auth rotations, crash classification, daily archive 30-day retention and restore.
 - **Never** launch/restart/kill an owner server, touch actual logs, delete raw files, enable experimental retention or merge/deploy without CosmicCuddle's separate approval.
+
+
+## Follow-on — CS01 collector CLI private-refusal hardening, 2 November 2026
+
+**Component:** `scripts/f15_operator_collector.py::main` (collector CLI, separate from the PM2 observer already covered above). **Status:** isolated DRAFT child of Naxx #287 `db6a2c0`, unmerged, never run on the owner host.
+
+- **Source defect:** the collector caught `Refused`, `OSError`, `ValueError` and `JSONDecodeError` then printed `str(exc)` to stderr. On a private World/Auth filesystem failure, native `FileNotFoundError` or an explicit validation message can reveal an absolute source/log path. This is a source-disclosure risk, **not** a claim of an actual leaked log.
+- **Patch:** preserve existing refusal handling, return code 2, feature flags, copy/retention paths and all file safety controls. Emit only `F15 capture REFUSED: operator state failed validation`; no exception path/name. `collect_once`, original raw files, archives, process handling, scheduled expiry and production configuration are unchanged.
+- **Regression:** add one disposable `test_cli_refusal_never_exposes_private_paths_or_mutates_files` in `tests/test_f15_operator_collector.py`, mock four path-bearing exceptions and assert nonzero refusal, no private path in stderr, no stdout, byte-identical source, and no new archive directory. Inherited `naxx-f15-operator-capture-20261101.yml` already runs this test on these changed paths. **CI status pending; a green test is not a host/gameplay pass.**
+- **Rollback:** discard the isolated child source/test/doc PR and retain the parent #287/combined P1–P4 unchanged. No source/schema/config/DBC migration or on-host process operation. Maintain a verified offline/test backup and get owner approval before any eventual deployment; paid/experimental mode stays OFF.

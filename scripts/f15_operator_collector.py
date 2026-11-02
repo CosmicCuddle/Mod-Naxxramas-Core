@@ -237,8 +237,10 @@ def main(argv=None):
             if args.once:
                 break
             time.sleep(args.interval)
-    except (Refused, OSError, ValueError, json.JSONDecodeError) as exc:
-        print(f"F15 capture REFUSED: {exc}", file=sys.stderr)
+    except (Refused, OSError, ValueError, json.JSONDecodeError):
+        # Filesystem/validation errors can contain private World/Auth source
+        # paths or archive-root names. Never echo exception text to logs.
+        print("F15 capture REFUSED: operator state failed validation", file=sys.stderr)
         return 2
     return 0
 
