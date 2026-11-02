@@ -748,6 +748,12 @@ namespace
                     ? "not enough free inventory capacity for a complete ammo top-up"
                     : "ammo template, level, item source or native usability check failed");
         }
+        else if (result.status == Status::NoMatchingQuiver)
+        {
+            AddConsumableDebugMessage(stats,
+                bot->GetName() +
+                ": MC quiver mode skipped (no matching equipped 16-slot quiver/ammo pouch).");
+        }
         else if (result.status == Status::NoCompatibleRangedWeapon)
         {
             AddConsumableDebugMessage(stats,
