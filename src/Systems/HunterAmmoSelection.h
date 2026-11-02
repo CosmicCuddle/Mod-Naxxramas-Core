@@ -87,6 +87,27 @@ namespace NaxxramasHunterAmmo
                weaponSubclass == 3 ? 3 : 0;
     }
 
+    // A single controlled rare-allocation target, not the WotLK 1000-arrow
+    // inventory stack size. 200 keeps the rest of the 600-arrow allowance
+    // available for ordinary vendor ammunition.
+    constexpr uint32_t DoomshotItemId = 12654;
+    constexpr uint32_t DoomshotRareAllocation = 200;
+
+    constexpr uint32_t DoomshotAllocationTarget(uint32_t totalTarget,
+                                                uint32_t selectedAmmoId,
+                                                uint32_t weaponSubclass,
+                                                uint32_t effectiveLevel,
+                                                uint32_t existingDoomshot,
+                                                bool optIn)
+    {
+        if (!optIn || selectedAmmoId != DoomshotItemId ||
+            ProjectileForWeapon(weaponSubclass) != 2 ||
+            effectiveLevel < 54 || existingDoomshot == 0)
+            return 0;
+        return totalTarget < DoomshotRareAllocation
+            ? totalTarget : DoomshotRareAllocation;
+    }
+
     inline Selection ChooseAmmo(uint32_t weaponSubclass,
                                 uint32_t selectedAmmoId,
                                 uint32_t effectiveLevel,
