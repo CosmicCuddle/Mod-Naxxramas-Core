@@ -131,3 +131,59 @@ pinned build before this push.
 
 Leave `NaxxramasCore.QuestLootSparkleGuard.Enabled = 0`, which is the default.
 To remove the change entirely, revert this branch.
+
+## Part 18 (2 Nov 2026) — H2 false-sparkle regression fix candidate
+
+**Owner gameplay failure:** two humans in Group Loot, Centaur Bracers
+quest855: the unentitled viewer could not take their friend's protected
+one-copy quest item and correctly collected ordinary loot, but the corpse
+still sparkled after all legitimate normal items were gone, even after
+leaving view and returning; the rightful friend could collect their item.
+This is a confirmed visual FAIL (issue #109), not proof of its unique cause.
+
+**New DRAFT source-only change:** The H1
+`NaxxramasQuestLootProtection::PermitPickup` now calls a shared
+`WouldDenyQuestSlotForViewer` function containing the same narrow
+source/owner/quest-item/instance/round-robin eligibility. Only its outer
+packet wrapper requires the looter to have a current `GetLootGUID` and be
+inside interaction range; a passive H2 per-viewer create/update packet does
+not have a loot GUID yet. H2 serializes the original per-viewer LootView
+exactly as before and skips a displayed quest row only when the **enabled**
+H1 pickup guard would refuse that exact viewer/slot. It still counts all
+normal loot, gold, FFA, roll, Master Loot and legitimate quest entries.
+The H1 switch is mirrored to an atomic during config loading, preventing
+a false hide when H1 is disabled. No direct loot write or loot-error
+packet is sent while evaluating sparkles.
+
+**Register/ownership:**
+- Intended feature: eliminate false per-viewer corpse sparkle when only
+  another eligible player's actively protected single-copy quest row remains.
+- Files: `src/Systems/QuestLootProtection.cpp`,
+  `src/Systems/QuestLootTurnGuard.h`,
+  `src/Systems/QuestLootSparkleGuard.{h,cpp}`,
+  `tests/test_p4_h2_sparkle.py`, this document.
+- Dependencies: pinned Grimfeather `8daffdabe` LootView/UnitScript,
+  H0 view guard, H1 pickup gate, group/round-robin quest row mapping;
+  config `NaxxramasCore.QuestLootProtection.Enabled` and
+  `NaxxramasCore.QuestLootSparkleGuard.Enabled` both remain default OFF.
+  No SQL, DBC or client patch changes.
+- Risks: unintended suppression if shared predicate drifts from true
+  autostore authority, quest-row slot maps diverge, or per-viewer hook
+  executes outside safe map-thread state. Review config reload and
+  overlapping loot rights; full build and owner-approved disposable
+  two-human game acceptance essential.
+- Evidence: source commits and GitHub CI on isolated child PR (report
+  exact head/result separately; no pass is claimed by this document).
+- Live status: NOT INSTALLED/NOT TESTED IN-GAME for this change.
+- Rollback: leave both config switches OFF; discard unmerged child or
+  revert these four C++ paths and source-only test/doc. Preserve prior
+  H1 pickup protection and all existing owner custom behaviour.
+
+**Acceptance cases:** viewer with only friend's one-copy restricted quest
+row loses sparkle, rightful friend retains sparkle/collectibility; any
+legal normal loot, gold, skinning/FFA/multi-drop/roll/Master Loot remains
+stock; H1 OFF cannot suppress a pickup that would otherwise succeed;
+H0/H1 no-write regressions, party changes and logout/map mismatches
+fail open; two-human quest855 and one secondary quest independent of it.
+The owner's actual installed module/core/config remain unverified. No
+permission to merge, install or enable is inferred.
