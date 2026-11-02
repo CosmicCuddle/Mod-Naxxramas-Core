@@ -106,7 +106,7 @@ jobs:
           PY
       - name: "Compiler"
         run: ${{ matrix.cxx }} --version
-      - name: "Interop: 8 tests, seam 28 + gameobject 13 checks on original bodies, no skips"
+      - name: "Interop: 8 tests, seam 28 + gameobject 15 checks on original bodies, no skips"
         env:
           A04_CORE: ${{ github.workspace }}/core
           PB_DIR: ${{ github.workspace }}/playerbots
@@ -119,24 +119,24 @@ jobs:
           grep -Eq '^Ran 8 tests in [0-9.]+s$' /tmp/hi.txt
           grep -qx OK /tmp/hi.txt
           grep -qx 'CHECKS 28 passed, 0 failed' /tmp/hi.txt
-          grep -qx 'CHECKS 13 passed, 0 failed' /tmp/hi.txt
+          grep -qx 'CHECKS 15 passed, 0 failed' /tmp/hi.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/hi.txt
-      - name: "Must-fail mutants: 12 of the real #272 .cpp, 3 of the real header"
+      - name: "Must-fail mutants: 12 of the real #272 .cpp, 4 of the real header"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
         run: |
           set -euo pipefail
           python3 -I -B module/tests/p4_h_interop/mutants.py | tee /tmp/mutants.txt
-          grep -qx '15/15 interop mutants caught' /tmp/mutants.txt
-      - name: "Regression: unchanged #272 (29), H2 (21), H1 (36), #264 (24), #262 (71)"
+          grep -qx '16/16 interop mutants caught' /tmp/mutants.txt
+      - name: "Regression: unchanged #272 (30), H2 (21), H1 (36), #264 (24), #262 (71)"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
         run: |
           set -euo pipefail
           python3 -I -B -W error module/tests/test_p4_h_master_loot.py > /tmp/h.txt 2>&1 || { cat /tmp/h.txt; exit 1; }
-          grep -qx 'CHECKS 29 passed, 0 failed' /tmp/h.txt
+          grep -qx 'CHECKS 30 passed, 0 failed' /tmp/h.txt
           python3 -I -B -W error module/tests/test_p4_h2_sparkle.py > /tmp/h2.txt 2>&1 || { cat /tmp/h2.txt; exit 1; }
           grep -qx 'CHECKS 21 passed, 0 failed' /tmp/h2.txt
           python3 -I -B -W error module/tests/test_p4_h1_pickup_authz.py > /tmp/h1.txt 2>&1 || { cat /tmp/h1.txt; exit 1; }

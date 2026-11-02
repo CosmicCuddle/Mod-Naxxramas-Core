@@ -116,7 +116,7 @@ jobs:
           PY
       - name: "Compiler"
         run: ${{ matrix.cxx }} --version
-      - name: "Master Loot give: 6 tests, 29 checks (original handler tail RED, module GREEN), no skips"
+      - name: "Master Loot give: 6 tests, 30 checks (original handler tail RED, module GREEN), no skips"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
@@ -126,7 +126,7 @@ jobs:
           cat /tmp/p4.txt
           grep -Eq '^Ran 6 tests in [0-9.]+s$' /tmp/p4.txt
           grep -qx OK /tmp/p4.txt
-          grep -qx 'CHECKS 29 passed, 0 failed' /tmp/p4.txt
+          grep -qx 'CHECKS 30 passed, 0 failed' /tmp/p4.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/p4.txt
       - name: "Must-fail mutants of the real Master Loot give header (9)"
         env:

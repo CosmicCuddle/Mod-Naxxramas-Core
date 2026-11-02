@@ -10,6 +10,7 @@ on:
       - "conf/mod_naxxramas_core.conf.dist"
       - "tests/p4_h1_pickup/**"
       - "tests/test_p4_h1_pickup_authz.py"
+      - "tests/a04_native/**"
       - "docs/P4-H1-PICKUP-AUTHORIZATION.md"
       - ".github/workflows/naxx-p4-h1-pickup-authz-20261101.yml"
   workflow_dispatch:

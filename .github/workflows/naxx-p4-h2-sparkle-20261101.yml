@@ -10,6 +10,7 @@ on:
       - "conf/mod_naxxramas_core.conf.dist"
       - "tests/p4_h2_sparkle/**"
       - "tests/test_p4_h2_sparkle.py"
+      - "tests/a04_native/**"
       - "docs/P4-H2-SPARKLE-GUARD.md"
       - ".github/workflows/naxx-p4-h2-sparkle-20261101.yml"
   workflow_dispatch:

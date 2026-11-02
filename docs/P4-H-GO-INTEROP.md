@@ -90,7 +90,7 @@ The personal chest opened by A can only be reached with a hand-made packet,
 because the leader's client shows no quest row to give. Refusing it doesn't
 change anything a normal client can do.
 
-**Totals:** 13 checks. There are 3 must-fail header mutants, all caught:
+**Totals:** 15 checks (as executed by the `GO_CHECKS = 15` harness). There are 4 must-fail header mutants, all caught:
 - leader's slot sent to every looter;
 - shared looted flag not checked;
 - normal slots taken over.
@@ -137,7 +137,7 @@ therefore stock, as the #268 limits already say.
 
 | Level | Result |
 |---|---|
-| Local (g++ and clang++) | 8 tests, 28 + 13 checks, 15/15 mutants, #272/H2/H1/#264/#262 regressions all pass |
+| Local (g++ and clang++) | 8 tests, 28 + 15 checks, 16/16 mutants, #272/H2/H1/#264/#262 regressions all pass |
 | Hosted native | the workflow runs the same steps on both compilers. **Not yet run** |
 | Full Worldserver link | covered by #272's own workflow (no source change here) |
 | In game | **none**. Gameplay acceptance is still 0/5 |
