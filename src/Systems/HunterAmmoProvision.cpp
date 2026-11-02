@@ -238,9 +238,34 @@ namespace NaxxramasHunterAmmo
                 "NaxxramasCore.BotConsumables.HunterAmmo.MoltenCore.FillQuiver.Enabled",
                 false);
         if (quiverMode)
+        {
+            // Even when another independent flag permits selected Thorium,
+            // the 16-slot quiver mode must NEVER multiply that nonvendor
+            // item into thousands of free projectiles. Prefer the selected
+            // vendor ammunition, otherwise the legal vendor fallback.
+            Selection quiverChoice = chosen;
+            if (!IsApprovedVendorAmmo(quiverChoice.itemId))
+                quiverChoice = ChooseAmmo(
+                    weaponTemplate->SubClass, 0, level);
+
+            ItemTemplate const* quiverAmmo =
+                sObjectMgr->GetItemTemplate(quiverChoice.itemId);
+            if (!quiverChoice.itemId || !quiverAmmo ||
+                quiverAmmo->Class != ITEM_CLASS_PROJECTILE ||
+                quiverAmmo->SubClass != quiverChoice.projectileSubclass ||
+                quiverAmmo->InventoryType != INVTYPE_AMMO ||
+                quiverAmmo->RequiredLevel > level ||
+                quiverAmmo->ItemLevel > 60 ||
+                quiverAmmo->Quality > ITEM_QUALITY_UNCOMMON ||
+                QuiverSlotTarget(quiverAmmo->Stackable) == 0 ||
+                !bot->CheckAmmoCompatibility(quiverAmmo) ||
+                bot->CanUseAmmo(quiverChoice.itemId) != EQUIP_ERR_OK)
+                return {0, quiverChoice.itemId, Status::ItemRejected};
+
             return FillMoltenCoreQuiver(
                 bot, level, selected, weaponTemplate->SubClass,
-                chosen, ammo);
+                quiverChoice, quiverAmmo);
+        }
 
         uint32_t const totalTarget = TargetCount(
             sConfigMgr->GetOption<int32>(
