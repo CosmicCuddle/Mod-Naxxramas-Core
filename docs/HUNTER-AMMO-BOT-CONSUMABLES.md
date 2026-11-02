@@ -78,3 +78,10 @@ actual client inventory **are not yet verified**. A 3,200-arrow free refill
 per MC preparation is a significant economy change, not a bag-size-only
 cosmetic change. Roll back by leaving this config OFF; record any inventory
 grants and restore a test-character backup before any production use.
+
+**Rare already stored elsewhere:** When a selected, eligible 200-arrow
+Doomshot allocation is already entirely in another bag and not in the
+quiver, the module does not move or duplicate the rare stack. It reserves
+one empty quiver slot instead, so the owner/Playerbots can move that
+legitimate stack when appropriate. Consequently the quiver may not
+immediately display 16 filled slots.
