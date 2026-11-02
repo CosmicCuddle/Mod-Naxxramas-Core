@@ -1,5 +1,7 @@
 """F15 supervised child run archive retention: disposable fake children only."""
 from datetime import datetime, timedelta, timezone
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 import json
 import os
 from pathlib import Path
@@ -133,6 +135,26 @@ class SupervisedRetentionTests(unittest.TestCase):
                           "--archive-root", str(self.archive), "--once"])
         self.assertFalse(self.source.exists())
         self.assertFalse(self.archive.exists())
+
+        # Explicitly enabled CLI errors must not disclose private paths.
+        # Expiration is mocked here: no deletion or host IO occurs.
+        private_path = str(self.source / "PRIVATE_PATH_NOT_FOR_LOGS")
+        for error in (Refused(private_path), FileNotFoundError(2, "missing", private_path),
+                      PermissionError(13, "denied", private_path), ValueError(private_path)):
+            with self.subTest(error=type(error).__name__):
+                stdout, stderr = StringIO(), StringIO()
+                with mock.patch.object(cleanup, "expire_completed_runs_once", side_effect=error):
+                    with redirect_stdout(stdout), redirect_stderr(stderr):
+                        result = cleanup.main(["--output-root", str(self.source),
+                                               "--archive-root", str(self.archive),
+                                               "--retention-30d", "--once"])
+                self.assertEqual(result, 2)
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertEqual(stderr.getvalue().strip(),
+                                 "F15 SUPERVISED RETENTION REFUSED")
+                self.assertNotIn(private_path, stderr.getvalue())
+                self.assertFalse(self.source.exists())
+                self.assertFalse(self.archive.exists())
 
     def test_exact_boundary_and_early_file_are_not_removed(self):
         run, state = self.launch("early")
