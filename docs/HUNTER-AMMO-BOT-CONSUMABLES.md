@@ -28,3 +28,26 @@ Vendor fallback when nothing is selected: Rough/Sharp/Razor/Jagged arrows (2512/
 ## Not in this draft
 
 No SQL, no DBC, no core/Playerbots/Individual Progression edits, and no claim that a source test or a linked Worldserver proves inventory or combat behaviour. Leave the switch at 0 until a separate owner-approved pilot. Rollback is that same switch plus a restart; minted stacks would need the character backup from that pilot, not a schema rollback.
+
+## 2 Nov 2026 owner-directed Doomshot single-allocation draft (NOT LIVE)
+
+The earlier vendor-only fallback now has a separate **default-OFF**
+`NaxxramasCore.BotConsumables.HunterAmmo.AllowOneDoomshotAllocation = 0` option.
+When separately enabled, a controlled Hunter Altbot with a bow/crossbow
+that **already has and selects** Doomshot ID 12654 and meets level 54+
+may receive up to **200 total Doomshot arrows** in bags.
+Any already-held Doomshot counts against the 200 allowance.
+The remainder of the existing configurable target (e.g. 600-200=400)
+is supplied as Jagged Arrow or a lower legal vendor arrow, subject to
+item template compatibility and available bag space. Source permits
+replenishment of consumed Doomshot on a later eligible preparation;
+this is **not a one-time lifetime issuance**. Selected projectile and
+rare inventory are never deleted or forcibly replaced. Other rare ammo
+and non-vendor Thorium are not granted by this exception.
+
+WotLK item_template may allow a physical stack of 1000 arrows; the
+200-allocation is an intentional policy cap so mixed ammunition fits the
+owner's requested total. The current Playerbots build's ability to
+switch to the backup after selected Doomshot runs out remains unverified.
+Verify true live item_template Stackable/MaxCount, AddItem outcomes and
+bot use before any protected branch merge or production deployment.
