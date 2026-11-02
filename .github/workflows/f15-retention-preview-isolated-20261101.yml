@@ -1,0 +1,62 @@
+name: F15/P3 archive expiry preview - isolated disposable tests (DRAFT, NO HOST)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/f15_retention_preview.py'
+      - 'tests/test_f15_retention_preview.py'
+      - 'docs/research/F15-RETENTION-PREVIEW.md'
+      - '.github/workflows/f15-retention-preview-isolated-20261101.yml'
+  push:
+    branches:
+      - integration/cs01-naxx283-f15-preview13-20261101
+    paths:
+      - 'scripts/f15_retention_preview.py'
+      - 'tests/test_f15_retention_preview.py'
+      - 'docs/research/F15-RETENTION-PREVIEW.md'
+      - '.github/workflows/f15-retention-preview-isolated-20261101.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-preview-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check preview and underlying existing safe read helpers
+        run: |
+          python3 -m py_compile scripts/f15_retention_preview.py tests/test_f15_retention_preview.py scripts/f15_operator_collector.py scripts/f15_archive_retention.py
+      - name: Run and count all thirteen disposable archive-preview cases
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_f15_retention_preview.py -v > /tmp/f15-preview-tests.txt 2>&1 || { cat /tmp/f15-preview-tests.txt; exit 1; }
+          cat /tmp/f15-preview-tests.txt
+          grep -Eq '^Ran 13 tests in [0-9.]+s$' /tmp/f15-preview-tests.txt
+          grep -qx OK /tmp/f15-preview-tests.txt
+          ! grep -Eq '^FAILED|^ERROR:|\bskipped\b' /tmp/f15-preview-tests.txt
+      - name: Assert the preview script contains no destructive or process control calls
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+
+          source = Path("scripts/f15_retention_preview.py").read_text(encoding="utf-8")
+          tree = ast.parse(source)
+          forbidden_attrs = {
+              "unlink", "remove", "rmdir", "mkdir", "rename", "replace",
+              "write_text", "write_bytes", "chmod", "chown", "kill", "Popen",
+              "run", "call", "check_call", "check_output", "system",
+          }
+          unsafe = sorted({
+              (n.lineno, n.func.attr)
+              for n in ast.walk(tree)
+              if isinstance(n, ast.Call)
+              and isinstance(n.func, ast.Attribute)
+              and n.func.attr in forbidden_attrs
+          })
+          assert not unsafe, unsafe
+          assert "--preview" in source and "LOCK_NB" in source
+          print("PASS: preview-only static no-delete/no-process boundary (not host proof)")
+          PY

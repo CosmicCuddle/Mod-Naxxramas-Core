@@ -33,14 +33,16 @@ retention intent causes a refusal requiring manual review.
 
 Its JSON output contains only the stream label, UTC observation day, checked
 journal byte count and record count; it does **not** print original log paths,
-packet payloads, command lines, credentials or console contents. It uses the
+packet payloads, command lines, credentials or console contents. Refusals
+print a **generic error** without revealing private source or collector paths,
+including when an input directory is missing. It uses the
 exact current clock (no fake `--now` CLI flag).
 
 ## What this checks
 
 - Valid source-created journal record filename ranges, contiguous offsets,
   nondecreasing observation day, exact byte size and SHA-256.
-- One private `records`/ `archives` pair for a known World/Auth stream label.
+- One private `records`/ `archives` pair for a known World/Auth stream label, with **matching complete stream-directory sets**; orphan archive-only or journal-only labels cause refusal, not a misleading empty/partial preview.
 - No symbolic-link directory components in the selected collector root or its ancestor chain (including aliases to otherwise private directories).
 - Valid origin metadata and no unknown, hardlinked, missing or replaced file.
 - Matching complete archive bytes plus receipt for each candidate day.
@@ -73,16 +75,25 @@ has not run this against CosmicCuddle's host.
 
 ## Testing and ownership
 
-`tests/test_f15_retention_preview.py` checks nine disposable scenarios:
+`tests/test_f15_retention_preview.py` has **thirteen disposable test methods**:
 no file mutation, exact boundary, newer-day preservation, corrupt/missing
 archive refusal, symlink/pending-intent refusal, untrusted root/journal
-refusal, nested symlink ancestor refusal, cooperative collector-lock refusal,
-and explicit opt-in CLI without leaking source paths/log contents.
+refusal, orphaned/mismatched stream-directory refusal, **matched-but-unknown
+stream labels refused**, nested symlink ancestor refusal, cooperative collector-lock
+refusal, **archive receipt symlink and hardlink refused without reading their
+outside payload**, and explicit opt-in CLI without leaking source paths/log
+contents, including missing private collector directories and their
+path-bearing OS errors. These are regression fixtures, not hosted CI PASS.
 
 The existing [F15 source workflow](../../.github/workflows/naxx-f15-operator-capture-20261101.yml)
-will execute this suite and assert the preview program includes no file
-delete or process-control calls. **This DRAFT is not a hosted PASS until the
-workflow completes on its exact SHA.**
+will execute this suite **after** the full collector/PM2 suite; an unrelated
+parent-test failure can stop it before preview cases run. The independent
+[preview-only workflow](../../.github/workflows/f15-retention-preview-isolated-20261101.yml)
+therefore syntax-checks the same source helpers, runs **only the eleven preview
+tests against disposable fake files**, and AST-checks the preview script for
+destructive/process-control calls. It does not bypass or repair an inherited
+parent-suite failure, which remains a separate release blocker. **Neither
+workflow is a hosted PASS until its exact-head run succeeds.**
 
 **Handover:** Information temporarily covers this P3 subtask while Claude
 takes an owner-reported break. CS01 Maintenance owns combined branch
