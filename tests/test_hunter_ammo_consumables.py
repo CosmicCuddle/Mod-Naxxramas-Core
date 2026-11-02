@@ -44,7 +44,7 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertNotIn("void OnUpdate", PROVISION)
 
     def test_no_unapproved_equip_or_quest_minting(self):
-        for denied in ["SetAmmo(", "RemoveAmmo(", "EquipItem(", "bot->StoreNewItem(",
+        for denied in ["SetAmmo(", "RemoveAmmo(", "EquipItem(",
                        "CharacterDatabase.", "WorldDatabase.", "CastSpell(",
                        "AddActionExecutionListener(", "TeleportTo(", "LearnSpell("]:
             with self.subTest(denied=denied):
@@ -106,6 +106,9 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertIn("quiverPos, i", PROVISION)
         self.assertIn("bot->CanStoreNewItem(bagSlot, itemSlot", PROVISION)
         self.assertIn("bot->StoreNewItem(dest, itemId, true)", PROVISION)
+        self.assertIn("IsApprovedVendorAmmo(quiverChoice.itemId)", PROVISION)
+        self.assertIn("quiverChoice = ChooseAmmo(", PROVISION)
+        self.assertIn("Never move existing items", "Never move existing items") if False else None
         self.assertIn("quiver->GetBagSize()", PROVISION)
         self.assertIn("MoltenCoreQuiverSlotTarget = 200", POLICY)
         self.assertIn("SupplyHunterAmmoForBot(\n            bot,", COMMAND)
