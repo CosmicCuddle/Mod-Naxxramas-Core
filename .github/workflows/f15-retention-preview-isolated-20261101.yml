@@ -33,31 +33,7 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s tests -p test_f15_retention_preview.py -v > /tmp/f15-preview-tests.txt 2>&1 || { cat /tmp/f15-preview-tests.txt; exit 1; }
           cat /tmp/f15-preview-tests.txt
-          grep -Eq '^Ran 13 tests in [0-9.]+s      - name: Assert the preview script contains no destructive or process control calls
-        run: |
-          python3 - <<'PY'
-          import ast
-          from pathlib import Path
-
-          source = Path("scripts/f15_retention_preview.py").read_text(encoding="utf-8")
-          tree = ast.parse(source)
-          forbidden_attrs = {
-              "unlink", "remove", "rmdir", "mkdir", "rename", "replace",
-              "write_text", "write_bytes", "chmod", "chown", "kill", "Popen",
-              "run", "call", "check_call", "check_output", "system",
-          }
-          unsafe = sorted({
-              (n.lineno, n.func.attr)
-              for n in ast.walk(tree)
-              if isinstance(n, ast.Call)
-              and isinstance(n.func, ast.Attribute)
-              and n.func.attr in forbidden_attrs
-          })
-          assert not unsafe, unsafe
-          assert "--preview" in source and "LOCK_NB" in source
-          print("PASS: preview-only static no-delete/no-process boundary (not host proof)")
-          PY
- /tmp/f15-preview-tests.txt
+          grep -Eq '^Ran 13 tests in [0-9.]+s$' /tmp/f15-preview-tests.txt
           grep -qx OK /tmp/f15-preview-tests.txt
           ! grep -Eq '^FAILED|^ERROR:|\bskipped\b' /tmp/f15-preview-tests.txt
       - name: Assert the preview script contains no destructive or process control calls
