@@ -708,13 +708,15 @@ namespace
     void SupplyHunterAmmoForBot(
         Player* bot,
         uint32 effectiveLevel,
-        PreparationStats& stats)
+        PreparationStats& stats,
+        bool moltenCoreProfile = false)
     {
         if (!bot || bot->getClass() != CLASS_HUNTER)
             return;
 
         NaxxramasHunterAmmo::Result const result =
-            NaxxramasHunterAmmo::TopUpHunterAmmo(bot, effectiveLevel);
+            NaxxramasHunterAmmo::TopUpHunterAmmo(
+                bot, effectiveLevel, moltenCoreProfile);
 
         using NaxxramasHunterAmmo::Status;
 
@@ -1631,7 +1633,7 @@ void PrepareManaUser(
 
         // A missing pet must NOT prevent the Hunter's ammunition top-up.
         SupplyHunterAmmoForBot(
-            bot, std::min<uint32>(bot->GetLevel(), 60), stats);
+            bot, std::min<uint32>(bot->GetLevel(), 60), stats, true);
 
         Pet* pet = bot->GetPet();
 
