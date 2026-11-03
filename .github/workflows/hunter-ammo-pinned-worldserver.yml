@@ -2,7 +2,7 @@ name: Hunter ammo pinned Grimfeather Worldserver
 
 on:
   pull_request:
-    branches: [main, integration/cs01-p2-vendor-fallback-base-20261102]
+    branches: [main, integration/cs01-p2-vendor-fallback-base-20261102, fix/cs01-p4-h2-sparkle-respect-quest-turn-20261102, integration/cs01-p2-p4h2-20261103]
     types: [opened, reopened, synchronize]
     paths:
       - 'src/Systems/HunterAmmoSelection.h'
