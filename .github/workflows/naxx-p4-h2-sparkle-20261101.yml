@@ -108,7 +108,7 @@ jobs:
           set -euo pipefail
           python3 -I -B -W error module/tests/test_p4_h2_sparkle.py -v > /tmp/p4.txt 2>&1 || { cat /tmp/p4.txt; exit 1; }
           cat /tmp/p4.txt
-          grep -Eq '^Ran 8 tests in [0-9.]+s$' /tmp/p4.txt
+          grep -Eq '^Ran 9 tests in [0-9.]+s$' /tmp/p4.txt
           grep -qx OK /tmp/p4.txt
           grep -qx 'CHECKS 21 passed, 0 failed' /tmp/p4.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/p4.txt
