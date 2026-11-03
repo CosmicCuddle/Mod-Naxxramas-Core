@@ -187,3 +187,5 @@ H0/H1 no-write regressions, party changes and logout/map mismatches
 fail open; two-human quest855 and one secondary quest independent of it.
 The owner's actual installed module/core/config remain unverified. No
 permission to merge, install or enable is inferred.
+
+**3 Nov — shared-roll fixture correction:** A new regression check originally asserted that B would see a below-threshold ordinary item while A remained the round-robin owner. Pinned Core correctly hides that item. The test now sets this ordinary item to an over-threshold blocked group-roll row, which is legitimately visible to B; the quest row remains separately denied by the simulated H1 callback. No runtime predicate or loot permission was loosened. This only repairs the test fixture, and does **not** establish the actual owner scenario until native and in-game validation.
