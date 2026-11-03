@@ -24,7 +24,7 @@ REQUIRED = [
     "SPARKLE.ffa_copies_kept", "SPARKLE.master_rows_kept", "SPARKLE.master_locked_normal_row_kept",
     "TURN.only_friend_quest_row_hides_B", "TURN.rightful_owner_keeps_quest_sparkle",
     "TURN.disabled_H1_does_not_hide_valid_view", "TURN.passive_check_keeps_shared_quest",
-    "TURN.ordinary_loot_keeps_sparkle",
+    "TURN.visible_normal_roll_keeps_B_sparkle",
     "NOMUT.T1_passive_reads_change_nothing", "NOMUT.T3_passive_reads_change_nothing",
     "NOMUT.ffa_passive_reads_change_nothing", "NOMUT.B_needs_again_after_passive_read_gets_row_and_item",
 ]
