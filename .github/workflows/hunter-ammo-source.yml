@@ -2,7 +2,7 @@ name: Hunter ammo opt-in policy checks
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, integration/cs01-p2-vendor-fallback-base-20261102]
     types: [opened, reopened, synchronize]
     paths:
       - 'src/Systems/HunterAmmoSelection.h'

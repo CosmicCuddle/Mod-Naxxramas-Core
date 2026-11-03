@@ -16,6 +16,7 @@ namespace NaxxramasHunterAmmo
         ItemRejected,
         AlreadySupplied,
         NoBagSpace,
+        NoMatchingQuiver,
         AddedSelectedAmmo,
         AddedVendorAmmoNeedsSelection
     };
@@ -25,10 +26,12 @@ namespace NaxxramasHunterAmmo
         uint32_t added = 0;
         uint32_t itemId = 0;
         Status status = Status::Disabled;
+        uint32_t doomshotAdded = 0;
     };
 
     // Only called by the already authenticated, cooldown-limited
     // Bot Consumables preparation command. NEVER a per-tick refill.
-    Result TopUpHunterAmmo(Player* bot, uint32_t effectiveLevel);
+    Result TopUpHunterAmmo(Player* bot, uint32_t effectiveLevel,
+                           bool moltenCoreProfile = false);
 }
 #endif // NAXXRAMAS_CORE_HUNTER_AMMO_PROVISION_H
