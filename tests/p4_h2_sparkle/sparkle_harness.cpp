@@ -220,6 +220,39 @@ static void hNoMutation()
     }
 }
 
+// A displayed ALLOW_LOOT quest row is not actionable when H1 would veto it.
+// The callback models ONLY H1's exact slot verdict; ordinary loot and all
+// non-denied rows must remain visible, and passive reads cannot change loot.
+static void hOwnerTurnSparkle()
+{
+    {
+        Scene s;
+        Scene::accept(s.A, Q_QUEST);
+        Scene::accept(s.B, Q_QUEST);
+        s.kill({rowQuestSeed()}, s.A);
+        uint8 const questSlot = uint8(s.loot.items.size());
+        auto denyB = [questSlot](uint8 slot) { return slot == questSlot; };
+        auto allowA = [](uint8) { return false; };
+        check("TURN.only_friend_quest_row_hides_B",
+              !SG::ViewOffersSomething(&s.B, s.loot, GROUP_PERMISSION, denyB));
+        check("TURN.rightful_owner_keeps_quest_sparkle",
+              SG::ViewOffersSomething(&s.A, s.loot, GROUP_PERMISSION, allowA));
+        check("TURN.disabled_H1_does_not_hide_valid_view",
+              SG::ViewOffersSomething(&s.B, s.loot, GROUP_PERMISSION));
+        check("TURN.passive_check_keeps_shared_quest",
+              !s.q().is_looted && s.loot.roundRobinPlayer == s.A.GetGUID());
+    }
+    {
+        Scene s;
+        Scene::accept(s.A, Q_QUEST);
+        Scene::accept(s.B, Q_QUEST);
+        s.kill({rowQuestSeed(), rowJunk()}, s.A);
+        auto denyOnlyQuest = [&s](uint8 slot) { return slot >= s.loot.items.size(); };
+        check("TURN.ordinary_loot_keeps_sparkle",
+              SG::ViewOffersSomething(&s.B, s.loot, GROUP_PERMISSION, denyOnlyQuest));
+    }
+}
+
 int main()
 {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
@@ -228,6 +261,7 @@ int main()
     hT1BankedViewer();
     hKeptCases();
     hNoMutation();
+    hOwnerTurnSparkle();
     std::printf("CHECKS %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
