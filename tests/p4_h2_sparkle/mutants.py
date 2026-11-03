@@ -20,11 +20,16 @@ HEADER = SYSTEMS / "QuestLootSparkleGuard.h"
 
 MUTANTS = [
     ("locked quest rows count as something",
-     "            if (slot < normalRows || slotType != LOOT_SLOT_TYPE_LOCKED)\n",
-     "            if (true)\n"),
+     "            if (slotType != LOOT_SLOT_TYPE_LOCKED &&\n"
+     "                (!deniedPickup || !deniedPickup(slot)))\n"
+     "                return true;\n",
+     "            if (true)\n                return true;\n"),
     ("locked normal rows count as nothing",
-     "            if (slot < normalRows || slotType != LOOT_SLOT_TYPE_LOCKED)\n",
-     "            if (slotType != LOOT_SLOT_TYPE_LOCKED)\n"),
+     "            if (slot < normalRows)\n                return true;\n",
+     "            if (false)\n                return true;\n"),
+    ("H1-denied viewer quest rows count as actionable",
+     "                (!deniedPickup || !deniedPickup(slot)))\n",
+     "                (true))\n"),
     ("gold ignored",
      "        if (view.read<uint32>() != 0)               // gold\n            return true;\n",
      "        view.read<uint32>();\n"),
