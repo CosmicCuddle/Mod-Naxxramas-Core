@@ -110,7 +110,7 @@ jobs:
           cat /tmp/p4.txt
           grep -Eq '^Ran 9 tests in [0-9.]+s$' /tmp/p4.txt
           grep -qx OK /tmp/p4.txt
-          grep -qx 'CHECKS 21 passed, 0 failed' /tmp/p4.txt
+          grep -qx 'CHECKS 26 passed, 0 failed' /tmp/p4.txt
           ! grep -Eq 'skipped|^FAILED|^ERROR:|^CHECK FAIL' /tmp/p4.txt
       - name: "Must-fail mutants of the real sparkle-guard header (6)"
         env:
@@ -119,7 +119,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I -B module/tests/p4_h2_sparkle/mutants.py | tee /tmp/mutants.txt
-          grep -qx '6/6 sparkle mutants caught' /tmp/mutants.txt
+          grep -qx '7/7 sparkle mutants caught' /tmp/mutants.txt
       - name: "Regression: unchanged #268 H1 (36), #264 guard (24) and #262 baseline (71)"
         env:
           A04_CORE: ${{ github.workspace }}/core
