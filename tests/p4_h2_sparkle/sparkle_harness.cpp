@@ -247,8 +247,15 @@ static void hOwnerTurnSparkle()
         Scene::accept(s.A, Q_QUEST);
         Scene::accept(s.B, Q_QUEST);
         s.kill({rowQuestSeed(), rowJunk()}, s.A);
+        // The normal item is initially under-threshold and round-robin
+        // reserved for A. B correctly cannot see that ordinary row.
+        // Make it an OVER-threshold group-roll item instead: the pinned
+        // LootView then shows B a ROLL_ONGOING normal slot, regardless
+        // of which player's quest item the H1 callback denies.
+        s.loot.items[0].is_underthreshold = false;
+        s.loot.items[0].is_blocked = true;
         auto denyOnlyQuest = [&s](uint8 slot) { return slot >= s.loot.items.size(); };
-        check("TURN.ordinary_loot_keeps_sparkle",
+        check("TURN.visible_normal_roll_keeps_B_sparkle",
               SG::ViewOffersSomething(&s.B, s.loot, GROUP_PERMISSION, denyOnlyQuest));
     }
 }
