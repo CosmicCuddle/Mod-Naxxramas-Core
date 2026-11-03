@@ -20,6 +20,7 @@
 #include "ScriptDefines/ServerScript.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+#include "QuestLootTurnGuard.h"
 
 namespace NaxxramasQuestLootProtection
 {
@@ -35,18 +36,16 @@ namespace NaxxramasQuestLootProtection
             "NaxxramasCore.QuestLootProtection.Debug", false);
     }
 
-    // Return true to leave this request to normal AzerothCore validation.
-    // The only false path is a verified one-copy creature quest drop whose
-    // round-robin owner is still grouped, eligible, in the world, and on
-    // the same live map and instance as the looter and corpse.
-    bool PermitPickup(Player* player, uint8 requestedSlot)
+    // Same narrow eligibility used by real autostore AND per-viewer H2.
+    // No loot/player writes, logging, packet sends or GetLootGUID access.
+    bool WouldDenyQuestSlotForViewer(Player* player, Creature* creature, uint8 requestedSlot)
     {
-        if (!player || !player->IsInWorld() || !player->GetMap())
-            return true;
+        if (!player || !creature || !player->IsInWorld() || !player->GetMap())
+            return false;
 
         Group* group = player->GetGroup();
         if (!group)
-            return true;
+            return false;
 
         switch (group->GetLootMethod())
         {
@@ -56,43 +55,39 @@ namespace NaxxramasQuestLootProtection
                 break;
             // Do not override the native FFA, Master Loot or other modes.
             default:
-                return true;
+                return false;
         }
 
-        ObjectGuid const sourceGuid = player->GetLootGUID();
-        if (!sourceGuid.IsCreatureOrVehicle())
-            return true;
-
-        Creature* creature = player->GetMap()->GetCreature(sourceGuid);
-        if (!creature || !creature->isDead() ||
-            !creature->IsWithinDistInMap(player, INTERACTION_DISTANCE) ||
-            creature->GetLootRecipientGroup() != group)
-            return true;
+        // Caller supplies the corpse: passive per-viewer sparkle updates
+        // occur before a client has a GetLootGUID. Only the real pickup
+        // wrapper checks that GUID and interaction distance.
+        if (!creature->isDead() || creature->GetLootRecipientGroup() != group)
+            return false;
 
         Loot const& loot = creature->loot;
         if (loot.loot_type != LOOT_CORPSE ||
             !loot.roundRobinPlayer ||
             loot.roundRobinPlayer == player->GetGUID())
-            return true;
+            return false;
 
         // The first N slots are normal items. Quest slots are viewer-
         // specific: never index quest_items with the client slot directly.
         std::size_t const normalCount = loot.items.size();
         if (requestedSlot < normalCount)
-            return true;
+            return false;
 
         auto const& personal = loot.GetPlayerQuestItems();
         auto const found = personal.find(player->GetGUID());
         if (found == personal.end() || !found->second)
-            return true;
+            return false;
 
         std::size_t const personalSlot = requestedSlot - normalCount;
         if (personalSlot >= found->second->size())
-            return true;
+            return false;
 
         QuestItem const& view = found->second->at(personalSlot);
         if (view.is_looted || view.index >= loot.quest_items.size())
-            return true;
+            return false;
 
         LootItem const& item = loot.quest_items[view.index];
         // Deliberately narrow: only one-copy, already generated quest loot.
@@ -101,11 +96,11 @@ namespace NaxxramasQuestLootProtection
         if (!item.needs_quest || item.count != 1 || item.is_looted ||
             item.freeforall || item.follow_loot_rules ||
             item.is_blocked || item.rollWinnerGUID)
-            return true;
+            return false;
 
         ItemTemplate const* proto = sObjectMgr->GetItemTemplate(item.itemid);
         if (!proto || proto->HasFlag(ITEM_FLAG_MULTI_DROP))
-            return true;
+            return false;
 
         // Never cache ownership: LootHandler clears roundRobinPlayer when
         // its owner releases the corpse. A departed or offline owner cannot
@@ -126,30 +121,30 @@ namespace NaxxramasQuestLootProtection
         // elsewhere in the same instance remains the round-robin owner.
         Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);
         if (!owner || owner->GetGroup() != group)
-            return true;
+            return false;
 
         if (!owner->IsInWorld())
-            return true;
+            return false;
 
         Map const* ownerMap = owner->FindMap();
         Map const* looterMap = player->FindMap();
         Map const* corpseMap = creature->FindMap();
         if (!ownerMap || !looterMap || !corpseMap)
-            return true;
+            return false;
 
         // Different continent or dungeon. Map id is compared on the live
         // map objects, not on a cached id from when the loot was built.
         if (ownerMap != looterMap || ownerMap != corpseMap ||
             ownerMap->GetId() != looterMap->GetId() ||
             ownerMap->GetId() != corpseMap->GetId())
-            return true;
+            return false;
 
         // Same map id, different instance (a second copy of this dungeon).
         if (owner->GetInstanceId() != player->GetInstanceId() ||
             owner->GetInstanceId() != creature->GetInstanceId() ||
             ownerMap->GetInstanceId() != looterMap->GetInstanceId() ||
             ownerMap->GetInstanceId() != corpseMap->GetInstanceId())
-            return true;
+            return false;
 
         // Only protect an owner who was actually given an unlooted
         // player-specific quest slot for this corpse. FillLoot populates
@@ -158,7 +153,7 @@ namespace NaxxramasQuestLootProtection
         // a quest item unnecessarily locked for a valid group member.
         auto const ownerView = personal.find(owner->GetGUID());
         if (ownerView == personal.end() || !ownerView->second)
-            return true;
+            return false;
 
         bool ownerHasUnlootedSlot = false;
         for (QuestItem const& ownerItem : *ownerView->second)
@@ -170,25 +165,48 @@ namespace NaxxramasQuestLootProtection
             }
         }
         if (!ownerHasUnlootedSlot)
-            return true;
+            return false;
 
         // Do not strand a quest drop if the owner no longer needs it or
         // fails native item eligibility. Let AzerothCore decide fallback.
         if (!owner->HasQuestForItem(item.itemid) ||
             !item.AllowedForPlayer(owner, loot.sourceWorldObjectGUID))
+            return false;
+
+        return true; // a known, still-eligible owner holds this one copy
+    }
+
+    // Keep original live packet identity/range and denial side effects.
+    bool PermitPickup(Player* player, uint8 requestedSlot)
+    {
+        if (!player || !player->IsInWorld() || !player->GetMap())
             return true;
 
-        // Reject BEFORE Player::StoreLootItem modifies inventory or loot.
-        // This does not alter the original packet or shared loot state.
-        // Debug flag is the explicit logging gate; INFO avoids requiring
-        // an unrelated global logger-level change to see denied pickups.
+        ObjectGuid const sourceGuid = player->GetLootGUID();
+        if (!sourceGuid.IsCreatureOrVehicle())
+            return true;
+        Creature* creature = player->GetMap()->GetCreature(sourceGuid);
+        if (!creature || !creature->isDead() ||
+            !creature->IsWithinDistInMap(player, INTERACTION_DISTANCE))
+            return true;
+        if (!WouldDenyQuestSlotForViewer(player, creature, requestedSlot))
+            return true;
+
         if (Debug())
+        {
+            Loot const& loot = creature->loot;
+            auto const& personal = loot.GetPlayerQuestItems();
+            auto const found = personal.find(player->GetGUID());
+            // The shared predicate has already checked these bounds.
+            QuestItem const& view = found->second->at(requestedSlot - loot.items.size());
+            LootItem const& item = loot.quest_items[view.index];
             LOG_INFO("module",
                 "QuestLootProtection: blocked player {} creature entry {} guid {} "
                 "item {} slot {} owner {} reason=active_owner_still_eligible",
                 player->GetGUID().GetCounter(), creature->GetEntry(),
                 creature->GetGUID().GetCounter(), item.itemid,
                 uint32(requestedSlot), loot.roundRobinPlayer.GetCounter());
+        }
 
         player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED);
         return false;

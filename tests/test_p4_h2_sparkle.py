@@ -15,13 +15,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests" / "p4_h2_sparkle"))
 import build_sparkle  # noqa: E402
 
-EXPECTED_CHECKS = 21
+EXPECTED_CHECKS = 26
 REQUIRED = [
     "STOCK.T3_core_sparkles_for_B", "SPARKLE.T3_cleared_for_B", "SPARKLE.T3_kept_for_A",
     "SPARKLE.T3_no_shared_side_effect", "SPARKLE.T3_A_still_awarded",
     "SPARKLE.T1_banked_B_core_yes_guard_no_view_guard_off", "SPARKLE.T1_banked_B_core_yes_guard_no_view_guard_on",
     "SPARKLE.both_need_kept", "SPARKLE.round_robin_owner_kept", "SPARKLE.gold_kept_when_core_sparkles",
     "SPARKLE.ffa_copies_kept", "SPARKLE.master_rows_kept", "SPARKLE.master_locked_normal_row_kept",
+    "TURN.only_friend_quest_row_hides_B", "TURN.rightful_owner_keeps_quest_sparkle",
+    "TURN.disabled_H1_does_not_hide_valid_view", "TURN.passive_check_keeps_shared_quest",
+    "TURN.visible_normal_roll_keeps_B_sparkle",
     "NOMUT.T1_passive_reads_change_nothing", "NOMUT.T3_passive_reads_change_nothing",
     "NOMUT.ffa_passive_reads_change_nothing", "NOMUT.B_needs_again_after_passive_read_gets_row_and_item",
 ]
@@ -73,7 +76,8 @@ class SourceContract(unittest.TestCase):
         self.assertEqual(CONF.count("NaxxramasCore.QuestLootSparkleGuard.Enabled"), 1)
         self.assertIn("\nNaxxramasCore.QuestLootSparkleGuard.Enabled = 0\n", CONF)
         self.assertIn('GetOption<bool>("NaxxramasCore.QuestLootSparkleGuard.Enabled", false)', SCRIPT)
-        self.assertEqual(SCRIPT.count("sConfigMgr"), 1)
+        self.assertEqual(SCRIPT.count("sConfigMgr"), 2)
+        self.assertIn('GetOption<bool>("NaxxramasCore.QuestLootProtection.Enabled", false)', SCRIPT)
         self.assertIn("{UNITHOOK_ON_PATCH_VALUES_UPDATE}", SCRIPT)
 
     def test_only_clears_lootable_for_this_packet(self):
@@ -97,6 +101,33 @@ class SourceContract(unittest.TestCase):
         helper = code.index("NaxxramasQuestLootViewGuard::HideOwnSatisfiedQuestRows(viewer, loot);")
         self.assertLess(save, helper)
         self.assertLess(code.index("} restore{savedRows};"), helper)
+
+    def test_h2_skips_only_quest_rows_the_enabled_h1_turn_would_deny(self):
+        # Non-mutating bridge: leave ordinary, FFA, rolls and all other
+        # visible rows untouched. Config reload is read on world thread.
+        h1 = (ROOT / "src/Systems/QuestLootProtection.cpp").read_text()
+        shared = (ROOT / "src/Systems/QuestLootTurnGuard.h").read_text()
+        self.assertIn('bool WouldDenyQuestSlotForViewer(Player* player, Creature* creature, uint8 requestedSlot)', h1)
+        self.assertIn("WouldDenyQuestSlotForViewer(Player* player, Creature* creature, std::uint8_t requestedSlot)", shared)
+        self.assertIn("if (!WouldDenyQuestSlotForViewer(player, creature, requestedSlot))", h1)
+        self.assertIn("SendLootError(sourceGuid, LOOT_ERROR_LOCKED)", h1)
+        self.assertIn("if (slot < normalRows)", HEADER)
+        self.assertIn("slotType != LOOT_SLOT_TYPE_LOCKED", HEADER)
+        self.assertIn("(!deniedPickup || !deniedPickup(slot))", HEADER)
+        self.assertIn("s_pickupTurnEnabled.load(std::memory_order_relaxed) &&", SCRIPT)
+        self.assertIn("NaxxramasQuestLootProtection::WouldDenyQuestSlotForViewer(", SCRIPT)
+        self.assertIn("deniedByTurn))", SCRIPT)
+        # Never infer denial from race, quest eligibility alone or from
+        # the viewer's current loot GUID (not set during create updates).
+        body = h1.split("bool WouldDenyQuestSlotForViewer(", 1)[1].split("    bool PermitPickup(", 1)[0]
+        self.assertNotIn("GetLootGUID()", body)
+        self.assertNotIn("SendLootError(", body)
+        self.assertNotIn("LOOT_ERROR_LOCKED", body)
+        self.assertIn("GetLootRecipientGroup()", body)
+        self.assertIn("ownerHasUnlootedSlot", body)
+        self.assertIn("AllowedForPlayer(owner, loot.sourceWorldObjectGUID)", body)
+        self.assertIn("return true;", body)
+        self.assertEqual(body.count("return true;"), 1)
 
     def test_no_direct_unitutils_include(self):
         # Pinned UnitUtils.h has no include guard and already arrives through

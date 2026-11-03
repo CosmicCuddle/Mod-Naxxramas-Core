@@ -16,12 +16,14 @@
 #include "ScriptDefines/UnitScript.h"
 #include "ScriptDefines/WorldScript.h"
 #include "QuestLootSparkleGuard.h"
+#include "QuestLootTurnGuard.h"
 
 #include <atomic>
 
 namespace
 {
     std::atomic<bool> s_sparkleGuardEnabled{false};
+    std::atomic<bool> s_pickupTurnEnabled{false};
 }
 
 class NaxxramasQuestLootSparkleGuardConfig final : public WorldScript
@@ -34,6 +36,10 @@ public:
     {
         s_sparkleGuardEnabled.store(
             sConfigMgr->GetOption<bool>("NaxxramasCore.QuestLootSparkleGuard.Enabled", false),
+            std::memory_order_relaxed);
+        // Never hide a quest row that H1 pickup would allow while H1 is OFF.
+        s_pickupTurnEnabled.store(
+            sConfigMgr->GetOption<bool>("NaxxramasCore.QuestLootProtection.Enabled", false),
             std::memory_order_relaxed);
     }
 };
@@ -75,7 +81,15 @@ public:
         if (permission == NONE_PERMISSION)
             return;  // leave the core's decision alone
 
-        if (!NaxxramasQuestLootSparkleGuard::ViewOffersSomething(target, loot, permission))
+        auto deniedByTurn = [target, corpse](uint8 slot) -> bool
+        {
+            return s_pickupTurnEnabled.load(std::memory_order_relaxed) &&
+                NaxxramasQuestLootProtection::WouldDenyQuestSlotForViewer(
+                    target, const_cast<Creature*>(corpse), slot);
+        };
+
+        if (!NaxxramasQuestLootSparkleGuard::ViewOffersSomething(
+                target, loot, permission, deniedByTurn))
             buffer.put<uint32>(std::size_t(positions.UnitDynamicFlagsPos), flags & ~uint32(UNIT_DYNFLAG_LOOTABLE));
     }
 };
