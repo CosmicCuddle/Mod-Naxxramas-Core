@@ -136,14 +136,14 @@ jobs:
           set -euo pipefail
           python3 -I -B module/tests/p4_h_master_loot/mutants.py | tee /tmp/mutants.txt
           grep -qx '10/10 master loot mutants caught' /tmp/mutants.txt
-      - name: "Regression: unchanged #270 H2 (21), #268 H1 (36), #264 guard (24) and #262 baseline (71)"
+      - name: "Regression: current H2 (26), #268 H1 (36), #264 guard (24) and #262 baseline (71)"
         env:
           A04_CORE: ${{ github.workspace }}/core
           CXX: ${{ matrix.cxx }}
         run: |
           set -euo pipefail
           python3 -I -B -W error module/tests/test_p4_h2_sparkle.py > /tmp/h2.txt 2>&1 || { cat /tmp/h2.txt; exit 1; }
-          grep -qx 'CHECKS 21 passed, 0 failed' /tmp/h2.txt
+          grep -qx 'CHECKS 26 passed, 0 failed' /tmp/h2.txt
           python3 -I -B -W error module/tests/test_p4_h1_pickup_authz.py > /tmp/h1.txt 2>&1 || { cat /tmp/h1.txt; exit 1; }
           grep -qx 'CHECKS 36 passed, 0 failed' /tmp/h1.txt
           python3 -I -B -W error module/tests/test_p4_quest_loot_view_guard.py > /tmp/guard.txt 2>&1 || { cat /tmp/guard.txt; exit 1; }
