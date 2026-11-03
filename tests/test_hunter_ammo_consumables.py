@@ -44,7 +44,7 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertNotIn("void OnUpdate", PROVISION)
 
     def test_no_unapproved_equip_or_quest_minting(self):
-        for denied in ["SetAmmo(", "RemoveAmmo(", "EquipItem(", "bot->StoreNewItem(",
+        for denied in ["SetAmmo(", "RemoveAmmo(", "EquipItem(",
                        "CharacterDatabase.", "WorldDatabase.", "CastSpell(",
                        "AddActionExecutionListener(", "TeleportTo(", "LearnSpell("]:
             with self.subTest(denied=denied):
@@ -63,9 +63,14 @@ class HunterAmmoSafetyContract(unittest.TestCase):
             PROVISION,
         )
         self.assertIn("allowSelectedNonVendor", POLICY)
-        self.assertIn("!item.vendorFallback && !allowSelectedNonVendor", POLICY)
+        self.assertIn("item.vendorFallback || allowSelectedNonVendor", POLICY)
         self.assertIn("allowSelectedNonVendor);", PROVISION)
         self.assertIn("UnsupportedSelectedAmmo", POLICY)
+        self.assertIn("Decision::VendorFallback", PROVISION)
+        self.assertIn("selectedAmmoId", POLICY)
+        self.assertIn("Never overwrite PLAYER_AMMO_ID or mint arbitrary rare ammo", POLICY)
+        self.assertIn("chosen.decision == Decision::VendorFallback", PROVISION)
+        self.assertIn("backup must be selected when needed", COMMAND)
 
     def test_bag_preflight_and_real_delta_accounting(self):
         self.assertIn("CanStoreNewItem(", PROVISION)
@@ -85,6 +90,55 @@ class HunterAmmoSafetyContract(unittest.TestCase):
         self.assertIn("if (!needed)", PROVISION)
         self.assertIn("return current < target ? target - current : 0u;", POLICY)
         self.assertIn("delta < attempted ? delta : attempted", POLICY)
+
+    def test_mc_quiver_scoped_and_native_slot_storage(self):
+        self.assertIn(
+            "NaxxramasCore.BotConsumables.HunterAmmo.MoltenCore.FillQuiver.Enabled = 0",
+            CONFIG,
+        )
+        self.assertIn(
+            '"NaxxramasCore.BotConsumables.HunterAmmo.MoltenCore.FillQuiver.Enabled",',
+            PROVISION,
+        )
+        self.assertIn("moltenCoreProfile &&", PROVISION)
+        self.assertIn("bot->GetMapId() == 409", PROVISION)
+        self.assertIn("equipped->GetBagSize() != MoltenCoreQuiverSlotCount", PROVISION)
+        self.assertIn("quiverPos, i", PROVISION)
+        self.assertIn("bot->CanStoreNewItem(bagSlot, itemSlot", PROVISION)
+        self.assertIn("bot->StoreNewItem(dest, itemId, true)", PROVISION)
+        self.assertIn("IsApprovedVendorAmmo(quiverChoice.itemId)", PROVISION)
+        self.assertIn("quiverChoice = ChooseAmmo(", PROVISION)
+        self.assertNotIn("bot->SetAmmo(", PROVISION)
+        self.assertIn("quiver->GetBagSize()", PROVISION)
+        self.assertIn("reserveEmptyForOwnedRare", PROVISION)
+        self.assertIn("Status::NoMatchingQuiver", PROVISION)
+        self.assertIn("Status::NoMatchingQuiver", COMMAND)
+        self.assertIn("MoltenCoreQuiverSlotTarget = 200", POLICY)
+        self.assertIn("SupplyHunterAmmoForBot(\n            bot,", COMMAND)
+        self.assertIn("stats, true);", COMMAND)
+        self.assertNotIn("bot->SetAmmo(", PROVISION)
+        self.assertNotIn("bot->DestroyItem(", PROVISION)
+
+    def test_one_allocation_doomshot_needs_separate_explicit_opt_in(self):
+        self.assertIn(
+            "NaxxramasCore.BotConsumables.HunterAmmo.AllowOneDoomshotAllocation = 0",
+            CONFIG,
+        )
+        self.assertIn(
+            '"NaxxramasCore.BotConsumables.HunterAmmo.AllowOneDoomshotAllocation", false',
+            PROVISION,
+        )
+        self.assertIn("DoomshotRareAllocation = 200", POLICY)
+        self.assertIn("DoomshotAllocationTarget(", POLICY)
+        self.assertIn("beforeRare", PROVISION)
+        self.assertIn("ItemLevel > 60", PROVISION)
+        self.assertIn("ITEM_QUALITY_RARE", PROVISION)
+        self.assertIn("GetItemCount(DoomshotItemId, false)", PROVISION)
+        self.assertIn("rareInBags", PROVISION)
+        self.assertIn("totalTarget - rareInBags", PROVISION)
+        self.assertIn("rareAdded = ObservedAdded(", PROVISION)
+        self.assertIn("result.doomshotAdded", COMMAND)
+        self.assertNotIn("bot->SetAmmo(", PROVISION)
 
     def test_pet_missing_does_not_block_ammunition(self):
         start = COMMAND.index("void PrepareHunter(")

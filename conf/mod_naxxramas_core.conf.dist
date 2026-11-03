@@ -332,9 +332,14 @@ NaxxramasCore.HallowsEnd.SoloFire.DisableSpread = 0
 # crafted Thorium ammo only. Any unsupported selected/quest/PvP ammo is skipped
 # rather than replaced, duplicated or upgraded beyond the current era.
 #
-# If a Hunter has NO ammo selected, basic level-appropriate vendor ammo may
-# be placed into inventory, but this module NEVER selects/equips ammo for them.
-# The player/bot must select the new ammo in the ammo slot before shooting.
+# If selected ammunition cannot be safely refilled (rare Doomshot, quest,
+# PvP, out-of-level or wrong weapon), compatible level-appropriate vendor
+# ammunition may instead be placed in BAGS as backup. The original selected
+# ammunition is never removed or replaced. An explicitly enabled separate
+# Doomshot allowance may add up to 200 rare arrows if the bot already owns
+# and selects Doomshot (see flag below). This also applies when
+# no ammo is selected. The module NEVER selects/equips the backup, so the
+# player/bot must select it before shooting with it.
 #
 # This is an inventory grant (saved to characters DB by native core), not
 # an aura, and no SQL schema/DBC modification is included.
@@ -349,9 +354,23 @@ NaxxramasCore.BotConsumables.HunterAmmo.Enabled = 0
 # Thorium Headed Arrows (18042) and Thorium Shells (15997). Merely possessing
 # or selecting them does not grant permission to duplicate earned supplies.
 # With this OFF, selected non-vendor ammo remains untouched and no vendor
-# substitute is silently selected or provided.
+# substitute is silently selected or provided. Separate Doomshot exception
+# below does not enable extra Thorium or other rare ammunition.
 # Default: 0 (OFF)
 NaxxramasCore.BotConsumables.HunterAmmo.AllowSelectedNonVendor = 0
+
+# OWNER-APPROVED P2 DRAFT: one small Doomshot allowance (NOT all rare ammo).
+# OFF by default. With ON, only an account-controlled Hunter Altbot that
+# ALREADY holds and selects item 12654, is level 54+ and uses a bow/crossbow
+# can receive a top-up to at most 200 Doomshot arrows in bags.
+# Existing Doomshot counts toward that 200; legal vendor backup fills the
+# remaining Total TargetCount allowance (e.g. 200 rare + 400 Jagged = 600).
+# This is a 200-arrow Classic-style allotment, not the WotLK 1000-piece
+# inventory stack maximum. A later command may re-top-up consumed rare
+# arrows subject to the existing preparation cooldown: NOT a lifetime grant.
+# Never equips/selects backup or changes client spell/DBC data.
+# Default: 0 (OFF, requires separate gameplay/backup approval).
+NaxxramasCore.BotConsumables.HunterAmmo.AllowOneDoomshotAllocation = 0
 
 # Target number of matching ammo pieces to keep in a Hunter's BAGS
 # (bank contents excluded). Native AddItem uses bag capacity; any insufficient
@@ -449,3 +468,18 @@ NaxxramasCore.Playerbots.GolemaggActionAudit.Enabled = 0
 # Default: "" (no bots are sampled)
 NaxxramasCore.Playerbots.GolemaggActionAudit.AllowedBotName = ""
 
+
+# 2 Nov 2026: Molten Core equipped-quiver fill — DEVELOPMENT DRAFT, OFF.
+# If ON during a Molten Core profile ONLY, for a controlled Hunter Altbot
+# with a matching 16-slot equipped quiver/ammo pouch, fill each eligible slot
+# toward at most 200 legal arrows/bullets, respecting item_template stack size.
+# Quiver receives up to 3200 total (16 x 200) if 16 matching empty/part-filled
+# slots exist. Existing dissimilar arrows remain untouched and occupy capacity.
+# One rare Doomshot allotment (<=200 across all bags) applies only if the
+# independent AllowOneDoomshotAllocation flag is also enabled and the Hunter
+# ALREADY owns and selects it. Other slots use suitable vendor ammunition.
+# No quiver or mismatched size: refuse this mode without auto-granting 3200 to
+# ordinary bags. Normal 600-arrow TargetCount remains for all dungeon profiles
+# and MC when this flag is OFF.
+# The arrow selection remains unchanged; automatic switching is NOT proven.
+NaxxramasCore.BotConsumables.HunterAmmo.MoltenCore.FillQuiver.Enabled = 0

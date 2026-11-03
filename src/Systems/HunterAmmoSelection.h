@@ -87,6 +87,47 @@ namespace NaxxramasHunterAmmo
                weaponSubclass == 3 ? 3 : 0;
     }
 
+    // A single controlled rare-allocation target, not the WotLK 1000-arrow
+    // inventory stack size. 200 keeps the rest of the 600-arrow allowance
+    // available for ordinary vendor ammunition.
+    constexpr uint32_t DoomshotItemId = 12654;
+    constexpr uint32_t DoomshotRareAllocation = 200;
+    constexpr uint32_t MoltenCoreQuiverSlotTarget = 200;
+    constexpr uint32_t MoltenCoreQuiverSlotCount = 16;
+
+    // A true quiver layout is counted per slot, not inferred from inventory
+    // total. The item_template stack size may be smaller than 200.
+    constexpr uint32_t QuiverSlotTarget(int32_t actualStackSize)
+    {
+        return actualStackSize <= 0 ? 0u :
+            static_cast<uint32_t>(actualStackSize) < MoltenCoreQuiverSlotTarget
+                ? static_cast<uint32_t>(actualStackSize)
+                : MoltenCoreQuiverSlotTarget;
+    }
+
+    constexpr uint32_t DoomshotAllocationTarget(uint32_t totalTarget,
+                                                uint32_t selectedAmmoId,
+                                                uint32_t weaponSubclass,
+                                                uint32_t effectiveLevel,
+                                                uint32_t existingDoomshot,
+                                                bool optIn)
+    {
+        if (!optIn || selectedAmmoId != DoomshotItemId ||
+            ProjectileForWeapon(weaponSubclass) != 2 ||
+            effectiveLevel < 54 || existingDoomshot == 0)
+            return 0;
+        return totalTarget < DoomshotRareAllocation
+            ? totalTarget : DoomshotRareAllocation;
+    }
+
+    constexpr bool IsApprovedVendorAmmo(uint32_t itemId)
+    {
+        for (KnownAmmo const& ammo : Catalog)
+            if (ammo.itemId == itemId)
+                return ammo.vendorFallback;
+        return false;
+    }
+
     inline Selection ChooseAmmo(uint32_t weaponSubclass,
                                 uint32_t selectedAmmoId,
                                 uint32_t effectiveLevel,
@@ -103,29 +144,21 @@ namespace NaxxramasHunterAmmo
                 if (item.itemId != selectedAmmoId)
                     continue;
 
-                if (item.projectileSubclass != wanted)
-                    return {0, wanted, Decision::UnsupportedSelectedAmmo};
+                // Prefer the existing selection only when it can be supplied
+                // legally. Keep rare/quest/earned ammunition untouched.
+                if (item.projectileSubclass == wanted &&
+                    item.requiredLevel <= effectiveLevel &&
+                    (item.vendorFallback || allowSelectedNonVendor))
+                    return {item.itemId, wanted, Decision::Selected};
 
-                if (item.requiredLevel > effectiveLevel)
-                    return {0, wanted, Decision::LevelTooLow};
-
-                // Important for Individual Progression: a Hunter could have
-                // acquired a quest-reward or engineered ammo stack legitimately.
-                // Merely selecting it is NOT permission to mint extra copies.
-                // Operator must explicitly allow those inventory top-ups.
-                if (!item.vendorFallback && !allowSelectedNonVendor)
-                    return {0, wanted, Decision::UnsupportedSelectedAmmo};
-
-                return {item.itemId, wanted, Decision::Selected};
+                break;
             }
-
-            // Do not silently replace an unusual/quest/PvP/high-era selected
-            // projectile with something weaker or create that item for free.
-            return {0, wanted, Decision::UnsupportedSelectedAmmo};
         }
 
-        // No current ammo selection: give only a level-appropriate vendor
-        // fallback to inventory. Caller NEVER auto-selects/equips it.
+        // Unsupported, mismatched, out-of-level or protected selected ammo
+        // remains SELECTED, but can have separate ordinary vendor backup
+        // placed in bags. Never overwrite PLAYER_AMMO_ID or mint arbitrary rare ammo.
+        // With nothing selected, the same safe vendor fallback applies.
         Selection best{0, wanted, Decision::LevelTooLow};
         for (KnownAmmo const& item : Catalog)
         {
@@ -136,6 +169,8 @@ namespace NaxxramasHunterAmmo
                 best = {item.itemId, wanted, Decision::VendorFallback};
             }
         }
+        if (!best.itemId && selectedAmmoId)
+            return {0, wanted, Decision::UnsupportedSelectedAmmo};
         return best;
     }
 }
