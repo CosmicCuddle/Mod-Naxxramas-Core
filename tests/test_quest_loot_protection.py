@@ -38,16 +38,16 @@ OWNER_LOOKUP = (
 # absent/not-eligible owner case. Its only TRUE path is the final known-denial
 # verdict. PermitPickup separately checks the real packet source and range.
 PRESENCE_FAIL_OPEN = (
-    "if (!owner || owner->GetGroup() != group)\\n            return false;",
-    "if (!owner->IsInWorld())\\n            return false;",
-    "if (ownerMap != looterMap || ownerMap != corpseMap ||\\n"
-    "            ownerMap->GetId() != looterMap->GetId() ||\\n"
-    "            ownerMap->GetId() != corpseMap->GetId())\\n"
+    "if (!owner || owner->GetGroup() != group)\n            return false;",
+    "if (!owner->IsInWorld())\n            return false;",
+    "if (ownerMap != looterMap || ownerMap != corpseMap ||\n"
+    "            ownerMap->GetId() != looterMap->GetId() ||\n"
+    "            ownerMap->GetId() != corpseMap->GetId())\n"
     "            return false;",
-    "if (owner->GetInstanceId() != player->GetInstanceId() ||\\n"
-    "            owner->GetInstanceId() != creature->GetInstanceId() ||\\n"
-    "            ownerMap->GetInstanceId() != looterMap->GetInstanceId() ||\\n"
-    "            ownerMap->GetInstanceId() != corpseMap->GetInstanceId())\\n"
+    "if (owner->GetInstanceId() != player->GetInstanceId() ||\n"
+    "            owner->GetInstanceId() != creature->GetInstanceId() ||\n"
+    "            ownerMap->GetInstanceId() != looterMap->GetInstanceId() ||\n"
+    "            ownerMap->GetInstanceId() != corpseMap->GetInstanceId())\n"
     "            return false;",
 )
 
@@ -510,13 +510,13 @@ class QuestLootProtectionContract(unittest.TestCase):
         self.assertTrue(presence_fail_open(CPP))
         mutations = {
             "not_found_no_longer_permits": (
-                "if (!owner || owner->GetGroup() != group)\\n"
+                "if (!owner || owner->GetGroup() != group)\n"
                 "            return false;",
-                "if (owner->GetGroup() != group)\\n            return false;",
+                "if (owner->GetGroup() != group)\n            return false;",
             ),
             "not_in_world_denies": (
-                "if (!owner->IsInWorld())\\n            return false;",
-                "if (!owner->IsInWorld())\\n            return true;",
+                "if (!owner->IsInWorld())\n            return false;",
+                "if (!owner->IsInWorld())\n            return true;",
             ),
             "map_guard_removed": (
                 "ownerMap->GetId() != looterMap->GetId()",
