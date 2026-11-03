@@ -15,13 +15,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests" / "p4_h2_sparkle"))
 import build_sparkle  # noqa: E402
 
-EXPECTED_CHECKS = 21
+EXPECTED_CHECKS = 26
 REQUIRED = [
     "STOCK.T3_core_sparkles_for_B", "SPARKLE.T3_cleared_for_B", "SPARKLE.T3_kept_for_A",
     "SPARKLE.T3_no_shared_side_effect", "SPARKLE.T3_A_still_awarded",
     "SPARKLE.T1_banked_B_core_yes_guard_no_view_guard_off", "SPARKLE.T1_banked_B_core_yes_guard_no_view_guard_on",
     "SPARKLE.both_need_kept", "SPARKLE.round_robin_owner_kept", "SPARKLE.gold_kept_when_core_sparkles",
     "SPARKLE.ffa_copies_kept", "SPARKLE.master_rows_kept", "SPARKLE.master_locked_normal_row_kept",
+    "TURN.only_friend_quest_row_hides_B", "TURN.rightful_owner_keeps_quest_sparkle",
+    "TURN.disabled_H1_does_not_hide_valid_view", "TURN.passive_check_keeps_shared_quest",
+    "TURN.ordinary_loot_keeps_sparkle",
     "NOMUT.T1_passive_reads_change_nothing", "NOMUT.T3_passive_reads_change_nothing",
     "NOMUT.ffa_passive_reads_change_nothing", "NOMUT.B_needs_again_after_passive_read_gets_row_and_item",
 ]
