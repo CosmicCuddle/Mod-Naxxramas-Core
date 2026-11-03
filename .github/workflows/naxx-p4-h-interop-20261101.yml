@@ -138,7 +138,7 @@ jobs:
           python3 -I -B -W error module/tests/test_p4_h_master_loot.py > /tmp/h.txt 2>&1 || { cat /tmp/h.txt; exit 1; }
           grep -qx 'CHECKS 30 passed, 0 failed' /tmp/h.txt
           python3 -I -B -W error module/tests/test_p4_h2_sparkle.py > /tmp/h2.txt 2>&1 || { cat /tmp/h2.txt; exit 1; }
-          grep -qx 'CHECKS 21 passed, 0 failed' /tmp/h2.txt
+          grep -qx 'CHECKS 26 passed, 0 failed' /tmp/h2.txt
           python3 -I -B -W error module/tests/test_p4_h1_pickup_authz.py > /tmp/h1.txt 2>&1 || { cat /tmp/h1.txt; exit 1; }
           grep -qx 'CHECKS 36 passed, 0 failed' /tmp/h1.txt
           python3 -I -B -W error module/tests/test_p4_quest_loot_view_guard.py > /tmp/guard.txt 2>&1 || { cat /tmp/guard.txt; exit 1; }
