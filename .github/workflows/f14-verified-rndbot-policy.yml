@@ -1,0 +1,107 @@
+name: "F14 verified RandomBot policy (pure C++, not wired)"
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - 'src/Systems/F14VerifiedRandomBotPolicy.h'
+      - 'tests/f14_verified_rndbot_policy_tests.cpp'
+      - 'tests/f14_verified_rndbot_mutants.py'
+      - 'docs/research/F14-VERIFIED-RNDBOT-POLICY.md'
+      - '.github/workflows/f14-verified-rndbot-policy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f14-verified-rndbot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Parent: #197 head (pure classifier and historical policies A/B).
+  BASE_197: b44029da7bc857512400cbb0aaa5eebeafd81586
+
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm exact head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: "Child of #197; exactly five new paths; #197 files byte-identical"
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_197" HEAD
+          expected='A	.github/workflows/f14-verified-rndbot-policy.yml
+          A	docs/research/F14-VERIFIED-RNDBOT-POLICY.md
+          A	src/Systems/F14VerifiedRandomBotPolicy.h
+          A	tests/f14_verified_rndbot_mutants.py
+          A	tests/f14_verified_rndbot_policy_tests.cpp'
+          diff <(printf '%s\n' "$expected" | sed 's/^ *//; s/[[:space:]]\+/ /') \
+               <(git diff --name-status "$BASE_197" HEAD | tr '\t' ' ')
+          while read -r blob path; do
+            test "$(git rev-parse "HEAD:$path")" = "$blob" || { echo "changed #197 file: $path"; exit 1; }
+          done <<'EOF'
+          4fd2b0e4b02d7b7e8f84909e581e7f3526fd7e80 src/Systems/PlayerIdentityPolicy.h
+          087707e24492a990915698c23ab38fbbd286fb7f tests/f14_player_identity_policy_tests.cpp
+          1e507e6eefced75cea8734137cc30c8114aa3fc1 tests/f14_player_identity_mutants.py
+          28b26acfede405d2be9e8e64308e87798ec1d793 docs/research/F14-PLAYER-IDENTITY-CLASSIFIER.md
+          3a7b7567c5852af1858d162f3aa253059d2ce55b .github/workflows/f14-player-identity-classifier.yml
+          EOF
+      - name: "Not wired: no module source or config uses either F14 header"
+        run: |
+          set -euo pipefail
+          ! grep -rn 'F14VerifiedRandomBotPolicy\|NaxxramasF14VerifiedRandomBot' src conf \
+              --exclude=F14VerifiedRandomBotPolicy.h
+          users="$(grep -rl 'PlayerIdentityPolicy\|NaxxramasPlayerIdentity' src conf | sort)"
+          test "$users" = "$(printf '%s\n' src/Systems/F14VerifiedRandomBotPolicy.h src/Systems/PlayerIdentityPolicy.h)"
+          # Only the #197 header is included by quote; everything else is <standard>.
+          test "$(grep -c '#include "' src/Systems/F14VerifiedRandomBotPolicy.h)" = 1
+          grep -qx '#include "PlayerIdentityPolicy.h"' src/Systems/F14VerifiedRandomBotPolicy.h
+      - name: GCC C++17 and C++20, strict warnings
+        run: |
+          set -euo pipefail
+          for std in 17 20; do
+            g++ -std=c++$std -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion -pthread \
+              -Isrc/Systems tests/f14_verified_rndbot_policy_tests.cpp -o /tmp/f14v_$std
+            /tmp/f14v_$std | tee /tmp/f14v_$std.txt
+            grep -qx 'PASS: F14 verified RandomBot policy, 627 checks' /tmp/f14v_$std.txt
+          done
+      - name: Clang C++17
+        run: |
+          set -euo pipefail
+          clang++ -std=c++17 -Wall -Wextra -Werror -pedantic -pthread \
+            -Isrc/Systems tests/f14_verified_rndbot_policy_tests.cpp -o /tmp/f14v_clang
+          /tmp/f14v_clang | tee /tmp/f14v_clang.txt
+          grep -qx 'PASS: F14 verified RandomBot policy, 627 checks' /tmp/f14v_clang.txt
+      - name: AddressSanitizer + UndefinedBehaviorSanitizer
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -pthread \
+            -Isrc/Systems tests/f14_verified_rndbot_policy_tests.cpp -o /tmp/f14v_asan
+          /tmp/f14v_asan
+      - name: Must-fail mutants (16)
+        run: |
+          set -euo pipefail
+          python3 -I tests/f14_verified_rndbot_mutants.py src/Systems/F14VerifiedRandomBotPolicy.h /tmp/f14vmut \
+            | tee /tmp/f14vmut.txt
+          grep -qx '16/16 mutants caught' /tmp/f14vmut.txt
+      - name: "Inherited #197 classifier suite still passes (2936 checks)"
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion -pthread \
+            -Isrc/Systems tests/f14_player_identity_policy_tests.cpp -o /tmp/f14id
+          /tmp/f14id | tee /tmp/f14id.txt
+          grep -qx 'PASS: F14 identity classifier, 2936 checks' /tmp/f14id.txt
+      - name: Scope of proof
+        run: |
+          echo 'Pure positive-only policy model. Not included by any module source; F14 stays default OFF.'
+          echo 'Historical #197 policies A and B are test baselines only and are NOT approved for runtime enablement.'
+          echo 'Observer era and verified RandomBot identity are inputs owned by IP; nothing here computes or wires them.'
+          echo 'No /who, packet, world-visibility, core, Playerbots, IP, SQL, DBC or config change. No server run.'
