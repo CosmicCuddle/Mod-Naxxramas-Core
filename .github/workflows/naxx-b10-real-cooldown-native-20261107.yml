@@ -1,0 +1,87 @@
+name: Naxx B10 integrated real cooldown functions native/thread audit (NO SERVER)
+
+on:
+  push:
+    branches:
+      - research/cs01-b10-real-cooldown-function-native-test-20261107
+  pull_request:
+    branches:
+      - cs01/p0-b10-review-only-integration-20261024
+permissions:
+  contents: read
+
+jobs:
+  exact-source-compiled-cooldown:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact historical B10 integration, test-only 3-path diff, no runtime edits
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=599d1cbb211e6f108a2a6ff9fec78242ffe7a37c
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --check "$parent"
+          git diff --name-only "$parent" HEAD | sort >/tmp/actual
+          printf '%s\n' \
+            tests/test_b10_real_cooldown_native.py \
+            .github/workflows/naxx-b10-real-cooldown-native-20261107.yml \
+            docs/research/B10-REAL-COOLDOWN-FUNCTION-TEST-20261107.md | sort >/tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git diff --name-only "$parent" HEAD -- src/ conf/ data/)"
+          echo 'PASS: B10 original production C++ unchanged, test-only draft'
+      - name: Original #120 actual source and six hostile-mutation checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest tests/test_b10_real_cooldown_native.py -v
+          python3 -B -m unittest tests/test_thread_safety_player_state.py -v
+      - name: Compile exact actual cooldown source functions against fake Player/Group stubs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B tests/test_b10_real_cooldown_native.py --output /tmp/b10-real.cpp
+          for compiler in g++ clang++; do
+            for std in c++17 c++20; do
+              for flags in normal ndebug; do
+                extra=()
+                if [[ "$flags" == ndebug ]]; then extra=(-DNDEBUG); fi
+                "$compiler" "-std=$std" -pthread -Wall -Wextra -Werror -pedantic -O1 \
+                  "${extra[@]}" /tmp/b10-real.cpp -o /tmp/b10-real
+                /tmp/b10-real
+              done
+            done
+          done
+          echo 'PASS: original #120 three real C++ cooldown functions, not replacement store header'
+      - name: ThreadSanitizer on original locked integrated methods (8 workers)
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -g -O1 -fsanitize=thread -pthread /tmp/b10-real.cpp -o /tmp/b10-tsan
+          TSAN_OPTIONS=halt_on_error=1 /tmp/b10-tsan
+      - name: ThreadSanitizer deliberate unlocked extraction must identify race
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B tests/test_b10_real_cooldown_native.py \
+            --output /tmp/b10-unlocked.cpp --negative-control
+          g++ -std=c++17 -g -O1 -fsanitize=thread -pthread \
+            /tmp/b10-unlocked.cpp -o /tmp/b10-unlocked
+          set +e
+          TSAN_OPTIONS=halt_on_error=1 /tmp/b10-unlocked > /tmp/b10-negative.log 2>&1
+          result=$?
+          set -e
+          head -n 28 /tmp/b10-negative.log
+          test "$result" -ne 0
+          grep -Fq 'WARNING: ThreadSanitizer: data race' /tmp/b10-negative.log
+          echo 'PASS: same actual functions without 3 mutex statements are race-detectable'
+      - name: Strict scope statement
+        run: |
+          echo 'SOURCE extraction, native stand-ins and TSAN only.'
+          echo 'This does not prove map-thread hook lifetime, actual server, group transfer, login, owner gameplay or real Player::CustomData ownership.'
+          echo 'No source, SQL/DBC, Worldserver launch, host, character database, config or player data changed.'
