@@ -40,7 +40,7 @@ def extract(source):
         raise ValueError("all three actual production methods must retain their locks")
     if funcs.count("ConsumableCooldownUntil") < 5:
         raise ValueError("cooldown map read/write/erase paths are missing")
-    if funcs.count("GetConsumableNow();") != 2:
+    if funcs.count("GetConsumableNow()") != 3:
         raise ValueError("expiration and start must use original game time")
     if funcs.count("CONSUMABLE_COMMAND_COOLDOWN_SECONDS") != 1:
         raise ValueError("real 600-second cooldown missing")
