@@ -20,6 +20,10 @@
 
 The new `tests/test_p4_h1_h2_locked_slot_bridge.py` source and executable verifier expects exactly **18** named cross-system C++ checks, not a changed source implementation. The GitHub workflow compiles/runs the fixture under **GCC and Clang C++20** against the **exact pinned original public Core** (sparse checkout, no private credentials), and asserts exactly FOUR new paths: this document, C++/Python tests and CI. All runtime `src/`, config, SQL/DBC and installed client remain unchanged. **Do not report GREEN until both actual Actions jobs pass.**
 
+## Current owner Core #2 source-preservation cross-check
+
+This test now has one additional, independently pinned **read-only Core #2 source checkout** `d2066943e19cd959de2a0e9897135573e4124219` (owner fork). A source test extracts and compares the complete braced bodies of **three actual C++ functions** between old original Core `8daffdabe9...` and owner Core #2: `Player::StoreLootItem`, `operator<<(ByteBuffer&, LootView const&)` and `operator<<(ByteBuffer&, LootItem const&)`. They were **manually compared by a read-only GitHub fetch and found byte-for-byte equal** on 7 Nov. The hosted test makes future drift a failure; this still does not prove the entire current Core2 build, DB, a different branch, packet pipeline or live client behaves identically. **Check actual new CI results before claiming the hosted equality test passed.**
+
 ## Limits, dependencies and future tests
 
 - This is **not** an actual client packet, installed Core2/PB6 build, live game or quest855 SQL verification. Only a cross-guard native extracted-original-body simulation, with existing fixture stubs; it cannot establish real client visual invalidation or owned corpse phasing.
