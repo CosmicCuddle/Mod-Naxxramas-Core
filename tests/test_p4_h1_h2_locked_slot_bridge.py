@@ -41,6 +41,21 @@ NEEDED = [
     "BRIDGE.normal_A_original_award",
 ]
 
+def extract_braced(source, signature):
+    if source.count(signature) != 1:
+        raise AssertionError(f"Expected one exact function: {signature}")
+    at = source.index(signature)
+    opening = source.index("{", at)
+    depth = 0
+    for i in range(opening, len(source)):
+        if source[i] == "{":
+            depth += 1
+        elif source[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[at:i + 1]
+    raise AssertionError(f"Unbalanced source function: {signature}")
+
 
 class HeaderAndPinSafety(unittest.TestCase):
     def test_two_actual_headers_not_duplicated(self):
@@ -55,6 +70,27 @@ class HeaderAndPinSafety(unittest.TestCase):
         self.assertIn("slotType != LOOT_SLOT_TYPE_LOCKED", h2)
         self.assertIn("if (slot < normalRows)", h2)
         self.assertEqual(cpp.count('check("BRIDGE.'), len(NEEDED))
+
+    def test_original_pinned_award_and_serializer_bodies_match_owner_core2(self):
+        pinned = os.environ.get("A04_CORE")
+        current = os.environ.get("OWNER_CORE2")
+        if not pinned or not current:
+            raise AssertionError("A04_CORE and OWNER_CORE2 must be exact pinned checkouts")
+        roots = [Path(pinned), Path(current)]
+        for path, signature in (
+            ("src/server/game/Entities/Player/Player.cpp",
+             "LootItem* Player::StoreLootItem("),
+            ("src/server/game/Loot/LootMgr.cpp",
+             "ByteBuffer& operator<<(ByteBuffer& b, LootView const& lv)"),
+            ("src/server/game/Loot/LootMgr.cpp",
+             "ByteBuffer& operator<<(ByteBuffer& b, LootItem const& li)"),
+        ):
+            with self.subTest(path=path, signature=signature):
+                old = extract_braced((roots[0] / path).read_text(), signature)
+                live_fork_source = extract_braced((roots[1] / path).read_text(),
+                                                  signature)
+                self.assertEqual(old, live_fork_source,
+                                 "Core owner fork loot semantics changed; re-review before porting the historical harness")
 
     def test_all_p4_helpers_remain_default_off(self):
         data = CONF.read_text()
