@@ -60,8 +60,13 @@ def extract_braced(source, signature):
 class HeaderAndPinSafety(unittest.TestCase):
     def test_two_actual_headers_not_duplicated(self):
         cpp = HARNESS.read_text()
-        self.assertIn('#include "p4_h1_pickup/pickup_harness.cpp"', cpp)
+        # Include only the original A04 base harness: the existing H1
+        # *executable* fixture declares its own main and must not be nested.
+        self.assertIn('#include "a04_native/harness.cpp"', cpp)
+        self.assertNotIn('#include "p4_h1_pickup/pickup_harness.cpp"', cpp)
+        self.assertIn('#include "QuestLootPickupAuthorization.h"', cpp)
         self.assertIn('#include "QuestLootSparkleGuard.h"', cpp)
+        self.assertIn('namespace PA = NaxxramasQuestLootPickupAuthorization;', cpp)
         h1 = H1.read_text()
         h2 = H2.read_text()
         self.assertIn("inline bool SlotVisibleInServerView(", h1)
