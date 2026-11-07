@@ -1,0 +1,104 @@
+name: P4 H1 H2 locked quest slot bridge with pinned original Core (TEST ONLY)
+
+on:
+  push:
+    branches:
+      - test/cs01-p4-locked-quest-slot-h1-h2-stock-native-20261107
+  pull_request:
+    branches:
+      - integration/cs01-p2-p4h2-20261103
+    paths:
+      - 'tests/p4_h_locked_slot_bridge.cpp'
+      - 'tests/test_p4_h1_h2_locked_slot_bridge.py'
+      - 'docs/P4_LOCKED_QUEST_H1_H2_STOCK_BRIDGE_20261107.md'
+      - '.github/workflows/naxx-p4-locked-quest-h1-h2-stock-bridge-testonly-20261107.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  original-bodies-and-actual-h1-h2:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - name: Checkout exact owner Naxx source and unchanged headers
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          path: module
+          persist-credentials: false
+
+      - name: Checkout exact original Grimfeather Core used by historical P4 harness
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: core
+          persist-credentials: false
+          sparse-checkout: |
+            src/common
+            src/server/shared
+            src/server/game
+            deps/fmt
+            data/sql/base/db_world
+
+      - name: Checkout pinned owner Core2 for exact loot body comparison (READ ONLY)
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/azerothcore-wotlk
+          ref: d2066943e19cd959de2a0e9897135573e4124219
+          path: core2
+          persist-credentials: false
+          sparse-checkout: |
+            src/server/game/Entities/Player
+            src/server/game/Loot
+
+      - name: Assert exact parent/source and four NEW test/CI/docs files
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=51d0611476358286505aed3ca806ea250f644f66
+          git -C module merge-base --is-ancestor "$parent" HEAD
+          git -C module diff --check "$parent" HEAD
+          test "$(git -C core rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C core2 rev-parse HEAD)" = d2066943e19cd959de2a0e9897135573e4124219
+          git -C module diff --name-only "$parent" HEAD | sort > /tmp/actual
+          printf '%s\n' \
+            'tests/p4_h_locked_slot_bridge.cpp' \
+            'tests/test_p4_h1_h2_locked_slot_bridge.py' \
+            'docs/P4_LOCKED_QUEST_H1_H2_STOCK_BRIDGE_20261107.md' \
+            '.github/workflows/naxx-p4-locked-quest-h1-h2-stock-bridge-testonly-20261107.yml' | sort > /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git -C module diff --name-only "$parent" HEAD -- src conf data sql)"
+          echo 'PASS exact four-file TEST ONLY write set; H1/H2/P4 existing source intact'
+
+      - name: Actual original pinned LootView/StoreLootItem H1 H2 bridge (18 assertions)
+        shell: bash
+        env:
+          A04_CORE: ${{ github.workspace }}/core
+          OWNER_CORE2: ${{ github.workspace }}/core2
+          CXX: ${{ matrix.compiler }}
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error module/tests/test_p4_h1_h2_locked_slot_bridge.py -v > /tmp/bridge-log 2>&1 || {
+            cat /tmp/bridge-log
+            exit 1
+          }
+          cat /tmp/bridge-log
+          grep -qx 'BRIDGE CHECKS 18 passed, 0 failed' /tmp/bridge-log
+          ! grep -Eq 'CHECK FAIL|^FAILED|^ERROR:|skipped' /tmp/bridge-log
+          echo 'PASS two genuine guards + original stock loot with no source changes'
+
+      - name: Evidence boundary
+        if: always()
+        run: |
+          echo 'TEST ONLY: old pinned 8daffda original Core extracted C++ bodies + existing Naxx headers'
+          echo 'Not actual current owner Core2 native link, installed loot tables or quest855 gameplay'
+          echo 'H1: visible locked quest row can pass its view check, Core award still denies'
+          echo 'H2: only locked quest row no sparkle, normal locked Master Loot row still sparkles'
+          echo 'No host, database, SQL, client, loot rights, config, merge or deployment changes'
