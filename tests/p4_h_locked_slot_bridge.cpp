@@ -2,11 +2,16 @@
 // Grimfeather Core LootView/StoreLootItem bodies from the A04 native harness.
 // No actual Worldserver, live MySQL, installed loot configs or client involved.
 // Keep human guest/owner rights and Master Loot ordinary items unchanged.
-#define main p4_h1_existing_main_unused
-#include "p4_h1_pickup/pickup_harness.cpp"
+// Include the common A04 harness directly, NOT the H1 executable fixture:
+// p4_h1_pickup/pickup_harness.cpp itself #defines/#undefs main and declares
+// its own main(). Nesting it here previously caused duplicate main symbols.
+#define main p4_a04_baseline_main_unused
+#include "a04_native/harness.cpp"
 #undef main
 
+#include "QuestLootPickupAuthorization.h"
 #include "QuestLootSparkleGuard.h"
+namespace PA = NaxxramasQuestLootPickupAuthorization;
 namespace S = NaxxramasQuestLootSparkleGuard;
 
 static void LockedQuestRowDistinctFromAuthorizedPickup()
