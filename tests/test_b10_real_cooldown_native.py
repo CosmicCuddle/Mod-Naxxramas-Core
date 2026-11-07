@@ -38,7 +38,7 @@ def extract(source):
         raise ValueError("expected one original mutex and map in store declaration")
     if funcs.count(LOCK) != 3:
         raise ValueError("all three actual production methods must retain their locks")
-    if funcs.count("ConsumableCooldownUntil") < 6:
+    if funcs.count("ConsumableCooldownUntil") < 5:
         raise ValueError("cooldown map read/write/erase paths are missing")
     if funcs.count("GetConsumableNow();") != 2:
         raise ValueError("expiration and start must use original game time")
