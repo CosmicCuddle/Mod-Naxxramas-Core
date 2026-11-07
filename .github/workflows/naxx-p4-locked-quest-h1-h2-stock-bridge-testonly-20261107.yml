@@ -47,6 +47,17 @@ jobs:
             deps/fmt
             data/sql/base/db_world
 
+      - name: Checkout pinned owner Core2 for exact loot body comparison (READ ONLY)
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/azerothcore-wotlk
+          ref: d2066943e19cd959de2a0e9897135573e4124219
+          path: core2
+          persist-credentials: false
+          sparse-checkout: |
+            src/server/game/Entities/Player
+            src/server/game/Loot
+
       - name: Assert exact parent/source and four NEW test/CI/docs files
         shell: bash
         run: |
@@ -55,6 +66,7 @@ jobs:
           git -C module merge-base --is-ancestor "$parent" HEAD
           git -C module diff --check "$parent" HEAD
           test "$(git -C core rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C core2 rev-parse HEAD)" = d2066943e19cd959de2a0e9897135573e4124219
           git -C module diff --name-only "$parent" HEAD | sort > /tmp/actual
           printf '%s\n' \
             'tests/p4_h_locked_slot_bridge.cpp' \
@@ -69,6 +81,7 @@ jobs:
         shell: bash
         env:
           A04_CORE: ${{ github.workspace }}/core
+          OWNER_CORE2: ${{ github.workspace }}/core2
           CXX: ${{ matrix.compiler }}
         run: |
           set -euo pipefail
