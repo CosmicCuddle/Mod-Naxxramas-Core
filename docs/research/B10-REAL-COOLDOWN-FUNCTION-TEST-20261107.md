@@ -1,6 +1,6 @@
 # Naxx B10 integrated cooldown methods — actual source native extraction test
 
-**Owner:** CosmicCuddle. **Maintainer:** CS01 Maintenance, 7 November 2026.  
+**Owner:** CosmicCuddle. **Maintainer:** CS01 Maintenance, 7 November 2026.
 **Parent:** [Naxx integrated DRAFT #120](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/120) exact \`599d1cbb211e6f108a2a6ff9fec78242ffe7a37c\`. **Test-only child, no production C++ touched.**
 
 ## Why this test is necessary
