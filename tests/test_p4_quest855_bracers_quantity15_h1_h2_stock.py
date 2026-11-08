@@ -94,6 +94,32 @@ class ExactScopeAndFixture(unittest.TestCase):
             source
         )
 
+    def test_owner_core2_partial_release_requests_dynamic_flag_update(self):
+        # This is a source seam audit, NOT proof that a particular client
+        # observed a fresh corpse packet in game.
+        owner = os.environ.get("OWNER_CORE2")
+        if not owner:
+            raise AssertionError("OWNER_CORE2 exact pinned checkout is required")
+        core = Path(owner)
+        handler = (core / "src/server/game/Handlers/LootHandler.cpp").read_text()
+        unit = (core / "src/server/game/Entities/Unit/Unit.cpp").read_text()
+        self.assertIn("void WorldSession::DoLootRelease(ObjectGuid lguid)",
+                      handler)
+        self.assertIn("if (loot->isLooted())", handler)
+        self.assertIn("creature->RemoveDynamicFlag(UNIT_DYNFLAG_LOOTABLE);",
+                      handler)
+        self.assertIn("creature->ForceValuesUpdateAtIndex(UNIT_DYNAMIC_FLAGS);",
+                      handler)
+        # The Core update serializer includes UNIT_DYNAMIC_FLAGS when its
+        # changed-mask bit is set or a creation packet carries a nonzero value.
+        self.assertIn("void Unit::BuildValuesUpdate(", unit)
+        self.assertIn("if (index == UNIT_DYNAMIC_FLAGS)", unit)
+        self.assertIn("PatchValuesUpdate(*data, dataAdjustedPos, target);",
+                      unit)
+        self.assertIn("if (posPointers.UnitDynamicFlagsPos >= 0)", unit)
+        self.assertIn("sScriptMgr->OnPatchValuesUpdate(this, valuesUpdateBuf,",
+                      unit)
+
     def test_no_new_gameplay_settings_or_wrong_global_loot_policy(self):
         cpp = HARNESS.read_text()
         forbidden = (
