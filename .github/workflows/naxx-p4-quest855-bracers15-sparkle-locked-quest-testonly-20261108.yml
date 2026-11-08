@@ -56,7 +56,9 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             src/server/game/Entities/Player
+            src/server/game/Entities/Unit
             src/server/game/Loot
+            src/server/game/Handlers
 
       - name: Refuse any runtime/config/SQL changes relative to green P4 test bridge
         shell: bash
@@ -97,6 +99,7 @@ jobs:
         shell: bash
         env:
           A04_CORE: ${{ github.workspace }}/core
+          OWNER_CORE2: ${{ github.workspace }}/core2
           CXX: ${{ matrix.compiler }}
         run: |
           set -euo pipefail
