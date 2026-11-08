@@ -1,0 +1,32 @@
+# P4 quest 855: mixed corpse loot and 15 Centaur Bracers — TEST ONLY
+
+**Owner:** CosmicCuddle. **Maintainer:** Server-Side-Maintenance. **Date:** 8 November 2026.
+
+**Scope:** Four new review-only test/docs/CI files on top of [Naxx parent DRAFT #297](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/297) exact `62107c58220c44004c8a74331368cee5f29959aa`. Do **NOT** alter original owner H0/H1/H2 QuestLoot headers, runtime `src/`, Core, config, SQL, 3.3.5a client, DB, installed machine, hidden player rights, loot method, quest progression or bot systems. Parent #297 already has **18/18 native source assertions** in each original GCC/Clang run [#42411082758](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/42411082758); this new child has its **own** CI result and must be verified independently.
+
+## Why an item-quantity-specific second fixture is useful
+
+Owner [Naxx P4 Issue #109](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/109) records real 3.3.5a two-human quest855 false corpse sparkle **after** ordinary loot was taken and range re-entry, while the appropriate human quest item and existing ordinary loot must remain obtainable. The existing #297 fixture uses actual pinned quest922/item5168 and a **single-item** objective. Public [WotLK quest855 Centaur Bracers](https://www.wowhead.com/wotlk/quest=855/centaur-bracers) and [item5030](https://db.icy-veins.com/wow-forever/items/5030) indicate the **15-bracer objective**. A false sparkle may involve a cached, previously entitled quest row when one human moves from item count 14 to 15.
+
+**Caution:** These public game entries are only candidate quest/item IDs/counts. The exact **owner-installed World DB** `quest_template.RequiredItemId1`, `RequiredItemCount1`, `creature_loot_template` drop source/chance/questRequired, item flags, current corpse, addon/client and effective H0/H1/H2 config remain **UNKNOWN**. This new fixture deliberately creates a **synthetic** in-memory quest template `855`, item template `5030` with stack 20, required count 15, and a **100% artificial quest-required loot row**. Its creature source is the old A04 test fixture, **not** a genuine Kolkar, and therefore it must never be called an installed SQL or gameplay proof.
+
+## Exact simulated sequence
+
+1. Human A and human B both accept synthetic quest855. A holds 14/15 bracers. B originally holds 15 in bags then banks one, leaving the original quest-item counter at 14/15 and B legitimately incomplete at corpse creation. No special GM/paid/Playerbot policy involved.
+2. A creates a synthetic corpse with **one ordinary loot row** and one **quest-required item5030 row**. A opens and legitimately takes the normal item. The ordinary row now is looted, leaving only the quest row; this mirrors the owner's key symptom.
+3. While B is still at 14/15, H2's actual `ViewOffersSomething` must preserve a legitimate quest sparkle, and passive observation must not change A's shared quest right.
+4. B retrieves the banked bracer **after the corpse has been created**, reaching 15/15; the original loot's **cached B quest row can still exist**. The pinned original `LootView` may show it as a **LOCKED QUEST slot**. H1's `SlotVisibleInServerView` sees the slot but **does not itself grant item ownership**. H2 must return NO sparkle now that **ordinary loot is gone**, even when queried repeatedly as if the client re-enters range. No H2 read may consume the shared A item.
+5. A must continue to see an `ALLOW_LOOT` quest row with sparkle, pass H1 and actually receive bracer number 15 via original pinned `Player::StoreLootItem`. B's attempted pickup must be refused by original Core, and both human quest states remain intact.
+6. Independent control: B who never accepted the quest sees no quest-only sparkle; a real gold value still causes a normal sparkle for B. Removing the gold must remove that sparkle without affecting A's quest row.
+
+The C++ file `tests/p4_quest855_barrens_bracers_h1_h2_stock.cpp` includes the **unchanged original** `tests/a04_native/harness.cpp` around a renamed `main` and the **actual owner Naxx #292 H1/H2 headers**. It links the **original extracted pinned Grimfeather Core `LootView` and `Player::StoreLootItem`** bodies and fixture stubs. The Python driver compiles and executes **24 named C++ assertions** in GCC and Clang C++20, and keeps **5 extra Python source/fixture checks**. Workflow also re-runs the original parent #297 **18 C++ assertions and its Core2 whole-function body-equivalence checks**. All must complete at exact HEAD before claiming source success.
+
+## Strict limitations and acceptance blockers
+
+- A source-extracted model cannot validate live quest855 objective/drop data, actual `UNIT_DYNFLAG_LOOTABLE` values-update requests, 3.3.5a client sparkle presentation, viewers in/out of range, corpse removal or real human permissions. Repeated H2 reads are only an **idempotency source model**, NOT a simulated network re-entry.
+- Even a fixture PASS does **NOT** prove the owner's false sparkle is fixed. Owner H0/H1/H2 remain default **OFF** and unmerged. No code/smart flags/quest item count changed.
+- Avoid blanket rejecting `LOOT_SLOT_TYPE_LOCKED` (normal Master Loot rows can legally be locked), global FFA restrictions based on player conduct rules, recipient or gold changes, shared quest row mutation, hidden GM privileges and duplicate item grants.
+- Next actual step after an approved, backup-restorable **offline 3.3.5a clone** is to privately confirm installed item5030/quest855 SQL and client, H0/H1/H2 switch state, same two human characters' quest counters and corpse ordinary/quest/coin mix; retest after ordinary loot, 14→15 status change, reopening/range movement, A's quest pickup and normal/gold. Preserve private character GUIDs/DB values locally. If the actual symptom persists, diagnose the real dynamic-flag/client values-update path **without assuming the synthetic model fixed it**.
+- **Rollback:** close/discard this DRAFT child. No production/runtime/config/SQL/DB/client files modified, no live server accessed, no hidden state changed and no data migration to reverse.
+
+**Evidence status:** NOT YET GREEN for this new exact source until the new GCC/Clang Actions run finishes and logs have been inspected. Preserve successful parent #297 evidence separately.
