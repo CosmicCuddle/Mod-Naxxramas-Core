@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "tests/a04_native"))
 import build  # noqa: E402
 
 HARNESS = ROOT / "tests/p4_quest855_barrens_bracers_h1_h2_stock.cpp"
+RUNTIME_SPARKLE = ROOT / "src/Systems/QuestLootSparkleGuard.cpp"
 TEST_PREFIX = "Q855."
 REQUIRED = (
     "setup_A_14_B_14_and_one_in_bank",
@@ -77,6 +78,21 @@ class ExactScopeAndFixture(unittest.TestCase):
         for testid in REQUIRED:
             self.assertEqual(cpp.count('check("Q855.' + testid + '"'), 1)
         self.assertIn("QUEST855 CHECKS %d passed, %d failed", cpp)
+
+    def test_real_h2_is_packet_flag_filter_not_client_refresh(self):
+        source = RUNTIME_SPARKLE.read_text()
+        # A passing predicate may not erase a client's already cached
+        # sparkle: H2 modifies an included field, never queues the update.
+        self.assertIn("UNITHOOK_ON_PATCH_VALUES_UPDATE", source)
+        self.assertIn("positions.UnitDynamicFlagsPos < 0", source)
+        self.assertIn("flags & ~uint32(UNIT_DYNFLAG_LOOTABLE)", source)
+        self.assertIn("ViewOffersSomething(", source)
+        self.assertNotIn("UpdateObjectVisibility(", source)
+        self.assertNotIn("ForceValuesUpdateAtIndex(", source)
+        self.assertIn(
+            'GetOption<bool>("NaxxramasCore.QuestLootSparkleGuard.Enabled", false)',
+            source
+        )
 
     def test_no_new_gameplay_settings_or_wrong_global_loot_policy(self):
         cpp = HARNESS.read_text()
