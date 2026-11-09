@@ -50,8 +50,10 @@ static void GiveToBags(Player& p, uint32 n)
         Scene::gainToBags(p, BRACER_ITEM);
 }
 
-// B needs one more on corpse creation, then reaches 15 by retrieving a
-// previously banked item AFTER ordinary corpse loot has been removed.
+// B needs one more on corpse creation, and already has one in the bank.
+// B reaches 15 only when that item is retrieved AFTER ordinary corpse
+// loot has been removed. This deliberately isolates the H1/H2 test
+// from the distinct stock bag-to-bank quest-counter double-subtract issue.
 // A remains legitimately at 14/15 and must still be able to take item 15.
 static void Quest855CompletedFriendAfterNormalLootRemoved()
 {
@@ -59,8 +61,12 @@ static void Quest855CompletedFriendAfterNormalLootRemoved()
     Scene::accept(s.A, BRACER_QUEST);
     Scene::accept(s.B, BRACER_QUEST);
     GiveToBags(s.A, BRACER_NEED - 1);
-    GiveToBags(s.B, BRACER_NEED);
-    Scene::bagToBank(s.B, BRACER_ITEM);
+    // Seed an already-banked bracer as PRE-EXISTING fixture state.
+    // The original A04 bag->bank swap model itself exercises a known
+    // double-subtract counter witness (T5). Do not mix that independent
+    // stock counter defect into this H1/H2 cached-quest-row test.
+    GiveToBags(s.B, BRACER_NEED - 1);
+    s.B.bankCount[BRACER_ITEM] = 1;
     check("Q855.setup_A_14_B_14_and_one_in_bank",
         s.A.m_QuestStatus[BRACER_QUEST].ItemCount[0] == 14 &&
         s.B.m_QuestStatus[BRACER_QUEST].ItemCount[0] == 14 &&
