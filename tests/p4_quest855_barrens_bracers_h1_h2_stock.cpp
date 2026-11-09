@@ -85,9 +85,13 @@ static void Quest855CompletedFriendAfterNormalLootRemoved()
         s.loot.items[0].is_looted && !s.q().is_looted &&
         s.loot.unlootedCount == 1);
 
-    // Before B completes, her independent quest is a legitimate interest.
-    check("Q855.B_incomplete_still_sparkles_for_rightful_quest_need",
-        SG::ViewOffersSomething(&s.B, s.loot, GROUP_PERMISSION));
+    // B's quest counter is 14/15 but B owns item 15 in the bank.
+    // Original HasQuestForItem counts banked ownership separately from the
+    // incomplete bag-quest counter, so B must NOT claim another bracer.
+    check("Q855.B_incomplete_counter_but_bank_blocks_excess_sparkle",
+        s.B.GetQuestStatus(BRACER_QUEST) == QUEST_STATUS_INCOMPLETE &&
+        !s.B.HasQuestForItem(BRACER_ITEM) &&
+        !SG::ViewOffersSomething(&s.B, s.loot, GROUP_PERMISSION));
     check("Q855.B_incomplete_passive_view_does_not_consume_A_quest_item",
         !s.q().is_looted && !s.ownQuestRowLooted(s.A));
 
@@ -133,6 +137,25 @@ static void Quest855CompletedFriendAfterNormalLootRemoved()
         s.received(s.B, BRACER_ITEM) == 0);
 }
 
+// The actual positive fairness control is B at 14/15 with NOTHING banked.
+// B really needs another bracer and must retain quest-only sparkle rights.
+static void Quest855UnbankedFriendStillNeedsBracer()
+{
+    Scene s;
+    Scene::accept(s.A, BRACER_QUEST);
+    Scene::accept(s.B, BRACER_QUEST);
+    GiveToBags(s.A, BRACER_NEED - 1);
+    GiveToBags(s.B, BRACER_NEED - 1);
+    s.kill({RowCentaurBracer()}, s.A);
+    check("Q855.unbanked_B_at_14_has_actionable_quest_sparkle",
+        s.B.GetQuestStatus(BRACER_QUEST) == QUEST_STATUS_INCOMPLETE &&
+        s.B.GetItemCount(BRACER_ITEM, true) == BRACER_NEED - 1 &&
+        s.B.HasQuestForItem(BRACER_ITEM) &&
+        SG::ViewOffersSomething(&s.B, s.loot, GROUP_PERMISSION) &&
+        SG::ViewOffersSomething(&s.A, s.loot, GROUP_PERMISSION) &&
+        !s.q().is_looted);
+}
+
 // The completed/ineligible viewer should NOT inherit a quest-only corpse
 // sparkle even when A's quest row remains. Gold still counts as something.
 static void Quest855NonParticipantAndLegitimateGold()
@@ -159,6 +182,7 @@ int main()
 {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     LoadCentaurBracerFixture();
+    Quest855UnbankedFriendStillNeedsBracer();
     Quest855CompletedFriendAfterNormalLootRemoved();
     Quest855NonParticipantAndLegitimateGold();
     std::printf("QUEST855 CHECKS %d passed, %d failed\n", g_pass, g_fail);
