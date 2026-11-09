@@ -60,3 +60,14 @@ The remaining check was a **wrong expectation**. The original frozen [Naxx `Ques
 2. A separate B at **14 bags + zero bank** legitimately needs the 15th bracer and MUST retain H2 sparkle, including A's independent eligible rights, with passive checks preserving shared loot.
 
 The original **24** named controls remain protected by intent (one renamed to reflect stock entitlement), and a **new positive control makes 25** named C++ assertions. The strict Python source test and new CI expected pass count are updated; all runtime Naxx H1/H2 and original Core loot bodies unchanged. Exact child diff is **FOUR** test/docs/workflow paths vs frozen PR #298. Native GCC/Clang result for this *revised* HEAD requires fresh verification; a green result would still be source/synthetic only, not the owner client or installed SQL/loot state. Keep P4 #109 blocked and H0/H1/H2 OFF.
+
+### 9 November 2026 — refined exact Core bank-aware loot-view overload (25-case red narrowed)
+
+The initial 25-case revision [Actions #42619687580](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/actions/runs/42619687580) was **RED (24/25)** because one fixture incorrectly called `B.HasQuestForItem(item5030)` with the **default null `showInLoot` output** and expected it to be false. This is a source-usage mistake, not evidence H2 incorrectly granted loot: the H2 *no-sparkle* check itself passed and all 24 other controls were GREEN. Do not treat a fixture failure as owner-gameplay failure.
+
+Exact [owner Core6 `PlayerQuest.cpp::HasQuestForItem` L2338–2380](https://github.com/CosmicCuddle/azerothcore-wotlk/blob/6a0c1dba53617c77353718eb4338fda634fca5eb/src/server/game/Entities/Player/PlayerQuest.cpp#L2338-L2380) distinguishes:
+- **Default call with `showInLoot == nullptr`:** an incomplete quest counter for the item returns **true** without consulting bank ownership.
+- **The actual loot-view call** `HasQuestForItem(item, 0, false, &showInLoot)`: when the bag quest counter needs one but **total bags+bank already meets 15**, returns **false** and sets `showInLoot=false`, protecting that player against an excess item/corpse sparkle.
+- When B actually has only **14 total** (zero bank), the loot-view call returns **true**, preserving positive quest corpse sparkle and A's independent rights.
+
+The new synthetic 25-case fixture now uses the **real four-argument source overload** for the banked-enough and genuinely-unbanked positive control. The Python source contract explicitly requires the overload and its outputs. No original Naxx H0/H1/H2 implementation, upstream/Core source, config, production data, SQL or player state changed. **Revised hosted CI outcome is pending independent check**. A green pure fixture still cannot establish real quest855 client/server acceptance or live H2 flag update.
