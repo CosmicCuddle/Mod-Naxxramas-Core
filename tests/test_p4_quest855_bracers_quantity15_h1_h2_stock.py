@@ -1,6 +1,7 @@
 """READ-ONLY P4 reproduction model: quest 855 / item 5030 / 15 required.
 
-The simulator uses actual Naxx H1+H2 headers and extracted pinned original
+The simulator distinguishes banked-enough versus genuinely unbanked quest need.
+Actual Naxx H1+H2 headers and extracted pinned original
 Core LootView/Player::StoreLootItem, but synthetic quest/item/drop rows.
 It does NOT read or prove installed SQL, worldserver, configs or 3.3.5a client.
 """
@@ -23,7 +24,8 @@ REQUIRED = (
     "corpse_has_normal_plus_required_quest_row",
     "normal_loot_awarded_A_without_using_quest_row",
     "only_required_quest_item_remains_unlooted",
-    "B_incomplete_still_sparkles_for_rightful_quest_need",
+    "unbanked_B_at_14_has_actionable_quest_sparkle",
+    "B_incomplete_counter_but_bank_blocks_excess_sparkle",
     "B_incomplete_passive_view_does_not_consume_A_quest_item",
     "B_completes_15_after_corpse_but_A_still_needs_one",
     "B_old_cached_quest_row_remains_after_completion",
