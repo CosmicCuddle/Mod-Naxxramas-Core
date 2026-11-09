@@ -1,0 +1,121 @@
+name: Quest855 x15 banked-state fixture correction (TEST ONLY, no source edit)
+
+on:
+  push:
+    branches:
+      - test/cs01-p4-quest855-initial-banked-state-repair-20261109
+  pull_request:
+    branches:
+      - test/cs01-p4-quest855-false-sparkle-quantity15-offline-contract-20261108
+    paths:
+      - 'tests/p4_quest855_barrens_bracers_h1_h2_stock.cpp'
+      - 'tests/test_p4_quest855_bracers_quantity15_h1_h2_stock.py'
+      - 'docs/P4_QUEST855_BRACERS15_MIXED_LOOT_TEST_ONLY_20261108.md'
+      - '.github/workflows/naxx-p4-quest855-banked-state-fixture-repair-20261109.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  real-pinned-bodies-quest855-shaped:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - name: Checkout exact Naxx P4 test-only child, no credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          path: module
+          persist-credentials: false
+
+      - name: Checkout exact original Grimfeather Core for extracted loot/quest bodies
+        uses: actions/checkout@v4
+        with:
+          repository: Grimfeather/azerothcore-wotlk
+          ref: 8daffdabe9202c228e45d833c9a1d399597a15cd
+          path: core
+          persist-credentials: false
+          sparse-checkout: |
+            src/common
+            src/server/shared
+            src/server/game
+            deps/fmt
+            data/sql/base/db_world
+
+      - name: Checkout immutable owner Core2 for original-body source regression
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/azerothcore-wotlk
+          ref: d2066943e19cd959de2a0e9897135573e4124219
+          path: core2
+          persist-credentials: false
+          sparse-checkout: |
+            src/server/game/Entities/Player
+            src/server/game/Entities/Unit
+            src/server/game/Loot
+            src/server/game/Handlers
+
+      - name: Refuse any runtime/config/SQL changes relative to green P4 test bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=41f5fa0262a9c9c3cd156ef95be6d30a0355d12a
+          git -C module merge-base --is-ancestor "$parent" HEAD
+          git -C module diff --check "$parent" HEAD
+          test "$(git -C core rev-parse HEAD)" = 8daffdabe9202c228e45d833c9a1d399597a15cd
+          test "$(git -C core2 rev-parse HEAD)" = d2066943e19cd959de2a0e9897135573e4124219
+          git -C module diff --name-only "$parent" HEAD | sort > /tmp/actual
+          printf '%s\n' \
+            'tests/p4_quest855_barrens_bracers_h1_h2_stock.cpp' \
+            'tests/test_p4_quest855_bracers_quantity15_h1_h2_stock.py' \
+            'docs/P4_QUEST855_BRACERS15_MIXED_LOOT_TEST_ONLY_20261108.md' \
+            '.github/workflows/naxx-p4-quest855-banked-state-fixture-repair-20261109.yml' | sort > /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          test -z "$(git -C module diff --name-only "$parent" HEAD -- src conf sql data client)"
+          echo 'PASS exactly 4 corrected test/workflow/docs paths; frozen P4 H1/H2/Core unchanged'
+
+      - name: Recheck original parent 18-assertion H1 H2 stock bridge
+        shell: bash
+        env:
+          A04_CORE: ${{ github.workspace }}/core
+          OWNER_CORE2: ${{ github.workspace }}/core2
+          CXX: ${{ matrix.compiler }}
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error module/tests/test_p4_h1_h2_locked_slot_bridge.py -v > /tmp/parent-log 2>&1 || {
+            cat /tmp/parent-log
+            exit 1
+          }
+          cat /tmp/parent-log
+          grep -qx 'BRIDGE CHECKS 18 passed, 0 failed' /tmp/parent-log
+          ! grep -Eq 'CHECK FAIL|^FAILED|^ERROR:|skipped' /tmp/parent-log
+
+      - name: Run actual H1 H2 and original pinned stock loot on quest855 x15 fixture
+        shell: bash
+        env:
+          A04_CORE: ${{ github.workspace }}/core
+          OWNER_CORE2: ${{ github.workspace }}/core2
+          CXX: ${{ matrix.compiler }}
+        run: |
+          set -euo pipefail
+          python3 -I -B -W error module/tests/test_p4_quest855_bracers_quantity15_h1_h2_stock.py -v > /tmp/quest855-log 2>&1 || {
+            cat /tmp/quest855-log
+            exit 1
+          }
+          cat /tmp/quest855-log
+          grep -qx 'QUEST855 CHECKS 25 passed, 0 failed' /tmp/quest855-log
+          ! grep -Eq 'CHECK FAIL|^FAILED|^ERROR:|skipped' /tmp/quest855-log
+          echo 'PASS 15 bracers quest855 synthetic mixed-loot fixture; real H1 H2 headers and pinned stock logic'
+
+      - name: Safety boundary — not a 3.3.5a or installed quest855 acceptance
+        if: always()
+        run: |
+          echo 'ITEM 5030 x 15 is historical WotLK/Vanilla quest855 requirement; all loot DROP rows HERE ARE SYNTHETIC'
+          echo 'The creature source is the original A04 synthetic fixture, NOT owner deployed Kolkar SQL or DB'
+          echo 'No positive quest855 repair proven, actual loot flags/tap/FFA/master gold or client sparkle not deployed'
+          echo 'Do not enable H1/H2, merge, alter SQL, touch owner machine, or claim gameplay acceptance'
