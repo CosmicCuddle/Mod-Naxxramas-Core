@@ -57,6 +57,12 @@ class ExactScopeAndFixture(unittest.TestCase):
         self.assertIn("rowJunk(), RowCentaurBracer()", cpp)
         self.assertIn("return LootStoreItem(BRACER_ITEM, 0, 100.0f, true,", cpp)
         self.assertIn("SYNTHETIC loot-drop fixture", cpp)
+        # Default quest need is NOT the same as the loot-view bank-aware
+        # decision. Require the actual four-argument showInLoot checks.
+        self.assertIn("s.B.HasQuestForItem(BRACER_ITEM, 0, false, &showBankedItemInLoot)", cpp)
+        self.assertIn("!bankedBNeedsMoreInLoot && !showBankedItemInLoot", cpp)
+        self.assertIn("s.B.HasQuestForItem(BRACER_ITEM, 0, false, &showUnbankedItemInLoot)", cpp)
+        self.assertIn("unbankedBNeedsMoreInLoot && showUnbankedItemInLoot", cpp)
         self.assertNotIn("WorldDatabase", cpp)
         self.assertNotIn("CharacterDatabase", cpp)
         self.assertNotIn("SaveToDB(", cpp)
