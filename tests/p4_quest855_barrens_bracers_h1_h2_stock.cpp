@@ -88,9 +88,15 @@ static void Quest855CompletedFriendAfterNormalLootRemoved()
     // B's quest counter is 14/15 but B owns item 15 in the bank.
     // Original HasQuestForItem counts banked ownership separately from the
     // incomplete bag-quest counter, so B must NOT claim another bracer.
+    // The default HasQuestForItem() answers quest-counter need; only the
+    // four-argument loot-view form also considers bank ownership.
+    bool showBankedItemInLoot = true;
+    bool const bankedBNeedsMoreInLoot =
+        s.B.HasQuestForItem(BRACER_ITEM, 0, false, &showBankedItemInLoot);
     check("Q855.B_incomplete_counter_but_bank_blocks_excess_sparkle",
         s.B.GetQuestStatus(BRACER_QUEST) == QUEST_STATUS_INCOMPLETE &&
-        !s.B.HasQuestForItem(BRACER_ITEM) &&
+        s.B.HasQuestForItem(BRACER_ITEM) &&
+        !bankedBNeedsMoreInLoot && !showBankedItemInLoot &&
         !SG::ViewOffersSomething(&s.B, s.loot, GROUP_PERMISSION));
     check("Q855.B_incomplete_passive_view_does_not_consume_A_quest_item",
         !s.q().is_looted && !s.ownQuestRowLooted(s.A));
@@ -147,10 +153,13 @@ static void Quest855UnbankedFriendStillNeedsBracer()
     GiveToBags(s.A, BRACER_NEED - 1);
     GiveToBags(s.B, BRACER_NEED - 1);
     s.kill({RowCentaurBracer()}, s.A);
+    bool showUnbankedItemInLoot = true;
+    bool const unbankedBNeedsMoreInLoot =
+        s.B.HasQuestForItem(BRACER_ITEM, 0, false, &showUnbankedItemInLoot);
     check("Q855.unbanked_B_at_14_has_actionable_quest_sparkle",
         s.B.GetQuestStatus(BRACER_QUEST) == QUEST_STATUS_INCOMPLETE &&
         s.B.GetItemCount(BRACER_ITEM, true) == BRACER_NEED - 1 &&
-        s.B.HasQuestForItem(BRACER_ITEM) &&
+        unbankedBNeedsMoreInLoot && showUnbankedItemInLoot &&
         SG::ViewOffersSomething(&s.B, s.loot, GROUP_PERMISSION) &&
         SG::ViewOffersSomething(&s.A, s.loot, GROUP_PERMISSION) &&
         !s.q().is_looted);
