@@ -72,11 +72,12 @@ jobs:
           git -C module diff --name-only "$parent" HEAD | sort > /tmp/actual
           printf '%s\n' \
             'tests/p4_quest855_barrens_bracers_h1_h2_stock.cpp' \
+            'tests/test_p4_quest855_bracers_quantity15_h1_h2_stock.py' \
             'docs/P4_QUEST855_BRACERS15_MIXED_LOOT_TEST_ONLY_20261108.md' \
             '.github/workflows/naxx-p4-quest855-banked-state-fixture-repair-20261109.yml' | sort > /tmp/expected
           diff -u /tmp/expected /tmp/actual
           test -z "$(git -C module diff --name-only "$parent" HEAD -- src conf sql data client)"
-          echo 'PASS exactly 3 corrected test/workflow/docs paths; frozen P4 H1/H2/Core unchanged'
+          echo 'PASS exactly 4 corrected test/workflow/docs paths; frozen P4 H1/H2/Core unchanged'
 
       - name: Recheck original parent 18-assertion H1 H2 stock bridge
         shell: bash
@@ -107,7 +108,7 @@ jobs:
             exit 1
           }
           cat /tmp/quest855-log
-          grep -qx 'QUEST855 CHECKS 24 passed, 0 failed' /tmp/quest855-log
+          grep -qx 'QUEST855 CHECKS 25 passed, 0 failed' /tmp/quest855-log
           ! grep -Eq 'CHECK FAIL|^FAILED|^ERROR:|skipped' /tmp/quest855-log
           echo 'PASS 15 bracers quest855 synthetic mixed-loot fixture; real H1 H2 headers and pinned stock logic'
 
