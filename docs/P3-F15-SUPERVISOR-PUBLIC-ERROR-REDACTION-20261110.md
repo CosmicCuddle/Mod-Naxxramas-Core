@@ -1,8 +1,8 @@
 # F15 World/Auth supervisor: public CLI refusal must not disclose private paths
 
-**Owner:** CosmicCuddle. **Implementation:** CS01 Maintenance temporarily covering Naxx CS03/Claude while on break.  
-**State:** isolated default-OFF DRAFT; source/tests only; never a live host operation.  
-**Base:** immutable [Naxx combined DRAFT #292](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/292) `51d0611476358286505aed3ca806ea250f644f66`.  
+**Owner:** CosmicCuddle. **Implementation:** CS01 Maintenance temporarily covering Naxx CS03/Claude while on break.
+**State:** isolated default-OFF DRAFT; source/tests only; never a live host operation.
+**Base:** immutable [Naxx combined DRAFT #292](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/pull/292) `51d0611476358286505aed3ca806ea250f644f66`.
 **Review:** [Naxx CS03 assignment #143](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/143); independently reproduced by CS02/Grok in [#48](https://github.com/CosmicCuddle/Mod-Naxxramas-Core/issues/48#issuecomment-6744332211).
 
 ## Confirmed source defect
