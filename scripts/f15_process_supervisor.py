@@ -131,8 +131,11 @@ def main(argv=None):
                                  command, args.poll_seconds)
         print(json.dumps({"run": str(run), "outcome": outcome}, sort_keys=True))
         return 0 if outcome["exit_code"] == 0 and outcome["capture_error_type"] is None else 2
-    except (Refused, OSError, ValueError) as exc:
-        print(f"F15 supervisor REFUSED: {exc}", file=sys.stderr)
+    except (Refused, OSError, ValueError):
+        # Public CLI stderr must never interpolate an exception: Refused
+        # and OSError may contain private output/archive paths. Keep the
+        # existing private run/launch evidence intact and preserve exit 2.
+        print("F15 supervisor REFUSED: operation rejected; details withheld", file=sys.stderr)
         return 2
 
 if __name__ == "__main__":
