@@ -138,7 +138,7 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertEqual(out.getvalue(), "")
         self.assertEqual(err.getvalue(),
-                         "F15 supervisor REFUSED: operation rejected; details withheld\\n")
+                         "F15 supervisor REFUSED: operation rejected; details withheld\n")
         self.assertNotIn("SECRET_SENTINEL", out.getvalue() + err.getvalue())
         self.assertFalse((output_root / "runs" / "running.json").exists())
 
@@ -184,7 +184,7 @@ class SupervisorTests(unittest.TestCase):
                 self.assertEqual(rc, 2)
                 self.assertEqual(out.getvalue(), "")
                 self.assertEqual(stderr.getvalue(),
-                    "F15 supervisor REFUSED: operation rejected; details withheld\\n")
+                    "F15 supervisor REFUSED: operation rejected; details withheld\n")
                 self.assertNotIn("SECRET_SENTINEL", out.getvalue() + stderr.getvalue())
                 self.assertFalse(self.outputs.exists())
 
