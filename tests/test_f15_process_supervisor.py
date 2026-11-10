@@ -1,5 +1,7 @@
 """Real F15 supervisor behavior, disposable child processes only. Never World/Auth."""
 import importlib.util
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -119,6 +121,89 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(len(runs), 1)
         self.assertEqual(json.loads((runs[0]/"launch-failed.json").read_text())["state"],"launch_failed")
         self.assertFalse((runs[0]/"exit.json").exists())
+
+    def _refused_cli(self, output_root):
+        # Deliberate non-executable argv. Popen must never run in these
+        # rejected prelaunch cases; no real service or operator files used.
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(sup.subprocess, "Popen",
+                               side_effect=AssertionError("unexpected child launch")) as spawn:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = sup.main([
+                    "--output-root", str(output_root),
+                    "--archive-root", str(self.archive),
+                    "--service", "Worldserver", "--execute", "--",
+                    str(self.base / "NEVER_LAUNCH_CHILD")])
+            spawn.assert_not_called()
+        self.assertEqual(rc, 2)
+        self.assertEqual(out.getvalue(), "")
+        self.assertEqual(err.getvalue(),
+                         "F15 supervisor REFUSED: operation rejected; details withheld\\n")
+        self.assertNotIn("SECRET_SENTINEL", out.getvalue() + err.getvalue())
+        self.assertFalse((output_root / "runs" / "running.json").exists())
+
+    @unittest.skipUnless(os.name == "posix", "private 0700 and symlinks are POSIX-specific")
+    def test_cli_symlink_private_root_does_not_leak_path(self):
+        link = self.base / "SECRET_SENTINEL_symlink"
+        link.symlink_to(self.base, target_is_directory=True)
+        self._refused_cli(link)
+        self.assertFalse((self.base / "runs").exists())
+
+    @unittest.skipUnless(os.name == "posix", "private 0700 is POSIX-specific")
+    def test_cli_insecure_root_mode_does_not_leak_path(self):
+        insecure = self.base / "SECRET_SENTINEL_mode0755"
+        insecure.mkdir(mode=0o755)
+        insecure.chmod(0o755)
+        self._refused_cli(insecure)
+        self.assertFalse((insecure / "runs").exists())
+
+    @unittest.skipUnless(os.name == "posix", "missing parent error is POSIX-specific")
+    def test_cli_missing_parent_oserror_does_not_leak_path(self):
+        missing = self.base / "SECRET_SENTINEL_missing_parent" / "output"
+        self._refused_cli(missing)
+        self.assertFalse(missing.exists())
+
+    def test_cli_caught_value_error_and_oserror_are_redacted(self):
+        argv = ["--output-root", str(self.outputs),
+                "--archive-root", str(self.archive),
+                "--service", "Authserver", "--execute", "--",
+                str(self.base / "NEVER_LAUNCH_CHILD")]
+        errors = [
+            ValueError("SECRET_SENTINEL_configuration"),
+            FileNotFoundError(2, "SECRET_SENTINEL_os_file",
+                              str(self.base / "SECRET_SENTINEL_missing.dat")),
+            sup.Refused("SECRET_SENTINEL_rejection"),
+        ]
+        for err in errors:
+            with self.subTest(type=type(err).__name__):
+                out, stderr = io.StringIO(), io.StringIO()
+                with mock.patch.object(sup, "supervise", side_effect=err) as call:
+                    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(stderr):
+                        rc = sup.main(argv)
+                    call.assert_called_once()
+                self.assertEqual(rc, 2)
+                self.assertEqual(out.getvalue(), "")
+                self.assertEqual(stderr.getvalue(),
+                    "F15 supervisor REFUSED: operation rejected; details withheld\\n")
+                self.assertNotIn("SECRET_SENTINEL", out.getvalue() + stderr.getvalue())
+                self.assertFalse(self.outputs.exists())
+
+    def test_cli_successful_run_json_is_not_silently_redacted(self):
+        run = self.base / "INTENDED_VISIBLE_SUCCESS_RUN_PATH"
+        outcome = {"exit_code": 0, "capture_error_type": None}
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(sup, "supervise", return_value=(run, outcome)) as call:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                rc = sup.main([
+                    "--output-root", str(self.outputs),
+                    "--archive-root", str(self.archive),
+                    "--service", "Worldserver", "--execute", "--",
+                    str(self.base / "NEVER_LAUNCH_CHILD")])
+            call.assert_called_once()
+        self.assertEqual(rc, 0)
+        self.assertEqual(err.getvalue(), "")
+        self.assertEqual(json.loads(out.getvalue())["run"], str(run))
+        self.assertFalse(self.outputs.exists())
 
     def test_cli_requires_explicit_execute(self):
         with self.assertRaises(SystemExit):
