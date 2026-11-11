@@ -1,0 +1,45 @@
+name: EP per-tower lock patch preflight
+on:
+  pull_request:
+    paths:
+      - 'patches/azerothcore/0001-ep-full-capture-per-tower-90min-lock.patch'
+      - 'tests/test_ep_tower_lock_patch.py'
+      - 'docs/EASTERN-PLAGUELANDS-TOWER-LOCK.md'
+      - '.github/workflows/ep-tower-lock-pinned-patch.yml'
+  push:
+    branches:
+      - feature/ep-tower-lock-restart-safe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-patch-and-synthetic-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the owner's separate patch repository branch
+        uses: actions/checkout@v4
+        with:
+          path: owner
+      - name: Checkout exact pinned Playerbots-compatible AzerothCore
+        uses: actions/checkout@v4
+        with:
+          repository: mod-playerbots/azerothcore-wotlk
+          ref: b7f06a16ac7120b5abc2e8d3f96a94265a363224
+          path: acore
+      - name: Verify pinned revision and pure patch applicability
+        run: |
+          test "$(git -C acore rev-parse HEAD)" = "b7f06a16ac7120b5abc2e8d3f96a94265a363224"
+          git -C acore apply --check "$GITHUB_WORKSPACE/owner/patches/azerothcore/0001-ep-full-capture-per-tower-90min-lock.patch"
+          git -C acore apply "$GITHUB_WORKSPACE/owner/patches/azerothcore/0001-ep-full-capture-per-tower-90min-lock.patch"
+          git -C acore diff --check
+          git -C acore diff --stat
+      - name: Run owner-scope synthetic state tests and source contracts
+        run: python -m unittest discover -s owner/tests -p 'test_ep_tower_lock_patch.py' -v
+      - name: Check that the patch is removable without touching unrelated files
+        run: |
+          git -C acore apply --reverse --check "$GITHUB_WORKSPACE/owner/patches/azerothcore/0001-ep-full-capture-per-tower-90min-lock.patch"
+          git -C acore apply --reverse "$GITHUB_WORKSPACE/owner/patches/azerothcore/0001-ep-full-capture-per-tower-90min-lock.patch"
+          test -z "$(git -C acore status --porcelain)"
