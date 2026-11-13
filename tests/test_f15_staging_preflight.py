@@ -98,6 +98,22 @@ class Tests(unittest.TestCase):
         data["auth"]["log"] = ev("auth.log")
         self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
 
+    def test_noncanonical_log_paths_block(self):
+        for path in (
+            "/root//cosmic_core/logs/auth.log",
+            "/root/cosmic_core/./logs/auth.log",
+            "/root/cosmic_core/logs//auth.log",
+        ):
+            with self.subTest(path=path):
+                data = complete()
+                data["auth"]["log"] = ev(path)
+                self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
+    def test_noncanonical_log_root_blocks(self):
+        data = complete()
+        data["log_root"] = "/root//cosmic_core/logs"
+        self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
     def test_unknown_stays_unknown(self):
         data = complete()
         data["auth"]["log"] = {"status": "UNKNOWN", "value": None, "source": ""}
