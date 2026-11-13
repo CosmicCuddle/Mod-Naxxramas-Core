@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 from typing import Callable
 
 import f15_crash_report_renderer as renderer
@@ -41,15 +42,25 @@ def _write_owned_incident(crash_root: Path, raw_root: Path, incident: dict,
                           now: datetime, artifacts: dict[str, object],
                           provenance: dict[str, str]) -> Path:
     renderer._private_dir(crash_root)
-    bundle = raw_bundle.write_bundle(
+    artifacts = dict(artifacts)
+    artifacts["report-input.json"] = dict(incident)
+    bundle = raw_bundle.ensure_bundle(
         raw_root,
         incident["incident_id"],
         artifacts,
         created_utc=now,
         provenance=provenance,
     )
+    try:
+        stored = json.loads((bundle / "report-input.json").read_text("utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise raw_bundle.Refused("stored report input is unavailable") from exc
+    if not isinstance(stored, dict) or stored.get("incident_id") != incident["incident_id"] or stored.get("service") != incident["service"]:
+        raise raw_bundle.Refused("stored report input does not match incident")
+    incident.clear()
+    incident.update(stored)
     incident["raw_evidence_ref"] = str(bundle)
-    return renderer.write_report(crash_root, incident)
+    return renderer.ensure_report(crash_root, incident)
 
 
 def world_cycle(state_root: Path, crash_root: Path, raw_root: Path,
