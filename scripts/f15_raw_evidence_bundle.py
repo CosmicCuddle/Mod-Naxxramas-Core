@@ -224,25 +224,7 @@ def ensure_bundle(raw_root: Path, incident_id: str, artifacts: dict[str, object]
     if existing is None:
         return write_bundle(raw_root, incident_id, artifacts, created_utc, provenance)
 
-    manifest, files = _verify_bundle(existing)
-    expected = []
-    total = 0
-    for name in sorted(artifacts):
-        if not ARTIFACT_RE.fullmatch(name):
-            raise Refused("invalid evidence artifact name")
-        data = _bytes(artifacts[name])
-        if len(data) > MAX_ARTIFACT_BYTES:
-            raise Refused("evidence artifact exceeds bound")
-        total += len(data)
-        if total > MAX_BUNDLE_BYTES:
-            raise Refused("raw evidence bundle exceeds bound")
-        expected.append({
-            "name": name,
-            "size": len(data),
-            "sha256": hashlib.sha256(data).hexdigest(),
-        })
-    if manifest["artifacts"] != expected:
-        raise Refused("existing raw evidence differs from retry evidence")
+    manifest, _files = _verify_bundle(existing)
     if manifest["provenance"] != dict(sorted((provenance or {}).items())):
         raise Refused("existing raw evidence provenance differs from retry")
     return existing
