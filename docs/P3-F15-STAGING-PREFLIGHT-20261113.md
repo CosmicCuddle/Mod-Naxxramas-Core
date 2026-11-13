@@ -75,9 +75,9 @@ Focused offline tests cover:
 9. relative daemon log paths block;
 10. explicit UNKNOWN stays UNKNOWN;
 11. a manifest cannot self-authorize installation;
-12. malformed authorization structure blocks.
+12. malformed authorization structure blocks.\n13. the shipped example manifest itself remains UNKNOWN with every required fact unresolved.
 
-Local Python result after the evidence hardening: **12/12 PASS**.
+Local Python result after the evidence hardening: **13/13 PASS**.
 
 ## Custom Modifications Register — F15-STAGING-PREFLIGHT-20261113
 
@@ -90,6 +90,6 @@ Local Python result after the evidence hardening: **12/12 PASS**.
 | Runtime authority | None; operator-supplied JSON only. |
 | Config/SQL/DBC/client | None. |
 | Risks | Incorrect operator evidence cannot change the host; malformed/unproven evidence now blocks or remains UNKNOWN rather than becoming review-ready. |
-| Tests | 12/12 focused local PASS after provenance/type/path hardening; no hosted Actions. |
+| Tests | 13/13 focused local PASS after provenance/type/path hardening; no hosted Actions. |
 | Live status | Uninstalled / not invoked on owner host. |
 | Rollback | Abandon branch/PR; no live state exists. |
