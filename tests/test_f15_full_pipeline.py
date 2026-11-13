@@ -99,7 +99,7 @@ class FullPipelineTests(unittest.TestCase):
         self.assertEqual(manifest["incident_id"], "worldserver-00000001")
         self.assertEqual(
             {x["name"] for x in manifest["artifacts"]},
-            {"pm2-jlist.json", "pm2-manager.txt", "recent-context.txt"},
+            {"pm2-jlist.json", "pm2-manager.txt", "recent-context.txt", "report-input.json"},
         )
 
         history = (self.crash / "Crash-History.txt").read_text()
@@ -159,7 +159,7 @@ class FullPipelineTests(unittest.TestCase):
         self.assertEqual(meta["incident_id"], "authserver-00000001")
         self.assertEqual(
             {x["name"] for x in meta["artifacts"]},
-            {"auth-process.json", "recent-context.txt"},
+            {"auth-process.json", "recent-context.txt", "report-input.json"},
         )
 
         self.assertIsNone(pipeline.auth_cycle(
@@ -167,6 +167,68 @@ class FullPipelineTests(unittest.TestCase):
             runner, read_text, NOW + timedelta(seconds=2),
         ))
         self.assertEqual(len([p for p in self.crash.glob("*Authserver*.txt")]), 1)
+
+    def test_report_failure_reuses_first_bundle_and_retries_same_incident(self):
+        runner = SequenceRunner({
+            ("pm2", "jlist"): [
+                (0, pm2(100, 1), ""),
+                (0, pm2(101, 2), ""),
+                (0, pm2(101, 2), ""),
+            ],
+        })
+        manager = (
+            "2026-11-13 App [worldserver:0] exited with code [0] "
+            "via signal [SIGSEGV]"
+        )
+        pipeline.world_cycle(
+            self.state, self.crash, self.raw, "worldserver", "", "baseline",
+            runner, NOW,
+        )
+
+        real_ensure = pipeline.renderer.ensure_report
+        calls = {"n": 0}
+        def fail_once(crash_root, incident):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OSError("simulated report sink failure")
+            return real_ensure(crash_root, incident)
+
+        pipeline.renderer.ensure_report = fail_once
+        try:
+            with self.assertRaises(OSError):
+                pipeline.world_cycle(
+                    self.state, self.crash, self.raw, "worldserver", manager,
+                    "FIRST CONTEXT", runner, NOW + timedelta(seconds=1),
+                    build_version="first-build", source_revision="first-sha",
+                )
+            bundles = [p for p in self.raw.iterdir() if p.is_dir()]
+            self.assertEqual(len(bundles), 1)
+            first_manifest = json.loads((bundles[0] / "manifest.json").read_text())
+            self.assertEqual(first_manifest["incident_id"], "worldserver-00000001")
+
+            incident = pipeline.world_cycle(
+                self.state, self.crash, self.raw, "worldserver", manager,
+                "NEWER CONTEXT MUST NOT REPLACE FIRST", runner,
+                NOW + timedelta(seconds=30),
+                build_version="newer-build", source_revision="newer-sha",
+            )
+        finally:
+            pipeline.renderer.ensure_report = real_ensure
+
+        self.assertEqual(incident["incident_id"], "worldserver-00000001")
+        self.assertEqual(len([p for p in self.raw.iterdir() if p.is_dir()]), 1)
+        reports = [p for p in self.crash.glob("*Worldserver*.txt")]
+        self.assertEqual(len(reports), 1)
+        report = reports[0].read_text()
+        self.assertIn("FIRST CONTEXT", report)
+        self.assertIn("first-build", report)
+        self.assertNotIn("NEWER CONTEXT MUST NOT REPLACE FIRST", report)
+        self.assertNotIn("newer-build", report)
+        self.assertIn("2026-11-13T12:00:01+00:00", report)
+        self.assertEqual(
+            json.loads((bundles[0] / "report-input.json").read_text())["incident_id"],
+            "worldserver-00000001",
+        )
 
     def test_world_and_auth_have_independent_sequences(self):
         world_runner = SequenceRunner({
