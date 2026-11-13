@@ -1,9 +1,11 @@
 import importlib.util
+import json
 import pathlib
 import unittest
 
 HERE = pathlib.Path(__file__).resolve().parent
 SCRIPT = HERE.parent / "scripts" / "f15_staging_preflight.py"
+EXAMPLE = HERE.parent / "examples" / "f15_staging_manifest.example.json"
 spec = importlib.util.spec_from_file_location("preflight", SCRIPT)
 preflight = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(preflight)
@@ -112,6 +114,14 @@ class Tests(unittest.TestCase):
         data = complete()
         data["authorizations"] = "yes"
         self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
+    def test_shipped_example_stays_unknown(self):
+        with open(EXAMPLE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        r = preflight.assess(data)
+        self.assertEqual(r["status"], "UNKNOWN")
+        self.assertEqual(set(r["unknown"]), set(preflight.REQUIRED))
+        self.assertFalse(r["blockers"])
 
 
 if __name__ == "__main__":
