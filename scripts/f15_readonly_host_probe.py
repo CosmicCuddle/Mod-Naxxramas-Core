@@ -141,8 +141,10 @@ def probe_auth_tmux(session_name: str, runner: Callable[[list[str]], tuple[int, 
         row = rows[pid]
         if row["comm"] == "authserver" or Path(shlex.split(row["args"])[0]).name == "authserver":
             candidates.append(pid)
-    if len(candidates) != 1:
-        raise Refused("expected exactly one authserver descendant")
+    if len(candidates) > 1:
+        raise Refused("expected at most one authserver descendant")
+    if not candidates:
+        return {"pid": None, "start_ticks": None, "pane_pid": pane_pid}, True
     pid = candidates[0]
     start_ticks = _start_ticks_from_stat(read_text(Path(f"/proc/{pid}/stat")))
     return {"pid": pid, "start_ticks": start_ticks, "pane_pid": pane_pid}, True
