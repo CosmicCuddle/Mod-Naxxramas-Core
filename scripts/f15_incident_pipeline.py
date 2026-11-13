@@ -40,6 +40,7 @@ def _decorate_common(incident: dict, now: datetime, recent_context: str,
 def _write_owned_incident(crash_root: Path, raw_root: Path, incident: dict,
                           now: datetime, artifacts: dict[str, object],
                           provenance: dict[str, str]) -> Path:
+    renderer._private_dir(crash_root)
     bundle = raw_bundle.write_bundle(
         raw_root,
         incident["incident_id"],
