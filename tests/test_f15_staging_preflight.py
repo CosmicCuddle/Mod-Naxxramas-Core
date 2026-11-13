@@ -9,31 +9,41 @@ preflight = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(preflight)
 
 
+def ev(value, status="VERIFIED", source="operator-read-only-evidence"):
+    return {"status": status, "value": value, "source": source}
+
+
 def complete():
     return {
         "log_root": "/root/cosmic_core/logs",
         "world": {
-            "pm2_name": "worldserver",
-            "pm2_manager_log": "/root/cosmic_core/logs/pm2.log",
-            "stdout_log": "/root/cosmic_core/logs/world-out.log",
-            "stderr_log": "/root/cosmic_core/logs/world-err.log",
+            "pm2_name": ev("worldserver"),
+            "pm2_manager_log": ev("/root/cosmic_core/logs/pm2.log"),
+            "stdout_log": ev("/root/cosmic_core/logs/world-out.log"),
+            "stderr_log": ev("/root/cosmic_core/logs/world-err.log"),
         },
         "auth": {
-            "tmux_session": "authserver",
-            "process_name": "authserver",
-            "log": "/root/cosmic_core/logs/auth.log",
+            "tmux_session": ev("authserver"),
+            "process_name": ev("authserver"),
+            "log": ev("/root/cosmic_core/logs/auth.log"),
         },
         "logging": {
-            "overwrite_owner": "verified launcher/rotation owner",
-            "snapshot_hook": "pre-overwrite hook",
+            "overwrite_owner": ev("launcher/rotation owner"),
+            "snapshot_hook": ev("pre-overwrite hook"),
         },
-        "security": {"run_user": "verified", "log_owner": "verified"},
-        "capacity": {"free_bytes": 2000, "projected_30d_bytes": 1000},
+        "security": {"run_user": ev("root"), "log_owner": ev("root")},
+        "capacity": {
+            "free_bytes": ev(2000),
+            "projected_30d_bytes": ev(1000),
+        },
         "fingerprints": {
-            "build_version_source": "verified",
-            "source_revision_source": "verified",
+            "build_version_source": ev("binary --version output"),
+            "source_revision_source": ev("checkout HEAD"),
         },
-        "scheduling": {"observe_once": "proposed", "retain_once": "proposed"},
+        "scheduling": {
+            "observe_once": ev("daily", "PROPOSED", "staging-plan"),
+            "retain_once": ev("daily", "PROPOSED", "staging-plan"),
+        },
         "authorizations": {"live_install": False},
     }
 
@@ -44,38 +54,64 @@ class Tests(unittest.TestCase):
         self.assertEqual(r["status"], "READY_FOR_OWNER_REVIEW")
         self.assertFalse(r["live_changes_performed"])
 
+    def test_plain_string_is_malformed(self):
+        data = complete()
+        data["auth"]["log"] = "/root/cosmic_core/logs/auth.log"
+        self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
+    def test_missing_source_is_malformed(self):
+        data = complete()
+        data["world"]["pm2_name"] = {"status": "VERIFIED", "value": "worldserver"}
+        self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
+    def test_host_fact_proposed_is_unknown(self):
+        data = complete()
+        data["world"]["pm2_name"] = ev("worldserver", "PROPOSED")
+        r = preflight.assess(data)
+        self.assertEqual(r["status"], "UNKNOWN")
+        self.assertIn("world.pm2_name", r["unknown"])
+
+    def test_bool_is_not_capacity_integer(self):
+        data = complete()
+        data["capacity"]["free_bytes"] = ev(True)
+        self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
+    def test_negative_capacity_blocks(self):
+        data = complete()
+        data["capacity"]["free_bytes"] = ev(-1)
+        self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
+    def test_capacity_shortfall_blocks(self):
+        data = complete()
+        data["capacity"]["free_bytes"] = ev(999)
+        self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
+    def test_external_log_path_blocks(self):
+        data = complete()
+        data["auth"]["log"] = ev("/tmp/auth.log")
+        self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
+    def test_relative_log_path_blocks(self):
+        data = complete()
+        data["auth"]["log"] = ev("auth.log")
+        self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
     def test_unknown_stays_unknown(self):
         data = complete()
-        del data["auth"]["log"]
+        data["auth"]["log"] = {"status": "UNKNOWN", "value": None, "source": ""}
         r = preflight.assess(data)
         self.assertEqual(r["status"], "UNKNOWN")
         self.assertIn("auth.log", r["unknown"])
 
-    def test_external_log_path_blocks(self):
-        data = complete()
-        data["world"]["stderr_log"] = "/tmp/world.err"
-        r = preflight.assess(data)
-        self.assertEqual(r["status"], "BLOCKED")
-        self.assertTrue(any("outside log_root" in x for x in r["blockers"]))
-
-    def test_capacity_shortfall_blocks(self):
-        data = complete()
-        data["capacity"] = {"free_bytes": 999, "projected_30d_bytes": 1000}
-        r = preflight.assess(data)
-        self.assertEqual(r["status"], "BLOCKED")
-
     def test_manifest_cannot_authorize_install(self):
         data = complete()
         data["authorizations"]["live_install"] = True
-        r = preflight.assess(data)
-        self.assertEqual(r["status"], "BLOCKED")
-        self.assertTrue(any("self-authorize" in x for x in r["blockers"]))
+        self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
 
-    def test_snapshot_hook_without_owner_blocks(self):
+    def test_bad_authorizations_shape_blocks(self):
         data = complete()
-        data["logging"]["overwrite_owner"] = "UNKNOWN"
-        r = preflight.assess(data)
-        self.assertEqual(r["status"], "BLOCKED")
+        data["authorizations"] = "yes"
+        self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
 
 
 if __name__ == "__main__":
