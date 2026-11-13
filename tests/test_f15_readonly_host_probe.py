@@ -51,6 +51,16 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(info["start_ticks"],777)
         self.assertEqual(len(r.calls),2)
 
+    def test_tmux_live_without_auth_descendant_returns_absent_snapshot(self):
+        ps="10 1 tmux tmux\n20 10 bash bash\n"
+        r=FakeRunner({
+            ("tmux","display-message","-p","-t","auth","#{pane_pid}"):(0,"10\n",""),
+            ("ps","-eo","pid=,ppid=,comm=,args="):(0,ps,"")})
+        info,alive=probe.probe_auth_tmux("auth",r,lambda p:"")
+        self.assertTrue(alive)
+        self.assertIsNone(info["pid"])
+        self.assertIsNone(info["start_ticks"])
+
     def test_tmux_multiple_auth_descendants_refused(self):
         ps="10 1 tmux tmux\n20 10 authserver authserver\n21 10 authserver authserver\n"
         r=FakeRunner({
