@@ -33,7 +33,7 @@ It then walks only the returned process tree and requires exactly one
 `authserver` descendant. The process start identity is read from the standard
 read-only `/proc/<pid>/stat` start-time field.
 
-Ambiguous/missing process identity fails closed.
+A live tmux pane with zero authserver descendants returns an explicit absent Auth identity so disappearance can be reported; multiple descendants remain ambiguous and fail closed.
 
 ### Log context
 A bounded helper can read only the last <=32 KiB of an explicitly selected
@@ -54,8 +54,8 @@ The exact source was tested using a fake command runner and temporary files:
 8. bounded regular-file tail works and symlink tail is refused;
 9. invalid process names execute no commands.
 
-Focused suite result: **8/8 PASS** (the combined assertions above are grouped
-into eight unittest cases). No hosted Actions were used.
+Focused suite result: **9/9 PASS** (the combined assertions above are grouped
+into nine unittest cases). No hosted Actions were used.
 
 ## Security boundary
 
