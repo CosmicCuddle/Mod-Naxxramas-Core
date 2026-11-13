@@ -33,7 +33,7 @@ line containing `SIGSEGV` must:
 - write one Crash-History entry;
 - reference the raw evidence bundle from the detailed report;
 - advance the checkpoint only after report success;
-- create no duplicate report/bundle when the same post-restart state is polled again.
+- create no duplicate report/bundle when the same post-restart state is polled again;\n- if a complete raw bundle exists but report completion failed, reuse that exact first bundle and its stored report input on retry.
 
 ## Authserver fixture path
 
@@ -81,7 +81,7 @@ It covers:
 - no duplicate World emission;
 - Auth disappearance with tmux alive and cause UNKNOWN;
 - no duplicate Auth emission;
-- independent World/Auth incident sequences.
+- independent World/Auth incident sequences;\n- report-sink failure after bundle creation leaves the checkpoint unadvanced, then a later retry reuses the first bundle/context/timestamp and completes exactly one report/history entry.
 
 No hosted Actions are requested yet. A single focused milestone run may be
 considered only after source review because the owner is conserving Actions
@@ -107,7 +107,7 @@ All remain staging gates.
 | --- | --- |
 | Intended behavior | Compose read-only evidence, normalization, once-only checkpointing, raw evidence ownership and detailed crash reporting under synthetic fixtures. |
 | Owning component | Mod-Naxxramas-Core F15 operational tooling. |
-| Affected paths | `scripts/f15_incident_pipeline.py`, `tests/test_f15_full_pipeline.py`, this note. |
+| Affected paths | `scripts/f15_incident_pipeline.py`, `tests/test_f15_full_pipeline.py`, inherited `scripts/f15_raw_evidence_bundle.py` and `scripts/f15_crash_report_renderer.py` retry hardening, this note. |
 | Parent | #307 head `c9169e3df988d1bb50ba67c629909f2e13826ed5`. |
 | Dependencies | F15 #301–#304, #307 source layers. |
 | Config/SQL/DBC/client | None. |
