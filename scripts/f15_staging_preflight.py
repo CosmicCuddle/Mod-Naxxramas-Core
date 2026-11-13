@@ -67,14 +67,19 @@ def _valid_scalar(key: str, value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def _under(root: str, value: str) -> bool:
+def _normalized_absolute(value: str) -> bool:
     try:
-        r = PurePosixPath(root)
         p = PurePosixPath(value)
     except TypeError:
         return False
-    if not r.is_absolute() or not p.is_absolute() or ".." in p.parts:
+    return p.is_absolute() and ".." not in p.parts and str(p) == value
+
+
+def _under(root: str, value: str) -> bool:
+    if not _normalized_absolute(root) or not _normalized_absolute(value):
         return False
+    r = PurePosixPath(root)
+    p = PurePosixPath(value)
     return p == r or r in p.parents
 
 
@@ -86,7 +91,7 @@ def assess(data: dict[str, Any]) -> dict[str, Any]:
     unknown: list[str] = []
     values: dict[str, Any] = {}
 
-    if not root or not PurePosixPath(root).is_absolute() or ".." in PurePosixPath(root).parts:
+    if not root or not _normalized_absolute(root):
         blockers.append("log_root must be an absolute normalized POSIX path")
 
     for key in REQUIRED:
