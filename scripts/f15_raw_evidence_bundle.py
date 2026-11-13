@@ -191,6 +191,62 @@ def _verify_bundle(bundle: Path) -> tuple[dict, list[Path]]:
     return manifest, files
 
 
+
+def find_bundle(raw_root: Path, incident_id: str) -> Path | None:
+    if not INCIDENT_RE.fullmatch(incident_id):
+        raise Refused("invalid incident id")
+    root = _private_dir(Path(raw_root))
+    matches = []
+    suffix = "-" + incident_id
+    for path in root.iterdir():
+        if path.is_dir() and not path.is_symlink() and path.name.endswith(suffix):
+            matches.append(path)
+    if len(matches) > 1:
+        raise Refused("multiple raw evidence bundles for one incident")
+    if not matches:
+        return None
+    manifest, _files = _verify_bundle(matches[0])
+    if manifest["incident_id"] != incident_id:
+        raise Refused("raw evidence bundle incident mismatch")
+    return matches[0]
+
+
+def ensure_bundle(raw_root: Path, incident_id: str, artifacts: dict[str, object],
+                  created_utc: datetime | None = None,
+                  provenance: dict[str, str] | None = None) -> Path:
+    """Create once, or reuse one exact verified bundle for this incident.
+
+    This makes report retries idempotent after a complete bundle was already
+    published. A partial/unverified matching directory is never silently
+    replaced.
+    """
+    existing = find_bundle(raw_root, incident_id)
+    if existing is None:
+        return write_bundle(raw_root, incident_id, artifacts, created_utc, provenance)
+
+    manifest, files = _verify_bundle(existing)
+    expected = []
+    total = 0
+    for name in sorted(artifacts):
+        if not ARTIFACT_RE.fullmatch(name):
+            raise Refused("invalid evidence artifact name")
+        data = _bytes(artifacts[name])
+        if len(data) > MAX_ARTIFACT_BYTES:
+            raise Refused("evidence artifact exceeds bound")
+        total += len(data)
+        if total > MAX_BUNDLE_BYTES:
+            raise Refused("raw evidence bundle exceeds bound")
+        expected.append({
+            "name": name,
+            "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        })
+    if manifest["artifacts"] != expected:
+        raise Refused("existing raw evidence differs from retry evidence")
+    if manifest["provenance"] != dict(sorted((provenance or {}).items())):
+        raise Refused("existing raw evidence provenance differs from retry")
+    return existing
+
 def retain_bundles(raw_root: Path, now: datetime | None = None) -> int:
     root = _private_dir(Path(raw_root), create=False)
     current = _utc(now)
