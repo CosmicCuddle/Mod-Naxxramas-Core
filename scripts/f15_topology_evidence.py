@@ -6,6 +6,7 @@ touches no process. A later read-only collector may obtain the snapshots.
 """
 import json
 import re
+import signal
 
 FATAL_SIGNALS = {"SIGSEGV", "SIGABRT", "SIGBUS", "SIGFPE", "SIGILL"}
 PM2_EXIT_RE = re.compile(
@@ -66,6 +67,14 @@ def _one_pm2(snapshot, name):
         "exit_code": integer("exit_code"),
     }
 
+def _signal_number(name):
+    if not name:
+        return None
+    try:
+        return int(signal.Signals[name])
+    except (KeyError, ValueError, TypeError):
+        return None
+
 def _last_pm2_exit(manager_text, name):
     found = None
     for line in str(manager_text or "").splitlines():
@@ -119,6 +128,7 @@ def world_incident(previous_snapshot, current_snapshot, process_name, manager_te
         "replacement_pid": current["pid"],
         "exit_code": exit_code,
         "signal_name": signal_name,
+        "signal": _signal_number(signal_name),
         "classification": classification,
         "classification_evidence": "; ".join(evidence),
         "restart_evidence": (
