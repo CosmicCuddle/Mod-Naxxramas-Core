@@ -11,7 +11,7 @@ import json
 from pathlib import PurePosixPath
 from typing import Any
 
-REQUIRED = (
+HOST_FACTS = (
     "world.pm2_name",
     "world.pm2_manager_log",
     "world.stdout_log",
@@ -27,9 +27,11 @@ REQUIRED = (
     "capacity.projected_30d_bytes",
     "fingerprints.build_version_source",
     "fingerprints.source_revision_source",
-    "scheduling.observe_once",
-    "scheduling.retain_once",
 )
+PLANNED_FACTS = ("scheduling.observe_once", "scheduling.retain_once")
+REQUIRED = HOST_FACTS + PLANNED_FACTS
+PATH_KEYS = ("world.pm2_manager_log", "world.stdout_log", "world.stderr_log", "auth.log")
+INT_KEYS = ("capacity.free_bytes", "capacity.projected_30d_bytes")
 
 
 def _get(data: dict[str, Any], dotted: str) -> Any:
@@ -41,8 +43,28 @@ def _get(data: dict[str, Any], dotted: str) -> Any:
     return cur
 
 
-def _known(value: Any) -> bool:
-    return value not in (None, "", "UNKNOWN")
+def _evidence(data: dict[str, Any], key: str) -> tuple[str, Any, str]:
+    raw = _get(data, key)
+    if raw is None:
+        return "UNKNOWN", None, ""
+    if not isinstance(raw, dict):
+        return "MALFORMED", None, ""
+    status = raw.get("status")
+    value = raw.get("value")
+    source = raw.get("source")
+    if status not in ("VERIFIED", "PROPOSED", "UNKNOWN"):
+        return "MALFORMED", value, ""
+    if status == "UNKNOWN":
+        return "UNKNOWN", None, str(source or "")
+    if not isinstance(source, str) or not source.strip():
+        return "MALFORMED", value, ""
+    return status, value, source.strip()
+
+
+def _valid_scalar(key: str, value: Any) -> bool:
+    if key in INT_KEYS:
+        return type(value) is int and value >= 0
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _under(root: str, value: str) -> bool:
@@ -51,43 +73,60 @@ def _under(root: str, value: str) -> bool:
         p = PurePosixPath(value)
     except TypeError:
         return False
+    if not r.is_absolute() or not p.is_absolute() or ".." in p.parts:
+        return False
     return p == r or r in p.parents
 
 
 def assess(data: dict[str, Any]) -> dict[str, Any]:
-    root = str(data.get("log_root") or "/root/cosmic_core/logs")
+    root_raw = data.get("log_root", "/root/cosmic_core/logs")
+    root = root_raw if isinstance(root_raw, str) else ""
     checks: list[dict[str, str]] = []
     blockers: list[str] = []
     unknown: list[str] = []
+    values: dict[str, Any] = {}
+
+    if not root or not PurePosixPath(root).is_absolute() or ".." in PurePosixPath(root).parts:
+        blockers.append("log_root must be an absolute normalized POSIX path")
 
     for key in REQUIRED:
-        value = _get(data, key)
-        if _known(value):
-            checks.append({"check": key, "status": "KNOWN"})
-        else:
+        status, value, _source = _evidence(data, key)
+        allowed = {"VERIFIED"} if key in HOST_FACTS else {"VERIFIED", "PROPOSED"}
+        if status == "MALFORMED":
+            checks.append({"check": key, "status": "MALFORMED"})
+            blockers.append(f"{key} evidence envelope is malformed or lacks provenance")
+            continue
+        if status == "UNKNOWN":
             checks.append({"check": key, "status": "UNKNOWN"})
             unknown.append(key)
+            continue
+        if status not in allowed:
+            checks.append({"check": key, "status": "UNVERIFIED"})
+            unknown.append(key)
+            continue
+        if not _valid_scalar(key, value):
+            checks.append({"check": key, "status": "MALFORMED"})
+            blockers.append(f"{key} has an invalid value type or value")
+            continue
+        checks.append({"check": key, "status": status})
+        values[key] = value
 
-    path_keys = (
-        "world.pm2_manager_log", "world.stdout_log", "world.stderr_log", "auth.log"
-    )
-    for key in path_keys:
-        value = _get(data, key)
-        if _known(value) and not _under(root, str(value)):
-            blockers.append(f"{key} is outside log_root")
+    for key in PATH_KEYS:
+        if key in values and not _under(root, values[key]):
+            blockers.append(f"{key} is outside log_root or is not a normalized absolute path")
 
-    free = _get(data, "capacity.free_bytes")
-    projected = _get(data, "capacity.projected_30d_bytes")
-    if isinstance(free, int) and isinstance(projected, int):
-        if free < 0 or projected < 0:
-            blockers.append("capacity values must be non-negative integers")
-        elif free < projected:
-            blockers.append("free_bytes is below projected_30d_bytes")
+    free = values.get("capacity.free_bytes")
+    projected = values.get("capacity.projected_30d_bytes")
+    if type(free) is int and type(projected) is int and free < projected:
+        blockers.append("free_bytes is below projected_30d_bytes")
 
-    if _known(_get(data, "logging.snapshot_hook")) and not _known(_get(data, "logging.overwrite_owner")):
-        blockers.append("snapshot hook is supplied without a verified overwrite owner")
+    if "logging.snapshot_hook" in values and "logging.overwrite_owner" not in values:
+        blockers.append("snapshot hook is supplied without a VERIFIED overwrite owner")
 
-    if data.get("authorizations", {}).get("live_install") is True:
+    auth = data.get("authorizations", {})
+    if auth is not None and not isinstance(auth, dict):
+        blockers.append("authorizations must be an object when supplied")
+    elif isinstance(auth, dict) and auth.get("live_install") is True:
         blockers.append("manifest must not self-authorize live installation")
 
     status = "BLOCKED" if blockers else ("UNKNOWN" if unknown else "READY_FOR_OWNER_REVIEW")
@@ -98,7 +137,8 @@ def assess(data: dict[str, Any]) -> dict[str, Any]:
         "unknown": unknown,
         "blockers": blockers,
         "safe_next_step": (
-            "resolve blockers/unknowns read-only" if status != "READY_FOR_OWNER_REVIEW"
+            "resolve blockers/unknowns read-only"
+            if status != "READY_FOR_OWNER_REVIEW"
             else "prepare backup, rollback and staging plan for CosmicCuddle approval"
         ),
         "live_changes_performed": False,
