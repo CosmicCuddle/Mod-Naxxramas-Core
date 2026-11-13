@@ -1,103 +1,35 @@
 {
   "log_root": "/root/cosmic_core/logs",
   "world": {
-    "pm2_name": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    },
-    "pm2_manager_log": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    },
-    "stdout_log": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    },
-    "stderr_log": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    }
+    "pm2_name": {"status": "UNKNOWN", "value": null, "source": ""},
+    "pm2_manager_log": {"status": "UNKNOWN", "value": null, "source": ""},
+    "stdout_log": {"status": "UNKNOWN", "value": null, "source": ""},
+    "stderr_log": {"status": "UNKNOWN", "value": null, "source": ""}
   },
   "auth": {
-    "tmux_session": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    },
-    "process_name": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    },
-    "log": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    }
+    "tmux_session": {"status": "UNKNOWN", "value": null, "source": ""},
+    "process_name": {"status": "UNKNOWN", "value": null, "source": ""},
+    "log": {"status": "UNKNOWN", "value": null, "source": ""}
   },
   "logging": {
-    "overwrite_owner": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    },
-    "snapshot_hook": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    }
+    "overwrite_owner": {"status": "UNKNOWN", "value": null, "source": ""},
+    "snapshot_hook": {"status": "UNKNOWN", "value": null, "source": ""}
   },
   "security": {
-    "run_user": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    },
-    "log_owner": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    }
+    "run_user": {"status": "UNKNOWN", "value": null, "source": ""},
+    "log_owner": {"status": "UNKNOWN", "value": null, "source": ""}
   },
   "capacity": {
-    "free_bytes": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    },
-    "projected_30d_bytes": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    }
+    "free_bytes": {"status": "UNKNOWN", "value": null, "source": ""},
+    "projected_30d_bytes": {"status": "UNKNOWN", "value": null, "source": ""}
   },
   "fingerprints": {
-    "build_version_source": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    },
-    "source_revision_source": {
-      "status": "UNKNOWN",
-      "value": null,
-      "source": ""
-    }
+    "build_version_source": {"status": "UNKNOWN", "value": null, "source": ""},
+    "source_revision_source": {"status": "UNKNOWN", "value": null, "source": ""}
   },
   "scheduling": {
-    "observe_once": {
-      "status": "PROPOSED",
-      "value": "not yet selected",
-      "source": "F15 staging plan"
-    },
-    "retain_once": {
-      "status": "PROPOSED",
-      "value": "not yet selected",
-      "source": "F15 staging plan"
-    }
+    "observe_once": {"status": "UNKNOWN", "value": null, "source": ""},
+    "retain_once": {"status": "UNKNOWN", "value": null, "source": ""}
   },
   "authorizations": {
     "live_install": false
