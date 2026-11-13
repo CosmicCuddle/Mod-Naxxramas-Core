@@ -27,12 +27,12 @@
 | Intended behaviour | Offline assessment of whether the evidence required for safe F15 staging is complete. |
 | Owning component | Mod-Naxxramas-Core F15 operational tooling. |
 | Parent | DRAFT #309 head `827f5618c991611c483941cabb0ba910fee09180`. |
-| Source ref/version | DRAFT #310, current reviewed source head `044fde67fe5b56acfae050b9188fc50e5cac14b1`. |
+| Source ref/version | DRAFT #310, current source head `d409337b246051a3efaa8e5c04a75f50a8e53a97`. |
 | Affected files | `scripts/f15_staging_preflight.py`, `tests/test_f15_staging_preflight.py`, `examples/f15_staging_manifest.example.json`, `docs/P3-F15-STAGING-PREFLIGHT-20261113.md`, `docs/P3-F15-STAGING-EVIDENCE-COLLECTION-20261113.md`. |
 | Config/SQL/DBC/client dependencies | None. |
 | Host dependencies | Operator-supplied provenance-bearing evidence only; tool does not probe host. |
 | Known risks | Bad supplied evidence could misclassify readiness; schema therefore requires explicit status/value/source, strict path/type checks, UNKNOWN preservation and self-authorization blocking. |
-| Tests | 13 focused local tests pass on the current logic; shipped example is pinned to remain UNKNOWN. No hosted Actions. |
+| Tests | 13/13 focused local tests passed on prior head `044fde67...`. Current `d409337b...` adds canonical-path rejection tests; CS01 independently checked the focused canonical-path cases, but a full 15-test exact-head rerun is not yet claimed. No hosted Actions. |
 | Live status | Uninstalled / not invoked on owner host. |
 | Decisions | Host facts must be VERIFIED; only scheduling-plan fields may be PROPOSED; READY_FOR_OWNER_REVIEW is not deployment approval. |
 | Rollback requirements | Abandon/revert branch/PR; no live state exists. |
@@ -43,8 +43,8 @@
 | --- | --- |
 | Intended behaviour | Define the backup, rollback, phased staging and stop-condition template that must exist before any F15 live installation/scheduling. |
 | Owning component | Mod-Naxxramas-Core F15 operational planning. |
-| Parent | DRAFT #310 head `044fde67fe5b56acfae050b9188fc50e5cac14b1`. |
-| Source ref/version | DRAFT #311; source-only planning branch. |
+| Parent | DRAFT #310 current head `d409337b246051a3efaa8e5c04a75f50a8e53a97`. |
+| Source ref/version | DRAFT #312, branch `feature/cs01-f15-staging-backup-rollback-plan-v2-20261113`; exact moving head is tracked in PR metadata/master board rather than self-embedded in this file. Supersedes older DRAFT #311 without rewriting it. |
 | Affected files | `docs/P3-F15-STAGING-BACKUP-ROLLBACK-TEMPLATE-20261113.md`, this register. |
 | Config/SQL/DBC/client dependencies | None. |
 | Host dependencies | Requires a VERIFIED #310 evidence manifest plus later owner-approved exact target paths, backup location, scheduler/hook design and runtime ownership. |
