@@ -18,9 +18,27 @@ It does **not**:
 
 Unknown input remains `UNKNOWN`. A manifest setting `authorizations.live_install=true` is treated as a blocker rather than permission.
 
+## Evidence envelope
+
+Every required fact is supplied as an explicit evidence envelope:
+
+```json
+{
+  "status": "VERIFIED",
+  "value": "worldserver",
+  "source": "operator-read-only evidence reference"
+}
+```
+
+Host facts must be `VERIFIED` and must carry non-empty provenance. A plain string such as `"verified"` is not evidence and is rejected as malformed.
+
+The two scheduling fields may be either `PROPOSED` or `VERIFIED`, because they describe the staging plan rather than already-observed host state.
+
+`UNKNOWN` remains unresolved and cannot produce `READY_FOR_OWNER_REVIEW`.
+
 ## Required evidence
 
-The preflight records whether the following have been independently verified:
+The preflight requires:
 
 - Worldserver PM2 process name;
 - PM2 manager log, stdout and stderr paths;
@@ -32,27 +50,34 @@ The preflight records whether the following have been independently verified:
 - build-version and source-revision fingerprint sources;
 - proposed scheduling for `observe-once` and `retain-once`.
 
-All supplied daemon log paths must remain under the configured log root. Capacity is blocked when supplied free bytes are below the supplied 30-day projection.
+All daemon log paths must be absolute normalized POSIX paths under the configured log root. Capacity values must be genuine non-negative integers; booleans are explicitly rejected even though Python normally treats them as integers. Capacity is blocked when supplied free bytes are below the supplied 30-day projection.
 
 ## Output states
 
-- `BLOCKED`: contradictory or unsafe evidence is present.
-- `UNKNOWN`: one or more required facts are not yet verified.
+- `BLOCKED`: malformed, contradictory or unsafe evidence is present.
+- `UNKNOWN`: one or more required facts are absent or not yet verified.
 - `READY_FOR_OWNER_REVIEW`: the source preflight has no known blocker and no missing required fact. This is **not** deployment approval.
 
-The next step after `READY_FOR_OWNER_REVIEW` is to prepare backup, rollback and staging instructions for CosmicCuddle's explicit approval.
+The next step after `READY_FOR_OWNER_REVIEW` is still to prepare backup, rollback and staging instructions for CosmicCuddle's explicit approval.
 
 ## Tests
 
 Focused offline tests cover:
-1. complete manifest -> owner-review readiness only;
-2. missing evidence remains UNKNOWN;
-3. log path outside `/root/cosmic_core/logs` blocks;
-4. insufficient 30-day capacity blocks;
-5. a manifest cannot self-authorize installation;
-6. snapshot hook without a verified overwrite owner blocks.
 
-Local Python test result before publication: **6/6 PASS**.
+1. complete provenance-bearing manifest -> owner-review readiness only;
+2. plain strings cannot masquerade as verified evidence;
+3. missing evidence provenance blocks;
+4. a host fact marked only `PROPOSED` remains unresolved;
+5. boolean capacity values block;
+6. negative capacity blocks;
+7. insufficient 30-day capacity blocks;
+8. log paths outside `/root/cosmic_core/logs` block;
+9. relative daemon log paths block;
+10. explicit UNKNOWN stays UNKNOWN;
+11. a manifest cannot self-authorize installation;
+12. malformed authorization structure blocks.
+
+Local Python result after the evidence hardening: **12/12 PASS**.
 
 ## Custom Modifications Register — F15-STAGING-PREFLIGHT-20261113
 
@@ -64,7 +89,7 @@ Local Python test result before publication: **6/6 PASS**.
 | Affected paths | `scripts/f15_staging_preflight.py`, `tests/test_f15_staging_preflight.py`, this note. |
 | Runtime authority | None; operator-supplied JSON only. |
 | Config/SQL/DBC/client | None. |
-| Risks | Incorrect operator-supplied evidence can only misclassify readiness; it cannot change the host. |
-| Tests | 6/6 focused local PASS; no hosted Actions. |
+| Risks | Incorrect operator evidence cannot change the host; malformed/unproven evidence now blocks or remains UNKNOWN rather than becoming review-ready. |
+| Tests | 12/12 focused local PASS after provenance/type/path hardening; no hosted Actions. |
 | Live status | Uninstalled / not invoked on owner host. |
 | Rollback | Abandon branch/PR; no live state exists. |
