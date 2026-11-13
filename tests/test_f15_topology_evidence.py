@@ -39,6 +39,7 @@ class TopologyEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(incident["classification"], "FATAL_SIGNAL_EXIT")
         self.assertEqual(incident["signal_name"], "SIGSEGV")
+        self.assertEqual(incident["signal"], 11)
 
     def test_pm2_restart_with_nonzero_exit(self):
         incident = adapter.world_incident(
