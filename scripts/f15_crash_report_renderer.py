@@ -52,7 +52,14 @@ def _private_dir(path):
     if path.is_symlink():
         raise Refused("crash-log directory may not be a symlink")
     if not path.exists():
-        path.mkdir(mode=0o700, parents=False)
+        try:
+            path.mkdir(mode=0o700, parents=False)
+        except FileExistsError:
+            # A concurrent safe publisher may have created it after our check.
+            # Validate the resulting object below; never assume it is a directory.
+            pass
+    if path.is_symlink():
+        raise Refused("crash-log directory may not be a symlink")
     st = path.lstat()
     if not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o077:
         raise Refused("crash-log directory must be mode 0700")
