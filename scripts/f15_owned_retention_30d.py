@@ -235,6 +235,10 @@ def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
     if not history.exists():
         return 0
 
+    backup = history.with_name(history.name + ".retention-backup")
+    if backup.exists() or backup.is_symlink():
+        raise Refused("unfinished Crash-History retention backup requires review")
+
     flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     fd = os.open(history, flags)
     try:
@@ -246,7 +250,11 @@ def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
         if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
             raise Refused("Crash-History.txt must be one private regular file")
 
-        data = os.pread(fd, st.st_size, 0).decode("utf-8")
+        original = os.pread(fd, st.st_size, 0)
+        try:
+            data = original.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise Refused("Crash-History.txt is not valid UTF-8") from exc
         lines = data.splitlines(keepends=True)
         kept = []
         dropped = 0
@@ -263,6 +271,34 @@ def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
             kept.append(line)
 
         if dropped:
+            # Preserve the exact pre-rewrite bytes first. If the process dies
+            # during the in-place rewrite, this private backup is recovery
+            # evidence and the next retention run refuses until reviewed.
+            bfd = os.open(
+                backup,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_CLOEXEC", 0),
+                0o600,
+            )
+            try:
+                written = 0
+                while written < len(original):
+                    n = os.write(bfd, original[written:])
+                    if n <= 0:
+                        raise Refused("Crash-History backup write made no progress")
+                    written += n
+                os.fsync(bfd)
+            finally:
+                os.close(bfd)
+
+            # Persist the backup directory entry before touching the original.
+            dfd = os.open(history.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
+
             payload = "".join(kept).encode("utf-8")
             os.lseek(fd, 0, os.SEEK_SET)
             written = 0
@@ -273,6 +309,13 @@ def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
                 written += n
             os.ftruncate(fd, len(payload))
             os.fsync(fd)
+
+            backup.unlink()
+            dfd = os.open(history.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
         return dropped
     finally:
         os.close(fd)
