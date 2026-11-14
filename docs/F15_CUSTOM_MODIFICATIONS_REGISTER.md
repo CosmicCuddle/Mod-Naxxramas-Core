@@ -8,14 +8,14 @@
 
 | Field | Record |
 | --- | --- |
-| Intended behaviour | Provide separated `observe-once`, `snapshot-before-overwrite`, and `retain-once` operational modes for F15 diagnostics/log preservation. |
+| Intended behaviour | Provide separated `observe-once`, `snapshot-before-overwrite`, and `retain-once` operational modes for F15 diagnostics/log preservation, with captured process-identity evidence rendered into human-readable crash reports. |
 | Owning component | Mod-Naxxramas-Core F15 operational tooling. |
 | Source ref/version | DRAFT #309, exact accepted source head `827f5618c991611c483941cabb0ba910fee09180`. |
 | Affected files | `scripts/f15_operational_cli.py`, `tests/test_f15_operational_cli.py`, `docs/P3-F15-OPERATIONAL-CLI-20261113.md`. |
 | Config/SQL/DBC/client dependencies | None in source candidate. |
 | Host dependencies | Actual PM2/tmux topology, log paths, overwrite/rotation owner, permissions, free space, scheduling and build/source fingerprint evidence remain host-specific. |
 | Known risks | Incorrect host topology/path assumptions; wrong overwrite hook; insufficient storage; accidental retention ownership broadening. Production CLI roots are fixed to F15-owned locations; observation must also reject supervisor-configured source paths outside the approved live-log root or through symlink components. |
-| Tests | Focused source tests cover operation separation plus approved-root and symlink refusal for observation sources; no current claim of full World/Auth/live validation. |
+| Tests | Focused source tests cover operation separation, approved-root/symlink refusal, and report propagation of old/replacement PID plus PM2 start epoch/Auth start ticks; no current claim of full World/Auth/live validation. |
 | Live status | Not installed / not scheduled / not invoked on owner host by CS01. |
 | Decisions | Active logs are never retention-owned; copy before approved overwrite/rotation/truncation; F15-owned archive/crash/raw evidence retained 30 days. |
 | Rollback requirements | If later staged, disable schedules/hooks first, restore replaced files from verified backup, preserve diagnostic evidence, and verify original World/Auth topology. |

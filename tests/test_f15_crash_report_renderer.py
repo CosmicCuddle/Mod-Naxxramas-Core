@@ -24,7 +24,10 @@ class RendererTests(unittest.TestCase):
             "exit_code": -11,
             "classification_evidence": "PM2 exit event + kernel status",
             "pid": 123,
+            "replacement_pid": 456,
             "ppid": 2,
+            "process_start_epoch_ms": 1700000000000,
+            "replacement_start_epoch_ms": 1700000005000,
             "supervisor": "PM2",
             "process_start": "2026-11-13T10:00:00Z",
             "uptime_seconds": 4800,
@@ -45,6 +48,9 @@ class RendererTests(unittest.TestCase):
         report = path.read_text()
         self.assertIn("Signal name: SIGSEGV", report)
         self.assertIn("PM2 restart #4", report)
+        self.assertIn("Replacement PID: 456", report)
+        self.assertIn("Process start epoch ms: 1700000000000", report)
+        self.assertIn("Replacement start epoch ms: 1700000005000", report)
         self.assertIn("ERROR boom", report)
         self.assertEqual(stat.S_IMODE(self.root.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)

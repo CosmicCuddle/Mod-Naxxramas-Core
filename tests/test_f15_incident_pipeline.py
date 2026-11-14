@@ -59,7 +59,29 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("Signal: 11", report)
         self.assertIn("Signal name: SIGSEGV", report)
         self.assertIn("PM2 restart_time advanced 4->5", report)
+        self.assertIn("PID: 100", report)
+        self.assertIn("Replacement PID: 101", report)
+        self.assertIn("Process start epoch ms: 1000", report)
+        self.assertIn("Replacement start epoch ms: 2000", report)
         self.assertIn("FATAL_SIGNAL_EXIT", history)
+
+
+    def test_auth_process_start_ticks_reach_detailed_report(self):
+        incident = topology.auth_incident(
+            {"pid": 300, "start_ticks": 12345},
+            {"pid": 301, "start_ticks": 23456},
+            True,
+        )
+        incident.update({
+            "incident_id": "fixture-auth-replaced",
+            "filename_timestamp": "20261113T112002Z",
+        })
+        with tempfile.TemporaryDirectory() as tmp:
+            report = renderer.write_report(Path(tmp) / "Crash Logs", incident).read_text()
+        self.assertIn("PID: 300", report)
+        self.assertIn("Replacement PID: 301", report)
+        self.assertIn("Process start ticks: 12345", report)
+        self.assertIn("Classification: PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN", report)
 
     def test_pm2_restart_without_cause_stays_unproven_in_report(self):
         incident = topology.world_incident(
