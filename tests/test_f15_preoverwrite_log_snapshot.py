@@ -68,6 +68,13 @@ class SnapshotTests(unittest.TestCase):
         )
         self.assertFalse(any("not-recursive" in p.name for p in self.archive.iterdir()))
 
+    def test_archive_outside_selected_log_root_refused(self):
+        (self.logs / "world.log").write_text("w")
+        external = self.base / "elsewhere"
+        with self.assertRaises(snap.Refused):
+            snap.snapshot_log_directory(self.logs, external, observed_utc=NOW)
+        self.assertFalse(external.exists())
+
     def test_root_symlink_refused(self):
         real = self.base / "real-logs"
         real.mkdir()
