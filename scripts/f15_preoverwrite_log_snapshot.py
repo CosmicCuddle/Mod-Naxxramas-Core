@@ -15,8 +15,10 @@ final publication phase can leave partial evidence, but cannot return success.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import fcntl
 import hashlib
 import json
 import os
@@ -59,6 +61,35 @@ def _private_dir(path: Path) -> Path:
     if not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o077:
         raise Refused("archive directory must be mode 0700")
     return path
+
+
+@contextmanager
+def _archive_lock(archive_root: Path):
+    """Serialize one archive root's scan/prepare/publish transaction.
+
+    The persistent lock inode is foreign to retention ownership and is never a
+    snapshot manifest. A process crash releases the kernel lock automatically.
+    """
+    lock_path = archive_root / ".f15-snapshot.lock"
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        raise Refused("cannot open snapshot lock safely") from exc
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("snapshot lock must be one private regular file")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("snapshot lock changed while locked")
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 def _safe_name(name: str) -> str:
@@ -247,25 +278,29 @@ def snapshot_file(source: Path, archive_root: Path, observed_utc: datetime | Non
     source = Path(source)
     when = _utc(observed_utc)
     archive_root = _private_dir(Path(archive_root))
-    prepared = _prepare_snapshot(source, archive_root, when)
-    return _publish_all([prepared], archive_root)[0]
+    with _archive_lock(archive_root):
+        prepared = _prepare_snapshot(source, archive_root, when)
+        return _publish_all([prepared], archive_root)[0]
 
 
 def snapshot_log_directory(log_root: Path, archive_root: Path, excluded_names: set[str] | None = None,
                            observed_utc: datetime | None = None) -> list[tuple[Path, Path]]:
     log_root = Path(log_root)
-    archive_root = Path(archive_root)
+    archive_root = _private_dir(Path(archive_root))
     when = _utc(observed_utc)
 
-    # Phase 1: classify the entire direct root before creating archive data.
-    plans = _scan_log_root(log_root, archive_root, excluded_names)
+    # The archive lock serializes the full root classification, preparation and
+    # publication transaction. Creating the private archive/lock is harmless;
+    # no snapshot data is created before the complete root pre-scan succeeds.
+    with _archive_lock(archive_root):
+        # Phase 1: classify the entire direct root before creating snapshot data.
+        plans = _scan_log_root(log_root, archive_root, excluded_names)
 
-    # Phase 2: prepare every eligible copy privately. No final .log/.json
-    # snapshot is published until every source has passed open/stability/hash.
-    archive_root = _private_dir(archive_root)
-    prepared: list[_PreparedSnapshot] = []
-    for plan in plans:
-        prepared.append(_prepare_snapshot(plan.path, archive_root, when, plan.fingerprint))
+        # Phase 2: prepare every eligible copy privately. No final .log/.json
+        # snapshot is published until every source has passed open/stability/hash.
+        prepared: list[_PreparedSnapshot] = []
+        for plan in plans:
+            prepared.append(_prepare_snapshot(plan.path, archive_root, when, plan.fingerprint))
 
-    # Phase 3: publish only after the full preparation phase succeeded.
-    return _publish_all(prepared, archive_root)
+        # Phase 3: publish only after the full preparation phase succeeded.
+        return _publish_all(prepared, archive_root)
