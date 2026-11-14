@@ -250,8 +250,12 @@ def _file_identity(path: Path) -> dict:
 
 
 def _bundle_identity(bundle: Path) -> dict:
+    if bundle.is_symlink():
+        raise Refused("raw evidence bundle may not be a symlink")
     st = bundle.lstat()
-    if not stat.S_ISDIR(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+    # Directory link counts are filesystem/layout dependent (commonly 2 for
+    # an empty directory), so do not apply the regular-file single-link rule.
+    if not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o077:
         raise Refused("raw evidence bundle must be one private directory")
     return {"dev": st.st_dev, "ino": st.st_ino}
 
