@@ -32,6 +32,7 @@ PLANNED_FACTS = ("scheduling.observe_once", "scheduling.retain_once")
 REQUIRED = HOST_FACTS + PLANNED_FACTS
 PATH_KEYS = ("world.pm2_manager_log", "world.stdout_log", "world.stderr_log", "auth.log")
 INT_KEYS = ("capacity.free_bytes", "capacity.projected_30d_bytes")
+APPROVED_LOG_ROOT = "/root/cosmic_core/logs"
 
 
 def _get(data: dict[str, Any], dotted: str) -> Any:
@@ -75,12 +76,12 @@ def _normalized_absolute(value: str) -> bool:
     return p.is_absolute() and ".." not in p.parts and str(p) == value
 
 
-def _under(root: str, value: str) -> bool:
+def _strictly_under(root: str, value: str) -> bool:
     if not _normalized_absolute(root) or not _normalized_absolute(value):
         return False
     r = PurePosixPath(root)
     p = PurePosixPath(value)
-    return p == r or r in p.parents
+    return p != r and r in p.parents
 
 
 def assess(data: dict[str, Any]) -> dict[str, Any]:
@@ -93,6 +94,10 @@ def assess(data: dict[str, Any]) -> dict[str, Any]:
 
     if not root or not _normalized_absolute(root):
         blockers.append("log_root must be an absolute normalized POSIX path")
+    elif root != APPROVED_LOG_ROOT:
+        blockers.append(
+            "log_root must remain the owner-approved /root/cosmic_core/logs boundary"
+        )
 
     for key in REQUIRED:
         status, value, _source = _evidence(data, key)
@@ -117,8 +122,10 @@ def assess(data: dict[str, Any]) -> dict[str, Any]:
         values[key] = value
 
     for key in PATH_KEYS:
-        if key in values and not _under(root, values[key]):
-            blockers.append(f"{key} is outside log_root or is not a normalized absolute path")
+        if key in values and not _strictly_under(root, values[key]):
+            blockers.append(
+                f"{key} must be a normalized absolute file path strictly below log_root"
+            )
 
     free = values.get("capacity.free_bytes")
     projected = values.get("capacity.projected_30d_bytes")
