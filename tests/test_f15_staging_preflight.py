@@ -109,6 +109,18 @@ class Tests(unittest.TestCase):
                 data["auth"]["log"] = ev(path)
                 self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
 
+    def test_embedded_nul_log_paths_block(self):
+        for section, key in (
+            ("world", "pm2_manager_log"),
+            ("world", "stdout_log"),
+            ("world", "stderr_log"),
+            ("auth", "log"),
+        ):
+            with self.subTest(section=section, key=key):
+                data = complete()
+                data[section][key] = ev("/root/cosmic_core/logs/auth\x00.log")
+                self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
     def test_noncanonical_log_root_blocks(self):
         data = complete()
         data["log_root"] = "/root//cosmic_core/logs"

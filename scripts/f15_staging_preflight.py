@@ -69,6 +69,8 @@ def _valid_scalar(key: str, value: Any) -> bool:
 
 
 def _normalized_absolute(value: str) -> bool:
+    if "\x00" in value:
+        return False
     try:
         p = PurePosixPath(value)
     except TypeError:

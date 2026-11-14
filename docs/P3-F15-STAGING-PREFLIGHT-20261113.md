@@ -68,9 +68,10 @@ Focused offline tests now cover the original provenance/type/capacity/path/autho
 - `log_root="/"` cannot broaden the trust boundary;
 - an alternate root remains blocked absent a separate owner decision;
 - a daemon log path equal to the root directory is rejected;
-- valid strict descendants remain accepted.
+- valid strict descendants remain accepted;
+- embedded NUL bytes are rejected because lexical PurePosixPath normalization alone accepts them but operating-system file APIs cannot use them.
 
-The prior 13/13 result belongs to an older head. The current branch contains **19 focused test methods**, but a full exact-head run is **not claimed** in this environment. No hosted Actions were requested.
+The prior 13/13 result belongs to an older head. The current branch contains **20 focused test methods**, but a full exact-head run is **not claimed** in this environment. No hosted Actions were requested.
 
 ## Custom Modifications Register — F15-STAGING-PREFLIGHT-20261113
 
@@ -83,6 +84,6 @@ The prior 13/13 result belongs to an older head. The current branch contains **1
 | Runtime authority | None; operator-supplied JSON only. |
 | Config/SQL/DBC/client | None. |
 | Risks | Incorrect operator evidence cannot change the host; malformed/unproven evidence now blocks or remains UNKNOWN rather than becoming review-ready. |
-| Tests | 19 focused test methods committed; current exact-head execution UNKNOWN here. Prior 13/13 result applies only to an older head; no hosted Actions. |
+| Tests | 20 focused test methods committed; current exact-head execution UNKNOWN here. Prior 13/13 result applies only to an older head; no hosted Actions. |
 | Live status | Uninstalled / not invoked on owner host. |
 | Rollback | Abandon branch/PR; no live state exists. |
