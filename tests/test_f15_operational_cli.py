@@ -138,6 +138,39 @@ class OperationalCliTests(unittest.TestCase):
             cli._tail_best_effort(linkdir / "secret.log", "test", self.logs)
 
 
+
+    def test_world_pm2_counter_reset_is_baseline_then_next_restart_reports(self):
+        out = self.logs / "world-out.log"
+        err = self.logs / "world-err.log"
+        mgr = self.logs / "pm2.log"
+        out.write_text("out\n")
+        err.write_text("err\n")
+        mgr.write_text("manager\n")
+        runner = SequenceRunner({
+            ("pm2", "jlist"): [
+                (0, pm2(100, 5, out, err), ""),
+                (0, pm2(200, 0, out, err), ""),
+                (0, pm2(201, 1, out, err), ""),
+            ],
+        })
+        self.assertEqual(cli.observe_once(
+            self.state, self.crash, log_root=self.logs,
+            world_pm2_name="worldserver", pm2_manager_log=mgr,
+            runner=runner, now=NOW,
+        ), [])
+        self.assertEqual(cli.observe_once(
+            self.state, self.crash, log_root=self.logs,
+            world_pm2_name="worldserver", pm2_manager_log=mgr,
+            runner=runner, now=NOW + timedelta(seconds=1),
+        ), [])
+        third = cli.observe_once(
+            self.state, self.crash, log_root=self.logs,
+            world_pm2_name="worldserver", pm2_manager_log=mgr,
+            runner=runner, now=NOW + timedelta(seconds=2),
+        )
+        self.assertEqual(third[0]["incident_id"], "worldserver-00000001")
+        self.assertEqual(third[0]["classification"], "PM2_RESTART_OBSERVED")
+
     def test_auth_observe_present_then_tmux_session_absent_emits_unknown_cause_incident(self):
         auth_log = self.logs / "auth.log"
         auth_log.write_text("auth context\n")

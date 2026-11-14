@@ -68,11 +68,14 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 def _world_identity(snapshot: Any, process_name: str, parser: Callable[[Any, str], dict[str, Any]]) -> dict[str, Any]:
     proc = parser(snapshot, process_name)
+    restart_time = proc.get("restart_time")
+    if not isinstance(restart_time, int) or isinstance(restart_time, bool) or restart_time < 0:
+        raise Refused("World PM2 restart_time must be one non-negative integer")
     return {
         "kind": "pm2",
         "name": process_name,
         "pid": proc.get("pid"),
-        "restart_time": proc.get("restart_time"),
+        "restart_time": restart_time,
         "pm_uptime": proc.get("pm_uptime"),
         "status": proc.get("status"),
     }
@@ -150,6 +153,19 @@ class IncidentCheckpoint:
         state = self.initialize(current_identity)
         previous = state["identity"]
         if previous == current_identity:
+            return None
+
+        # PM2 restart_time is monotonic only within one supervisor lineage.
+        # A backwards value proves the counter lineage reset, not a Worldserver
+        # exit. Re-baseline without consuming an incident sequence.
+        previous_restarts = previous.get("restart_time")
+        current_restarts = current_identity.get("restart_time")
+        if (
+            isinstance(previous_restarts, int)
+            and isinstance(current_restarts, int)
+            and current_restarts < previous_restarts
+        ):
+            self._commit(current_identity, int(state["sequence"]))
             return None
 
         def as_snapshot(identity: dict[str, Any]) -> list[dict[str, Any]]:
