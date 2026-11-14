@@ -28,8 +28,10 @@ Source defaults are aligned to the owner requirement:
 - archived pre-overwrite logs: `/root/cosmic_core/logs/Archived Logs/`
 - observer checkpoint state: `/root/cosmic_core/logs/.f15-state/`
 
-These defaults are source configuration only and do not create/change anything
-until an operator invokes a mode.
+These locations are fixed production trust boundaries for the CLI and do not
+create/change anything until an operator invokes a mode. The CLI exposes no
+state/crash/log/archive root override. Tests and source-level composition may
+inject temporary roots only through the Python function APIs.
 
 ## observe-once
 
@@ -44,14 +46,14 @@ Worldserver behavior:
 - one real `pm2 jlist` observation is made;
 - that exact observation is replayed internally into the composed pipeline so
   detection does not perform a second race-prone PM2 sample;
-- PM2 stdout/stderr paths from the snapshot are tailed read-only, bounded;
-- PM2 manager log is tailed read-only, bounded;
+- PM2 stdout/stderr paths from the snapshot are accepted only when they resolve beneath the approved live log root and contain no symlink component, then tailed read-only and bounded;
+- PM2 manager log is subject to the same approved-root/symlink rule and tailed read-only, bounded;
 - log-tail failures become explicit unavailable context rather than process
   control.
 
 Authserver behavior:
 - uses the strict tmux/process-tree read-only probe;
-- optional Auth log tail is bounded;
+- optional Auth log tail is bounded and must resolve beneath the same approved live log root with no symlink component;
 - disappearance under live tmux is reportable with cause UNKNOWN.
 
 Output to stdout is only a compact JSON incident summary; raw log content is not
@@ -94,7 +96,10 @@ Focused tests cover:
 5. archive destination must be a direct child of log root;
 6. 31-day owned archive/raw-evidence/crash artifacts expire together;
 7. active source log survives retention unchanged;
-8. parser exposes exactly the three approved modes.
+8. parser exposes exactly the three approved modes;
+9. PM2/Auth/manager log sources outside the approved log root are refused;
+10. final or parent-component symlink log sources are refused;
+11. no operational mode exposes state/crash/log/archive root overrides that could broaden the production trust boundary.
 
 No hosted Actions are requested yet.
 
@@ -130,7 +135,7 @@ and verify directory/permission behavior first.
 | Parent | #308 head `de72dacba130d9d562e1b922103947cbdd477d3d`. |
 | Dependencies | F15 #301–#308 and #305–#307 source layers; PM2/tmux/ps/Linux /proc only when staged. |
 | Config/SQL/DBC/client | None. |
-| Risks/limits | Not yet scheduled; exact live topology/overwrite owner unknown; one-shot observation interval not selected; disk-capacity gate pending. |
+| Risks/limits | Not yet scheduled; exact live topology/overwrite owner unknown; one-shot observation interval not selected; disk-capacity gate pending. Runtime observation now refuses configured log sources outside the approved root or through symlink components. |
 | Tests | Focused source tests authored; no live host/hosted Actions test. |
 | Live status | DRAFT/uninstalled. |
 | Rollback | Do not install/schedule; abandon branch/PR. No live state change exists. |
