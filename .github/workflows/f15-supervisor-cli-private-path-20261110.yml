@@ -1,0 +1,96 @@
+# F15 private-path public CLI redaction: isolated source/tests only; OFF.
+# Frozen parent #292; no owner host, real World/Auth process or DB access.
+name: F15 supervisor public refusal privacy (OFF, disposable only)
+on:
+  pull_request:
+    branches:
+      - integration/cs01-p2-p4h2-20261103
+    paths:
+      - "scripts/f15_process_supervisor.py"
+      - "tests/test_f15_process_supervisor.py"
+      - "docs/P3-F15-SUPERVISOR-PUBLIC-ERROR-REDACTION-20261110.md"
+      - ".github/workflows/f15-supervisor-cli-private-path-20261110.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  supervisor-privacy:
+    name: F15 parent RED / child GREEN and no real server
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact parent, four allowed paths and safe source diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=51d0611476358286505aed3ca806ea250f644f66
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          git merge-base --is-ancestor "$parent" HEAD
+          git diff --name-only "$parent" HEAD | sort > /tmp/f15-actual
+          printf '%s\n' \
+            '.github/workflows/f15-supervisor-cli-private-path-20261110.yml' \
+            'docs/P3-F15-SUPERVISOR-PUBLIC-ERROR-REDACTION-20261110.md' \
+            'scripts/f15_process_supervisor.py' \
+            'tests/test_f15_process_supervisor.py' | sort > /tmp/f15-expected
+          diff -u /tmp/f15-expected /tmp/f15-actual
+          git diff --check "$parent" HEAD
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path("scripts/f15_process_supervisor.py").read_text()
+          assert 'print(f"F15 supervisor REFUSED: {exc}"' not in src
+          assert 'print("F15 supervisor REFUSED: operation rejected; details withheld", file=sys.stderr)' in src
+          assert 'return 2' in src and 'if not args.execute:' in src
+          assert 'print(json.dumps({"run": str(run), "outcome": outcome}, sort_keys=True))' in src
+          assert 'atomic_write(run / "launch-failed.json"' in src
+          PY
+      - name: Parent reproduces path exposure; child refuses without leak
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=51d0611476358286505aed3ca806ea250f644f66
+          tmp="$(mktemp -d)"
+          chmod 0700 "$tmp"
+          mkdir -m 0700 "$tmp/archive"
+          ln -s "$tmp" "$tmp/SECRET_F15_PRIVATE_ROOT"
+          git show "$parent:scripts/f15_process_supervisor.py" > "$tmp/old_supervisor.py"
+          export PYTHONPATH="$GITHUB_WORKSPACE/scripts"
+          # The symlink is rejected BEFORE any subprocess.Popen. /bin/true is
+          # a dummy, never-run argv, NOT a Worldserver/Authserver launch.
+          set +e
+          python3 "$tmp/old_supervisor.py" \
+            --output-root "$tmp/SECRET_F15_PRIVATE_ROOT" \
+            --archive-root "$tmp/archive" --service Worldserver \
+            --execute -- /bin/true > "$tmp/old.out" 2> "$tmp/old.err"
+          old_rc=$?
+          set -e
+          test "$old_rc" -eq 2
+          grep -F 'SECRET_F15_PRIVATE_ROOT' "$tmp/old.err"
+          test ! -s "$tmp/old.out"
+          set +e
+          python3 scripts/f15_process_supervisor.py \
+            --output-root "$tmp/SECRET_F15_PRIVATE_ROOT" \
+            --archive-root "$tmp/archive" --service Worldserver \
+            --execute -- /bin/true > "$tmp/new.out" 2> "$tmp/new.err"
+          new_rc=$?
+          set -e
+          test "$new_rc" -eq 2
+          test ! -s "$tmp/new.out"
+          grep -Fx 'F15 supervisor REFUSED: operation rejected; details withheld' "$tmp/new.err"
+          if grep -F 'SECRET_F15_PRIVATE_ROOT' "$tmp/new.err"; then
+            echo 'PRIVATE PATH LEAK DETECTED' >&2; exit 1
+          fi
+          test ! -e "$tmp/runs"
+          echo 'PASS: old release printed private path; new redacts without child execution'
+      - name: Existing and new disposable supervisor tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests -p test_f15_process_supervisor.py -v
+          echo 'PASS: no real Worldserver/Authserver, no owner server, no cleanup or deployment'

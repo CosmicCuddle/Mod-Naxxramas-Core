@@ -34,35 +34,46 @@ OWNER_LOOKUP = (
     "        Player* owner = ObjectAccessor::FindPlayer(loot.roundRobinPlayer);"
 )
 
-# Each snippet is a fail-open permit. Denial (return false) must come later.
+# The refactored shared predicate returns FALSE (no denial) on every
+# absent/not-eligible owner case. Its only TRUE path is the final known-denial
+# verdict. PermitPickup separately checks the real packet source and range.
 PRESENCE_FAIL_OPEN = (
-    "if (!owner || owner->GetGroup() != group)\n            return true;",
-    "if (!owner->IsInWorld())\n            return true;",
+    "if (!owner || owner->GetGroup() != group)\n            return false;",
+    "if (!owner->IsInWorld())\n            return false;",
     "if (ownerMap != looterMap || ownerMap != corpseMap ||\n"
     "            ownerMap->GetId() != looterMap->GetId() ||\n"
     "            ownerMap->GetId() != corpseMap->GetId())\n"
-    "            return true;",
+    "            return false;",
     "if (owner->GetInstanceId() != player->GetInstanceId() ||\n"
     "            owner->GetInstanceId() != creature->GetInstanceId() ||\n"
     "            ownerMap->GetInstanceId() != looterMap->GetInstanceId() ||\n"
     "            ownerMap->GetInstanceId() != corpseMap->GetInstanceId())\n"
-    "            return true;",
+    "            return false;",
 )
 
 
 def presence_fail_open(source):
-    """True when every presence guard permits and the deny is still last."""
-    deny = source.rfind("return false;")
-    if deny < 0:
+    """A missing owner never denies, and only the real packet wrapper errors."""
+    if source.count("bool WouldDenyQuestSlotForViewer(") != 1:
         return False
-    locked = source.find("player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED)")
-    if locked < 0 or locked > deny:
+    if source.count("bool PermitPickup(") != 1:
+        return False
+    predicate = source.split("bool WouldDenyQuestSlotForViewer(", 1)[1].split("bool PermitPickup(", 1)[0]
+    wrapper = source.split("bool PermitPickup(", 1)[1]
+    final_deny = predicate.rfind("return true;")
+    if final_deny < 0 or predicate.count("return true;") != 1:
         return False
     for snippet in PRESENCE_FAIL_OPEN:
-        at = source.find(snippet)
-        if at < 0 or at > locked:
+        pos = predicate.find(snippet)
+        if pos < 0 or pos > final_deny:
             return False
-    return "Distance and death are not extra denies" in source
+    if "GetLootGUID()" in predicate or "SendLootError(" in predicate:
+        return False
+    if "if (!WouldDenyQuestSlotForViewer(player, creature, requestedSlot))" not in wrapper:
+        return False
+    locked = wrapper.find("player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED)")
+    return locked >= 0 and locked < wrapper.rfind("return false;") and (
+        "Distance and death are not extra denies" in predicate)
 
 
 def flags_round_robin_write(source, pattern=ROUND_ROBIN_ASSIGNMENT):
@@ -474,19 +485,20 @@ class QuestLootProtectionContract(unittest.TestCase):
 
     def test_presence_guards_are_fail_open_in_source(self):
         self.assertTrue(presence_fail_open(CPP))
-        start = CPP.index(OWNER_LOOKUP)
-        body = CPP[start:]
-        order = [
-            body.index("if (!owner || owner->GetGroup() != group)"),
-            body.index("if (!owner->IsInWorld())"),
-            body.index("ownerMap->GetId() != looterMap->GetId()"),
-            body.index("owner->GetInstanceId() != player->GetInstanceId()"),
-            body.index("ownerMap->GetInstanceId() != corpseMap->GetInstanceId()"),
-            body.index("item.AllowedForPlayer(owner, loot.sourceWorldObjectGUID)"),
-            body.index("player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED)"),
-            body.index("return false;"),
+        shared = CPP.split("bool WouldDenyQuestSlotForViewer(", 1)[1].split("bool PermitPickup(", 1)[0]
+        wrapper = CPP.split("bool PermitPickup(", 1)[1]
+        positions = [
+            shared.index("if (!owner || owner->GetGroup() != group)"),
+            shared.index("if (!owner->IsInWorld())"),
+            shared.index("ownerMap->GetId() != looterMap->GetId()"),
+            shared.index("owner->GetInstanceId() != player->GetInstanceId()"),
+            shared.index("ownerMap->GetInstanceId() != corpseMap->GetInstanceId()"),
+            shared.index("item.AllowedForPlayer(owner, loot.sourceWorldObjectGUID)"),
+            shared.rindex("return true;"),
         ]
-        self.assertEqual(order, sorted(order))
+        self.assertEqual(positions, sorted(positions))
+        self.assertLess(wrapper.index("if (!WouldDenyQuestSlotForViewer(player, creature, requestedSlot))"),
+                        wrapper.index("player->SendLootError(sourceGuid, LOOT_ERROR_LOCKED)"))
         self.assertIn("Distance and death are not extra denies", CPP)
         self.assertIn("Distance and death are not extra denies", DOC)
         for absent in ("owner->isAlive()", "owner->IsAlive()", "owner->IsWithinDist"):
@@ -499,12 +511,12 @@ class QuestLootProtectionContract(unittest.TestCase):
         mutations = {
             "not_found_no_longer_permits": (
                 "if (!owner || owner->GetGroup() != group)\n"
-                "            return true;",
-                "if (owner->GetGroup() != group)\n            return true;",
+                "            return false;",
+                "if (owner->GetGroup() != group)\n            return false;",
             ),
             "not_in_world_denies": (
-                "if (!owner->IsInWorld())\n            return true;",
                 "if (!owner->IsInWorld())\n            return false;",
+                "if (!owner->IsInWorld())\n            return true;",
             ),
             "map_guard_removed": (
                 "ownerMap->GetId() != looterMap->GetId()",

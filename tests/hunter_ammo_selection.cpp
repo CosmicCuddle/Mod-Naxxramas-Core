@@ -18,22 +18,57 @@ int main()
     assert(ChooseAmmo(18, 11285, 60).itemId == 11285);
     assert(ChooseAmmo(3, 11284, 60).itemId == 11284);
     // Selecting a quest/crafted item is not proof it may be duplicated.
-    assert(ChooseAmmo(2, 18042, 60).itemId == 0);
-    assert(ChooseAmmo(3, 15997, 60).itemId == 0);
-    assert(ChooseAmmo(2, 18042, 60).decision == Decision::UnsupportedSelectedAmmo);
-    assert(ChooseAmmo(3, 15997, 60).decision == Decision::UnsupportedSelectedAmmo);
+    assert(ChooseAmmo(2, 18042, 60).itemId == 11285);
+    assert(ChooseAmmo(3, 15997, 60).itemId == 11284);
+    assert(ChooseAmmo(2, 18042, 60).decision == Decision::VendorFallback);
+    assert(ChooseAmmo(3, 15997, 60).decision == Decision::VendorFallback);
     // Separate deliberate enablement is required for this premium source.
     assert(ChooseAmmo(2, 18042, 60, true).itemId == 18042);
     assert(ChooseAmmo(3, 15997, 60, true).itemId == 15997);
 
-    // Selected ammo is never substituted on a mismatch or unsupported ID.
-    assert(ChooseAmmo(3, 11285, 60).decision ==
-           Decision::UnsupportedSelectedAmmo);
-    assert(ChooseAmmo(2, 11284, 60).itemId == 0);
-    assert(ChooseAmmo(2, 19316, 60).itemId == 0); // AV/reputation
-    assert(ChooseAmmo(2, 12654, 60).itemId == 0); // quest / unknown
-    assert(ChooseAmmo(3, 15997, 51).decision == Decision::LevelTooLow);
-    assert(ChooseAmmo(2, 18042, 51).itemId == 0);
+    // An unsupplyable selection is preserved; compatible vendor backup is supplied.
+    assert(ChooseAmmo(3, 11285, 60).itemId == 11284);
+    assert(ChooseAmmo(2, 11284, 60).itemId == 11285);
+    assert(ChooseAmmo(2, 19316, 60).itemId == 11285); // AV/reputation
+    assert(ChooseAmmo(2, 12654, 60).itemId == 11285); // Doomshot backup
+    assert(ChooseAmmo(3, 15997, 51).itemId == 11284);
+    assert(ChooseAmmo(2, 18042, 51).itemId == 11285);
+
+    assert(ChooseAmmo(18, 12654, 25).itemId == 3030); // lower-level fallback
+    assert(ChooseAmmo(2, 12654, 0).itemId == 0); // no legal ammo
+    assert(ChooseAmmo(3, 12654, 60).itemId == 11284); // gun never receives arrows
+    assert(ChooseAmmo(18, 11285, 60).decision == Decision::Selected);
+    assert(ChooseAmmo(3, 11284, 60).decision == Decision::Selected);
+    assert(ChooseAmmo(2, 18042, 60, true).decision == Decision::Selected);
+
+    // Real quiver layout: each equipped slot has a 200-arrow logical
+    // ceiling even when the server item_template allows a bigger stack.
+    assert(QuiverSlotTarget(200) == 200);
+    assert(QuiverSlotTarget(1000) == 200);
+    assert(QuiverSlotTarget(120) == 120);
+    assert(QuiverSlotTarget(0) == 0);
+    assert(MoltenCoreQuiverSlotCount == 16);
+    assert(IsApprovedVendorAmmo(11285));
+    assert(IsApprovedVendorAmmo(11284));
+    assert(!IsApprovedVendorAmmo(12654));
+    assert(!IsApprovedVendorAmmo(18042));
+    assert(!IsApprovedVendorAmmo(15997));
+    assert(MoltenCoreQuiverSlotCount * MoltenCoreQuiverSlotTarget == 3200);
+
+    // Owner-approved rare allocation is a separate, default-DENY permission.
+    assert(DoomshotAllocationTarget(600, 12654, 18, 60, 100, false) == 0);
+    assert(DoomshotAllocationTarget(600, 12654, 18, 60, 100, true) == 200);
+    assert(DoomshotAllocationTarget(600, 12654, 2, 54, 1, true) == 200);
+    assert(DoomshotAllocationTarget(150, 12654, 18, 60, 100, true) == 150);
+    assert(DoomshotAllocationTarget(600, 12654, 18, 53, 100, true) == 0);
+    assert(DoomshotAllocationTarget(600, 12654, 3, 60, 100, true) == 0);
+    assert(DoomshotAllocationTarget(600, 12654, 18, 60, 0, true) == 0);
+    assert(DoomshotAllocationTarget(600, 18042, 18, 60, 100, true) == 0);
+    assert(Shortfall(100, DoomshotRareAllocation) == 100);
+    assert(Shortfall(200, DoomshotRareAllocation) == 0);
+    // 200 rare + 400 vendor = 600; no extra rare or fallback over target.
+    assert(TargetCount(600, 0) - DoomshotRareAllocation == 400);
+    assert(ChooseAmmo(18, 12654, 60).itemId == 11285);
 
     // No selected ammo: conservative level-appropriate VENDOR pairs only.
     assert(ChooseAmmo(2, 0, 1).itemId == 2512);
