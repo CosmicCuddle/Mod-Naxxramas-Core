@@ -274,6 +274,22 @@ def _scan_log_root(log_root: Path, archive_root: Path,
     return plans
 
 
+def _revalidate_sources(plans: list[_SourcePlan]) -> None:
+    """Require every source to still match the complete-root pre-scan.
+
+    This closes the gap where an early source changes while later files are
+    being prepared. The overwrite owner must still prevent writes between a
+    successful return from this helper and the destructive overwrite itself.
+    """
+    for plan in plans:
+        fd, current = _open_source(plan.path, plan.fingerprint)
+        try:
+            if _fingerprint(current) != plan.fingerprint:
+                raise Refused("source changed before batch publication")
+        finally:
+            os.close(fd)
+
+
 def snapshot_file(source: Path, archive_root: Path, observed_utc: datetime | None = None) -> tuple[Path, Path]:
     source = Path(source)
     when = _utc(observed_utc)
@@ -302,5 +318,10 @@ def snapshot_log_directory(log_root: Path, archive_root: Path, excluded_names: s
         for plan in plans:
             prepared.append(_prepare_snapshot(plan.path, archive_root, when, plan.fingerprint))
 
-        # Phase 3: publish only after the full preparation phase succeeded.
+        # Recheck the complete source set after the last copy was prepared.
+        # An early source changing while a later one is copied invalidates the
+        # batch before any final snapshot pair is published.
+        _revalidate_sources(plans)
+
+        # Phase 3: publish only after the full preparation/revalidation phase succeeded.
         return _publish_all(prepared, archive_root)
