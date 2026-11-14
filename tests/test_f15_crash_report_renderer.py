@@ -193,6 +193,39 @@ class RendererTests(unittest.TestCase):
                 f15.ensure_report(self.root, self.inc)
         self.assertEqual(history.read_bytes(), b"foreign\n")
 
+    def test_history_lock_symlink_refused(self):
+        self.create_report_only()
+        target = Path(self.t.name) / "foreign-lock"
+        target.write_text("")
+        lock = self.root / "Crash-History.txt.lock"
+        lock.symlink_to(target)
+        with self.assertRaises(f15.Refused):
+            f15.ensure_report(self.root, self.inc)
+        self.assertEqual(target.read_text(), "")
+
+    def test_history_lock_insecure_or_nonempty_refused(self):
+        self.create_report_only()
+        lock = self.root / "Crash-History.txt.lock"
+        lock.write_text("")
+        lock.chmod(0o644)
+        with self.assertRaises(f15.Refused):
+            f15.ensure_report(self.root, self.inc)
+
+        lock.chmod(0o600)
+        lock.write_text("foreign")
+        with self.assertRaises(f15.Refused):
+            f15.ensure_report(self.root, self.inc)
+
+    def test_history_lock_hardlink_refused(self):
+        self.create_report_only()
+        lock = self.root / "Crash-History.txt.lock"
+        lock.write_text("")
+        lock.chmod(0o600)
+        other = Path(self.t.name) / "other-lock"
+        os.link(lock, other)
+        with self.assertRaises(f15.Refused):
+            f15.ensure_report(self.root, self.inc)
+
     def test_history_symlink_refused_without_touching_target_or_report(self):
         path = self.create_report_only()
         before = path.read_bytes()
