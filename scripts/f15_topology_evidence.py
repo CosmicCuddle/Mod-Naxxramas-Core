@@ -87,6 +87,16 @@ def _last_pm2_exit(manager_text, name):
             }
     return found
 
+def _pm2_live(proc):
+    pid = proc.get("pid")
+    return (
+        proc.get("status") == "online"
+        and isinstance(pid, int)
+        and not isinstance(pid, bool)
+        and pid > 0
+    )
+
+
 def world_incident(previous_snapshot, current_snapshot, process_name, manager_text=""):
     previous = _one_pm2(previous_snapshot, process_name)
     current = _one_pm2(current_snapshot, process_name)
@@ -96,8 +106,60 @@ def world_incident(previous_snapshot, current_snapshot, process_name, manager_te
         raise Refused("PM2 restart_time is required")
     if after < before:
         raise Refused("PM2 restart counter moved backwards")
-    if after == before:
+
+    previous_live = _pm2_live(previous)
+    current_live = _pm2_live(current)
+
+    # Recovery/start after an already-observed stopped baseline is not itself a
+    # crash incident. If more than one restart occurred while the service was
+    # absent, retain that as an incident because intermediate failures cannot be
+    # ruled out from endpoint-only PM2 evidence.
+    if not previous_live and current_live and after <= before + 1:
         return None
+
+    # PM2 can expose a stopped/errored identity without advancing restart_time.
+    # Never silently consume a transition away from a live process merely
+    # because the restart counter did not move.
+    if after == before:
+        if previous_live and current_live:
+            if (
+                previous["pid"] == current["pid"]
+                and previous["pm_uptime"] == current["pm_uptime"]
+                and previous["status"] == current["status"]
+            ):
+                return None
+            classification = "PM2_PROCESS_IDENTITY_CHANGED_CAUSE_UNKNOWN"
+            evidence = (
+                f"PM2 live identity changed with restart_time unchanged at {after}; "
+                f"pid={previous['pid']}->{current['pid']}; "
+                f"status={previous['status']}->{current['status']}"
+            )
+        elif previous_live and not current_live:
+            classification = "PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN"
+            evidence = (
+                f"PM2 process ceased to be live with restart_time unchanged at {after}; "
+                f"pid={previous['pid']}->{current['pid']}; "
+                f"status={previous['status']}->{current['status']}"
+            )
+        else:
+            # stopped/absent -> stopped/absent identity changes are not a new
+            # crash; the checkpoint may advance to the latest observed state.
+            return None
+
+        return {
+            "service": "Worldserver",
+            "supervisor": "PM2",
+            "pid": previous["pid"],
+            "replacement_pid": current["pid"],
+            "exit_code": current["exit_code"],
+            "signal_name": None,
+            "signal": None,
+            "classification": classification,
+            "classification_evidence": evidence,
+            "restart_evidence": f"restart_time={after} (unchanged)",
+            "process_start_epoch_ms": previous["pm_uptime"],
+            "replacement_start_epoch_ms": current["pm_uptime"],
+        }
 
     event = _last_pm2_exit(manager_text, process_name)
     exit_code = event["exit_code"] if event else current["exit_code"]
@@ -116,6 +178,8 @@ def world_incident(previous_snapshot, current_snapshot, process_name, manager_te
         f"PM2 restart_time advanced {before}->{after}",
         f"status={current['status'] if current['status'] is not None else 'UNKNOWN'}",
     ]
+    if not previous_live:
+        evidence.append("previous checkpoint was not a live PM2 process")
     if event:
         evidence.append("PM2 manager exit line matched process name")
     else:
@@ -139,33 +203,44 @@ def world_incident(previous_snapshot, current_snapshot, process_name, manager_te
         "replacement_start_epoch_ms": current["pm_uptime"],
     }
 
-def auth_incident(previous, current, tmux_alive):
-    if not isinstance(previous, dict) or not isinstance(current, dict):
-        raise Refused("Auth snapshots must be mappings")
 
-    prev_pid = previous.get("pid")
-    prev_start = previous.get("start_ticks")
-    cur_pid = current.get("pid")
-    cur_start = current.get("start_ticks")
-
+def _auth_pair(snapshot, label):
+    if not isinstance(snapshot, dict):
+        raise Refused(f"{label} Auth snapshot must be a mapping")
+    pid = snapshot.get("pid")
+    start = snapshot.get("start_ticks")
+    if (pid is None) != (start is None):
+        raise Refused(f"{label} Auth pid/start identity must be both present or both absent")
+    if pid is None:
+        return None
     if (
-        not isinstance(prev_pid, int)
-        or prev_pid <= 0
-        or not isinstance(prev_start, int)
-        or prev_start < 0
+        not isinstance(pid, int)
+        or isinstance(pid, bool)
+        or pid <= 0
+        or not isinstance(start, int)
+        or isinstance(start, bool)
+        or start < 0
     ):
-        raise Refused("invalid previous Auth identity")
+        raise Refused(f"invalid {label} Auth identity")
+    return pid, start
 
-    if cur_pid is not None:
-        if (
-            not isinstance(cur_pid, int)
-            or cur_pid <= 0
-            or not isinstance(cur_start, int)
-            or cur_start < 0
-        ):
-            raise Refused("invalid current Auth identity")
-        if cur_pid == prev_pid and cur_start == prev_start:
-            return None
+
+def auth_incident(previous, current, tmux_alive):
+    previous_pair = _auth_pair(previous, "previous")
+    current_pair = _auth_pair(current, "current")
+
+    # An already-absent Authserver later appearing is a recovery/start
+    # transition, not a second crash incident. This also makes a baseline taken
+    # while Auth is absent recover cleanly when Auth starts.
+    if previous_pair is None:
+        return None
+
+    if current_pair == previous_pair:
+        return None
+
+    prev_pid, prev_start = previous_pair
+    if current_pair is not None:
+        cur_pid, cur_start = current_pair
         evidence = (
             f"Auth identity changed "
             f"({prev_pid}/{prev_start} -> {cur_pid}/{cur_start})"
@@ -197,3 +272,4 @@ def auth_incident(previous, current, tmux_alive):
         ),
         "process_start_ticks": prev_start,
     }
+
