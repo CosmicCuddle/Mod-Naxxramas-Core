@@ -14,8 +14,8 @@
 | Affected files | `scripts/f15_operational_cli.py`, `tests/test_f15_operational_cli.py`, `docs/P3-F15-OPERATIONAL-CLI-20261113.md`. |
 | Config/SQL/DBC/client dependencies | None in source candidate. |
 | Host dependencies | Actual PM2/tmux topology, log paths, overwrite/rotation owner, permissions, free space, scheduling and build/source fingerprint evidence remain host-specific. |
-| Known risks | Incorrect host topology/path assumptions; wrong overwrite hook; insufficient storage; accidental retention ownership broadening. Snapshot sources are regular/single-link only. Crash retention requires explicit ownership proof, and Crash-History pruning shares the renderer's exclusive file lock so concurrent incident appends are not overwritten. |
-| Tests | Focused source tests cover operation separation, path boundaries, recovery state, report evidence, crash-retention ownership, FIFO refusal and exclusive Crash-History rewrite locking; no current claim of full World/Auth/live validation. |
+| Known risks | Incorrect host topology/path assumptions; wrong overwrite hook; insufficient storage; accidental retention ownership broadening. Snapshot/crash retention roots must remain private mode 0700; snapshot sources are regular/single-link only; crash deletion requires explicit ownership proof; history pruning is file-locked. |
+| Tests | Focused source tests cover operation separation, path boundaries, recovery state, report evidence, ownership, FIFO refusal, private-root enforcement and exclusive Crash-History locking; no current claim of full World/Auth/live validation. |
 | Live status | Not installed / not scheduled / not invoked on owner host by CS01. |
 | Decisions | Active logs are never retention-owned; copy before approved overwrite/rotation/truncation; F15-owned archive/crash/raw evidence retained 30 days. |
 | Rollback requirements | If later staged, disable schedules/hooks first, restore replaced files from verified backup, preserve diagnostic evidence, and verify original World/Auth topology. |

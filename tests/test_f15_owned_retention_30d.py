@@ -36,6 +36,22 @@ class RetentionTests(unittest.TestCase):
         src.write_text("old world log")
         return snap.snapshot_file(src,self.arch,OLD)
 
+
+    def test_snapshot_retention_refuses_insecure_root_permissions(self):
+        self.make_snapshot()
+        self.arch.chmod(0o755)
+        with self.assertRaises(ret.Refused):
+            ret.retain_snapshot_archive(
+                self.arch,BOUNDARY+timedelta(days=1)
+            )
+
+    def test_crash_retention_refuses_insecure_root_permissions(self):
+        self.crash.chmod(0o755)
+        with self.assertRaises(ret.Refused):
+            ret.retain_crash_reports(
+                self.crash,BOUNDARY+timedelta(days=1)
+            )
+
     def test_snapshot_kept_at_exact_30_day_boundary(self):
         data,manifest=self.make_snapshot()
         self.assertEqual(ret.retain_snapshot_archive(self.arch,BOUNDARY),0)
