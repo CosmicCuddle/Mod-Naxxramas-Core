@@ -170,6 +170,25 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(history.read_text(),"manual history note\n")
 
 
+
+    def test_history_ownership_read_uses_shared_lock(self):
+        report=self.write_crash("20261001T120000Z","sharedlock")
+        history=self.crash/"Crash-History.txt"
+        history.write_text(
+            f"20261001T120000Z\tWorldserver\tsharedlock\tUNKNOWN\texit=UNKNOWN\tsignal=UNKNOWN\treport={report.name}\n"
+        )
+        history.chmod(0o600)
+        calls=[]
+        real_flock=ret.fcntl.flock
+        def traced(fd,op):
+            calls.append(op)
+            return real_flock(fd,op)
+        from unittest import mock
+        with mock.patch.object(ret.fcntl,"flock",side_effect=traced):
+            owned=ret._history_owned_reports(history)
+        self.assertIn(ret.fcntl.LOCK_SH,calls)
+        self.assertIn((report.name,"20261001T120000Z","Worldserver","sharedlock"),owned)
+
     def test_history_rewrite_uses_exclusive_file_lock(self):
         report=self.write_crash("20261001T120000Z","locked")
         history=self.crash/"Crash-History.txt"

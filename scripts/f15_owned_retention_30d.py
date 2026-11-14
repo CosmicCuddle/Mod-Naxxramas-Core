@@ -184,9 +184,26 @@ def _crash_identity(name: str) -> tuple[datetime, str, str] | None:
 def _history_owned_reports(history: Path) -> set[tuple[str, str, str, str]]:
     if not history.exists():
         return set()
-    _safe_regular(history)
+
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(history, flags)
+    try:
+        # Renderer appends and retention rewrites both lock this file. A shared
+        # lock gives ownership checks one stable history snapshot.
+        fcntl.flock(fd, fcntl.LOCK_SH)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("Crash-History.txt must be one private regular file")
+        raw = os.pread(fd, st.st_size, 0)
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise Refused("Crash-History.txt is not valid UTF-8") from exc
+    finally:
+        os.close(fd)
+
     owned = set()
-    for line in history.read_text("utf-8").splitlines(keepends=True):
+    for line in text.splitlines(keepends=True):
         match = HISTORY_RE.fullmatch(line)
         if not match:
             continue
