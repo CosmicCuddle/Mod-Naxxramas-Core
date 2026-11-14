@@ -205,7 +205,8 @@ def main(argv=None) -> int:
             result = retain_once(args.archive_root, args.crash_root)
         else:
             raise Refused("unknown command")
-    except (Refused, probe.Refused, pipeline.raw_bundle.Refused,
+    except (Refused, probe.Refused, pipeline.checkpoint.Refused,
+            pipeline.expected_maintenance.Refused, pipeline.raw_bundle.Refused,
             snapshot.Refused, retention.Refused, raw_bundle.Refused) as exc:
         print(f"F15 REFUSED: {exc}", file=sys.stderr)
         return 2
