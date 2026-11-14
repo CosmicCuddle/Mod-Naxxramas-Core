@@ -98,29 +98,34 @@ class ExpectedMaintenanceStore:
         with checkpoint._exclusive_lock(self.lock_path):
             return self._read_unlocked()
 
-    def arm(self, operation_id: str, transition: str, before_identity: dict[str, Any],
+    def arm(self, operation_id: str, transition: str,
             created_utc: datetime, expires_utc: datetime) -> dict[str, Any]:
         if not isinstance(operation_id, str) or not OPERATION_RE.fullmatch(operation_id):
             raise Refused("invalid operation id")
         if transition not in TRANSITIONS:
             raise Refused("invalid expected transition")
-        if not isinstance(before_identity, dict) or not before_identity:
-            raise Refused("before identity is required")
         created = _utc(created_utc)
         expires = _utc(expires_utc)
         if expires <= created or expires - created > MAX_WINDOW:
             raise Refused("expected-maintenance window must be >0 and <=30 minutes")
-        marker = {
-            "version": 1,
-            "service": self.service,
-            "operation_id": operation_id,
-            "transition": transition,
-            "status": "armed",
-            "created_utc": _iso(created),
-            "expires_utc": _iso(expires),
-            "before_identity": dict(before_identity),
-        }
         with checkpoint._exclusive_lock(self.lock_path):
+            state_path = self.root / f"{self.service}.checkpoint.json"
+            try:
+                state = checkpoint._read_json(state_path)
+            except checkpoint.Refused as exc:
+                raise Refused(str(exc)) from exc
+            if state is None or state.get("service") != self.service or not isinstance(state.get("identity"), dict):
+                raise Refused("valid service checkpoint required before arming maintenance")
+            marker = {
+                "version": 1,
+                "service": self.service,
+                "operation_id": operation_id,
+                "transition": transition,
+                "status": "armed",
+                "created_utc": _iso(created),
+                "expires_utc": _iso(expires),
+                "before_identity": dict(state["identity"]),
+            }
             existing = self._read_unlocked()
             if existing is not None:
                 if existing == marker:
