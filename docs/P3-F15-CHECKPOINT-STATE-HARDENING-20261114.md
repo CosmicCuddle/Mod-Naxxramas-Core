@@ -16,7 +16,8 @@ Close two restart-safety/state-machine defects found during CS01 review without 
 - replace the fixed `<checkpoint>.pending` filename with unique private temporary files;
 - fsync the temporary file before atomic replacement and fsync the parent directory after replacement;
 - stale temp files from a killed writer do not block later commits;
-- insecure/non-regular/multi-link lock files fail closed.
+- insecure/non-regular/multi-link lock files fail closed;
+- broken checkpoint symlinks fail closed rather than being treated as absent.
 
 ### Worldserver lifecycle normalization
 
@@ -32,7 +33,8 @@ Close two restart-safety/state-machine defects found during CS01 review without 
 - present A -> present B remains one replacement/disappearance incident;
 - absent -> present is a recovery/start transition and advances the checkpoint without a false crash;
 - a baseline established while Auth is absent can later recover cleanly;
-- partial/invalid pid/start identities still fail closed.
+- partial/invalid pid/start identities still fail closed;
+- boolean PM2/Auth identity fields are rejected rather than being accepted as Python integers.
 
 ## Focused evidence
 
@@ -46,7 +48,8 @@ Verified locally:
 - Auth absent -> present recovery;
 - stale legacy fixed pending file does not wedge a later commit;
 - Auth present -> absent -> present advances without refusal;
-- two concurrent observers of the same World restart emit one incident and advance sequence once.
+- two concurrent observers of the same World restart emit one incident and advance sequence once;
+- broken checkpoint symlink and boolean identity adversarial checks fail closed.
 
 This is Python/source evidence only. It is **not** a Worldserver/Authserver native build, installed-host test, PM2/tmux live observation, or production proof.
 
