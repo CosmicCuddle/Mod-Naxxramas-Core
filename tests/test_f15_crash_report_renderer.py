@@ -100,6 +100,33 @@ class RendererTests(unittest.TestCase):
             f15.ensure_report(self.root, self.inc)
         self.assertEqual(history.read_bytes(), before)
 
+
+    def test_report_publish_leaves_no_pending_file_on_success(self):
+        path = f15.write_report(self.root, self.inc)
+        self.assertTrue(path.exists())
+        self.assertFalse(path.with_name(path.name + ".pending").exists())
+
+    def test_existing_pending_report_blocks_publish_without_final_file(self):
+        self.root.mkdir(mode=0o700)
+        final = self.root / "20261113T112000Z-Worldserver-inc-001.txt"
+        pending = final.with_name(final.name + ".pending")
+        pending.write_bytes(b"partial")
+        pending.chmod(0o600)
+        with self.assertRaises(f15.Refused):
+            f15.write_report(self.root, self.inc)
+        self.assertFalse(final.exists())
+        self.assertEqual(pending.read_bytes(), b"partial")
+
+    def test_publish_race_never_overwrites_existing_final(self):
+        self.root.mkdir(mode=0o700)
+        final = self.root / "20261113T112000Z-Worldserver-inc-001.txt"
+        original = b"foreign-existing"
+        final.write_bytes(original)
+        final.chmod(0o600)
+        with self.assertRaises(f15.Refused):
+            f15.write_report(self.root, self.inc)
+        self.assertEqual(final.read_bytes(), original)
+
     def test_collision_refused(self):
         f15.write_report(self.root, self.inc)
         with self.assertRaises(f15.Refused):

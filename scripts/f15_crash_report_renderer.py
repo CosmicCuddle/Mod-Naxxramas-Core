@@ -58,15 +58,49 @@ def _private_dir(path):
     return path
 
 def _exclusive_write(path, data):
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(path, flags, 0o600)
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
+    """Publish one complete private report without ever exposing partial final bytes."""
+    path = Path(path)
+    pending = path.with_name(path.name + ".pending")
+    if pending.exists() or pending.is_symlink():
+        raise Refused("unfinished crash report pending file requires review")
+
+    flags = (
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    fd = os.open(pending, flags, 0o600)
+    try:
+        written = 0
+        while written < len(data):
+            n = os.write(fd, data[written:])
+            if n <= 0:
+                raise Refused("crash report write made no progress")
+            written += n
+        os.fsync(fd)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("pending crash report failed private regular-file validation")
+    finally:
+        os.close(fd)
+
+    try:
+        # Hard-link publish is no-replace: an existing final name wins rather
+        # than being overwritten by a retry/race.
+        os.link(pending, path, follow_symlinks=False)
+    except FileExistsError as exc:
+        raise Refused("crash report destination already exists") from exc
+
+    pending.unlink()
+    dfd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
+
     st = path.lstat()
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
-        raise Refused("created report failed private regular-file validation")
+        raise Refused("published crash report failed private regular-file validation")
 
 def _ensure_history_once(path, line):
     """Atomically validate, deduplicate and append one history row under one lock."""
