@@ -81,8 +81,8 @@ def _tail_best_effort(path: str | Path | None, label: str, log_root: Path) -> st
     try:
         text = probe.tail_private_source(source)
         return f"===== {label}: {source} =====\n{text}\n"
-    except FileNotFoundError:
-        return f"[{label}: unavailable: FileNotFoundError]\n"
+    except OSError as exc:
+        return f"[{label}: unavailable: {type(exc).__name__}]\n"
 
 
 def _world_context(summary: dict, manager_log: str | Path | None, log_root: Path) -> tuple[str, str]:
