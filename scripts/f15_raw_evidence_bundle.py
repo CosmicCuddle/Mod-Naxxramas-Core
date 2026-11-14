@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import tempfile
 
 
 INCIDENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
@@ -60,14 +61,35 @@ def _write_exclusive(path: Path, data: bytes) -> None:
 
 
 def _atomic_json(path: Path, obj: dict) -> None:
-    pending = path.with_name(path.name + ".pending")
-    _write_exclusive(pending, (json.dumps(obj, sort_keys=True) + "\n").encode("utf-8"))
-    os.replace(pending, path)
-    dfd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    fd, raw = tempfile.mkstemp(prefix=f".{path.name}.pending.", dir=path.parent)
+    pending = Path(raw)
+    replaced = False
     try:
-        os.fsync(dfd)
+        os.fchmod(fd, 0o600)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("pending raw-evidence state must be one private regular file")
+        with os.fdopen(fd, "wb") as stream:
+            fd = -1
+            stream.write((json.dumps(obj, sort_keys=True) + "\n").encode("utf-8"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(pending, path)
+        replaced = True
+        dfd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
     finally:
-        os.close(dfd)
+        if fd >= 0:
+            os.close(fd)
+        if not replaced:
+            try:
+                pending.unlink()
+            except FileNotFoundError:
+                pass
+
 
 
 def _utc(value: datetime | None = None) -> datetime:
@@ -191,6 +213,53 @@ def _verify_bundle(bundle: Path) -> tuple[dict, list[Path]]:
     return manifest, files
 
 
+def _file_identity(path: Path) -> dict:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise Refused("raw evidence file could not be opened safely") from exc
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("raw evidence file must be one private regular file")
+        digest = hashlib.sha256()
+        offset = 0
+        while offset < st.st_size:
+            block = os.pread(fd, min(1024 * 1024, st.st_size - offset), offset)
+            if not block:
+                raise Refused("raw evidence file shortened during identity capture")
+            digest.update(block)
+            offset += len(block)
+        after = os.fstat(fd)
+        if (
+            after.st_dev != st.st_dev or after.st_ino != st.st_ino
+            or after.st_size != st.st_size or after.st_mtime_ns != st.st_mtime_ns
+            or after.st_nlink != st.st_nlink or after.st_mode != st.st_mode
+        ):
+            raise Refused("raw evidence file changed during identity capture")
+        return {
+            "dev": st.st_dev,
+            "ino": st.st_ino,
+            "size": st.st_size,
+            "mtime_ns": st.st_mtime_ns,
+            "sha256": digest.hexdigest(),
+        }
+    finally:
+        os.close(fd)
+
+
+def _bundle_identity(bundle: Path) -> dict:
+    if bundle.is_symlink():
+        raise Refused("raw evidence bundle may not be a symlink")
+    st = bundle.lstat()
+    # Directory link counts are filesystem/layout dependent (commonly 2 for
+    # an empty directory), so do not apply the regular-file single-link rule.
+    if not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o077:
+        raise Refused("raw evidence bundle must be one private directory")
+    return {"dev": st.st_dev, "ino": st.st_ino}
+
+
 
 def find_bundle(raw_root: Path, incident_id: str) -> Path | None:
     if not INCIDENT_RE.fullmatch(incident_id):
@@ -250,17 +319,23 @@ def retain_bundles(raw_root: Path, now: datetime | None = None) -> int:
         if current <= created + RETENTION:
             continue
 
+        targets = []
+        for path in files + [bundle / "manifest.json"]:
+            targets.append({"name": path.name, "identity": _file_identity(path)})
         intent_obj = {
+            "version": 2,
             "kind": "f15_retention_30d_raw_evidence",
             "bundle": bundle.name,
+            "bundle_identity": _bundle_identity(bundle),
             "incident_id": manifest["incident_id"],
             "created_utc": manifest["created_utc"],
+            "targets": sorted(targets, key=lambda item: item["name"]),
         }
         _atomic_json(intent, intent_obj)
 
-        identities = [(path, _safe_regular(path).st_ino) for path in files + [bundle / "manifest.json"]]
-        for path, ino in identities:
-            if _safe_regular(path).st_ino != ino:
+        expected = {item["name"]: item["identity"] for item in intent_obj["targets"]}
+        for path in files + [bundle / "manifest.json"]:
+            if _file_identity(path) != expected[path.name]:
                 raise Refused("raw evidence file changed before retention")
 
         for path in files:

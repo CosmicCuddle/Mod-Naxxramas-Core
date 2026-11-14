@@ -5,6 +5,7 @@ Never targets active source logs. Unknown/foreign files are preserved.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -12,6 +13,9 @@ import os
 from pathlib import Path
 import re
 import stat
+import tempfile
+
+import f15_crash_report_renderer as renderer
 
 
 RETENTION = timedelta(days=30)
@@ -30,6 +34,15 @@ class Refused(RuntimeError):
     pass
 
 
+@contextmanager
+def _history_lock(path: Path):
+    try:
+        with renderer._history_lock(path):
+            yield
+    except renderer.Refused as exc:
+        raise Refused(str(exc)) from exc
+
+
 def _aware_utc(now: datetime | None) -> datetime:
     value = now or datetime.now(timezone.utc)
     if value.tzinfo is None:
@@ -45,25 +58,36 @@ def _safe_regular(path: Path):
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
-    pending = path.with_name(path.name + ".pending")
-    fd = os.open(
-        pending,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
-        0o600,
-    )
+    """Durably replace a private file without a fixed crash-blocking temp name."""
+    fd, raw = tempfile.mkstemp(prefix=f".{path.name}.pending.", dir=path.parent)
+    pending = Path(raw)
+    replaced = False
     try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
+        os.fchmod(fd, 0o600)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("pending retention file must be one private regular file")
+        with os.fdopen(fd, "wb") as stream:
+            fd = -1
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
         os.replace(pending, path)
+        replaced = True
         dfd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
             os.fsync(dfd)
         finally:
             os.close(dfd)
-    except BaseException:
-        raise
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        if not replaced:
+            try:
+                pending.unlink()
+            except FileNotFoundError:
+                pass
+
 
 
 def _read_json(path: Path) -> dict:
@@ -93,13 +117,40 @@ def _parse_iso_utc(value: str) -> datetime:
 
 def _hash_file(path: Path) -> str:
     h = hashlib.sha256()
-    with path.open("rb") as f:
-        while True:
-            block = f.read(1024 * 1024)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("owned retention artifact must be one private regular file")
+        offset = 0
+        while offset < st.st_size:
+            block = os.pread(fd, min(1024 * 1024, st.st_size - offset), offset)
             if not block:
-                break
+                raise Refused("owned retention artifact shortened during hash")
             h.update(block)
-    return h.hexdigest()
+            offset += len(block)
+        after = os.fstat(fd)
+        if (
+            after.st_dev != st.st_dev or after.st_ino != st.st_ino
+            or after.st_size != st.st_size or after.st_mtime_ns != st.st_mtime_ns
+            or after.st_nlink != st.st_nlink or after.st_mode != st.st_mode
+        ):
+            raise Refused("owned retention artifact changed during hash")
+        return h.hexdigest()
+    finally:
+        os.close(fd)
+
+
+def _identity(path: Path) -> dict:
+    st = _safe_regular(path)
+    return {
+        "dev": st.st_dev,
+        "ino": st.st_ino,
+        "size": st.st_size,
+        "mtime_ns": st.st_mtime_ns,
+        "sha256": _hash_file(path),
+    }
 
 
 def retain_snapshot_archive(snapshot_root: Path, now: datetime | None = None) -> int:
@@ -142,17 +193,20 @@ def retain_snapshot_archive(snapshot_root: Path, now: datetime | None = None) ->
             raise Refused("snapshot hash differs from manifest")
 
         payload = {
+            "version": 2,
             "kind": "f15_retention_30d_snapshot",
             "snapshot": data_path.name,
             "manifest": manifest_path.name,
             "created_utc": manifest["created_utc"],
+            "snapshot_identity": _identity(data_path),
+            "manifest_identity": _identity(manifest_path),
         }
         _atomic_write(intent, (json.dumps(payload, sort_keys=True) + "\n").encode())
 
-        # Recheck identities immediately before unlink.
-        if _safe_regular(data_path).st_ino != data_st.st_ino:
+        # Recheck the full persisted identities immediately before unlink.
+        if _identity(data_path) != payload["snapshot_identity"]:
             raise Refused("snapshot identity changed before retention")
-        if _safe_regular(manifest_path).st_ino != manifest_st.st_ino:
+        if _identity(manifest_path) != payload["manifest_identity"]:
             raise Refused("manifest identity changed before retention")
         data_path.unlink()
         manifest_path.unlink()
@@ -171,17 +225,36 @@ def _crash_stamp(name: str) -> datetime | None:
         raise Refused("invalid crash-report timestamp") from exc
 
 
-def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
+def _rewrite_history_locked(history: Path, crash_root: Path, now: datetime) -> int:
+    if history.is_symlink():
+        raise Refused("Crash-History.txt may not be a symlink")
     if not history.exists():
         return 0
-    _safe_regular(history)
-    lines = history.read_text("utf-8").splitlines(keepends=True)
+
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(history, flags)
+    except OSError as exc:
+        raise Refused("Crash-History.txt could not be opened safely") from exc
+    try:
+        try:
+            data, _st = renderer._history_bytes_locked(fd)
+        except renderer.Refused as exc:
+            raise Refused(str(exc)) from exc
+    finally:
+        os.close(fd)
+
+    try:
+        lines = data.decode("utf-8").splitlines(keepends=True)
+    except UnicodeDecodeError as exc:
+        raise Refused("Crash-History.txt is not valid UTF-8") from exc
+
     kept = []
     dropped = 0
     for line in lines:
         match = HISTORY_RE.fullmatch(line)
         if not match:
-            kept.append(line)  # unknown history format is preserved
+            kept.append(line)
             continue
         stamp = datetime.strptime(match.group("stamp"), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
         report = crash_root / match.group("report")
@@ -189,16 +262,27 @@ def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
             dropped += 1
             continue
         kept.append(line)
+
     if dropped:
-        _atomic_write(history, "".join(kept).encode("utf-8"))
+        encoded = "".join(kept).encode("utf-8")
+        if len(encoded) > renderer.MAX_HISTORY_BYTES:
+            raise Refused("rewritten Crash-History.txt exceeds configured bound")
+        _atomic_write(history, encoded)
     return dropped
+
+
+def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
+    with _history_lock(history):
+        return _rewrite_history_locked(history, crash_root, now)
+
 
 
 def retain_crash_reports(crash_root: Path, now: datetime | None = None) -> tuple[int, int]:
     """Expire only recognized private F15 crash reports older than 30 days.
 
-    Foreign files are preserved. Crash-History entries are pruned only after the
-    referenced owned report no longer exists.
+    The stable Crash-History sidecar lock covers both report deletion and
+    history pruning, so renderer publication cannot race an atomic history
+    replacement and an unsafe lock is detected before destructive retention.
     """
     root = Path(crash_root)
     if root.is_symlink() or not root.is_dir():
@@ -208,27 +292,32 @@ def retain_crash_reports(crash_root: Path, now: datetime | None = None) -> tuple
     if intent.exists() or intent.is_symlink():
         raise Refused("unfinished crash retention intent requires review")
 
-    removed = 0
-    for path in sorted(root.iterdir()):
-        if path.name in {"Crash-History.txt", "retention-intent.json"}:
-            continue
-        stamp = _crash_stamp(path.name)
-        if stamp is None:
-            continue
-        if not _expired(stamp, current):
-            continue
-        st = _safe_regular(path)
-        payload = {
-            "kind": "f15_retention_30d_crash_report",
-            "report": path.name,
-            "observed_stamp": stamp.strftime("%Y%m%dT%H%M%SZ"),
-        }
-        _atomic_write(intent, (json.dumps(payload, sort_keys=True) + "\n").encode())
-        if _safe_regular(path).st_ino != st.st_ino:
-            raise Refused("crash report identity changed before retention")
-        path.unlink()
-        intent.unlink()
-        removed += 1
+    history = root / "Crash-History.txt"
+    with _history_lock(history):
+        removed = 0
+        for path in sorted(root.iterdir()):
+            if path.name in {"Crash-History.txt", "Crash-History.txt.lock", "retention-intent.json"}:
+                continue
+            stamp = _crash_stamp(path.name)
+            if stamp is None:
+                continue
+            if not _expired(stamp, current):
+                continue
+            st = _safe_regular(path)
+            payload = {
+                "version": 2,
+                "kind": "f15_retention_30d_crash_report",
+                "report": path.name,
+                "observed_stamp": stamp.strftime("%Y%m%dT%H%M%SZ"),
+                "report_identity": _identity(path),
+            }
+            _atomic_write(intent, (json.dumps(payload, sort_keys=True) + "\n").encode())
+            if _identity(path) != payload["report_identity"]:
+                raise Refused("crash report identity changed before retention")
+            path.unlink()
+            intent.unlink()
+            removed += 1
 
-    history_dropped = _rewrite_history(root / "Crash-History.txt", root, current)
-    return removed, history_dropped
+        history_dropped = _rewrite_history_locked(history, root, current)
+        return removed, history_dropped
+

@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -109,6 +110,77 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(ret.retain_crash_reports(self.crash,BOUNDARY+timedelta(days=5)),(0,0))
         self.assertEqual(foreign.read_text(),"keep me")
         self.assertEqual(history.read_text(),"manual history note\n")
+
+    def test_insecure_history_lock_refuses_before_report_deletion(self):
+        report=self.write_crash("20261001T120000Z","locked")
+        history=self.crash/"Crash-History.txt"
+        history.write_text(
+            f"20261001T120000Z\tWorldserver\tlocked\tFATAL_SIGNAL_EXIT\texit=-11\tsignal=11\treport={report.name}\n"
+        )
+        history.chmod(0o600)
+        lock=self.crash/"Crash-History.txt.lock"
+        lock.write_text("")
+        lock.chmod(0o644)
+        with self.assertRaises(ret.Refused):
+            ret.retain_crash_reports(self.crash,BOUNDARY+timedelta(seconds=1))
+        self.assertTrue(report.exists())
+        self.assertIn("locked",history.read_text())
+
+    def test_interrupted_snapshot_deletion_leaves_v2_identity_intent(self):
+        data,manifest=self.make_snapshot()
+        real_unlink=Path.unlink
+
+        def fail_data(path,*args,**kwargs):
+            if path == data:
+                raise OSError("synthetic interruption")
+            return real_unlink(path,*args,**kwargs)
+
+        with mock.patch.object(Path,"unlink",new=fail_data):
+            with self.assertRaises(OSError):
+                ret.retain_snapshot_archive(self.arch,BOUNDARY+timedelta(seconds=1))
+
+        intent=self.arch/"retention-intent.json"
+        self.assertTrue(intent.exists())
+        payload=json.loads(intent.read_text())
+        self.assertEqual(payload["version"],2)
+        self.assertEqual(payload["kind"],"f15_retention_30d_snapshot")
+        self.assertEqual(payload["snapshot"],data.name)
+        self.assertEqual(payload["manifest"],manifest.name)
+        self.assertEqual(len(payload["snapshot_identity"]["sha256"]),64)
+        self.assertEqual(len(payload["manifest_identity"]["sha256"]),64)
+        self.assertTrue(data.exists())
+        self.assertTrue(manifest.exists())
+
+    def test_interrupted_crash_deletion_leaves_v2_identity_intent(self):
+        report=self.write_crash("20261001T120000Z","interrupt")
+        real_unlink=Path.unlink
+
+        def fail_report(path,*args,**kwargs):
+            if path == report:
+                raise OSError("synthetic interruption")
+            return real_unlink(path,*args,**kwargs)
+
+        with mock.patch.object(Path,"unlink",new=fail_report):
+            with self.assertRaises(OSError):
+                ret.retain_crash_reports(self.crash,BOUNDARY+timedelta(seconds=1))
+
+        intent=self.crash/"retention-intent.json"
+        payload=json.loads(intent.read_text())
+        self.assertEqual(payload["version"],2)
+        self.assertEqual(payload["report"],report.name)
+        self.assertEqual(len(payload["report_identity"]["sha256"]),64)
+        self.assertTrue(report.exists())
+
+    def test_legacy_fixed_pending_does_not_wedge_new_intent_write(self):
+        self.make_snapshot()
+        stale=self.arch/"retention-intent.json.pending"
+        stale.write_text("old interrupted writer")
+        stale.chmod(0o600)
+        self.assertEqual(
+            ret.retain_snapshot_archive(self.arch,BOUNDARY+timedelta(seconds=1)),
+            1,
+        )
+        self.assertTrue(stale.exists())
 
     def test_unfinished_intent_blocks_retention(self):
         self.make_snapshot()

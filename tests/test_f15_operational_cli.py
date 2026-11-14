@@ -145,7 +145,45 @@ class OperationalCliTests(unittest.TestCase):
         self.assertEqual(result["crash_reports_removed"], 1)
         self.assertEqual(active.read_text(), "ACTIVE")
 
-    def test_parser_exposes_only_three_operational_modes(self):
+    def test_partial_raw_bundle_blocks_all_retention_before_archive_delete(self):
+        active = self.logs / "world.log"
+        active.write_text("ACTIVE")
+        data, manifest = cli.snapshot.snapshot_file(active, self.archive, OLD)
+
+        self.crash.mkdir(mode=0o700)
+        raw = self.crash / "Raw Evidence"
+        raw.mkdir(mode=0o700)
+        partial = raw / "20261101T120000Z-worldserver-00000099"
+        partial.mkdir(mode=0o700)
+        artifact = partial / "stderr.txt"
+        artifact.write_text("partial")
+        artifact.chmod(0o600)
+
+        with self.assertRaises(cli.Refused):
+            cli.retain_once(self.archive, self.crash, NOW)
+
+        self.assertTrue(data.exists())
+        self.assertTrue(manifest.exists())
+        self.assertEqual(active.read_text(), "ACTIVE")
+
+    def test_recovery_status_is_read_only(self):
+        self.archive.mkdir(mode=0o700)
+        self.crash.mkdir(mode=0o700)
+        intent = self.archive / "retention-intent.json"
+        intent.write_text('{"kind":"f15_retention_30d_snapshot"}\\n')
+        intent.chmod(0o600)
+        before = intent.read_bytes()
+
+        result = cli.recovery.classify_all(self.archive, self.crash)
+
+        self.assertEqual(
+            result["snapshot_archive"]["classification"],
+            "LEGACY_IDENTITY_UNPROVEN",
+        )
+        self.assertFalse(result["mutations_performed"])
+        self.assertEqual(intent.read_bytes(), before)
+
+    def test_parser_exposes_four_operational_modes(self):
         parser = cli._parser()
         sub_action = next(
             action for action in parser._actions
@@ -153,7 +191,7 @@ class OperationalCliTests(unittest.TestCase):
         )
         self.assertEqual(
             set(sub_action.choices),
-            {"observe-once", "snapshot-before-overwrite", "retain-once"},
+            {"observe-once", "snapshot-before-overwrite", "retain-once", "recovery-status"},
         )
 
 if __name__ == "__main__":
