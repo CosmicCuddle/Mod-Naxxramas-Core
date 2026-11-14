@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import fcntl
 import os
 from pathlib import Path
 import re
@@ -225,24 +226,48 @@ def _report_owned_inode(path: Path, service: str, incident: str) -> int | None:
 def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
     if not history.exists():
         return 0
-    _safe_regular(history)
-    lines = history.read_text("utf-8").splitlines(keepends=True)
-    kept = []
-    dropped = 0
-    for line in lines:
-        match = HISTORY_RE.fullmatch(line)
-        if not match:
-            kept.append(line)  # unknown history format is preserved
-            continue
-        stamp = datetime.strptime(match.group("stamp"), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-        report = crash_root / match.group("report")
-        if _expired(stamp, now) and not report.exists():
-            dropped += 1
-            continue
-        kept.append(line)
-    if dropped:
-        _atomic_write(history, "".join(kept).encode("utf-8"))
-    return dropped
+
+    flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(history, flags)
+    try:
+        # Renderer appends use the same exclusive flock. Lock before taking
+        # the size/identity snapshot so an append cannot land between fstat
+        # and the protected read and then be truncated away.
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("Crash-History.txt must be one private regular file")
+
+        data = os.pread(fd, st.st_size, 0).decode("utf-8")
+        lines = data.splitlines(keepends=True)
+        kept = []
+        dropped = 0
+        for line in lines:
+            match = HISTORY_RE.fullmatch(line)
+            if not match:
+                kept.append(line)  # unknown history format is preserved
+                continue
+            stamp = datetime.strptime(match.group("stamp"), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+            report = crash_root / match.group("report")
+            if _expired(stamp, now) and not report.exists():
+                dropped += 1
+                continue
+            kept.append(line)
+
+        if dropped:
+            payload = "".join(kept).encode("utf-8")
+            os.lseek(fd, 0, os.SEEK_SET)
+            written = 0
+            while written < len(payload):
+                n = os.write(fd, payload[written:])
+                if n <= 0:
+                    raise Refused("Crash-History rewrite made no progress")
+                written += n
+            os.ftruncate(fd, len(payload))
+            os.fsync(fd)
+        return dropped
+    finally:
+        os.close(fd)
 
 
 def retain_crash_reports(crash_root: Path, now: datetime | None = None) -> tuple[int, int]:
