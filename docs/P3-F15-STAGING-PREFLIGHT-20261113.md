@@ -50,7 +50,7 @@ The preflight requires:
 - build-version and source-revision fingerprint sources;
 - proposed scheduling for `observe-once` and `retain-once`.
 
-All daemon log paths must be absolute normalized POSIX paths under the configured log root. Capacity values must be genuine non-negative integers; booleans are explicitly rejected even though Python normally treats them as integers. Capacity is blocked when supplied free bytes are below the supplied 30-day projection.
+All daemon log paths must be absolute normalized POSIX **strict descendants** of the owner-approved F15 root `/root/cosmic_core/logs`; the manifest cannot broaden or redefine that trust boundary. Capacity values must be genuine non-negative integers; booleans are explicitly rejected even though Python normally treats them as integers. Capacity is blocked when supplied free bytes are below the supplied 30-day projection.
 
 ## Output states
 
@@ -62,22 +62,15 @@ The next step after `READY_FOR_OWNER_REVIEW` is still to prepare backup, rollbac
 
 ## Tests
 
-Focused offline tests cover:
+Focused offline tests now cover the original provenance/type/capacity/path/authorization cases plus:
+- canonical versus noncanonical daemon paths;
+- the shipped all-UNKNOWN example;
+- `log_root="/"` cannot broaden the trust boundary;
+- an alternate root remains blocked absent a separate owner decision;
+- a daemon log path equal to the root directory is rejected;
+- valid strict descendants remain accepted.
 
-1. complete provenance-bearing manifest -> owner-review readiness only;
-2. plain strings cannot masquerade as verified evidence;
-3. missing evidence provenance blocks;
-4. a host fact marked only `PROPOSED` remains unresolved;
-5. boolean capacity values block;
-6. negative capacity blocks;
-7. insufficient 30-day capacity blocks;
-8. log paths outside `/root/cosmic_core/logs` block;
-9. relative daemon log paths block;
-10. explicit UNKNOWN stays UNKNOWN;
-11. a manifest cannot self-authorize installation;
-12. malformed authorization structure blocks.\n13. the shipped example manifest itself remains UNKNOWN with every required fact unresolved.
-
-Local Python result after the evidence hardening: **13/13 PASS**.
+The prior 13/13 result belongs to an older head. The current branch contains **19 focused test methods**, but a full exact-head run is **not claimed** in this environment. No hosted Actions were requested.
 
 ## Custom Modifications Register — F15-STAGING-PREFLIGHT-20261113
 
@@ -90,6 +83,6 @@ Local Python result after the evidence hardening: **13/13 PASS**.
 | Runtime authority | None; operator-supplied JSON only. |
 | Config/SQL/DBC/client | None. |
 | Risks | Incorrect operator evidence cannot change the host; malformed/unproven evidence now blocks or remains UNKNOWN rather than becoming review-ready. |
-| Tests | 13/13 focused local PASS after provenance/type/path hardening; no hosted Actions. |
+| Tests | 19 focused test methods committed; current exact-head execution UNKNOWN here. Prior 13/13 result applies only to an older head; no hosted Actions. |
 | Live status | Uninstalled / not invoked on owner host. |
 | Rollback | Abandon branch/PR; no live state exists. |
