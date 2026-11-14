@@ -217,6 +217,16 @@ class RetentionTests(unittest.TestCase):
             ret._rewrite_history(history,self.crash,BOUNDARY+timedelta(days=1))
         self.assertEqual(backup.read_text(),"preserved original\n")
 
+
+    def test_invalid_utf8_history_refuses_without_rewrite(self):
+        history=self.crash/"Crash-History.txt"
+        history.write_bytes(b"\xff\xfe\x00")
+        history.chmod(0o600)
+        with self.assertRaises(ret.Refused):
+            ret._rewrite_history(history,self.crash,BOUNDARY+timedelta(days=1))
+        self.assertEqual(history.read_bytes(),b"\xff\xfe\x00")
+        self.assertFalse((self.crash/"Crash-History.txt.retention-backup").exists())
+
     def test_unfinished_intent_blocks_retention(self):
         self.make_snapshot()
         intent=self.arch/"retention-intent.json"
