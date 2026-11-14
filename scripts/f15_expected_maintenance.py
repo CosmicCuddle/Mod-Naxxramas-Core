@@ -6,8 +6,10 @@ bounded, service-specific intent supplied by the actual maintenance owner and
 requires a second success confirmation before an observed transition can be
 treated as expected.
 
-An armed-but-unconfirmed marker never suppresses an incident.  Expired,
-malformed, mismatched or insecure state also never suppresses one.
+An armed-but-unconfirmed marker can temporarily defer an exact non-fatal
+transition while owner confirmation is pending, but it cannot permanently
+consume that transition. Expired, malformed, mismatched or insecure state has
+no suppression authority and normal incident reporting remains active.
 """
 from __future__ import annotations
 
