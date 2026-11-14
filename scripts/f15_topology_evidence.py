@@ -147,14 +147,20 @@ def auth_incident(previous, current, tmux_alive):
     prev_start = previous.get("start_ticks")
     cur_pid = current.get("pid")
     cur_start = current.get("start_ticks")
+    prev_pane = previous.get("pane_pid")
+    cur_pane = current.get("pane_pid")
 
     if (
         not isinstance(prev_pid, int)
         or prev_pid <= 0
         or not isinstance(prev_start, int)
         or prev_start < 0
+        or not isinstance(prev_pane, int)
+        or prev_pane <= 0
     ):
         raise Refused("invalid previous Auth identity")
+    if not isinstance(cur_pane, int) or cur_pane <= 0:
+        raise Refused("invalid current Auth tmux pane identity")
 
     if cur_pid is not None:
         if (
@@ -187,6 +193,9 @@ def auth_incident(previous, current, tmux_alive):
         "supervisor": "tmux/bash (observed externally)",
         "pid": prev_pid,
         "replacement_pid": replacement,
+        "supervisor_pane_pid": prev_pane,
+        "replacement_supervisor_pane_pid": cur_pane,
+        "replacement_start_ticks": cur_start if replacement else None,
         "exit_code": None,
         "signal_name": None,
         "classification": "PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN",
