@@ -153,6 +153,27 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(foreign.read_text(),"keep me")
         self.assertEqual(history.read_text(),"manual history note\n")
 
+
+    def test_history_rewrite_uses_exclusive_file_lock(self):
+        report=self.write_crash("20261001T120000Z","locked")
+        history=self.crash/"Crash-History.txt"
+        history.write_text(
+            f"20261001T120000Z\tWorldserver\tlocked\tUNKNOWN\texit=UNKNOWN\tsignal=UNKNOWN\treport={report.name}\n"
+        )
+        history.chmod(0o600)
+        report.unlink()
+        calls=[]
+        real_flock=ret.fcntl.flock
+        def traced(fd,op):
+            calls.append(op)
+            return real_flock(fd,op)
+        from unittest import mock
+        with mock.patch.object(ret.fcntl,"flock",side_effect=traced):
+            dropped=ret._rewrite_history(history,self.crash,BOUNDARY+timedelta(days=1))
+        self.assertEqual(dropped,1)
+        self.assertIn(ret.fcntl.LOCK_EX,calls)
+        self.assertEqual(history.read_text(),"")
+
     def test_unfinished_intent_blocks_retention(self):
         self.make_snapshot()
         intent=self.arch/"retention-intent.json"
