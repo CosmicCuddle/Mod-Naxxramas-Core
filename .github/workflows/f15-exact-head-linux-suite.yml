@@ -1,0 +1,33 @@
+name: F15 exact-head Linux offline suite
+
+on:
+  push:
+    branches: [ci/f15-linux-suite-cb610c81-20261114]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  f15-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact F15 stacked test head
+        uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/Mod-Naxxramas-Core
+          ref: cb610c81fe127d1b27860c345adac6e41ef00761
+          path: target
+          persist-credentials: false
+
+      - name: Verify exact head
+        run: test "$(git -C target rev-parse HEAD)" = "cb610c81fe127d1b27860c345adac6e41ef00761"
+
+      - name: Run complete F15 Python suite
+        working-directory: target
+        run: python3 -B -m unittest discover -s tests -p 'test_f15_*.py' -v
+
+      - name: Diff cleanliness
+        working-directory: target
+        run: git diff --check
