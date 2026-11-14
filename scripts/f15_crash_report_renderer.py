@@ -68,15 +68,40 @@ def _exclusive_write(path, data):
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
         raise Refused("created report failed private regular-file validation")
 
-def _append_history(path, line):
-    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+def _ensure_history_once(path, line):
+    """Atomically validate, deduplicate and append one history row under one lock."""
+    flags = (
+        os.O_RDWR | os.O_APPEND | os.O_CREAT
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
     fd = os.open(path, flags, 0o600)
     try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
             raise Refused("Crash-History.txt must be one private regular file")
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        os.write(fd, line.encode("utf-8"))
+
+        raw = os.pread(fd, st.st_size, 0)
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise Refused("Crash-History.txt is not valid UTF-8") from exc
+
+        rows = text.splitlines(keepends=True)
+        count = sum(1 for row in rows if row == line)
+        if count > 1:
+            raise Refused("duplicate crash history entry")
+        if count == 1:
+            return
+
+        payload = line.encode("utf-8")
+        written = 0
+        while written < len(payload):
+            n = os.write(fd, payload[written:])
+            if n <= 0:
+                raise Refused("Crash-History append made no progress")
+            written += n
         os.fsync(fd)
     finally:
         os.close(fd)
@@ -181,20 +206,6 @@ def _history_line(incident, filename, stamp):
     )
 
 
-def _ensure_history_once(path, line):
-    if path.exists():
-        st = path.lstat()
-        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
-            raise Refused("Crash-History.txt must be one private regular file")
-        text = path.read_text("utf-8")
-        count = text.count(line)
-        if count > 1:
-            raise Refused("duplicate crash history entry")
-        if count == 1:
-            return
-    _append_history(path, line)
-
-
 def ensure_report(crash_dir, incident):
     """Create report/history once, or reuse exact completed pieces on retry."""
     validate_incident(incident)
@@ -229,5 +240,5 @@ def write_report(crash_dir, incident):
         raise Refused("crash report destination already exists")
     _exclusive_write(report_path, render_report(incident).encode("utf-8"))
     history = root / "Crash-History.txt"
-    _append_history(history, _history_line(incident, filename, stamp))
+    _ensure_history_once(history, _history_line(incident, filename, stamp))
     return report_path

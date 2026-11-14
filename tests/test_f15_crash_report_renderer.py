@@ -71,6 +71,35 @@ class RendererTests(unittest.TestCase):
         self.assertIn("password=[REDACTED]", report)
         self.assertIn("token=[REDACTED]", report)
 
+
+    def test_ensure_report_retry_does_not_duplicate_history(self):
+        first = f15.ensure_report(self.root, self.inc)
+        second = f15.ensure_report(self.root, self.inc)
+        self.assertEqual(first, second)
+        history = (self.root / "Crash-History.txt").read_text().splitlines()
+        self.assertEqual(len(history), 1)
+        self.assertIn("inc-001", history[0])
+
+    def test_duplicate_history_rows_are_refused_on_retry(self):
+        path = f15.ensure_report(self.root, self.inc)
+        history = self.root / "Crash-History.txt"
+        line = history.read_text()
+        history.write_text(line + line)
+        history.chmod(0o600)
+        self.assertTrue(path.exists())
+        with self.assertRaises(f15.Refused):
+            f15.ensure_report(self.root, self.inc)
+
+    def test_invalid_utf8_history_is_refused_without_append(self):
+        self.root.mkdir(mode=0o700)
+        history = self.root / "Crash-History.txt"
+        history.write_bytes(b"\xff\xfe")
+        history.chmod(0o600)
+        before = history.read_bytes()
+        with self.assertRaises(f15.Refused):
+            f15.ensure_report(self.root, self.inc)
+        self.assertEqual(history.read_bytes(), before)
+
     def test_collision_refused(self):
         f15.write_report(self.root, self.inc)
         with self.assertRaises(f15.Refused):
