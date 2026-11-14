@@ -232,5 +232,96 @@ class ExpectedMaintenanceTests(unittest.TestCase):
             "CHECKPOINT_INVALID_OR_MISSING",
         )
 
+    def test_confirm_retry_same_operation_is_idempotent_with_different_timestamp(self):
+        store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
+        before = world_identity(10, 4)
+        self.seed("Worldserver", before)
+        store.arm("retry-confirm", "restart", self.now, self.now + timedelta(minutes=5))
+        first = store.confirm("retry-confirm", self.now + timedelta(seconds=5))
+        second = store.confirm("retry-confirm", self.now + timedelta(seconds=25))
+        self.assertEqual(second, first)
+        self.assertEqual(second["confirmed_utc"], first["confirmed_utc"])
+
+    def test_clean_sigint_sigterm_can_match_exact_confirmed_world_restart(self):
+        for signal_name in ("SIGINT", "SIGTERM"):
+            with self.subTest(signal=signal_name):
+                tmp = tempfile.TemporaryDirectory()
+                self.addCleanup(tmp.cleanup)
+                root = Path(tmp.name) / "state"
+                root.mkdir(mode=0o700)
+                store = expected.ExpectedMaintenanceStore(root, "Worldserver")
+                before = world_identity(10, 4, up=1000)
+                after = world_identity(11, 5, up=2000)
+                checkpoint._atomic_json(
+                    root / "Worldserver.checkpoint.json",
+                    {"version": 1, "service": "Worldserver", "sequence": 0, "identity": before},
+                )
+                store.arm("clean-signal", "restart", self.now, self.now + timedelta(minutes=5))
+                store.confirm("clean-signal", self.now + timedelta(seconds=5))
+                incident = {
+                    "classification": "SIGNAL_EXIT_CAUSE_UNPROVEN",
+                    "exit_code": 0,
+                    "signal_name": signal_name,
+                }
+                self.assertTrue(
+                    store.matches_expected(before, after, incident, self.now + timedelta(seconds=10))
+                )
+
+    def test_sigkill_and_fatal_signals_never_match_expected_maintenance(self):
+        store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
+        before = world_identity(10, 4, up=1000)
+        after = world_identity(11, 5, up=2000)
+        self.seed("Worldserver", before)
+        store.arm("bad-signal", "restart", self.now, self.now + timedelta(minutes=5))
+        store.confirm("bad-signal", self.now + timedelta(seconds=5))
+        for incident in (
+            {"classification": "SIGNAL_EXIT_CAUSE_UNPROVEN", "exit_code": 0, "signal_name": "SIGKILL"},
+            {"classification": "FATAL_SIGNAL_EXIT", "exit_code": 0, "signal_name": "SIGSEGV"},
+            {"classification": "NONZERO_EXIT", "exit_code": 7, "signal_name": "SIGTERM"},
+        ):
+            with self.subTest(incident=incident):
+                self.assertFalse(
+                    store.matches_expected(before, after, incident, self.now + timedelta(seconds=10))
+                )
+
+    def test_invalid_marker_has_no_suppression_authority_but_admin_read_stays_strict(self):
+        store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
+        before = world_identity(10, 4, up=1000)
+        after = world_identity(11, 5, up=2000)
+        self.seed("Worldserver", before)
+        target = self.root / "foreign-marker.json"
+        target.write_text("{}")
+        target.chmod(0o600)
+        store.path.symlink_to(target)
+        incident = {
+            "classification": "PM2_RESTART_OBSERVED",
+            "exit_code": 0,
+            "signal_name": None,
+        }
+        self.assertFalse(
+            store.matches_expected(before, after, incident, self.now + timedelta(seconds=10))
+        )
+        with self.assertRaises(expected.Refused):
+            store.read()
+        result = store.classify_recovery()
+        self.assertEqual(result["status"], "MARKER_INVALID_OR_UNSAFE")
+        self.assertTrue(store.path.is_symlink())
+        self.assertEqual(target.read_text(), "{}")
+
+    def test_invalid_audit_is_classified_not_raised(self):
+        store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
+        before = world_identity(10, 4)
+        self.seed("Worldserver", before)
+        audit = self.root / "Worldserver.last-expected-maintenance.json"
+        audit.write_text("{bad json")
+        audit.chmod(0o600)
+        result = store.classify_recovery()
+        self.assertEqual(result["status"], "AUDIT_INVALID_OR_UNSAFE")
+        self.assertTrue(audit.exists())
+
+    def test_standalone_marker_consume_api_is_not_exposed(self):
+        store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
+        self.assertFalse(hasattr(store, "consume"))
+
 if __name__ == "__main__":
     unittest.main()
