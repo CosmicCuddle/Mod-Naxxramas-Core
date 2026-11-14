@@ -73,6 +73,36 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(len(seen), 1)
         self.assertEqual(c.state()["sequence"], 1)
 
+
+    def test_world_pm2_counter_reset_rebaselines_without_incident(self):
+        c = cp.IncidentCheckpoint(self.root, "Worldserver")
+        seen=[]
+        c.process_world(pm(10,5,up=5000),"worldserver","",parse_pm2,normalize_world,seen.append)
+        self.assertIsNone(
+            c.process_world(pm(20,0,up=100),"worldserver","",parse_pm2,normalize_world,seen.append)
+        )
+        self.assertEqual(seen, [])
+        self.assertEqual(c.state()["identity"]["restart_time"], 0)
+        self.assertEqual(c.state()["sequence"], 0)
+
+    def test_world_pm2_counter_reset_then_later_restart_is_incident_one(self):
+        c = cp.IncidentCheckpoint(self.root, "Worldserver")
+        seen=[]
+        c.process_world(pm(10,5,up=5000),"worldserver","",parse_pm2,normalize_world,seen.append)
+        c.process_world(pm(20,0,up=100),"worldserver","",parse_pm2,normalize_world,seen.append)
+        event=c.process_world(pm(21,1,up=200),"worldserver","",parse_pm2,normalize_world,seen.append)
+        self.assertEqual(event["incident_id"], "worldserver-00000001")
+        self.assertEqual(c.state()["sequence"], 1)
+        self.assertEqual(len(seen), 1)
+
+    def test_world_missing_restart_counter_refused_at_checkpoint_boundary(self):
+        c = cp.IncidentCheckpoint(self.root, "Worldserver")
+        bad=json.dumps([{"name":"worldserver","pid":10,"pm2_env":{
+            "status":"online","restart_time":None,"pm_uptime":1000
+        }}])
+        with self.assertRaises(cp.Refused):
+            c.process_world(bad,"worldserver","",parse_pm2,normalize_world,lambda x:None)
+
     def test_report_failure_does_not_consume_world_incident(self):
         c = cp.IncidentCheckpoint(self.root, "Worldserver")
         c.process_world(pm(10,1),"worldserver","",parse_pm2,normalize_world,lambda x:None)
