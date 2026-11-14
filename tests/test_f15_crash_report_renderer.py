@@ -228,6 +228,15 @@ class RendererTests(unittest.TestCase):
         self.assertEqual(history.read_text(), "foreign\n")
         self.assertEqual(other.read_text(), "foreign\n")
 
+    def test_non_utf8_history_refused(self):
+        self.create_report_only()
+        history = self.root / "Crash-History.txt"
+        history.write_bytes(b"foreign-\xff\n")
+        history.chmod(0o600)
+        with self.assertRaises(f15.Refused):
+            f15.ensure_report(self.root, self.inc)
+        self.assertEqual(history.read_bytes(), b"foreign-\xff\n")
+
     def test_incomplete_trailing_history_line_refused(self):
         self.create_report_only()
         history = self.root / "Crash-History.txt"
