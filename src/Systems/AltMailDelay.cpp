@@ -30,7 +30,7 @@ public:
     }
 
     void OnBeforeMailDraftSendMailTo(
-        MailDraft* /*mailDraft*/,
+        MailDraft* mailDraft,
         MailReceiver const& receiver,
         MailSender const& sender,
         MailCheckMask& checked,
@@ -72,6 +72,11 @@ public:
 
         // Only change mail sent between alts on the same account.
         if (senderAccount != receiverAccount)
+            return;
+
+        // Gold-only and note-only mail should remain instant. Restore the
+        // configured delay only when the player actually attached an item.
+        if (!mailDraft || !mailDraft->HasItems())
             return;
 
         deliverDelay = sWorld->getIntConfig(CONFIG_MAIL_DELIVERY_DELAY);
