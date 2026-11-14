@@ -50,6 +50,8 @@ def _one_pm2(snapshot, name):
             raise Refused("invalid PM2 integer field") from exc
 
     pid = proc.get("pid")
+    if isinstance(pid, bool):
+        raise Refused("invalid PM2 pid")
     try:
         pid = int(pid) if pid is not None else None
     except (TypeError, ValueError) as exc:
