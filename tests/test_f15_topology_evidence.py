@@ -157,5 +157,11 @@ class TopologyEvidenceTests(unittest.TestCase):
                 True,
             )
 
+    def test_boolean_pm2_pid_is_refused(self):
+        payload = json.loads(pm())
+        payload[0]["pid"] = True
+        with self.assertRaises(adapter.Refused):
+            adapter.world_incident(payload, pm(pid=11, restarts=2), "worldserver")
+
 if __name__ == "__main__":
     unittest.main()
