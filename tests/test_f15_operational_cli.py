@@ -180,6 +180,17 @@ class OperationalCliTests(unittest.TestCase):
         self.assertEqual(result["crash_reports_removed"], 1)
         self.assertEqual(active.read_text(), "ACTIVE")
 
+
+    def test_observe_cli_does_not_expose_log_root_override(self):
+        parser = cli._parser()
+        sub_action = next(
+            action for action in parser._actions
+            if getattr(action, "choices", None)
+        )
+        observe = sub_action.choices["observe-once"]
+        options = {opt for action in observe._actions for opt in action.option_strings}
+        self.assertNotIn("--log-root", options)
+
     def test_parser_exposes_only_three_operational_modes(self):
         parser = cli._parser()
         sub_action = next(

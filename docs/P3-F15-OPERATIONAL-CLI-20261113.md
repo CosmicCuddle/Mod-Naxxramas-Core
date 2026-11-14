@@ -29,7 +29,9 @@ Source defaults are aligned to the owner requirement:
 - observer checkpoint state: `/root/cosmic_core/logs/.f15-state/`
 
 These defaults are source configuration only and do not create/change anything
-until an operator invokes a mode.
+until an operator invokes a mode. The `observe-once` CLI does **not** expose a
+`--log-root` override: production observation is fixed to `/root/cosmic_core/logs/`.
+Tests may inject a temporary observation root only through the Python function API.
 
 ## observe-once
 
@@ -96,7 +98,8 @@ Focused tests cover:
 7. active source log survives retention unchanged;
 8. parser exposes exactly the three approved modes;
 9. PM2/Auth/manager log sources outside the approved log root are refused;
-10. final or parent-component symlink log sources are refused.
+10. final or parent-component symlink log sources are refused;
+11. `observe-once` exposes no log-root override that could broaden the production trust boundary.
 
 No hosted Actions are requested yet.
 

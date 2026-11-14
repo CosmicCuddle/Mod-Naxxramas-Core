@@ -201,7 +201,6 @@ def _parser() -> argparse.ArgumentParser:
     observe = sub.add_parser("observe-once", help="read current process/log evidence once")
     observe.add_argument("--state-root", type=Path, default=DEFAULT_STATE_ROOT)
     observe.add_argument("--crash-root", type=Path, default=DEFAULT_CRASH_ROOT)
-    observe.add_argument("--log-root", type=Path, default=DEFAULT_LOG_ROOT)
     observe.add_argument("--world-pm2-name")
     observe.add_argument("--pm2-manager-log", type=Path)
     observe.add_argument("--auth-tmux-session")
@@ -227,7 +226,6 @@ def main(argv=None) -> int:
             result = observe_once(
                 args.state_root,
                 args.crash_root,
-                log_root=args.log_root,
                 world_pm2_name=args.world_pm2_name,
                 pm2_manager_log=args.pm2_manager_log,
                 auth_tmux_session=args.auth_tmux_session,
