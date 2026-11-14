@@ -137,6 +137,67 @@ class OperationalCliTests(unittest.TestCase):
         with self.assertRaises(cli.Refused):
             cli._tail_best_effort(linkdir / "secret.log", "test", self.logs)
 
+
+    def test_auth_observe_present_then_tmux_session_absent_emits_unknown_cause_incident(self):
+        auth_log = self.logs / "auth.log"
+        auth_log.write_text("auth context\n")
+        ps = "10 1 tmux tmux\n20 10 bash bash\n30 20 authserver /root/cosmic_core/bin/authserver\n"
+        runner = SequenceRunner({
+            ("tmux", "display-message", "-p", "-t", "auth", "#{pane_pid}"): [
+                (0, "10\n", ""),
+                (1, "", "can't find session: auth"),
+            ],
+            ("ps", "-eo", "pid=,ppid=,comm=,args="): [
+                (0, ps, ""),
+            ],
+        })
+        stat_text = "30 (authserver) S " + " ".join(["0"]*18 + ["777", "0", "0"])
+        first = cli.observe_once(
+            self.state, self.crash, log_root=self.logs,
+            auth_tmux_session="auth", auth_log=auth_log,
+            runner=runner, read_text=lambda p: stat_text, now=NOW,
+        )
+        self.assertEqual(first, [])
+        second = cli.observe_once(
+            self.state, self.crash, log_root=self.logs,
+            auth_tmux_session="auth", auth_log=auth_log,
+            runner=runner, read_text=lambda p: stat_text,
+            now=NOW + timedelta(seconds=1),
+        )
+        self.assertEqual(second[0]["service"], "Authserver")
+        self.assertEqual(second[0]["classification"], "PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN")
+        report = next(self.crash.glob("*Authserver*.txt")).read_text()
+        self.assertIn("Replacement supervisor probe status: session_absent", report)
+
+    def test_auth_observe_initial_absence_then_recovery_is_baseline_not_incident(self):
+        auth_log = self.logs / "auth.log"
+        auth_log.write_text("auth context\n")
+        ps = "10 1 tmux tmux\n20 10 bash bash\n31 20 authserver /root/cosmic_core/bin/authserver\n"
+        runner = SequenceRunner({
+            ("tmux", "display-message", "-p", "-t", "auth", "#{pane_pid}"): [
+                (1, "", "can't find session: auth"),
+                (0, "10\n", ""),
+            ],
+            ("ps", "-eo", "pid=,ppid=,comm=,args="): [
+                (0, ps, ""),
+            ],
+        })
+        stat_text = "31 (authserver) S " + " ".join(["0"]*18 + ["888", "0", "0"])
+        first = cli.observe_once(
+            self.state, self.crash, log_root=self.logs,
+            auth_tmux_session="auth", auth_log=auth_log,
+            runner=runner, read_text=lambda p: stat_text, now=NOW,
+        )
+        self.assertEqual(first, [])
+        second = cli.observe_once(
+            self.state, self.crash, log_root=self.logs,
+            auth_tmux_session="auth", auth_log=auth_log,
+            runner=runner, read_text=lambda p: stat_text,
+            now=NOW + timedelta(seconds=1),
+        )
+        self.assertEqual(second, [])
+        self.assertFalse(self.crash.exists() and list(self.crash.glob("*Authserver*.txt")))
+
     def test_snapshot_before_overwrite_preserves_active_logs(self):
         world = self.logs / "world.log"
         auth = self.logs / "auth.log"
