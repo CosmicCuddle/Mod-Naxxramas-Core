@@ -25,9 +25,13 @@ class Refused(RuntimeError):
     pass
 
 
-def _root(path: Path, label: str) -> Path:
+def _root(path: Path, label: str) -> Path | None:
     path = Path(path)
-    if path.is_symlink() or not path.is_dir():
+    if path.is_symlink():
+        raise Refused(f"{label} may not be a symlink")
+    if not path.exists():
+        return None
+    if not path.is_dir():
         raise Refused(f"{label} must be a real directory")
     st = path.lstat()
     if st.st_mode & 0o077:
@@ -169,6 +173,8 @@ def _summary(states: list[str]) -> str:
 
 def classify_snapshot_root(snapshot_root: Path) -> dict[str, Any]:
     root = _root(snapshot_root, "snapshot root")
+    if root is None:
+        return {"intent": "ABSENT", "classification": "ROOT_ABSENT"}
     path = root / "retention-intent.json"
     intent = _read_intent(path)
     if intent is None:
@@ -192,6 +198,8 @@ def classify_snapshot_root(snapshot_root: Path) -> dict[str, Any]:
 
 def classify_crash_root(crash_root: Path) -> dict[str, Any]:
     root = _root(crash_root, "crash root")
+    if root is None:
+        return {"intent": "ABSENT", "classification": "ROOT_ABSENT"}
     path = root / "retention-intent.json"
     intent = _read_intent(path)
     if intent is None:
@@ -233,6 +241,8 @@ def _valid_bundle_identity(value: Any) -> bool:
 
 def classify_raw_root(raw_root: Path) -> dict[str, Any]:
     root = _root(raw_root, "raw evidence root")
+    if root is None:
+        return {"intent": "ABSENT", "classification": "ROOT_ABSENT", "partial_bundles": []}
     path = root / "retention-intent.json"
     intent = _read_intent(path)
     partial_without_intent = []
