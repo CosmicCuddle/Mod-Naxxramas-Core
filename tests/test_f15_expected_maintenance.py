@@ -46,11 +46,18 @@ class ExpectedMaintenanceTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def seed(self, service, identity):
+        checkpoint._atomic_json(
+            self.root / f"{service}.checkpoint.json",
+            {"version": 1, "service": service, "sequence": 0, "identity": identity},
+        )
+
     def test_unconfirmed_marker_never_matches(self):
         store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
         before = world_identity(10, 4, up=1000)
         after = world_identity(11, 5, up=2000)
-        store.arm("op-1", "restart", before, self.now, self.now + timedelta(minutes=5))
+        self.seed("Worldserver", before)
+        store.arm("op-1", "restart", self.now, self.now + timedelta(minutes=5))
         incident = {"classification": "PM2_RESTART_OBSERVED", "exit_code": 0, "signal_name": None}
         self.assertFalse(store.matches_expected(before, after, incident, self.now + timedelta(minutes=1)))
 
@@ -58,7 +65,8 @@ class ExpectedMaintenanceTests(unittest.TestCase):
         store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
         before = world_identity(10, 4, up=1000)
         after = world_identity(11, 5, up=2000)
-        store.arm("op-2", "restart", before, self.now, self.now + timedelta(minutes=5))
+        self.seed("Worldserver", before)
+        store.arm("op-2", "restart", self.now, self.now + timedelta(minutes=5))
         store.confirm("op-2", self.now + timedelta(seconds=10))
         incident = {"classification": "PM2_RESTART_OBSERVED", "exit_code": 0, "signal_name": None}
         self.assertTrue(store.matches_expected(before, after, incident, self.now + timedelta(minutes=1)))
@@ -67,7 +75,8 @@ class ExpectedMaintenanceTests(unittest.TestCase):
         store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
         before = world_identity(10, 4, up=1000)
         after = world_identity(0, 4, status="stopped", up=1000)
-        store.arm("op-3", "stop", before, self.now, self.now + timedelta(minutes=5))
+        self.seed("Worldserver", before)
+        store.arm("op-3", "stop", self.now, self.now + timedelta(minutes=5))
         store.confirm("op-3", self.now + timedelta(seconds=10))
         incident = {"classification": "PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN", "exit_code": 0, "signal_name": None}
         self.assertTrue(store.matches_expected(before, after, incident, self.now + timedelta(minutes=1)))
@@ -76,7 +85,8 @@ class ExpectedMaintenanceTests(unittest.TestCase):
         store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
         before = world_identity(10, 4, up=1000)
         after = world_identity(11, 5, up=2000)
-        store.arm("op-4", "restart", before, self.now, self.now + timedelta(minutes=5))
+        self.seed("Worldserver", before)
+        store.arm("op-4", "restart", self.now, self.now + timedelta(minutes=5))
         store.confirm("op-4", self.now + timedelta(seconds=10))
         fatal = {"classification": "FATAL_SIGNAL_EXIT", "exit_code": 0, "signal_name": "SIGSEGV"}
         nonzero = {"classification": "NONZERO_EXIT", "exit_code": 1, "signal_name": None}
@@ -88,7 +98,8 @@ class ExpectedMaintenanceTests(unittest.TestCase):
         armed = world_identity(10, 4, up=1000)
         actual_before = world_identity(12, 7, up=3000)
         after = world_identity(13, 8, up=4000)
-        store.arm("op-5", "restart", armed, self.now, self.now + timedelta(minutes=5))
+        self.seed("Worldserver", armed)
+        store.arm("op-5", "restart", self.now, self.now + timedelta(minutes=5))
         store.confirm("op-5", self.now + timedelta(seconds=10))
         incident = {"classification": "PM2_RESTART_OBSERVED", "exit_code": 0, "signal_name": None}
         self.assertFalse(store.matches_expected(actual_before, after, incident, self.now + timedelta(minutes=1)))
@@ -97,7 +108,8 @@ class ExpectedMaintenanceTests(unittest.TestCase):
         store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
         before = world_identity(10, 4, up=1000)
         after = world_identity(11, 5, up=2000)
-        store.arm("op-6", "restart", before, self.now, self.now + timedelta(minutes=1))
+        self.seed("Worldserver", before)
+        store.arm("op-6", "restart", self.now, self.now + timedelta(minutes=1))
         store.confirm("op-6", self.now + timedelta(seconds=10))
         incident = {"classification": "PM2_RESTART_OBSERVED", "exit_code": 0, "signal_name": None}
         self.assertFalse(store.matches_expected(before, after, incident, self.now + timedelta(minutes=2)))
@@ -106,7 +118,8 @@ class ExpectedMaintenanceTests(unittest.TestCase):
         store = expected.ExpectedMaintenanceStore(self.root, "Authserver")
         before = auth_identity(30, 100)
         after = auth_identity(31, 200)
-        store.arm("auth-r1", "restart", before, self.now, self.now + timedelta(minutes=5))
+        self.seed("Authserver", before)
+        store.arm("auth-r1", "restart", self.now, self.now + timedelta(minutes=5))
         store.confirm("auth-r1", self.now + timedelta(seconds=5))
         incident = {"classification": "PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN", "exit_code": None, "signal_name": None}
         self.assertTrue(store.matches_expected(before, after, incident, self.now + timedelta(minutes=1)))
@@ -115,7 +128,8 @@ class ExpectedMaintenanceTests(unittest.TestCase):
         store = expected.ExpectedMaintenanceStore(self.root, "Authserver")
         before = auth_identity(30, 100)
         after = {"kind": "auth", "pid": None, "start_ticks": None, "tmux_alive": True}
-        store.arm("auth-s1", "stop", before, self.now, self.now + timedelta(minutes=5))
+        self.seed("Authserver", before)
+        store.arm("auth-s1", "stop", self.now, self.now + timedelta(minutes=5))
         store.confirm("auth-s1", self.now + timedelta(seconds=5))
         incident = {"classification": "PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN", "exit_code": None, "signal_name": None}
         self.assertTrue(store.matches_expected(before, after, incident, self.now + timedelta(minutes=1)))
@@ -123,20 +137,23 @@ class ExpectedMaintenanceTests(unittest.TestCase):
     def test_wrong_operation_id_confirmation_refused(self):
         store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
         before = world_identity(10, 4)
-        store.arm("op-7", "stop", before, self.now, self.now + timedelta(minutes=5))
+        self.seed("Worldserver", before)
+        store.arm("op-7", "stop", self.now, self.now + timedelta(minutes=5))
         with self.assertRaises(expected.Refused):
             store.confirm("wrong", self.now + timedelta(seconds=5))
 
     def test_window_longer_than_30_minutes_refused(self):
         store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
         with self.assertRaises(expected.Refused):
-            store.arm("op-8", "stop", world_identity(10, 4), self.now, self.now + timedelta(minutes=31))
+            self.seed("Worldserver", world_identity(10, 4))
+            store.arm("op-8", "stop", self.now, self.now + timedelta(minutes=31))
 
     def test_existing_marker_cannot_be_silently_replaced(self):
         store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
-        store.arm("op-9", "stop", world_identity(10, 4), self.now, self.now + timedelta(minutes=5))
+        self.seed("Worldserver", world_identity(10, 4))
+        store.arm("op-9", "stop", self.now, self.now + timedelta(minutes=5))
         with self.assertRaises(expected.Refused):
-            store.arm("op-10", "restart", world_identity(10, 4), self.now, self.now + timedelta(minutes=5))
+            store.arm("op-10", "restart", self.now, self.now + timedelta(minutes=5))
 
     def test_symlink_marker_refused(self):
         store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
