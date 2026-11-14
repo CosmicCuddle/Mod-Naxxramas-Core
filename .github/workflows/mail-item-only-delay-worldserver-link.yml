@@ -67,7 +67,7 @@ jobs:
           test "$(git -C acore/modules/mod-naxxramas-core rev-parse HEAD)" = "${{ github.sha }}"
 
       - name: Run mail source contract
-        run: python3 -B -m unittest acore.modules.mod-naxxramas-core.tests.test_alt_mail_delay_source
+        run: python3 -B acore/modules/mod-naxxramas-core/tests/test_alt_mail_delay_source.py
 
       - name: Install Linux dependencies
         run: |
