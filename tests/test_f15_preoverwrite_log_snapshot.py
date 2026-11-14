@@ -126,5 +126,16 @@ class SnapshotTests(unittest.TestCase):
         with self.assertRaises(snap.Refused):
             snap.snapshot_file(src,self.archive,datetime(2026,11,13,12,0,0))
 
+
+    def test_archive_parent_symlink_refused(self):
+        real = self.base / "real-parent"
+        real.mkdir()
+        link = self.base / "linked-parent"
+        link.symlink_to(real, target_is_directory=True)
+        src = self.logs / "world.log"
+        src.write_text("x")
+        with self.assertRaises(snap.Refused):
+            snap.snapshot_file(src, link / "Archived Logs", NOW)
+
 if __name__=="__main__":
     unittest.main()

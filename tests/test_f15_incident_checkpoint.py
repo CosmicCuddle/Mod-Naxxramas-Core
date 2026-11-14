@@ -229,5 +229,14 @@ class CheckpointTests(unittest.TestCase):
         with self.assertRaises(cp.Refused):
             c.process_auth({"pid":30,"start_ticks":100,"tmux_probe_status":"session_present_auth_present"},True,normalize_auth,lambda x:None)
 
+
+    def test_state_root_parent_symlink_refused(self):
+        real = Path(self.t.name) / "real-parent"
+        real.mkdir()
+        link = Path(self.t.name) / "linked-parent"
+        link.symlink_to(real, target_is_directory=True)
+        with self.assertRaises(cp.Refused):
+            cp.IncidentCheckpoint(link / "state", "Worldserver")
+
 if __name__ == "__main__":
     unittest.main()

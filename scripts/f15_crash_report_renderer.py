@@ -46,8 +46,21 @@ def sanitize_context(value):
     text = raw.decode("utf-8", "replace")
     return prefix + SECRET_RE.sub(lambda m: m.group(1) + "=[REDACTED]", text)
 
+def _reject_symlink_ancestors(path: Path, label: str) -> None:
+    """Refuse any existing symlink component above path."""
+    current = Path(path).parent
+    while True:
+        if current.is_symlink():
+            raise Refused(f"{label} ancestor may not be a symlink")
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+
 def _private_dir(path):
     path = Path(path)
+    _reject_symlink_ancestors(path, "crash-log directory")
     if path.is_symlink():
         raise Refused("crash-log directory may not be a symlink")
     if not path.exists():
