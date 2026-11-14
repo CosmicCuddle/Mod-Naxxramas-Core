@@ -70,7 +70,12 @@ class RetentionTests(unittest.TestCase):
     def write_crash(self, stamp, incident="one"):
         name=f"{stamp}-Worldserver-{incident}.txt"
         p=self.crash/name
-        p.write_text("report")
+        p.write_text(
+            "Cosmic Core — Detailed Crash / Exit Report\n"
+            "===========================================\n\n"
+            f"Incident ID: {incident}\n"
+            "Service: Worldserver\n"
+        )
         p.chmod(0o600)
         return p
 
@@ -87,6 +92,44 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual((removed,dropped),(1,1))
         self.assertFalse(report.exists())
         self.assertEqual(history.read_text(),"")
+
+
+    def test_crash_filename_lookalike_without_history_is_preserved(self):
+        report=self.write_crash("20261001T120000Z","lookalike")
+        removed,dropped=ret.retain_crash_reports(
+            self.crash,BOUNDARY+timedelta(days=1)
+        )
+        self.assertEqual((removed,dropped),(0,0))
+        self.assertTrue(report.exists())
+
+    def test_crash_history_row_without_renderer_identity_is_preserved(self):
+        report=self.crash/"20261001T120000Z-Worldserver-manual.txt"
+        report.write_text("manual private note")
+        report.chmod(0o600)
+        history=self.crash/"Crash-History.txt"
+        history.write_text(
+            f"20261001T120000Z\tWorldserver\tmanual\tUNKNOWN\texit=UNKNOWN\tsignal=UNKNOWN\treport={report.name}\n"
+        )
+        history.chmod(0o600)
+        removed,dropped=ret.retain_crash_reports(
+            self.crash,BOUNDARY+timedelta(days=1)
+        )
+        self.assertEqual((removed,dropped),(0,0))
+        self.assertTrue(report.exists())
+        self.assertIn("manual",history.read_text())
+
+    def test_crash_history_service_or_incident_mismatch_does_not_authorize_delete(self):
+        report=self.write_crash("20261001T120000Z","one")
+        history=self.crash/"Crash-History.txt"
+        history.write_text(
+            f"20261001T120000Z\tAuthserver\tone\tUNKNOWN\texit=UNKNOWN\tsignal=UNKNOWN\treport={report.name}\n"
+        )
+        history.chmod(0o600)
+        self.assertEqual(
+            ret.retain_crash_reports(self.crash,BOUNDARY+timedelta(days=1)),
+            (0,0),
+        )
+        self.assertTrue(report.exists())
 
     def test_recent_crash_and_history_are_preserved(self):
         report=self.write_crash("20261020T120000Z","recent")
