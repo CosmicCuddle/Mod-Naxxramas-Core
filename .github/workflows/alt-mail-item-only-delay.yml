@@ -1,0 +1,25 @@
+name: Alt mail item-only delay source contract
+
+on:
+  pull_request:
+    paths:
+      - 'src/Systems/AltMailDelay.cpp'
+      - 'tests/test_alt_mail_delay_source.py'
+      - '.github/workflows/alt-mail-item-only-delay.yml'
+  push:
+    paths:
+      - 'src/Systems/AltMailDelay.cpp'
+      - 'tests/test_alt_mail_delay_source.py'
+      - '.github/workflows/alt-mail-item-only-delay.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify attachment-only same-account delay rule
+        run: python3 -B -m unittest tests.test_alt_mail_delay_source
