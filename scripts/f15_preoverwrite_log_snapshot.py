@@ -100,7 +100,6 @@ def _open_source(path: Path):
 
 def snapshot_file(source: Path, archive_root: Path, observed_utc: datetime | None = None) -> tuple[Path, Path]:
     source = Path(source)
-    archive_root = _private_dir(Path(archive_root))
     when = observed_utc or datetime.now(timezone.utc)
     if when.tzinfo is None:
         raise Refused("observation time must be timezone-aware")
@@ -108,6 +107,7 @@ def snapshot_file(source: Path, archive_root: Path, observed_utc: datetime | Non
 
     fd, before = _open_source(source)
     try:
+        archive_root = _private_dir(Path(archive_root))
         stamp = when.strftime("%Y%m%dT%H%M%S.%fZ")
         label = _safe_name(source.name)
         nonce = f"{before.st_dev:x}-{before.st_ino:x}-{before.st_size:x}"
