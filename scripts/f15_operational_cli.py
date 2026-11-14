@@ -143,6 +143,18 @@ def retain_once(archive_root: Path, crash_root: Path,
     archive_root = Path(archive_root)
     crash_root = Path(crash_root)
     raw_root = crash_root / "Raw Evidence"
+
+    # Global fail-closed preflight: an unresolved intent in any F15 retention
+    # domain, or a partial raw bundle from a failed write, blocks all deletion
+    # before the first root is mutated.
+    recovery_state = recovery.classify_all(archive_root, crash_root)
+    for key in ("snapshot_archive", "crash_reports", "raw_evidence"):
+        state = recovery_state[key]
+        if state.get("intent") == "PRESENT":
+            raise Refused(f"unfinished {key} retention state requires recovery review")
+    if recovery_state["raw_evidence"].get("classification") == "PARTIAL_BUNDLE_WITHOUT_RETENTION_INTENT":
+        raise Refused("partial raw evidence bundle requires review before retention")
+
     result = {
         "archived_log_sets_removed": 0,
         "raw_evidence_bundles_removed": 0,
