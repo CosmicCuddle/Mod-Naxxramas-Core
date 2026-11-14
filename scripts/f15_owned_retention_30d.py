@@ -38,6 +38,16 @@ def _aware_utc(now: datetime | None) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _private_owned_root(path: Path, label: str) -> Path:
+    path = Path(path)
+    if path.is_symlink() or not path.exists():
+        raise Refused(f"{label} must be a real directory")
+    st = path.lstat()
+    if not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o077:
+        raise Refused(f"{label} must be mode 0700")
+    return path
+
+
 def _safe_regular(path: Path):
     st = path.lstat()
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
@@ -105,9 +115,7 @@ def _hash_file(path: Path) -> str:
 
 def retain_snapshot_archive(snapshot_root: Path, now: datetime | None = None) -> int:
     """Delete only verified F15 snapshot .log + .json pairs older than 30 days."""
-    root = Path(snapshot_root)
-    if root.is_symlink() or not root.is_dir():
-        raise Refused("snapshot root must be a real directory")
+    root = _private_owned_root(Path(snapshot_root), "snapshot root")
     current = _aware_utc(now)
     intent = root / "retention-intent.json"
     if intent.exists() or intent.is_symlink():
@@ -276,9 +284,7 @@ def retain_crash_reports(crash_root: Path, now: datetime | None = None) -> tuple
     Foreign files are preserved. Crash-History entries are pruned only after the
     referenced owned report no longer exists.
     """
-    root = Path(crash_root)
-    if root.is_symlink() or not root.is_dir():
-        raise Refused("Crash Logs root must be a real directory")
+    root = _private_owned_root(Path(crash_root), "Crash Logs root")
     current = _aware_utc(now)
     intent = root / "retention-intent.json"
     if intent.exists() or intent.is_symlink():
