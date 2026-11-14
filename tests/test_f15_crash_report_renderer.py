@@ -72,6 +72,23 @@ class RendererTests(unittest.TestCase):
         self.assertIn("token=[REDACTED]", report)
 
 
+
+    def test_ensure_report_retry_refuses_symlink_report(self):
+        expected = self.root / "20261113T112000Z-Worldserver-inc-001.txt"
+        self.root.mkdir(mode=0o700)
+        target = self.root / "target.txt"
+        target.write_bytes(f15.render_report(self.inc).encode("utf-8"))
+        target.chmod(0o600)
+        expected.symlink_to(target)
+        with self.assertRaises((f15.Refused, OSError)):
+            f15.ensure_report(self.root, self.inc)
+
+    def test_private_report_reader_returns_exact_inode_and_bytes(self):
+        path = f15.write_report(self.root, self.inc)
+        data, inode = f15._read_private_report(path)
+        self.assertEqual(data, path.read_bytes())
+        self.assertEqual(inode, path.stat().st_ino)
+
     def test_ensure_report_retry_does_not_duplicate_history(self):
         first = f15.ensure_report(self.root, self.inc)
         second = f15.ensure_report(self.root, self.inc)

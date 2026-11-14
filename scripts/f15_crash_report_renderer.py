@@ -102,6 +102,21 @@ def _exclusive_write(path, data):
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
         raise Refused("published crash report failed private regular-file validation")
 
+def _read_private_report(path):
+    """Read one existing report through a no-follow fd and return bytes + inode."""
+    path = Path(path)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("existing crash report is not one private regular file")
+        data = os.pread(fd, st.st_size, 0)
+        return data, st.st_ino
+    finally:
+        os.close(fd)
+
+
 def _ensure_history_once(path, line):
     """Atomically validate, deduplicate and append one history row under one lock."""
     flags = (
@@ -251,11 +266,13 @@ def ensure_report(crash_dir, incident):
     report_path = root / filename
     expected = render_report(incident).encode("utf-8")
     if report_path.exists() or report_path.is_symlink():
-        st = report_path.lstat()
-        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
-            raise Refused("existing crash report is not one private regular file")
-        if report_path.read_bytes() != expected:
+        actual, inode = _read_private_report(report_path)
+        if actual != expected:
             raise Refused("existing crash report differs from retry")
+        # Re-prove the pathname still names the file we validated.
+        st = report_path.lstat()
+        if st.st_ino != inode or not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("existing crash report identity changed during retry validation")
     else:
         _exclusive_write(report_path, expected)
     history = root / "Crash-History.txt"
