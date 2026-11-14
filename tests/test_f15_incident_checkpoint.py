@@ -110,6 +110,37 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(seen[-1]["incident_id"], "authserver-00000001")
 
 
+
+    def test_auth_initial_absence_then_recovery_updates_baseline_without_incident(self):
+        c=cp.IncidentCheckpoint(self.root,"Authserver")
+        seen=[]
+        self.assertIsNone(c.process_auth(
+            {"pid":None,"start_ticks":None,"pane_pid":None,"tmux_probe_status":"session_absent"},
+            False, normalize_auth, seen.append,
+        ))
+        self.assertEqual(seen, [])
+        self.assertIsNone(c.process_auth(
+            {"pid":31,"start_ticks":200,"pane_pid":10,"tmux_probe_status":"session_present_auth_present"},
+            True, normalize_auth, seen.append,
+        ))
+        self.assertEqual(seen, [])
+        self.assertEqual(c.state()["identity"]["pid"], 31)
+        self.assertEqual(c.state()["sequence"], 0)
+
+    def test_auth_live_tmux_without_auth_then_auth_appears_is_not_crash(self):
+        c=cp.IncidentCheckpoint(self.root,"Authserver")
+        seen=[]
+        c.process_auth(
+            {"pid":None,"start_ticks":None,"pane_pid":10,"tmux_probe_status":"session_present_auth_absent"},
+            True, normalize_auth, seen.append,
+        )
+        self.assertIsNone(c.process_auth(
+            {"pid":31,"start_ticks":200,"pane_pid":10,"tmux_probe_status":"session_present_auth_present"},
+            True, normalize_auth, seen.append,
+        ))
+        self.assertEqual(seen, [])
+        self.assertEqual(c.state()["identity"]["pid"], 31)
+
     def test_auth_tmux_session_disappearance_emits_incident(self):
         c=cp.IncidentCheckpoint(self.root,"Authserver")
         seen=[]

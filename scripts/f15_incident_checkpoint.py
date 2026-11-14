@@ -186,6 +186,14 @@ class IncidentCheckpoint:
         previous = state["identity"]
         if previous == current_identity:
             return None
+
+        # If the observer had no previously proven live Auth identity, a later
+        # present/changed topology is recovery/baseline evidence, not proof that
+        # Auth exited. Advance the checkpoint without inventing an incident.
+        if previous.get("pid") is None:
+            self._commit(current_identity, int(state["sequence"]))
+            return None
+
         incident = normalize(
             {
                 "pid": previous.get("pid"),
