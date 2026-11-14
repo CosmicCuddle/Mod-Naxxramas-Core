@@ -190,6 +190,33 @@ class RetentionTests(unittest.TestCase):
         self.assertIn(ret.fcntl.LOCK_EX,calls)
         self.assertEqual(history.read_text(),"")
 
+
+    def test_history_rewrite_backup_is_removed_only_after_success(self):
+        report=self.write_crash("20261001T120000Z","backup")
+        history=self.crash/"Crash-History.txt"
+        history.write_text(
+            f"20261001T120000Z\tWorldserver\tbackup\tUNKNOWN\texit=UNKNOWN\tsignal=UNKNOWN\treport={report.name}\n"
+        )
+        history.chmod(0o600)
+        report.unlink()
+        self.assertEqual(
+            ret._rewrite_history(history,self.crash,BOUNDARY+timedelta(days=1)),
+            1,
+        )
+        self.assertFalse((self.crash/"Crash-History.txt.retention-backup").exists())
+        self.assertEqual(history.read_text(),"")
+
+    def test_unfinished_history_rewrite_backup_blocks_retention(self):
+        history=self.crash/"Crash-History.txt"
+        history.write_text("manual history note\n")
+        history.chmod(0o600)
+        backup=self.crash/"Crash-History.txt.retention-backup"
+        backup.write_text("preserved original\n")
+        backup.chmod(0o600)
+        with self.assertRaises(ret.Refused):
+            ret._rewrite_history(history,self.crash,BOUNDARY+timedelta(days=1))
+        self.assertEqual(backup.read_text(),"preserved original\n")
+
     def test_unfinished_intent_blocks_retention(self):
         self.make_snapshot()
         intent=self.arch/"retention-intent.json"
