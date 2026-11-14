@@ -198,19 +198,28 @@ def _history_owned_reports(history: Path) -> set[tuple[str, str, str, str]]:
     return owned
 
 
-def _report_matches_identity(path: Path, service: str, incident: str) -> bool:
-    _safe_regular(path)
-    data = path.read_bytes()
-    if len(data) > 128 * 1024:
-        return False
-    text = data.decode("utf-8", "replace")
-    if not text.startswith("Cosmic Core — Detailed Crash / Exit Report\n"):
-        return False
-    lines = set(text.splitlines())
-    return (
-        f"Incident ID: {incident}" in lines
-        and f"Service: {service}" in lines
-    )
+def _report_owned_inode(path: Path, service: str, incident: str) -> int | None:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("owned retention artifact must be one private regular file")
+        if st.st_size > 128 * 1024:
+            return None
+        data = os.pread(fd, st.st_size, 0)
+        text = data.decode("utf-8", "replace")
+        if not text.startswith("Cosmic Core — Detailed Crash / Exit Report\n"):
+            return None
+        lines = set(text.splitlines())
+        if (
+            f"Incident ID: {incident}" not in lines
+            or f"Service: {service}" not in lines
+        ):
+            return None
+        return st.st_ino
+    finally:
+        os.close(fd)
 
 
 def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
@@ -263,10 +272,15 @@ def retain_crash_reports(crash_root: Path, now: datetime | None = None) -> tuple
 
         owned_history = _history_owned_reports(root / "Crash-History.txt")
         key = (path.name, stamp.strftime("%Y%m%dT%H%M%SZ"), service, incident)
-        if key not in owned_history or not _report_matches_identity(path, service, incident):
+        if key not in owned_history:
+            continue
+        owned_inode = _report_owned_inode(path, service, incident)
+        if owned_inode is None:
             continue
 
         st = _safe_regular(path)
+        if st.st_ino != owned_inode:
+            raise Refused("crash report identity changed after ownership proof")
         payload = {
             "kind": "f15_retention_30d_crash_report",
             "report": path.name,
