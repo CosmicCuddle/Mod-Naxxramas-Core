@@ -2,6 +2,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -75,6 +76,45 @@ class BundleTests(unittest.TestCase):
         dirs=[p for p in self.root.iterdir() if p.is_dir()]
         self.assertEqual(len(dirs),1)
         self.assertFalse((dirs[0]/"manifest.json").exists())
+
+    def test_interrupted_raw_deletion_leaves_v2_target_identity_intent(self):
+        path=bundle.write_bundle(
+            self.root,"worldserver-00000005",
+            {"a.txt":"x","b.txt":"y"},OLD,{"source":"fixture"}
+        )
+        real_unlink=Path.unlink
+        target=path/"a.txt"
+
+        def fail_target(p,*args,**kwargs):
+            if p == target:
+                raise OSError("synthetic interruption")
+            return real_unlink(p,*args,**kwargs)
+
+        with mock.patch.object(Path,"unlink",new=fail_target):
+            with self.assertRaises(OSError):
+                bundle.retain_bundles(self.root,OLD+timedelta(days=31))
+
+        intent=self.root/"retention-intent.json"
+        payload=json.loads(intent.read_text())
+        self.assertEqual(payload["version"],2)
+        self.assertEqual(payload["kind"],"f15_retention_30d_raw_evidence")
+        self.assertEqual(payload["bundle"],path.name)
+        self.assertEqual(payload["incident_id"],"worldserver-00000005")
+        self.assertTrue(payload["targets"])
+        names={x["name"] for x in payload["targets"]}
+        self.assertEqual(names,{"a.txt","b.txt","manifest.json"})
+        for rec in payload["targets"]:
+            self.assertEqual(len(rec["identity"]["sha256"]),64)
+        self.assertTrue(path.exists())
+
+    def test_legacy_fixed_pending_does_not_wedge_new_raw_intent(self):
+        path=bundle.write_bundle(self.root,"worldserver-00000006",{"a.txt":"x"},OLD)
+        stale=self.root/"retention-intent.json.pending"
+        stale.write_text("old interrupted writer")
+        stale.chmod(0o600)
+        self.assertEqual(bundle.retain_bundles(self.root,OLD+timedelta(days=31)),1)
+        self.assertFalse(path.exists())
+        self.assertTrue(stale.exists())
 
     def test_unfinished_retention_intent_blocks(self):
         bundle.write_bundle(self.root,"worldserver-00000004",{"a.txt":"x"},OLD)
