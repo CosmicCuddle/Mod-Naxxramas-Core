@@ -18,6 +18,7 @@ import f15_owned_retention_30d as retention
 import f15_preoverwrite_log_snapshot as snapshot
 import f15_raw_evidence_bundle as raw_bundle
 import f15_readonly_host_probe as probe
+import f15_retention_recovery as recovery
 
 
 DEFAULT_LOG_ROOT = Path("/root/cosmic_core/logs")
@@ -181,6 +182,13 @@ def _parser() -> argparse.ArgumentParser:
     retain.add_argument("--archive-root", type=Path, default=DEFAULT_ARCHIVE_ROOT)
     retain.add_argument("--crash-root", type=Path, default=DEFAULT_CRASH_ROOT)
 
+    recover = sub.add_parser(
+        "recovery-status",
+        help="classify unfinished retention state without changing evidence",
+    )
+    recover.add_argument("--archive-root", type=Path, default=DEFAULT_ARCHIVE_ROOT)
+    recover.add_argument("--crash-root", type=Path, default=DEFAULT_CRASH_ROOT)
+
     return p
 
 
@@ -203,10 +211,12 @@ def main(argv=None) -> int:
             result = {"snapshots_created": len(pairs)}
         elif args.command == "retain-once":
             result = retain_once(args.archive_root, args.crash_root)
+        elif args.command == "recovery-status":
+            result = recovery.classify_all(args.archive_root, args.crash_root)
         else:
             raise Refused("unknown command")
     except (Refused, probe.Refused, pipeline.raw_bundle.Refused,
-            snapshot.Refused, retention.Refused, raw_bundle.Refused) as exc:
+            snapshot.Refused, retention.Refused, raw_bundle.Refused, recovery.Refused) as exc:
         print(f"F15 REFUSED: {exc}", file=sys.stderr)
         return 2
     except OSError as exc:
