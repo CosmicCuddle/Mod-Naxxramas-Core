@@ -302,7 +302,10 @@ def snapshot_file(source: Path, archive_root: Path, observed_utc: datetime | Non
 def snapshot_log_directory(log_root: Path, archive_root: Path, excluded_names: set[str] | None = None,
                            observed_utc: datetime | None = None) -> list[tuple[Path, Path]]:
     log_root = Path(log_root)
-    archive_root = _private_dir(Path(archive_root))
+    archive_root = Path(archive_root)
+    if archive_root.parent != log_root:
+        raise Refused("archive root must be a direct child of log root")
+    archive_root = _private_dir(archive_root)
     when = _utc(observed_utc)
 
     # The archive lock serializes the full root classification, preparation and
