@@ -65,15 +65,15 @@ class TopologyEvidenceTests(unittest.TestCase):
 
     def test_auth_same_identity_returns_none(self):
         self.assertIsNone(adapter.auth_incident(
-            {"pid": 30, "start_ticks": 100, "pane_pid": 10},
-            {"pid": 30, "start_ticks": 100, "pane_pid": 10},
+            {"pid": 30, "start_ticks": 100, "pane_pid": 10, "tmux_probe_status": "session_present_auth_present"},
+            {"pid": 30, "start_ticks": 100, "pane_pid": 10, "tmux_probe_status": "session_present_auth_present"},
             True,
         ))
 
     def test_auth_disappearance_keeps_cause_unknown(self):
         incident = adapter.auth_incident(
-            {"pid": 30, "start_ticks": 100, "pane_pid": 10},
-            {"pid": None, "start_ticks": None, "pane_pid": 10},
+            {"pid": 30, "start_ticks": 100, "pane_pid": 10, "tmux_probe_status": "session_present_auth_present"},
+            {"pid": None, "start_ticks": None, "pane_pid": 10, "tmux_probe_status": "session_present_auth_absent"},
             True,
         )
         self.assertEqual(
@@ -85,10 +85,21 @@ class TopologyEvidenceTests(unittest.TestCase):
             incident["classification_evidence"],
         )
 
+
+    def test_auth_tmux_session_disappearance_is_reportable_unknown_cause(self):
+        incident = adapter.auth_incident(
+            {"pid": 30, "start_ticks": 100, "pane_pid": 10, "tmux_probe_status": "session_present_auth_present"},
+            {"pid": None, "start_ticks": None, "pane_pid": None, "tmux_probe_status": "session_absent"},
+            False,
+        )
+        self.assertEqual(incident["classification"], "PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN")
+        self.assertIn("tmux session not present", incident["classification_evidence"])
+        self.assertEqual(incident["replacement_supervisor_probe_status"], "session_absent")
+
     def test_auth_replacement_keeps_cause_unknown(self):
         incident = adapter.auth_incident(
-            {"pid": 30, "start_ticks": 100, "pane_pid": 10},
-            {"pid": 31, "start_ticks": 200, "pane_pid": 10},
+            {"pid": 30, "start_ticks": 100, "pane_pid": 10, "tmux_probe_status": "session_present_auth_present"},
+            {"pid": 31, "start_ticks": 200, "pane_pid": 10, "tmux_probe_status": "session_present_auth_present"},
             True,
         )
         self.assertEqual(incident["replacement_pid"], 31)

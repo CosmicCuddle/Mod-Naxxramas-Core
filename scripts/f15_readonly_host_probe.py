@@ -122,10 +122,16 @@ def probe_auth_tmux(session_name: str, runner: Callable[[list[str]], tuple[int, 
     if not session_name or len(session_name) > 128 or any(c in session_name for c in "\n\r\0"):
         raise Refused("invalid tmux session name")
     read_text = read_text or (lambda p: p.read_text("utf-8"))
-    pane_out = _require_ok(
-        runner(["tmux", "display-message", "-p", "-t", session_name, "#{pane_pid}"]),
-        "tmux pane query",
-    ).strip()
+    pane_result = runner(["tmux", "display-message", "-p", "-t", session_name, "#{pane_pid}"])
+    if pane_result[0] != 0:
+        err = str(pane_result[2] or "").lower()
+        if "can't find session" in err or "no server running" in err:
+            return {
+                "pid": None, "start_ticks": None, "pane_pid": None,
+                "tmux_probe_status": "session_absent",
+            }, False
+        raise Refused("tmux pane query failed")
+    pane_out = pane_result[1].strip()
     try:
         pane_pid = int(pane_out)
     except ValueError as exc:
@@ -144,10 +150,16 @@ def probe_auth_tmux(session_name: str, runner: Callable[[list[str]], tuple[int, 
     if len(candidates) > 1:
         raise Refused("expected at most one authserver descendant")
     if not candidates:
-        return {"pid": None, "start_ticks": None, "pane_pid": pane_pid}, True
+        return {
+            "pid": None, "start_ticks": None, "pane_pid": pane_pid,
+            "tmux_probe_status": "session_present_auth_absent",
+        }, True
     pid = candidates[0]
     start_ticks = _start_ticks_from_stat(read_text(Path(f"/proc/{pid}/stat")))
-    return {"pid": pid, "start_ticks": start_ticks, "pane_pid": pane_pid}, True
+    return {
+        "pid": pid, "start_ticks": start_ticks, "pane_pid": pane_pid,
+        "tmux_probe_status": "session_present_auth_present",
+    }, True
 
 
 def tail_private_source(path: str | Path, limit: int = MAX_LOG_TAIL_BYTES) -> str:

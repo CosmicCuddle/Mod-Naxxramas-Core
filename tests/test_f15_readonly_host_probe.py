@@ -49,6 +49,7 @@ class ProbeTests(unittest.TestCase):
         self.assertTrue(alive)
         self.assertEqual(info["pid"],30)
         self.assertEqual(info["start_ticks"],777)
+        self.assertEqual(info["tmux_probe_status"], "session_present_auth_present")
         self.assertEqual(len(r.calls),2)
 
     def test_tmux_live_without_auth_descendant_returns_absent_snapshot(self):
@@ -60,6 +61,7 @@ class ProbeTests(unittest.TestCase):
         self.assertTrue(alive)
         self.assertIsNone(info["pid"])
         self.assertIsNone(info["start_ticks"])
+        self.assertEqual(info["tmux_probe_status"], "session_present_auth_absent")
 
     def test_tmux_multiple_auth_descendants_refused(self):
         ps="10 1 tmux tmux\n20 10 authserver authserver\n21 10 authserver authserver\n"
@@ -69,8 +71,20 @@ class ProbeTests(unittest.TestCase):
         with self.assertRaises(probe.Refused):
             probe.probe_auth_tmux("auth",r,lambda p:"")
 
+
+    def test_tmux_missing_session_returns_absent_snapshot_not_refusal(self):
+        r=FakeRunner({
+            ("tmux","display-message","-p","-t","auth","#{pane_pid}"):(1,"","can't find session: auth")
+        })
+        info,alive=probe.probe_auth_tmux("auth",r,lambda p:"")
+        self.assertFalse(alive)
+        self.assertIsNone(info["pid"])
+        self.assertIsNone(info["pane_pid"])
+        self.assertEqual(info["tmux_probe_status"], "session_absent")
+        self.assertEqual(len(r.calls),1)
+
     def test_tmux_command_failure_refused_without_fallback_mutation(self):
-        r=FakeRunner({("tmux","display-message","-p","-t","auth","#{pane_pid}"):(1,"","no session")})
+        r=FakeRunner({("tmux","display-message","-p","-t","auth","#{pane_pid}"):(2,"","permission denied")})
         with self.assertRaises(probe.Refused):
             probe.probe_auth_tmux("auth",r,lambda p:"")
         self.assertEqual(len(r.calls),1)
