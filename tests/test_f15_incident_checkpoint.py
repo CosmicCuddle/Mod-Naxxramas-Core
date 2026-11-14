@@ -214,5 +214,18 @@ class CheckpointTests(unittest.TestCase):
         with self.assertRaises(cp.Refused):
             c.process_world(pm(10, 1), "worldserver", "", parse_pm2, normalize_world, lambda x: None)
 
+    def test_boolean_auth_identity_is_refused(self):
+        c = cp.IncidentCheckpoint(self.root, "Authserver")
+        with self.assertRaises(cp.Refused):
+            c.process_auth({"pid": True, "start_ticks": 100}, True, normalize_auth, lambda x: None)
+        with self.assertRaises(cp.Refused):
+            c.process_auth({"pid": 30, "start_ticks": False}, True, normalize_auth, lambda x: None)
+
+    def test_broken_checkpoint_symlink_is_refused(self):
+        c = cp.IncidentCheckpoint(self.root, "Worldserver")
+        c.path.symlink_to(self.root / "missing-target")
+        with self.assertRaises(cp.Refused):
+            c.process_world(pm(10, 1), "worldserver", "", parse_pm2, normalize_world, lambda x: None)
+
 if __name__ == "__main__":
     unittest.main()
