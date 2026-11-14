@@ -114,6 +114,43 @@ class Tests(unittest.TestCase):
         data["log_root"] = "/root//cosmic_core/logs"
         self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
 
+    def test_manifest_cannot_broaden_log_root_to_filesystem_root(self):
+        data = complete()
+        data["log_root"] = "/"
+        data["auth"]["log"] = ev("/tmp/auth.log")
+        r = preflight.assess(data)
+        self.assertEqual(r["status"], "BLOCKED")
+        self.assertTrue(any("owner-approved" in x for x in r["blockers"]))
+
+    def test_alternate_log_root_requires_separate_owner_decision(self):
+        data = complete()
+        data["log_root"] = "/srv/cosmic/logs"
+        for section, key in (
+            ("world", "pm2_manager_log"),
+            ("world", "stdout_log"),
+            ("world", "stderr_log"),
+            ("auth", "log"),
+        ):
+            data[section][key] = ev(f"/srv/cosmic/logs/{key}.log")
+        self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
+    def test_daemon_log_path_equal_to_root_blocks(self):
+        for section, key in (
+            ("world", "pm2_manager_log"),
+            ("world", "stdout_log"),
+            ("world", "stderr_log"),
+            ("auth", "log"),
+        ):
+            with self.subTest(section=section, key=key):
+                data = complete()
+                data[section][key] = ev("/root/cosmic_core/logs")
+                self.assertEqual(preflight.assess(data)["status"], "BLOCKED")
+
+    def test_strict_descendant_log_path_remains_valid(self):
+        data = complete()
+        r = preflight.assess(data)
+        self.assertEqual(r["status"], "READY_FOR_OWNER_REVIEW")
+
     def test_unknown_stays_unknown(self):
         data = complete()
         data["auth"]["log"] = {"status": "UNKNOWN", "value": None, "source": ""}
