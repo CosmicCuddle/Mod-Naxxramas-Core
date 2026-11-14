@@ -5,6 +5,7 @@ Consumes normalized incident facts only. It does not inspect, launch, signal,
 restart or attach to Worldserver/Authserver. A later PM2/tmux adapter may feed
 it. Output directory must be private (0700); reports/history are 0600.
 """
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
 import os
@@ -76,6 +77,44 @@ def _exclusive_write(path, data):
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
         raise Refused("created report failed private regular-file validation")
 
+@contextmanager
+def _history_lock(history_path):
+    lock_path = Path(history_path).with_name(Path(history_path).name + ".lock")
+    flags = (
+        os.O_RDWR | os.O_CREAT
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    try:
+        fd = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        raise Refused("Crash-History lock could not be opened safely") from exc
+    try:
+        st = os.fstat(fd)
+        if (
+            not stat.S_ISREG(st.st_mode)
+            or st.st_nlink != 1
+            or st.st_mode & 0o077
+            or st.st_size != 0
+        ):
+            raise Refused("Crash-History lock must be one empty private regular file")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        st = os.fstat(fd)
+        if (
+            not stat.S_ISREG(st.st_mode)
+            or st.st_nlink != 1
+            or st.st_mode & 0o077
+            or st.st_size != 0
+        ):
+            raise Refused("Crash-History lock changed while locked")
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
 def _history_bytes_locked(fd):
     st = os.fstat(fd)
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
@@ -126,45 +165,43 @@ def _ensure_history_once(path, line):
     if len(encoded) > MAX_FIELD_CHARS * 4:
         raise Refused("crash history entry exceeds bound")
 
-    flags = (
-        os.O_RDWR | os.O_APPEND | os.O_CREAT
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_CLOEXEC", 0)
-    )
-    try:
-        fd = os.open(path, flags, 0o600)
-    except OSError as exc:
-        raise Refused("Crash-History.txt could not be opened safely") from exc
-
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        data, st = _history_bytes_locked(fd)
-        count = sum(1 for existing in data.splitlines(keepends=True) if existing == encoded)
-        if count > 1:
-            raise Refused("duplicate crash history entry")
-        if count == 1:
-            return
-        if st.st_size + len(encoded) > MAX_HISTORY_BYTES:
-            raise Refused("Crash-History.txt would exceed configured history bound")
-
-        _write_all(fd, encoded)
-        os.fsync(fd)
-
-        after = os.fstat(fd)
-        if (
-            not stat.S_ISREG(after.st_mode)
-            or after.st_nlink != 1
-            or after.st_mode & 0o077
-            or after.st_dev != st.st_dev
-            or after.st_ino != st.st_ino
-            or after.st_size != st.st_size + len(encoded)
-        ):
-            raise Refused("Crash-History.txt changed unexpectedly during append")
-    finally:
+    with _history_lock(path):
+        flags = (
+            os.O_RDWR | os.O_APPEND | os.O_CREAT
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            fd = os.open(path, flags, 0o600)
+        except OSError as exc:
+            raise Refused("Crash-History.txt could not be opened safely") from exc
+
+        try:
+            data, st = _history_bytes_locked(fd)
+            count = sum(1 for existing in data.splitlines(keepends=True) if existing == encoded)
+            if count > 1:
+                raise Refused("duplicate crash history entry")
+            if count == 1:
+                return
+            if st.st_size + len(encoded) > MAX_HISTORY_BYTES:
+                raise Refused("Crash-History.txt would exceed configured history bound")
+
+            _write_all(fd, encoded)
+            os.fsync(fd)
+
+            after = os.fstat(fd)
+            if (
+                not stat.S_ISREG(after.st_mode)
+                or after.st_nlink != 1
+                or after.st_mode & 0o077
+                or after.st_dev != st.st_dev
+                or after.st_ino != st.st_ino
+                or after.st_size != st.st_size + len(encoded)
+            ):
+                raise Refused("Crash-History.txt changed unexpectedly during append")
         finally:
             os.close(fd)
+
 
 
 def _signal_number(incident):
