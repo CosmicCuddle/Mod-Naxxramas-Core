@@ -12,6 +12,7 @@ import json
 from typing import Callable
 
 import f15_crash_report_renderer as renderer
+import f15_expected_maintenance as expected_maintenance
 import f15_incident_checkpoint as checkpoint
 import f15_raw_evidence_bundle as raw_bundle
 import f15_readonly_host_probe as probe
@@ -76,6 +77,13 @@ def world_cycle(state_root: Path, crash_root: Path, raw_root: Path,
     current_time = _utc(now)
     raw_pm2, _summary = probe.probe_pm2(process_name, runner)
     state = checkpoint.IncidentCheckpoint(state_root, "Worldserver")
+    expected = expected_maintenance.ExpectedMaintenanceStore(state_root, "Worldserver")
+
+    def evaluate_expected(previous: dict, current: dict, incident: dict):
+        return expected.evaluate_unlocked(previous, current, incident, current_time)
+
+    def finalize_expected(decision: dict):
+        expected.finalize_expected_unlocked(decision)
 
     def render(incident: dict):
         _decorate_common(
@@ -108,6 +116,8 @@ def world_cycle(state_root: Path, crash_root: Path, raw_root: Path,
         topology._one_pm2,
         topology.world_incident,
         render,
+        expected_evaluate=evaluate_expected,
+        expected_finalize=finalize_expected,
     )
 
 
@@ -126,6 +136,13 @@ def auth_cycle(state_root: Path, crash_root: Path, raw_root: Path,
     current_time = _utc(now)
     auth_snapshot, tmux_alive = probe.probe_auth_tmux(session_name, runner, read_text)
     state = checkpoint.IncidentCheckpoint(state_root, "Authserver")
+    expected = expected_maintenance.ExpectedMaintenanceStore(state_root, "Authserver")
+
+    def evaluate_expected(previous: dict, current: dict, incident: dict):
+        return expected.evaluate_unlocked(previous, current, incident, current_time)
+
+    def finalize_expected(decision: dict):
+        expected.finalize_expected_unlocked(decision)
 
     def render(incident: dict):
         _decorate_common(
@@ -155,4 +172,6 @@ def auth_cycle(state_root: Path, crash_root: Path, raw_root: Path,
         tmux_alive,
         topology.auth_incident,
         render,
+        expected_evaluate=evaluate_expected,
+        expected_finalize=finalize_expected,
     )
