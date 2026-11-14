@@ -230,14 +230,14 @@ def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
     flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     fd = os.open(history, flags)
     try:
+        # Renderer appends use the same exclusive flock. Lock before taking
+        # the size/identity snapshot so an append cannot land between fstat
+        # and the protected read and then be truncated away.
+        fcntl.flock(fd, fcntl.LOCK_EX)
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
             raise Refused("Crash-History.txt must be one private regular file")
 
-        # Renderer appends use the same exclusive flock. Holding it across
-        # read/decide/rewrite prevents a concurrent incident append from being
-        # lost while retention prunes old rows.
-        fcntl.flock(fd, fcntl.LOCK_EX)
         data = os.pread(fd, st.st_size, 0).decode("utf-8")
         lines = data.splitlines(keepends=True)
         kept = []
