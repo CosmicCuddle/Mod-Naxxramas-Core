@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -13,6 +14,7 @@ def load(name, rel):
     return mod
 
 cp = load("cp", "scripts/f15_incident_checkpoint.py")
+topology = load("topology", "scripts/f15_topology_evidence.py")
 
 
 def parse_pm2(snapshot, name):
@@ -28,10 +30,10 @@ def parse_pm2(snapshot, name):
     }
 
 
-def pm(pid, restarts, up=1000):
-    return json.dumps([{"name":"worldserver","pid":pid,"pm2_env":{
-        "status":"online","restart_time":restarts,"pm_uptime":up,
-        "unstable_restarts":0,"created_at":0,"exit_code":0}}])
+def pm(pid, restarts, up=1000, status="online", exit_code=0):
+    return json.dumps([{"name":"worldserver","pid":pid,"pm_id":0,"pm2_env":{
+        "status":status,"restart_time":restarts,"pm_uptime":up,
+        "unstable_restarts":0,"created_at":0,"exit_code":exit_code}}])
 
 
 def normalize_world(prev, cur, name, manager):
@@ -128,6 +130,89 @@ class CheckpointTests(unittest.TestCase):
         c=cp.IncidentCheckpoint(self.root,"Authserver")
         with self.assertRaises(cp.Refused):
             c.process_auth({"pid":30,"start_ticks":None},True,normalize_auth,lambda x:None)
+
+    def test_legacy_fixed_pending_file_does_not_wedge_later_commit(self):
+        c = cp.IncidentCheckpoint(self.root, "Worldserver")
+        c.process_world(pm(10, 1), "worldserver", "", parse_pm2, normalize_world, lambda x: None)
+        legacy = self.root / "Worldserver.checkpoint.json.pending"
+        legacy.write_text("interrupted-old-writer")
+        legacy.chmod(0o600)
+        seen = []
+        event = c.process_world(pm(11, 2), "worldserver", "", parse_pm2, normalize_world, seen.append)
+        self.assertEqual(event["incident_id"], "worldserver-00000001")
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(legacy.exists())
+
+    def test_world_same_counter_stop_is_not_silently_consumed(self):
+        c = cp.IncidentCheckpoint(self.root, "Worldserver")
+        seen = []
+        c.process_world(
+            pm(10, 4, status="online"),
+            "worldserver", "", topology._one_pm2, topology.world_incident, seen.append,
+        )
+        event = c.process_world(
+            pm(0, 4, status="stopped"),
+            "worldserver", "", topology._one_pm2, topology.world_incident, seen.append,
+        )
+        self.assertEqual(event["classification"], "PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN")
+        self.assertEqual(event["incident_id"], "worldserver-00000001")
+        self.assertEqual(c.state()["identity"]["status"], "stopped")
+
+    def test_auth_disappearance_then_recovery_advances_without_refusal(self):
+        c = cp.IncidentCheckpoint(self.root, "Authserver")
+        seen = []
+        c.process_auth({"pid": 30, "start_ticks": 100}, True, topology.auth_incident, seen.append)
+        event = c.process_auth({"pid": None, "start_ticks": None}, True, topology.auth_incident, seen.append)
+        self.assertEqual(event["incident_id"], "authserver-00000001")
+        recovered = c.process_auth({"pid": 31, "start_ticks": 200}, True, topology.auth_incident, seen.append)
+        self.assertIsNone(recovered)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(c.state()["identity"]["pid"], 31)
+
+    def test_auth_baseline_absent_then_start_is_recovery(self):
+        c = cp.IncidentCheckpoint(self.root, "Authserver")
+        seen = []
+        self.assertIsNone(c.process_auth(
+            {"pid": None, "start_ticks": None}, True, topology.auth_incident, seen.append
+        ))
+        self.assertIsNone(c.process_auth(
+            {"pid": 31, "start_ticks": 200}, True, topology.auth_incident, seen.append
+        ))
+        self.assertEqual(seen, [])
+        self.assertEqual(c.state()["identity"]["pid"], 31)
+
+    def test_concurrent_observers_emit_one_incident(self):
+        c = cp.IncidentCheckpoint(self.root, "Worldserver")
+        c.process_world(pm(10, 1), "worldserver", "", parse_pm2, normalize_world, lambda x: None)
+        seen = []
+        results = []
+        errors = []
+
+        def run():
+            try:
+                results.append(c.process_world(
+                    pm(11, 2), "worldserver", "", parse_pm2, normalize_world, seen.append
+                ))
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=run) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(errors, [])
+        self.assertEqual(sum(result is not None for result in results), 1)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(c.state()["sequence"], 1)
+
+    def test_insecure_checkpoint_lock_is_refused(self):
+        c = cp.IncidentCheckpoint(self.root, "Worldserver")
+        c.lock_path.write_text("lock")
+        c.lock_path.chmod(0o644)
+        with self.assertRaises(cp.Refused):
+            c.process_world(pm(10, 1), "worldserver", "", parse_pm2, normalize_world, lambda x: None)
 
 if __name__ == "__main__":
     unittest.main()
