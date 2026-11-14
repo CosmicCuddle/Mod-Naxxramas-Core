@@ -97,5 +97,71 @@ class TopologyEvidenceTests(unittest.TestCase):
             "PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN",
         )
 
+    def test_same_restart_counter_live_to_stopped_is_incident(self):
+        incident = adapter.world_incident(
+            pm(pid=10, restarts=4, status="online", up=1000),
+            pm(pid=0, restarts=4, status="stopped", up=1000),
+            "worldserver",
+        )
+        self.assertEqual(
+            incident["classification"],
+            "PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN",
+        )
+        self.assertIn("restart_time unchanged", incident["classification_evidence"])
+
+    def test_same_restart_counter_live_identity_replacement_is_incident(self):
+        incident = adapter.world_incident(
+            pm(pid=10, restarts=4, status="online", up=1000),
+            pm(pid=11, restarts=4, status="online", up=2000),
+            "worldserver",
+        )
+        self.assertEqual(
+            incident["classification"],
+            "PM2_PROCESS_IDENTITY_CHANGED_CAUSE_UNKNOWN",
+        )
+
+    def test_stopped_to_online_recovery_does_not_emit_second_crash(self):
+        self.assertIsNone(adapter.world_incident(
+            pm(pid=0, restarts=4, status="stopped", up=1000),
+            pm(pid=11, restarts=5, status="online", up=2000),
+            "worldserver",
+        ))
+
+    def test_stopped_to_online_after_multiple_restart_attempts_is_incident(self):
+        incident = adapter.world_incident(
+            pm(pid=0, restarts=4, status="stopped", up=1000),
+            pm(pid=12, restarts=7, status="online", up=3000),
+            "worldserver",
+        )
+        self.assertEqual(incident["classification"], "PM2_RESTART_OBSERVED")
+
+    def test_auth_absent_to_present_is_recovery_not_crash(self):
+        self.assertIsNone(adapter.auth_incident(
+            {"pid": None, "start_ticks": None},
+            {"pid": 31, "start_ticks": 200},
+            True,
+        ))
+
+    def test_auth_absent_to_absent_is_stable(self):
+        self.assertIsNone(adapter.auth_incident(
+            {"pid": None, "start_ticks": None},
+            {"pid": None, "start_ticks": None},
+            False,
+        ))
+
+    def test_auth_partial_identity_still_refused(self):
+        with self.assertRaises(adapter.Refused):
+            adapter.auth_incident(
+                {"pid": None, "start_ticks": None},
+                {"pid": 31, "start_ticks": None},
+                True,
+            )
+
+    def test_boolean_pm2_pid_is_refused(self):
+        payload = json.loads(pm())
+        payload[0]["pid"] = True
+        with self.assertRaises(adapter.Refused):
+            adapter.world_incident(payload, pm(pid=11, restarts=2), "worldserver")
+
 if __name__ == "__main__":
     unittest.main()
