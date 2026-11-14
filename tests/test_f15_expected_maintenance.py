@@ -165,5 +165,72 @@ class ExpectedMaintenanceTests(unittest.TestCase):
             store.read()
 
 
+    def test_recovery_classifier_clean_and_audit_only(self):
+        store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
+        before = world_identity(10, 4)
+        self.seed("Worldserver", before)
+        self.assertEqual(store.classify_recovery()["status"], "CLEAN")
+        checkpoint._atomic_json(
+            self.root / "Worldserver.last-expected-maintenance.json",
+            {
+                "version": 1,
+                "service": "Worldserver",
+                "operation_id": "done-1",
+                "transition": "restart",
+                "created_utc": self.now.isoformat(),
+                "confirmed_utc": (self.now + timedelta(seconds=1)).isoformat(),
+                "observed_utc": (self.now + timedelta(seconds=2)).isoformat(),
+                "result": "EXPECTED_TRANSITION_CONFIRMED",
+            },
+        )
+        result = store.classify_recovery()
+        self.assertEqual(result["status"], "AUDIT_ONLY_CLEAN")
+        self.assertEqual(result["operation_id"], "done-1")
+
+    def test_recovery_classifier_stale_confirmed_marker_after_checkpoint(self):
+        store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
+        before = world_identity(10, 4, up=1000)
+        after = world_identity(11, 5, up=2000)
+        self.seed("Worldserver", before)
+        store.arm("stale-1", "restart", self.now, self.now + timedelta(minutes=5))
+        store.confirm("stale-1", self.now + timedelta(seconds=1))
+        checkpoint._atomic_json(
+            self.root / "Worldserver.checkpoint.json",
+            {"version": 1, "service": "Worldserver", "sequence": 0, "identity": after},
+        )
+        result = store.classify_recovery()
+        self.assertEqual(result["status"], "STALE_CONFIRMED_MARKER_AFTER_CHECKPOINT")
+        self.assertTrue(result["checkpoint_advanced"])
+        self.assertTrue(store.path.exists(), "classifier must not mutate stale marker")
+
+    def test_recovery_classifier_marker_audit_mismatch(self):
+        store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
+        before = world_identity(10, 4)
+        self.seed("Worldserver", before)
+        store.arm("marker-op", "stop", self.now, self.now + timedelta(minutes=5))
+        store.confirm("marker-op", self.now + timedelta(seconds=1))
+        checkpoint._atomic_json(
+            self.root / "Worldserver.last-expected-maintenance.json",
+            {
+                "version": 1,
+                "service": "Worldserver",
+                "operation_id": "other-op",
+                "transition": "stop",
+                "created_utc": self.now.isoformat(),
+                "confirmed_utc": (self.now + timedelta(seconds=1)).isoformat(),
+                "observed_utc": (self.now + timedelta(seconds=2)).isoformat(),
+                "result": "EXPECTED_TRANSITION_CONFIRMED",
+            },
+        )
+        result = store.classify_recovery()
+        self.assertEqual(result["status"], "MARKER_AUDIT_MISMATCH")
+
+    def test_recovery_classifier_missing_checkpoint(self):
+        store = expected.ExpectedMaintenanceStore(self.root, "Worldserver")
+        self.assertEqual(
+            store.classify_recovery()["status"],
+            "CHECKPOINT_INVALID_OR_MISSING",
+        )
+
 if __name__ == "__main__":
     unittest.main()
