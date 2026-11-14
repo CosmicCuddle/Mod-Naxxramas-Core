@@ -214,17 +214,39 @@ def _verify_bundle(bundle: Path) -> tuple[dict, list[Path]]:
 
 
 def _file_identity(path: Path) -> dict:
-    st = _safe_regular(path)
-    data = path.read_bytes()
-    if len(data) != st.st_size:
-        raise Refused("raw evidence file size changed during identity capture")
-    return {
-        "dev": st.st_dev,
-        "ino": st.st_ino,
-        "size": st.st_size,
-        "mtime_ns": st.st_mtime_ns,
-        "sha256": hashlib.sha256(data).hexdigest(),
-    }
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise Refused("raw evidence file could not be opened safely") from exc
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+            raise Refused("raw evidence file must be one private regular file")
+        digest = hashlib.sha256()
+        offset = 0
+        while offset < st.st_size:
+            block = os.pread(fd, min(1024 * 1024, st.st_size - offset), offset)
+            if not block:
+                raise Refused("raw evidence file shortened during identity capture")
+            digest.update(block)
+            offset += len(block)
+        after = os.fstat(fd)
+        if (
+            after.st_dev != st.st_dev or after.st_ino != st.st_ino
+            or after.st_size != st.st_size or after.st_mtime_ns != st.st_mtime_ns
+            or after.st_nlink != st.st_nlink or after.st_mode != st.st_mode
+        ):
+            raise Refused("raw evidence file changed during identity capture")
+        return {
+            "dev": st.st_dev,
+            "ino": st.st_ino,
+            "size": st.st_size,
+            "mtime_ns": st.st_mtime_ns,
+            "sha256": digest.hexdigest(),
+        }
+    finally:
+        os.close(fd)
 
 
 def _bundle_identity(bundle: Path) -> dict:
@@ -307,9 +329,9 @@ def retain_bundles(raw_root: Path, now: datetime | None = None) -> int:
         }
         _atomic_json(intent, intent_obj)
 
-        identities = [(path, _safe_regular(path).st_ino) for path in files + [bundle / "manifest.json"]]
-        for path, ino in identities:
-            if _safe_regular(path).st_ino != ino:
+        expected = {item["name"]: item["identity"] for item in intent_obj["targets"]}
+        for path in files + [bundle / "manifest.json"]:
+            if _file_identity(path) != expected[path.name]:
                 raise Refused("raw evidence file changed before retention")
 
         for path in files:
