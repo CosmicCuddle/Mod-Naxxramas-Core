@@ -84,17 +84,24 @@ def _auth_identity(snapshot: dict[str, Any], tmux_alive: bool) -> dict[str, Any]
     pid = snapshot.get("pid")
     start = snapshot.get("start_ticks")
     pane_pid = snapshot.get("pane_pid")
+    probe_status = snapshot.get("tmux_probe_status")
     if pid is not None and (not isinstance(pid, int) or pid <= 0):
         raise Refused("invalid Auth pid")
     if start is not None and (not isinstance(start, int) or start < 0):
         raise Refused("invalid Auth start ticks")
     if (pid is None) != (start is None):
         raise Refused("Auth pid/start identity must be both present or both absent")
-    if not isinstance(pane_pid, int) or pane_pid <= 0:
-        raise Refused("invalid Auth tmux pane pid")
+    if tmux_alive:
+        if not isinstance(pane_pid, int) or pane_pid <= 0:
+            raise Refused("invalid Auth tmux pane pid")
+    elif pane_pid is not None:
+        raise Refused("absent Auth tmux session may not have pane pid")
+    if not isinstance(probe_status, str) or not probe_status:
+        raise Refused("missing Auth tmux probe status")
     return {
         "kind": "auth", "pid": pid, "start_ticks": start,
         "pane_pid": pane_pid, "tmux_alive": bool(tmux_alive),
+        "tmux_probe_status": probe_status,
     }
 
 
@@ -184,11 +191,13 @@ class IncidentCheckpoint:
                 "pid": previous.get("pid"),
                 "start_ticks": previous.get("start_ticks"),
                 "pane_pid": previous.get("pane_pid"),
+                "tmux_probe_status": previous.get("tmux_probe_status"),
             },
             {
                 "pid": current_identity.get("pid"),
                 "start_ticks": current_identity.get("start_ticks"),
                 "pane_pid": current_identity.get("pane_pid"),
+                "tmux_probe_status": current_identity.get("tmux_probe_status"),
             },
             tmux_alive,
         )
