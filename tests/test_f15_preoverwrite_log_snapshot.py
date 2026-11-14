@@ -171,6 +171,27 @@ class SnapshotTests(unittest.TestCase):
 
         self.assertEqual(self.finals(), [])
 
+    def test_early_source_change_after_later_prepare_blocks_publication(self):
+        first = self.logs / "a.log"
+        second = self.logs / "b.log"
+        first.write_text("a")
+        second.write_text("b")
+        real_prepare = snap._prepare_snapshot
+        calls = {"n": 0}
+
+        def mutate_after_second(*args, **kwargs):
+            prepared = real_prepare(*args, **kwargs)
+            calls["n"] += 1
+            if calls["n"] == 2:
+                first.write_text("changed after its copy")
+            return prepared
+
+        with mock.patch.object(snap, "_prepare_snapshot", side_effect=mutate_after_second):
+            with self.assertRaises(snap.Refused):
+                snap.snapshot_log_directory(self.logs, self.archive, observed_utc=NOW)
+
+        self.assertEqual(self.finals(), [])
+
     def test_source_change_during_copy_refused_and_source_untouched(self):
         src = self.logs / "world.log"
         src.write_bytes(b"A" * 4096)
