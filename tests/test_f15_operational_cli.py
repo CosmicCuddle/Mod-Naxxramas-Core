@@ -96,6 +96,77 @@ class OperationalCliTests(unittest.TestCase):
         self.assertEqual(out.read_bytes(), before[out])
         self.assertEqual(err.read_bytes(), before[err])
 
+    def test_expected_restart_waits_for_confirmation_then_consumes_without_crash(self):
+        out = self.logs / "world-out.log"
+        err = self.logs / "world-err.log"
+        mgr = self.logs / "pm2.log"
+        out.write_text("out\n")
+        err.write_text("err\n")
+        mgr.write_text("manager\n")
+        runner = SequenceRunner({
+            ("pm2", "jlist"): [
+                (0, pm2(100, 1, out, err), ""),
+                (0, pm2(101, 2, out, err), ""),
+                (0, pm2(101, 2, out, err), ""),
+            ],
+        })
+        self.assertEqual(cli.observe_once(
+            self.state, self.crash, world_pm2_name="worldserver",
+            pm2_manager_log=mgr, runner=runner, now=NOW,
+        ), [])
+
+        store = cli.pipeline.expected_maintenance.ExpectedMaintenanceStore(self.state, "Worldserver")
+        store.arm("maint-1", "restart", NOW, NOW + timedelta(minutes=5))
+
+        with self.assertRaises(cli.pipeline.checkpoint.Refused):
+            cli.observe_once(
+                self.state, self.crash, world_pm2_name="worldserver",
+                pm2_manager_log=mgr, runner=runner, now=NOW + timedelta(seconds=10),
+            )
+        self.assertEqual(list(self.crash.glob("*Worldserver*.txt")), [])
+        self.assertEqual(store.read()["status"], "armed")
+
+        store.confirm("maint-1", NOW + timedelta(seconds=15))
+        self.assertEqual(cli.observe_once(
+            self.state, self.crash, world_pm2_name="worldserver",
+            pm2_manager_log=mgr, runner=runner, now=NOW + timedelta(seconds=20),
+        ), [])
+        self.assertIsNone(store.read())
+        audit = json.loads((self.state / "Worldserver.last-expected-maintenance.json").read_text())
+        self.assertEqual(audit["operation_id"], "maint-1")
+        self.assertEqual(audit["result"], "EXPECTED_TRANSITION_CONFIRMED")
+        self.assertEqual(list(self.crash.glob("*Worldserver*.txt")), [])
+
+    def test_confirmed_marker_does_not_hide_explicit_fatal_signal(self):
+        out = self.logs / "world-out.log"
+        err = self.logs / "world-err.log"
+        mgr = self.logs / "pm2.log"
+        out.write_text("out\n")
+        err.write_text("err\n")
+        mgr.write_text("baseline\n")
+        runner = SequenceRunner({
+            ("pm2", "jlist"): [
+                (0, pm2(100, 1, out, err), ""),
+                (0, pm2(101, 2, out, err), ""),
+            ],
+        })
+        self.assertEqual(cli.observe_once(
+            self.state, self.crash, world_pm2_name="worldserver",
+            pm2_manager_log=mgr, runner=runner, now=NOW,
+        ), [])
+        store = cli.pipeline.expected_maintenance.ExpectedMaintenanceStore(self.state, "Worldserver")
+        store.arm("maint-fatal", "restart", NOW, NOW + timedelta(minutes=5))
+        store.confirm("maint-fatal", NOW + timedelta(seconds=5))
+        mgr.write_text("App [worldserver:0] exited with code [0] via signal [SIGSEGV]\n")
+
+        result = cli.observe_once(
+            self.state, self.crash, world_pm2_name="worldserver",
+            pm2_manager_log=mgr, runner=runner, now=NOW + timedelta(seconds=10),
+        )
+        self.assertEqual(result[0]["classification"], "FATAL_SIGNAL_EXIT")
+        self.assertTrue(store.path.exists(), "mismatched fatal evidence must not consume maintenance marker")
+
+
     def test_observe_without_target_refused_before_commands(self):
         runner = SequenceRunner({})
         with self.assertRaises(cli.Refused):
