@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import stat
 from typing import Any
 
@@ -19,6 +20,10 @@ import f15_raw_evidence_bundle as raw_bundle
 
 
 MAX_INTENT_BYTES = 1024 * 1024
+CRASH_REPORT_RE = re.compile(
+    r"^\d{8}T\d{6}Z-(?:Worldserver|Authserver)-"
+    r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}\.txt$"
+)
 
 
 class Refused(RuntimeError):
@@ -185,8 +190,16 @@ def classify_snapshot_root(snapshot_root: Path) -> dict[str, Any]:
         return {"intent": "PRESENT", "classification": "FOREIGN_OR_UNKNOWN_INTENT"}
     if intent.get("version") != 2:
         return {"intent": "PRESENT", "classification": "LEGACY_IDENTITY_UNPROVEN"}
-    snapshot = _file_state(root, intent.get("snapshot"), intent.get("snapshot_identity"))
-    manifest = _file_state(root, intent.get("manifest"), intent.get("manifest_identity"))
+    snapshot_name = intent.get("snapshot")
+    manifest_name = intent.get("manifest")
+    if (
+        not _safe_name(snapshot_name) or not snapshot_name.endswith(".log")
+        or not _safe_name(manifest_name) or not manifest_name.endswith(".json")
+        or manifest_name == "retention-intent.json"
+    ):
+        return {"intent": "PRESENT", "classification": "MALFORMED_INTENT"}
+    snapshot = _file_state(root, snapshot_name, intent.get("snapshot_identity"))
+    manifest = _file_state(root, manifest_name, intent.get("manifest_identity"))
     result = _summary([snapshot["state"], manifest["state"]])
     return {
         "intent": "PRESENT",
@@ -210,7 +223,10 @@ def classify_crash_root(crash_root: Path) -> dict[str, Any]:
         return {"intent": "PRESENT", "classification": "FOREIGN_OR_UNKNOWN_INTENT"}
     if intent.get("version") != 2:
         return {"intent": "PRESENT", "classification": "LEGACY_IDENTITY_UNPROVEN"}
-    report = _file_state(root, intent.get("report"), intent.get("report_identity"))
+    report_name = intent.get("report")
+    if not _safe_name(report_name) or not CRASH_REPORT_RE.fullmatch(report_name):
+        return {"intent": "PRESENT", "classification": "MALFORMED_INTENT"}
+    report = _file_state(root, report_name, intent.get("report_identity"))
     state = report["state"]
     if state == "MATCH":
         result = "PRE_DELETE_TARGET_INTACT"
@@ -287,7 +303,16 @@ def classify_raw_root(raw_root: Path) -> dict[str, Any]:
     bundle_name = intent.get("bundle")
     expected_bundle = intent.get("bundle_identity")
     targets = intent.get("targets")
-    if not _safe_name(bundle_name) or not _valid_bundle_identity(expected_bundle) or not isinstance(targets, list):
+    incident_id = intent.get("incident_id")
+    if (
+        not _safe_name(bundle_name)
+        or not isinstance(incident_id, str)
+        or not raw_bundle.INCIDENT_RE.fullmatch(incident_id)
+        or not bundle_name.endswith("-" + incident_id)
+        or not _valid_bundle_identity(expected_bundle)
+        or not isinstance(targets, list)
+        or not targets
+    ):
         return {"intent": "PRESENT", "classification": "MALFORMED_INTENT"}
 
     bundle = root / bundle_name
@@ -308,10 +333,15 @@ def classify_raw_root(raw_root: Path) -> dict[str, Any]:
         if not isinstance(record, dict) or set(record) != {"name", "identity"}:
             return {"intent": "PRESENT", "classification": "MALFORMED_INTENT"}
         name = record["name"]
-        if not _safe_name(name) or name in seen:
+        if (
+            not _safe_name(name) or name in seen
+            or (name != "manifest.json" and not raw_bundle.ARTIFACT_RE.fullmatch(name))
+        ):
             return {"intent": "PRESENT", "classification": "MALFORMED_INTENT"}
         seen.add(name)
         target_states[name] = _file_state(bundle, name, record["identity"])
+    if "manifest.json" not in seen:
+        return {"intent": "PRESENT", "classification": "MALFORMED_INTENT"}
     result = _summary([x["state"] for x in target_states.values()])
     if result == "TARGETS_ALREADY_ABSENT":
         result = "TARGET_FILES_ABSENT_BUNDLE_DIRECTORY_REMAINS"
