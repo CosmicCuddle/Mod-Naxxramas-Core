@@ -18,6 +18,7 @@ INCIDENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 STAMP_RE = re.compile(r"^\d{8}T\d{6}Z$")
 MAX_CONTEXT_BYTES = 32768
 MAX_FIELD_CHARS = 4096
+MAX_HISTORY_BYTES = 8 * 1024 * 1024
 SECRET_RE = re.compile(
     r"(?i)(password|passwd|token|authorization|api[_-]?key|secret)\s*[:=]\s*\S+"
 )
@@ -68,18 +69,92 @@ def _exclusive_write(path, data):
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
         raise Refused("created report failed private regular-file validation")
 
-def _append_history(path, line):
-    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(path, flags, 0o600)
+def _history_bytes_locked(fd):
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+        raise Refused("Crash-History.txt must be one private regular file")
+    if st.st_size > MAX_HISTORY_BYTES:
+        raise Refused("Crash-History.txt exceeds configured history bound")
+
+    data = bytearray()
+    offset = 0
+    while offset < st.st_size:
+        block = os.pread(fd, min(65536, st.st_size - offset), offset)
+        if not block:
+            raise Refused("Crash-History.txt shortened during locked read")
+        data.extend(block)
+        offset += len(block)
+
+    after = os.fstat(fd)
+    if (
+        after.st_ino != st.st_ino
+        or after.st_dev != st.st_dev
+        or after.st_size != st.st_size
+        or after.st_nlink != st.st_nlink
+        or after.st_mode != st.st_mode
+    ):
+        raise Refused("Crash-History.txt changed during locked inspection")
+    if data and not data.endswith(b"\n"):
+        raise Refused("Crash-History.txt has an incomplete trailing line")
+    return bytes(data), st
+
+
+def _write_all(fd, data):
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        if written <= 0:
+            raise OSError("short write while appending crash history")
+        view = view[written:]
+
+
+def _ensure_history_once(path, line):
+    encoded = line.encode("utf-8")
+    if not encoded.endswith(b"\n"):
+        raise Refused("crash history entry must end with newline")
+    if len(encoded) > MAX_FIELD_CHARS * 4:
+        raise Refused("crash history entry exceeds bound")
+
+    flags = (
+        os.O_RDWR | os.O_APPEND | os.O_CREAT
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
     try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
-            raise Refused("Crash-History.txt must be one private regular file")
+        fd = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise Refused("Crash-History.txt could not be opened safely") from exc
+
+    try:
         fcntl.flock(fd, fcntl.LOCK_EX)
-        os.write(fd, line.encode("utf-8"))
+        data, st = _history_bytes_locked(fd)
+        count = sum(1 for existing in data.splitlines(keepends=True) if existing == encoded)
+        if count > 1:
+            raise Refused("duplicate crash history entry")
+        if count == 1:
+            return
+        if st.st_size + len(encoded) > MAX_HISTORY_BYTES:
+            raise Refused("Crash-History.txt would exceed configured history bound")
+
+        _write_all(fd, encoded)
         os.fsync(fd)
+
+        after = os.fstat(fd)
+        if (
+            not stat.S_ISREG(after.st_mode)
+            or after.st_nlink != 1
+            or after.st_mode & 0o077
+            or after.st_dev != st.st_dev
+            or after.st_ino != st.st_ino
+            or after.st_size != st.st_size + len(encoded)
+        ):
+            raise Refused("Crash-History.txt changed unexpectedly during append")
     finally:
-        os.close(fd)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
 
 def _signal_number(incident):
     value = incident.get("signal")
@@ -172,20 +247,6 @@ def _history_line(incident, filename, stamp):
     )
 
 
-def _ensure_history_once(path, line):
-    if path.exists():
-        st = path.lstat()
-        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
-            raise Refused("Crash-History.txt must be one private regular file")
-        text = path.read_text("utf-8")
-        count = text.count(line)
-        if count > 1:
-            raise Refused("duplicate crash history entry")
-        if count == 1:
-            return
-    _append_history(path, line)
-
-
 def ensure_report(crash_dir, incident):
     """Create report/history once, or reuse exact completed pieces on retry."""
     validate_incident(incident)
@@ -220,5 +281,5 @@ def write_report(crash_dir, incident):
         raise Refused("crash report destination already exists")
     _exclusive_write(report_path, render_report(incident).encode("utf-8"))
     history = root / "Crash-History.txt"
-    _append_history(history, _history_line(incident, filename, stamp))
+    _ensure_history_once(history, _history_line(incident, filename, stamp))
     return report_path
