@@ -188,6 +188,80 @@ class ExpectedMaintenanceStore:
             return prev_present and current.get("pid") is None and current.get("start_ticks") is None
         return transition == "restart" and prev_present and cur_present and after != before
 
+
+    def evaluate_unlocked(self, previous_identity: dict[str, Any], current_identity: dict[str, Any],
+                          incident: dict[str, Any], observed_utc: datetime) -> dict[str, Any] | None:
+        """Evaluate while the service checkpoint lock is already held.
+
+        Returns None for no suppression.  Returns status=pending for an exact,
+        non-fatal transition whose owner has not yet confirmed success.
+        Returns status=expected only for a confirmed exact transition.
+        """
+        when = _utc(observed_utc)
+        marker = self._read_unlocked()
+        if marker is None:
+            return None
+        if when > _parse_iso(marker["expires_utc"]):
+            return None
+        if marker["before_identity"] != previous_identity:
+            return None
+
+        # Explicit crash evidence always wins over maintenance intent.
+        if incident.get("signal_name"):
+            return None
+        if incident.get("exit_code") not in (None, 0):
+            return None
+        if incident.get("classification") in {"FATAL_SIGNAL_EXIT", "NONZERO_EXIT", "SIGNAL_EXIT_CAUSE_UNPROVEN"}:
+            return None
+
+        if self.service == "Worldserver":
+            structural = self._world_matches(marker["transition"], previous_identity, current_identity)
+        else:
+            structural = self._auth_matches(marker["transition"], previous_identity, current_identity)
+        if not structural:
+            return None
+
+        return {
+            "status": "expected" if marker["status"] == "confirmed" else "pending",
+            "operation_id": marker["operation_id"],
+            "transition": marker["transition"],
+            "service": self.service,
+            "observed_utc": _iso(when),
+            "confirmed_utc": marker.get("confirmed_utc"),
+        }
+
+    def finalize_expected_unlocked(self, decision: dict[str, Any]) -> None:
+        """Persist one expected-maintenance audit record, then consume marker.
+
+        Caller must already hold the service checkpoint lock and must call this
+        only after the checkpoint has advanced to the expected post-state.
+        """
+        if decision.get("status") != "expected":
+            raise Refused("only confirmed expected maintenance may be finalized")
+        marker = self._read_unlocked()
+        if marker is None or marker.get("operation_id") != decision.get("operation_id"):
+            raise Refused("expected-maintenance marker changed before finalization")
+        audit = {
+            "version": 1,
+            "service": self.service,
+            "operation_id": marker["operation_id"],
+            "transition": marker["transition"],
+            "created_utc": marker["created_utc"],
+            "confirmed_utc": marker.get("confirmed_utc"),
+            "observed_utc": decision["observed_utc"],
+            "result": "EXPECTED_TRANSITION_CONFIRMED",
+        }
+        checkpoint._atomic_json(self.root / f"{self.service}.last-expected-maintenance.json", audit)
+        try:
+            self.path.unlink()
+        except OSError as exc:
+            raise Refused("cannot consume expected-maintenance marker") from exc
+        dfd = checkpoint.os.open(self.root, checkpoint.os.O_RDONLY | getattr(checkpoint.os, "O_DIRECTORY", 0))
+        try:
+            checkpoint.os.fsync(dfd)
+        finally:
+            checkpoint.os.close(dfd)
+
     def matches_expected(self, previous_identity: dict[str, Any], current_identity: dict[str, Any],
                          incident: dict[str, Any], observed_utc: datetime) -> bool:
         """Return True only for a confirmed, exact, non-fatal expected transition.
