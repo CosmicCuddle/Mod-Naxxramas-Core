@@ -65,15 +65,15 @@ class TopologyEvidenceTests(unittest.TestCase):
 
     def test_auth_same_identity_returns_none(self):
         self.assertIsNone(adapter.auth_incident(
-            {"pid": 30, "start_ticks": 100},
-            {"pid": 30, "start_ticks": 100},
+            {"pid": 30, "start_ticks": 100, "pane_pid": 10},
+            {"pid": 30, "start_ticks": 100, "pane_pid": 10},
             True,
         ))
 
     def test_auth_disappearance_keeps_cause_unknown(self):
         incident = adapter.auth_incident(
-            {"pid": 30, "start_ticks": 100},
-            {"pid": None, "start_ticks": None},
+            {"pid": 30, "start_ticks": 100, "pane_pid": 10},
+            {"pid": None, "start_ticks": None, "pane_pid": 10},
             True,
         )
         self.assertEqual(
@@ -87,11 +87,13 @@ class TopologyEvidenceTests(unittest.TestCase):
 
     def test_auth_replacement_keeps_cause_unknown(self):
         incident = adapter.auth_incident(
-            {"pid": 30, "start_ticks": 100},
-            {"pid": 31, "start_ticks": 200},
+            {"pid": 30, "start_ticks": 100, "pane_pid": 10},
+            {"pid": 31, "start_ticks": 200, "pane_pid": 10},
             True,
         )
         self.assertEqual(incident["replacement_pid"], 31)
+        self.assertEqual(incident["supervisor_pane_pid"], 10)
+        self.assertEqual(incident["replacement_start_ticks"], 200)
         self.assertEqual(
             incident["classification"],
             "PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN",

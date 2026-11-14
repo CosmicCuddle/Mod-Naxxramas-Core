@@ -68,8 +68,8 @@ class PipelineTests(unittest.TestCase):
 
     def test_auth_process_start_ticks_reach_detailed_report(self):
         incident = topology.auth_incident(
-            {"pid": 300, "start_ticks": 12345},
-            {"pid": 301, "start_ticks": 23456},
+            {"pid": 300, "start_ticks": 12345, "pane_pid": 20},
+            {"pid": 301, "start_ticks": 23456, "pane_pid": 20},
             True,
         )
         incident.update({
@@ -81,6 +81,9 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("PID: 300", report)
         self.assertIn("Replacement PID: 301", report)
         self.assertIn("Process start ticks: 12345", report)
+        self.assertIn("Replacement start ticks: 23456", report)
+        self.assertIn("Supervisor pane PID: 20", report)
+        self.assertIn("Replacement supervisor pane PID: 20", report)
         self.assertIn("Classification: PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN", report)
 
     def test_pm2_restart_without_cause_stays_unproven_in_report(self):

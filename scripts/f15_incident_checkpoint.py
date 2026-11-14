@@ -83,13 +83,19 @@ def _auth_identity(snapshot: dict[str, Any], tmux_alive: bool) -> dict[str, Any]
         raise Refused("Auth snapshot must be a mapping")
     pid = snapshot.get("pid")
     start = snapshot.get("start_ticks")
+    pane_pid = snapshot.get("pane_pid")
     if pid is not None and (not isinstance(pid, int) or pid <= 0):
         raise Refused("invalid Auth pid")
     if start is not None and (not isinstance(start, int) or start < 0):
         raise Refused("invalid Auth start ticks")
     if (pid is None) != (start is None):
         raise Refused("Auth pid/start identity must be both present or both absent")
-    return {"kind": "auth", "pid": pid, "start_ticks": start, "tmux_alive": bool(tmux_alive)}
+    if not isinstance(pane_pid, int) or pane_pid <= 0:
+        raise Refused("invalid Auth tmux pane pid")
+    return {
+        "kind": "auth", "pid": pid, "start_ticks": start,
+        "pane_pid": pane_pid, "tmux_alive": bool(tmux_alive),
+    }
 
 
 def _incident_id(service: str, sequence: int) -> str:
@@ -174,8 +180,16 @@ class IncidentCheckpoint:
         if previous == current_identity:
             return None
         incident = normalize(
-            {"pid": previous.get("pid"), "start_ticks": previous.get("start_ticks")},
-            {"pid": current_identity.get("pid"), "start_ticks": current_identity.get("start_ticks")},
+            {
+                "pid": previous.get("pid"),
+                "start_ticks": previous.get("start_ticks"),
+                "pane_pid": previous.get("pane_pid"),
+            },
+            {
+                "pid": current_identity.get("pid"),
+                "start_ticks": current_identity.get("start_ticks"),
+                "pane_pid": current_identity.get("pane_pid"),
+            },
             tmux_alive,
         )
         if incident is None:
