@@ -225,6 +225,39 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(result["classification"], "NO_UNFINISHED_INTENT")
         self.assertEqual(result["partial_bundles"], [])
 
+    def test_snapshot_v2_wrong_target_grammar_is_malformed(self):
+        data, manifest, obj = self.snapshot_intent()
+        obj["snapshot"] = "not-a-log.txt"
+        self.write_intent(self.archive, obj)
+        self.assertEqual(
+            recovery.classify_snapshot_root(self.archive)["classification"],
+            "MALFORMED_INTENT",
+        )
+        self.assertTrue(data.exists())
+        self.assertTrue(manifest.exists())
+
+    def test_crash_v2_wrong_report_name_is_malformed(self):
+        report, obj = self.crash_intent()
+        obj["report"] = "manual-note.txt"
+        self.write_intent(self.crash, obj)
+        self.assertEqual(
+            recovery.classify_crash_root(self.crash)["classification"],
+            "MALFORMED_INTENT",
+        )
+        self.assertTrue(report.exists())
+
+    def test_raw_v2_missing_manifest_target_is_malformed(self):
+        bundle, obj = self.raw_intent()
+        obj["targets"] = [
+            rec for rec in obj["targets"] if rec["name"] != "manifest.json"
+        ]
+        self.write_intent(self.rawroot, obj)
+        self.assertEqual(
+            recovery.classify_raw_root(self.rawroot)["classification"],
+            "MALFORMED_INTENT",
+        )
+        self.assertTrue(bundle.exists())
+
     def test_classifier_does_not_remove_intent_or_targets(self):
         data, manifest, _obj = self.snapshot_intent()
         before = {
