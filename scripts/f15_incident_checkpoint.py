@@ -190,7 +190,9 @@ class IncidentCheckpoint:
     def process_world(self, current_snapshot: Any, process_name: str, manager_text: str,
                       parse_pm2: Callable[[Any, str], dict[str, Any]],
                       normalize: Callable[[Any, Any, str, str], dict[str, Any] | None],
-                      render: Callable[[dict[str, Any]], Any]) -> dict[str, Any] | None:
+                      render: Callable[[dict[str, Any]], Any],
+                      expected_evaluate: Callable[[dict[str, Any], dict[str, Any], dict[str, Any]], dict[str, Any] | None] | None = None,
+                      expected_finalize: Callable[[dict[str, Any]], Any] | None = None) -> dict[str, Any] | None:
         current_identity = _world_identity(current_snapshot, process_name, parse_pm2)
         with _exclusive_lock(self.lock_path):
             state = self._initialize_unlocked(current_identity)
@@ -217,6 +219,18 @@ class IncidentCheckpoint:
             if incident is None:
                 self._commit_unlocked(current_identity, int(state["sequence"]))
                 return None
+            if expected_evaluate is not None:
+                decision = expected_evaluate(previous, current_identity, incident)
+                if decision is not None:
+                    if decision.get("status") == "pending":
+                        raise Refused("expected maintenance transition is awaiting owner confirmation")
+                    if decision.get("status") == "expected":
+                        self._commit_unlocked(current_identity, int(state["sequence"]))
+                        if expected_finalize is not None:
+                            expected_finalize(decision)
+                        return None
+                    raise Refused("invalid expected-maintenance decision")
+
             sequence = int(state["sequence"]) + 1
             incident = dict(incident)
             incident["incident_id"] = _incident_id(self.service, sequence)
@@ -226,7 +240,9 @@ class IncidentCheckpoint:
 
     def process_auth(self, current_snapshot: dict[str, Any], tmux_alive: bool,
                      normalize: Callable[[dict[str, Any], dict[str, Any], bool], dict[str, Any] | None],
-                     render: Callable[[dict[str, Any]], Any]) -> dict[str, Any] | None:
+                     render: Callable[[dict[str, Any]], Any],
+                     expected_evaluate: Callable[[dict[str, Any], dict[str, Any], dict[str, Any]], dict[str, Any] | None] | None = None,
+                     expected_finalize: Callable[[dict[str, Any]], Any] | None = None) -> dict[str, Any] | None:
         current_identity = _auth_identity(current_snapshot, tmux_alive)
         with _exclusive_lock(self.lock_path):
             state = self._initialize_unlocked(current_identity)
@@ -241,6 +257,18 @@ class IncidentCheckpoint:
             if incident is None:
                 self._commit_unlocked(current_identity, int(state["sequence"]))
                 return None
+            if expected_evaluate is not None:
+                decision = expected_evaluate(previous, current_identity, incident)
+                if decision is not None:
+                    if decision.get("status") == "pending":
+                        raise Refused("expected maintenance transition is awaiting owner confirmation")
+                    if decision.get("status") == "expected":
+                        self._commit_unlocked(current_identity, int(state["sequence"]))
+                        if expected_finalize is not None:
+                            expected_finalize(decision)
+                        return None
+                    raise Refused("invalid expected-maintenance decision")
+
             sequence = int(state["sequence"]) + 1
             incident = dict(incident)
             incident["incident_id"] = _incident_id(self.service, sequence)
