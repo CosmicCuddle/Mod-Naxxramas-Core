@@ -97,10 +97,10 @@ def _exclusive_lock(path: Path):
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
-    if not path.exists():
-        return None
     if path.is_symlink():
         raise Refused("checkpoint may not be a symlink")
+    if not path.exists():
+        return None
     st = path.stat()
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
         raise Refused("checkpoint must be one private regular file")
@@ -130,9 +130,9 @@ def _auth_identity(snapshot: dict[str, Any], tmux_alive: bool) -> dict[str, Any]
         raise Refused("Auth snapshot must be a mapping")
     pid = snapshot.get("pid")
     start = snapshot.get("start_ticks")
-    if pid is not None and (not isinstance(pid, int) or pid <= 0):
+    if pid is not None and (not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0):
         raise Refused("invalid Auth pid")
-    if start is not None and (not isinstance(start, int) or start < 0):
+    if start is not None and (not isinstance(start, int) or isinstance(start, bool) or start < 0):
         raise Refused("invalid Auth start ticks")
     if (pid is None) != (start is None):
         raise Refused("Auth pid/start identity must be both present or both absent")
