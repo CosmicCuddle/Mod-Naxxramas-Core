@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Callable
@@ -41,28 +42,62 @@ class FixedPm2Runner:
         return 0, self.raw, ""
 
 
-def _tail_best_effort(path: str | Path | None, label: str) -> str:
+def _approved_log_source(path: str | Path, log_root: Path) -> Path:
+    """Require one source path to stay beneath the approved live-log root."""
+    root = Path(log_root)
+    source = Path(path)
+    if not root.is_absolute() or not source.is_absolute():
+        raise Refused("log root and source paths must be absolute")
+    if root.is_symlink():
+        raise Refused("log root may not be a symlink")
+    try:
+        relative = source.relative_to(root)
+    except ValueError as exc:
+        raise Refused("log source must be beneath approved log root") from exc
+    if not relative.parts:
+        raise Refused("log source may not equal log root")
+
+    root_real = Path(os.path.realpath(root))
+    source_real = Path(os.path.realpath(source))
+    try:
+        common = os.path.commonpath((str(root_real), str(source_real)))
+    except ValueError as exc:
+        raise Refused("log source/root path comparison failed") from exc
+    if common != str(root_real) or source_real == root_real:
+        raise Refused("log source resolves outside approved log root")
+
+    current = root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise Refused("log source path may not contain symlinks")
+    return source
+
+
+def _tail_best_effort(path: str | Path | None, label: str, log_root: Path) -> str:
     if not path:
         return f"[{label}: source not configured]\n"
+    source = _approved_log_source(path, log_root)
     try:
-        text = probe.tail_private_source(path)
-        return f"===== {label}: {path} =====\n{text}\n"
-    except (OSError, probe.Refused) as exc:
-        return f"[{label}: unavailable: {type(exc).__name__}]\n"
+        text = probe.tail_private_source(source)
+        return f"===== {label}: {source} =====\n{text}\n"
+    except FileNotFoundError:
+        return f"[{label}: unavailable: FileNotFoundError]\n"
 
 
-def _world_context(summary: dict, manager_log: str | Path | None) -> tuple[str, str]:
-    manager = _tail_best_effort(manager_log, "PM2 manager")
-    out = _tail_best_effort(summary.get("out_log"), "Worldserver stdout")
-    err = _tail_best_effort(summary.get("err_log"), "Worldserver stderr")
+def _world_context(summary: dict, manager_log: str | Path | None, log_root: Path) -> tuple[str, str]:
+    manager = _tail_best_effort(manager_log, "PM2 manager", log_root)
+    out = _tail_best_effort(summary.get("out_log"), "Worldserver stdout", log_root)
+    err = _tail_best_effort(summary.get("err_log"), "Worldserver stderr", log_root)
     return manager, out + err
 
 
-def _auth_context(auth_log: str | Path | None) -> str:
-    return _tail_best_effort(auth_log, "Authserver log")
+def _auth_context(auth_log: str | Path | None, log_root: Path) -> str:
+    return _tail_best_effort(auth_log, "Authserver log", log_root)
 
 
 def observe_once(state_root: Path, crash_root: Path,
+                 log_root: Path = DEFAULT_LOG_ROOT,
                  world_pm2_name: str | None = None,
                  pm2_manager_log: str | Path | None = None,
                  auth_tmux_session: str | None = None,
@@ -83,7 +118,7 @@ def observe_once(state_root: Path, crash_root: Path,
 
     if world_pm2_name:
         raw_pm2, summary = probe.probe_pm2(world_pm2_name, runner)
-        manager_text, recent_context = _world_context(summary, pm2_manager_log)
+        manager_text, recent_context = _world_context(summary, pm2_manager_log, Path(log_root))
         event = pipeline.world_cycle(
             Path(state_root),
             Path(crash_root),
@@ -105,7 +140,7 @@ def observe_once(state_root: Path, crash_root: Path,
 
     if auth_tmux_session:
         reader = read_text or (lambda p: p.read_text("utf-8"))
-        recent_context = _auth_context(auth_log)
+        recent_context = _auth_context(auth_log, Path(log_root))
         event = pipeline.auth_cycle(
             Path(state_root),
             Path(crash_root),
@@ -166,6 +201,7 @@ def _parser() -> argparse.ArgumentParser:
     observe = sub.add_parser("observe-once", help="read current process/log evidence once")
     observe.add_argument("--state-root", type=Path, default=DEFAULT_STATE_ROOT)
     observe.add_argument("--crash-root", type=Path, default=DEFAULT_CRASH_ROOT)
+    observe.add_argument("--log-root", type=Path, default=DEFAULT_LOG_ROOT)
     observe.add_argument("--world-pm2-name")
     observe.add_argument("--pm2-manager-log", type=Path)
     observe.add_argument("--auth-tmux-session")
@@ -191,6 +227,7 @@ def main(argv=None) -> int:
             result = observe_once(
                 args.state_root,
                 args.crash_root,
+                log_root=args.log_root,
                 world_pm2_name=args.world_pm2_name,
                 pm2_manager_log=args.pm2_manager_log,
                 auth_tmux_session=args.auth_tmux_session,

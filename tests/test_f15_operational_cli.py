@@ -74,6 +74,7 @@ class OperationalCliTests(unittest.TestCase):
         })
         first = cli.observe_once(
             self.state, self.crash,
+            log_root=self.logs,
             world_pm2_name="worldserver",
             pm2_manager_log=mgr,
             runner=runner,
@@ -86,6 +87,7 @@ class OperationalCliTests(unittest.TestCase):
         )
         second = cli.observe_once(
             self.state, self.crash,
+            log_root=self.logs,
             world_pm2_name="worldserver",
             pm2_manager_log=mgr,
             runner=runner,
@@ -99,8 +101,41 @@ class OperationalCliTests(unittest.TestCase):
     def test_observe_without_target_refused_before_commands(self):
         runner = SequenceRunner({})
         with self.assertRaises(cli.Refused):
-            cli.observe_once(self.state, self.crash, runner=runner, now=NOW)
+            cli.observe_once(self.state, self.crash, log_root=self.logs, runner=runner, now=NOW)
         self.assertEqual(runner.calls, [])
+
+
+    def test_world_observe_refuses_pm2_log_source_outside_approved_root(self):
+        outside = self.base / "outside.log"
+        outside.write_text("do not collect")
+        inside = self.logs / "inside.log"
+        inside.write_text("inside")
+        runner = SequenceRunner({
+            ("pm2", "jlist"): [(0, pm2(100, 1, outside, inside), "")],
+        })
+        with self.assertRaises(cli.Refused):
+            cli.observe_once(
+                self.state, self.crash, log_root=self.logs,
+                world_pm2_name="worldserver", runner=runner, now=NOW,
+            )
+
+    def test_observe_refuses_symlink_log_source_even_when_target_is_inside_root(self):
+        target = self.logs / "real.log"
+        target.write_text("real")
+        link = self.logs / "linked.log"
+        link.symlink_to(target)
+        with self.assertRaises(cli.Refused):
+            cli._tail_best_effort(link, "test", self.logs)
+
+    def test_observe_refuses_parent_symlink_escape(self):
+        outside_dir = self.base / "outside"
+        outside_dir.mkdir()
+        secret = outside_dir / "secret.log"
+        secret.write_text("secret")
+        linkdir = self.logs / "linked-dir"
+        linkdir.symlink_to(outside_dir, target_is_directory=True)
+        with self.assertRaises(cli.Refused):
+            cli._tail_best_effort(linkdir / "secret.log", "test", self.logs)
 
     def test_snapshot_before_overwrite_preserves_active_logs(self):
         world = self.logs / "world.log"
