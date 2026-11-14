@@ -5,6 +5,7 @@ Consumes normalized incident facts only. It does not inspect, launch, signal,
 restart or attach to Worldserver/Authserver. A later PM2/tmux adapter may feed
 it. Output directory must be private (0700); reports/history are 0600.
 """
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
 import os
@@ -18,6 +19,7 @@ INCIDENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 STAMP_RE = re.compile(r"^\d{8}T\d{6}Z$")
 MAX_CONTEXT_BYTES = 32768
 MAX_FIELD_CHARS = 4096
+MAX_HISTORY_BYTES = 8 * 1024 * 1024
 SECRET_RE = re.compile(
     r"(?i)(password|passwd|token|authorization|api[_-]?key|secret)\s*[:=]\s*\S+"
 )
@@ -51,7 +53,14 @@ def _private_dir(path):
     if path.is_symlink():
         raise Refused("crash-log directory may not be a symlink")
     if not path.exists():
-        path.mkdir(mode=0o700, parents=False)
+        try:
+            path.mkdir(mode=0o700, parents=False)
+        except FileExistsError:
+            # A concurrent safe publisher may have created it after our check.
+            # Validate the resulting object below; never assume it is a directory.
+            pass
+    if path.is_symlink():
+        raise Refused("crash-log directory may not be a symlink")
     st = path.lstat()
     if not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o077:
         raise Refused("crash-log directory must be mode 0700")
@@ -68,18 +77,132 @@ def _exclusive_write(path, data):
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
         raise Refused("created report failed private regular-file validation")
 
-def _append_history(path, line):
-    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(path, flags, 0o600)
+@contextmanager
+def _history_lock(history_path):
+    lock_path = Path(history_path).with_name(Path(history_path).name + ".lock")
+    flags = (
+        os.O_RDWR | os.O_CREAT
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    try:
+        fd = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        raise Refused("Crash-History lock could not be opened safely") from exc
     try:
         st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
-            raise Refused("Crash-History.txt must be one private regular file")
+        if (
+            not stat.S_ISREG(st.st_mode)
+            or st.st_nlink != 1
+            or st.st_mode & 0o077
+            or st.st_size != 0
+        ):
+            raise Refused("Crash-History lock must be one empty private regular file")
         fcntl.flock(fd, fcntl.LOCK_EX)
-        os.write(fd, line.encode("utf-8"))
-        os.fsync(fd)
+        st = os.fstat(fd)
+        if (
+            not stat.S_ISREG(st.st_mode)
+            or st.st_nlink != 1
+            or st.st_mode & 0o077
+            or st.st_size != 0
+        ):
+            raise Refused("Crash-History lock changed while locked")
+        yield
     finally:
-        os.close(fd)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def _history_bytes_locked(fd):
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+        raise Refused("Crash-History.txt must be one private regular file")
+    if st.st_size > MAX_HISTORY_BYTES:
+        raise Refused("Crash-History.txt exceeds configured history bound")
+
+    data = bytearray()
+    offset = 0
+    while offset < st.st_size:
+        block = os.pread(fd, min(65536, st.st_size - offset), offset)
+        if not block:
+            raise Refused("Crash-History.txt shortened during locked read")
+        data.extend(block)
+        offset += len(block)
+
+    after = os.fstat(fd)
+    if (
+        after.st_ino != st.st_ino
+        or after.st_dev != st.st_dev
+        or after.st_size != st.st_size
+        or after.st_nlink != st.st_nlink
+        or after.st_mode != st.st_mode
+    ):
+        raise Refused("Crash-History.txt changed during locked inspection")
+    if data and not data.endswith(b"\n"):
+        raise Refused("Crash-History.txt has an incomplete trailing line")
+    try:
+        bytes(data).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise Refused("Crash-History.txt is not valid UTF-8") from exc
+    return bytes(data), st
+
+
+def _write_all(fd, data):
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        if written <= 0:
+            raise OSError("short write while appending crash history")
+        view = view[written:]
+
+
+def _ensure_history_once(path, line):
+    encoded = line.encode("utf-8")
+    if not encoded.endswith(b"\n"):
+        raise Refused("crash history entry must end with newline")
+    if len(encoded) > MAX_FIELD_CHARS * 4:
+        raise Refused("crash history entry exceeds bound")
+
+    with _history_lock(path):
+        flags = (
+            os.O_RDWR | os.O_APPEND | os.O_CREAT
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        try:
+            fd = os.open(path, flags, 0o600)
+        except OSError as exc:
+            raise Refused("Crash-History.txt could not be opened safely") from exc
+
+        try:
+            data, st = _history_bytes_locked(fd)
+            count = sum(1 for existing in data.splitlines(keepends=True) if existing == encoded)
+            if count > 1:
+                raise Refused("duplicate crash history entry")
+            if count == 1:
+                return
+            if st.st_size + len(encoded) > MAX_HISTORY_BYTES:
+                raise Refused("Crash-History.txt would exceed configured history bound")
+
+            _write_all(fd, encoded)
+            os.fsync(fd)
+
+            after = os.fstat(fd)
+            if (
+                not stat.S_ISREG(after.st_mode)
+                or after.st_nlink != 1
+                or after.st_mode & 0o077
+                or after.st_dev != st.st_dev
+                or after.st_ino != st.st_ino
+                or after.st_size != st.st_size + len(encoded)
+            ):
+                raise Refused("Crash-History.txt changed unexpectedly during append")
+        finally:
+            os.close(fd)
+
+
 
 def _signal_number(incident):
     value = incident.get("signal")
@@ -164,26 +287,49 @@ def render_report(incident):
     return "\n".join(lines)
 
 
+def _history_atom(value, limit=512):
+    text = _unknown(value).replace("\x00", "").replace("\r", " ").replace("\n", " ").replace("\t", " ")
+    text = " ".join(text.split())
+    if len(text) > limit:
+        text = text[:limit] + "[TRUNCATED]"
+    return text
+
+
 def _history_line(incident, filename, stamp):
     return (
         f"{stamp}\t{incident['service']}\t{incident['incident_id']}\t"
-        f"{classification(incident)}\texit={_unknown(incident.get('exit_code'))}\t"
-        f"signal={_unknown(_signal_number(incident))}\treport={filename}\n"
+        f"{_history_atom(classification(incident), 128)}\t"
+        f"exit={_history_atom(incident.get('exit_code'), 128)}\t"
+        f"signal={_history_atom(_signal_number(incident), 128)}\t"
+        f"report={filename}\n"
     )
 
 
-def _ensure_history_once(path, line):
-    if path.exists():
+def _verify_existing_report(path, expected):
+    if path.is_symlink():
+        raise Refused("existing crash report is not one private regular file")
+    try:
         st = path.lstat()
-        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
-            raise Refused("Crash-History.txt must be one private regular file")
-        text = path.read_text("utf-8")
-        count = text.count(line)
-        if count > 1:
-            raise Refused("duplicate crash history entry")
-        if count == 1:
-            return
-    _append_history(path, line)
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
+        raise Refused("existing crash report is not one private regular file")
+    if path.read_bytes() != expected:
+        raise Refused("existing crash report differs from retry")
+    return True
+
+
+def _ensure_exact_report(path, expected):
+    if _verify_existing_report(path, expected):
+        return
+    try:
+        _exclusive_write(path, expected)
+    except FileExistsError:
+        # A concurrent retry may have published the exact report after our
+        # existence check. Verify that object rather than treating the race as
+        # a different incident.
+        if not _verify_existing_report(path, expected):
+            raise
 
 
 def ensure_report(crash_dir, incident):
@@ -196,14 +342,7 @@ def ensure_report(crash_dir, incident):
     filename = f"{stamp}-{incident['service']}-{incident['incident_id']}.txt"
     report_path = root / filename
     expected = render_report(incident).encode("utf-8")
-    if report_path.exists() or report_path.is_symlink():
-        st = report_path.lstat()
-        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077:
-            raise Refused("existing crash report is not one private regular file")
-        if report_path.read_bytes() != expected:
-            raise Refused("existing crash report differs from retry")
-    else:
-        _exclusive_write(report_path, expected)
+    _ensure_exact_report(report_path, expected)
     history = root / "Crash-History.txt"
     _ensure_history_once(history, _history_line(incident, filename, stamp))
     return report_path
@@ -220,5 +359,5 @@ def write_report(crash_dir, incident):
         raise Refused("crash report destination already exists")
     _exclusive_write(report_path, render_report(incident).encode("utf-8"))
     history = root / "Crash-History.txt"
-    _append_history(history, _history_line(incident, filename, stamp))
+    _ensure_history_once(history, _history_line(incident, filename, stamp))
     return report_path
