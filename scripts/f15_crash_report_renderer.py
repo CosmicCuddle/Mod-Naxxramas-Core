@@ -103,6 +103,10 @@ def _history_bytes_locked(fd):
         raise Refused("Crash-History.txt changed during locked inspection")
     if data and not data.endswith(b"\n"):
         raise Refused("Crash-History.txt has an incomplete trailing line")
+    try:
+        bytes(data).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise Refused("Crash-History.txt is not valid UTF-8") from exc
     return bytes(data), st
 
 
