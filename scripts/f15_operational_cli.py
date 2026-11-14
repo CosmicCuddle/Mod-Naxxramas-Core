@@ -199,8 +199,6 @@ def _parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     observe = sub.add_parser("observe-once", help="read current process/log evidence once")
-    observe.add_argument("--state-root", type=Path, default=DEFAULT_STATE_ROOT)
-    observe.add_argument("--crash-root", type=Path, default=DEFAULT_CRASH_ROOT)
     observe.add_argument("--world-pm2-name")
     observe.add_argument("--pm2-manager-log", type=Path)
     observe.add_argument("--auth-tmux-session")
@@ -209,12 +207,8 @@ def _parser() -> argparse.ArgumentParser:
     observe.add_argument("--source-revision")
 
     snap = sub.add_parser("snapshot-before-overwrite", help="copy live logs before approved overwrite")
-    snap.add_argument("--log-root", type=Path, default=DEFAULT_LOG_ROOT)
-    snap.add_argument("--archive-root", type=Path, default=DEFAULT_ARCHIVE_ROOT)
 
     retain = sub.add_parser("retain-once", help="expire verified F15-owned artifacts older than 30 days")
-    retain.add_argument("--archive-root", type=Path, default=DEFAULT_ARCHIVE_ROOT)
-    retain.add_argument("--crash-root", type=Path, default=DEFAULT_CRASH_ROOT)
 
     return p
 
@@ -224,8 +218,8 @@ def main(argv=None) -> int:
     try:
         if args.command == "observe-once":
             result = observe_once(
-                args.state_root,
-                args.crash_root,
+                DEFAULT_STATE_ROOT,
+                DEFAULT_CRASH_ROOT,
                 world_pm2_name=args.world_pm2_name,
                 pm2_manager_log=args.pm2_manager_log,
                 auth_tmux_session=args.auth_tmux_session,
@@ -234,10 +228,10 @@ def main(argv=None) -> int:
                 source_revision=args.source_revision,
             )
         elif args.command == "snapshot-before-overwrite":
-            pairs = snapshot_before_overwrite(args.log_root, args.archive_root)
+            pairs = snapshot_before_overwrite(DEFAULT_LOG_ROOT, DEFAULT_ARCHIVE_ROOT)
             result = {"snapshots_created": len(pairs)}
         elif args.command == "retain-once":
-            result = retain_once(args.archive_root, args.crash_root)
+            result = retain_once(DEFAULT_ARCHIVE_ROOT, DEFAULT_CRASH_ROOT)
         else:
             raise Refused("unknown command")
     except (Refused, probe.Refused, pipeline.raw_bundle.Refused,

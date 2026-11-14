@@ -181,6 +181,21 @@ class OperationalCliTests(unittest.TestCase):
         self.assertEqual(active.read_text(), "ACTIVE")
 
 
+
+    def test_cli_exposes_no_f15_root_overrides(self):
+        parser = cli._parser()
+        sub_action = next(
+            action for action in parser._actions
+            if getattr(action, "choices", None)
+        )
+        forbidden = {"--state-root", "--crash-root", "--log-root", "--archive-root"}
+        for name in ("observe-once", "snapshot-before-overwrite", "retain-once"):
+            options = {
+                opt for action in sub_action.choices[name]._actions
+                for opt in action.option_strings
+            }
+            self.assertTrue(forbidden.isdisjoint(options), (name, options & forbidden))
+
     def test_observe_cli_does_not_expose_log_root_override(self):
         parser = cli._parser()
         sub_action = next(
