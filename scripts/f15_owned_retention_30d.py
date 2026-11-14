@@ -251,7 +251,10 @@ def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
             raise Refused("Crash-History.txt must be one private regular file")
 
         original = os.pread(fd, st.st_size, 0)
-        data = original.decode("utf-8")
+        try:
+            data = original.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise Refused("Crash-History.txt is not valid UTF-8") from exc
         lines = data.splitlines(keepends=True)
         kept = []
         dropped = 0
@@ -288,6 +291,13 @@ def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
                 os.fsync(bfd)
             finally:
                 os.close(bfd)
+
+            # Persist the backup directory entry before touching the original.
+            dfd = os.open(history.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
 
             payload = "".join(kept).encode("utf-8")
             os.lseek(fd, 0, os.SEEK_SET)
