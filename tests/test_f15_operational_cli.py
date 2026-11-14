@@ -311,5 +311,20 @@ class OperationalCliTests(unittest.TestCase):
             {"observe-once", "snapshot-before-overwrite", "retain-once"},
         )
 
+
+    def test_log_root_parent_symlink_refused(self):
+        real = self.base / "real-parent"
+        real.mkdir()
+        logs = real / "logs"
+        logs.mkdir()
+        source = logs / "world.log"
+        source.write_text("x")
+        link = self.base / "linked-parent"
+        link.symlink_to(real, target_is_directory=True)
+        with self.assertRaises(cli.Refused):
+            cli._tail_best_effort(
+                link / "logs" / "world.log", "test", link / "logs"
+            )
+
 if __name__ == "__main__":
     unittest.main()

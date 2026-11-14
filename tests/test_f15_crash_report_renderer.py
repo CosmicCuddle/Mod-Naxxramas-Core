@@ -186,5 +186,14 @@ class RendererTests(unittest.TestCase):
         self.assertIn("TRUNCATED TO MOST RECENT BYTES", report)
         self.assertLess(len(report.encode()), 40000)
 
+
+    def test_crash_root_parent_symlink_refused(self):
+        real = Path(self.t.name) / "real-parent"
+        real.mkdir()
+        link = Path(self.t.name) / "linked-parent"
+        link.symlink_to(real, target_is_directory=True)
+        with self.assertRaises(f15.Refused):
+            f15.write_report(link / "Crash Logs", self.inc)
+
 if __name__ == "__main__":
     unittest.main()

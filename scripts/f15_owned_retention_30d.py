@@ -38,8 +38,21 @@ def _aware_utc(now: datetime | None) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _reject_symlink_ancestors(path: Path, label: str) -> None:
+    """Refuse any existing symlink component above path."""
+    current = Path(path).parent
+    while True:
+        if current.is_symlink():
+            raise Refused(f"{label} ancestor may not be a symlink")
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+
 def _private_owned_root(path: Path, label: str) -> Path:
     path = Path(path)
+    _reject_symlink_ancestors(path, label)
     if path.is_symlink() or not path.exists():
         raise Refused(f"{label} must be a real directory")
     st = path.lstat()

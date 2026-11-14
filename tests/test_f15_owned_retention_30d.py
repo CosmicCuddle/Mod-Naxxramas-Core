@@ -254,5 +254,18 @@ class RetentionTests(unittest.TestCase):
         with self.assertRaises(ret.Refused):
             ret.retain_snapshot_archive(self.arch,BOUNDARY+timedelta(days=5))
 
+
+    def test_retention_root_parent_symlink_refused(self):
+        real = self.base / "real-parent"
+        real.mkdir(mode=0o700)
+        target = real / "archive"
+        target.mkdir(mode=0o700)
+        link = self.base / "linked-parent"
+        link.symlink_to(real, target_is_directory=True)
+        with self.assertRaises(ret.Refused):
+            ret.retain_snapshot_archive(
+                link / "archive", BOUNDARY + timedelta(days=1)
+            )
+
 if __name__=="__main__":
     unittest.main()

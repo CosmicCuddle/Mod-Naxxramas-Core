@@ -31,6 +31,18 @@ class Refused(RuntimeError):
     pass
 
 
+def _reject_symlink_ancestors(path: Path, label: str) -> None:
+    """Refuse any existing symlink component above path."""
+    current = Path(path).parent
+    while True:
+        if current.is_symlink():
+            raise Refused(f"{label} ancestor may not be a symlink")
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+
 class FixedPm2Runner:
     """Replay exactly one already-observed pm2 jlist result into the pipeline."""
     def __init__(self, raw: str):
@@ -48,6 +60,8 @@ def _approved_log_source(path: str | Path, log_root: Path) -> Path:
     source = Path(path)
     if not root.is_absolute() or not source.is_absolute():
         raise Refused("log root and source paths must be absolute")
+    _reject_symlink_ancestors(root, "log root")
+    _reject_symlink_ancestors(source, "log source")
     if root.is_symlink():
         raise Refused("log root may not be a symlink")
     try:

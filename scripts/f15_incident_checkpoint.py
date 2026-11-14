@@ -17,8 +17,21 @@ class Refused(RuntimeError):
     pass
 
 
+def _reject_symlink_ancestors(path: Path, label: str) -> None:
+    """Refuse any existing symlink component above path."""
+    current = Path(path).parent
+    while True:
+        if current.is_symlink():
+            raise Refused(f"{label} ancestor may not be a symlink")
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+
 def _private_dir(path: Path) -> Path:
     path = Path(path)
+    _reject_symlink_ancestors(path, "state directory")
     if path.is_symlink():
         raise Refused("state directory may not be a symlink")
     if not path.exists():

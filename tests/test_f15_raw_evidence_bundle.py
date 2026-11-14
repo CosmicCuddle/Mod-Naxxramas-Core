@@ -84,5 +84,18 @@ class BundleTests(unittest.TestCase):
         with self.assertRaises(bundle.Refused):
             bundle.retain_bundles(self.root,OLD+timedelta(days=31))
 
+
+    def test_raw_root_parent_symlink_refused(self):
+        base = Path(self.t.name)
+        real = base / "real-parent"
+        real.mkdir()
+        link = base / "linked-parent"
+        link.symlink_to(real, target_is_directory=True)
+        with self.assertRaises(bundle.Refused):
+            bundle.write_bundle(
+                link / "Raw Evidence", "inc-parent-link",
+                {"a.txt": "x"}, OLD, {"service": "Worldserver"}
+            )
+
 if __name__=="__main__":
     unittest.main()

@@ -14,8 +14,8 @@
 | Affected files | `scripts/f15_operational_cli.py`, `tests/test_f15_operational_cli.py`, `docs/P3-F15-OPERATIONAL-CLI-20261113.md`. |
 | Config/SQL/DBC/client dependencies | None in source candidate. |
 | Host dependencies | Actual PM2/tmux topology, log paths, overwrite/rotation owner, permissions, free space, scheduling and build/source fingerprint evidence remain host-specific. |
-| Known risks | Incorrect host topology/path assumptions; wrong overwrite hook; insufficient storage; accidental retention ownership broadening. Crash reports publish atomically without overwrite and retry validation is inode-bound through O_NOFOLLOW; history append/dedup and retention reads/prunes use coordinated locks/recovery backup. |
-| Tests | Focused source tests cover operation separation, path boundaries, recovery state, report evidence, atomic publication/no-overwrite, inode-bound retry validation, ownership, private-root/FIFO refusal, history dedup/locking and rewrite recovery; no current claim of full World/Auth/live validation. |
+| Known risks | Incorrect host topology/path assumptions; wrong overwrite hook; insufficient storage; accidental retention ownership broadening. F15 read/write roots reject symlink ancestors; crash reports publish atomically and retry validation is inode-bound; history operations use coordinated locks/recovery backup. |
+| Tests | Focused source tests cover operation separation, lexical/real path boundaries including ancestor symlinks, recovery state, report evidence, atomic publication/inode retry, ownership, private-root/FIFO refusal and history locking/recovery; no current claim of full World/Auth/live validation. |
 | Live status | Not installed / not scheduled / not invoked on owner host by CS01. |
 | Decisions | Active logs are never retention-owned; copy before approved overwrite/rotation/truncation; F15-owned archive/crash/raw evidence retained 30 days. |
 | Rollback requirements | If later staged, disable schedules/hooks first, restore replaced files from verified backup, preserve diagnostic evidence, and verify original World/Auth topology. |
