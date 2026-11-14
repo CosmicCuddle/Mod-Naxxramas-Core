@@ -5,6 +5,7 @@ Never targets active source logs. Unknown/foreign files are preserved.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -31,6 +32,15 @@ HISTORY_RE = re.compile(
 
 class Refused(RuntimeError):
     pass
+
+
+@contextmanager
+def _history_lock(path: Path):
+    try:
+        with renderer._history_lock(path):
+            yield
+    except renderer.Refused as exc:
+        raise Refused(str(exc)) from exc
 
 
 def _aware_utc(now: datetime | None) -> datetime:
@@ -218,7 +228,7 @@ def _crash_stamp(name: str) -> datetime | None:
 def _rewrite_history(history: Path, crash_root: Path, now: datetime) -> int:
     # The renderer and retention MUST share this stable sidecar lock because
     # retention atomically replaces the history inode.
-    with renderer._history_lock(history):
+    with _history_lock(history):
         if history.is_symlink():
             raise Refused("Crash-History.txt may not be a symlink")
         if not history.exists():
