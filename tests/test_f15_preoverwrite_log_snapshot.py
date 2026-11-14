@@ -54,6 +54,25 @@ class SnapshotTests(unittest.TestCase):
         with self.assertRaises(OSError):
             snap.snapshot_file(link,self.archive,NOW)
 
+
+    def test_fifo_source_refused_without_open_block(self):
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("FIFO unavailable")
+        fifo=self.logs/"pipe.log"
+        os.mkfifo(fifo,0o600)
+        with self.assertRaises(snap.Refused):
+            snap.snapshot_file(fifo,self.archive,NOW)
+        self.assertFalse(self.archive.exists())
+
+    def test_directory_snapshot_refuses_fifo_entry(self):
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("FIFO unavailable")
+        (self.logs/"world.log").write_text("w")
+        fifo=self.logs/"pipe.log"
+        os.mkfifo(fifo,0o600)
+        with self.assertRaises(snap.Refused):
+            snap.snapshot_log_directory(self.logs,self.archive,observed_utc=NOW)
+
     def test_hardlinked_source_refused(self):
         src=self.logs/"world.log"
         src.write_text("x")

@@ -66,12 +66,29 @@ def _atomic_json(path: Path, obj: dict) -> None:
 
 
 def _open_source(path: Path):
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        pre = path.lstat()
+    except OSError:
+        raise
+    if not stat.S_ISREG(pre.st_mode):
+        raise Refused("source log must be regular file")
+    if pre.st_nlink != 1:
+        raise Refused("hardlinked source log refused")
+
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
     fd = os.open(path, flags)
     st = os.fstat(fd)
     if not stat.S_ISREG(st.st_mode):
         os.close(fd)
-        raise Refused("source log must be regular file")
+        raise Refused("source log changed to non-regular file")
+    if st.st_dev != pre.st_dev or st.st_ino != pre.st_ino:
+        os.close(fd)
+        raise Refused("source log identity changed during open")
     if st.st_nlink != 1:
         os.close(fd)
         raise Refused("hardlinked source log refused")
