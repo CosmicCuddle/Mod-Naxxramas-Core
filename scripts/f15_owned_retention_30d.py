@@ -203,10 +203,10 @@ def retain_snapshot_archive(snapshot_root: Path, now: datetime | None = None) ->
         }
         _atomic_write(intent, (json.dumps(payload, sort_keys=True) + "\n").encode())
 
-        # Recheck identities immediately before unlink.
-        if _safe_regular(data_path).st_ino != data_st.st_ino:
+        # Recheck the full persisted identities immediately before unlink.
+        if _identity(data_path) != payload["snapshot_identity"]:
             raise Refused("snapshot identity changed before retention")
-        if _safe_regular(manifest_path).st_ino != manifest_st.st_ino:
+        if _identity(manifest_path) != payload["manifest_identity"]:
             raise Refused("manifest identity changed before retention")
         data_path.unlink()
         manifest_path.unlink()
@@ -312,7 +312,7 @@ def retain_crash_reports(crash_root: Path, now: datetime | None = None) -> tuple
                 "report_identity": _identity(path),
             }
             _atomic_write(intent, (json.dumps(payload, sort_keys=True) + "\n").encode())
-            if _safe_regular(path).st_ino != st.st_ino:
+            if _identity(path) != payload["report_identity"]:
                 raise Refused("crash report identity changed before retention")
             path.unlink()
             intent.unlink()
