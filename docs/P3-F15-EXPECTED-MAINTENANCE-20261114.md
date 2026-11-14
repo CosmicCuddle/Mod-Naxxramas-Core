@@ -16,7 +16,7 @@ Expected maintenance is deliberately two-phase:
 2. The marker binds itself to the **existing durable F15 checkpoint identity**. The caller cannot supply an invented before-state.
 3. **Confirm:** after the real maintenance owner reports successful completion, it confirms the same operation ID.
 4. F15 observes the post-state and accepts it as expected only when the service, before identity, transition shape, bounded time and confirmation all match.
-5. Explicit fatal signal, non-zero exit or signal evidence always defeats the maintenance marker and produces a normal crash incident.
+5. Explicit fatal signal or non-zero exit always defeats the maintenance marker. Unknown/destructive signals such as `SIGKILL` also remain unexpected. Only clean operator termination signals `SIGINT`/`SIGTERM` may accompany an otherwise exact confirmed World maintenance transition.
 6. A matching transition observed while the marker is only armed is **deferred**: no crash report and no checkpoint advancement occur. If confirmation never arrives, expiration leaves the old checkpoint intact so a later observation classifies the transition normally.
 7. A confirmed expected transition advances the checkpoint without incrementing the crash sequence and writes a separate `last-expected-maintenance.json` audit record. It does not enter crash history or raw crash evidence.
 
@@ -25,7 +25,7 @@ Expected maintenance is deliberately two-phase:
 ### Worldserver / PM2
 - expected STOP: previous identity is live, current identity is non-live, restart counter unchanged;
 - expected RESTART: previous and current are live, restart counter advances exactly by one, and pid or uptime identity changes;
-- fatal/non-zero/signal classification is never suppressible.
+- fatal/non-zero evidence is never suppressible; `SIGKILL`/unknown signals remain unexpected; `SIGINT`/`SIGTERM` may match only an otherwise exact confirmed maintenance transition.
 
 ### Authserver / tmux
 - expected STOP: previous pid/start identity exists and current identity is absent;
@@ -44,7 +44,7 @@ A future approved maintenance/launcher owner must call the arm/confirm primitive
 ## Evidence added
 
 Source tests cover:
-- unconfirmed marker never suppresses;
+- unconfirmed exact transition is not accepted as confirmed maintenance and integration defers it without checkpoint advance;
 - confirmed exact World restart;
 - confirmed World stop;
 - fatal/non-zero evidence wins;
@@ -54,20 +54,31 @@ Source tests cover:
 - wrong operation ID;
 - >30 minute window refusal;
 - existing marker cannot be silently replaced;
-- symlink marker refusal.
+- symlink marker refusal for administrative access while observation treats it as no suppression authority;
+- confirmation retry idempotency with a different retry timestamp;
+- clean SIGINT/SIGTERM exact transition acceptance;
+- SIGKILL/fatal/nonzero rejection;
+- invalid marker/audit recovery classification;
+- standalone marker consume API absence.
 
 Operational integration tests cover:
-- baseline → armed expected restart → observation defers with no crash/checkpoint advance → confirmation → same observation is accepted with no crash and marker consumed;
-- confirmed expected restart plus SIGSEGV still creates a FATAL_SIGNAL_EXIT crash and does not consume the marker.
+- baseline → armed expected restart → observation defers with no crash/checkpoint advance → confirmation → same observation is accepted with no crash and marker finalized;
+- confirmed expected restart plus SIGSEGV still creates a FATAL_SIGNAL_EXIT crash and does not finalize the marker;
+- invalid/symlink marker still permits normal unexpected-restart reporting and remains for recovery review;
+- clean SIGTERM exact confirmed restart is accepted without crash history;
+- SIGKILL during a confirmed maintenance window remains an unexpected signal incident;
+- checkpoint advanced + audit-write failure leaves a classified stale confirmed marker and no duplicate crash on retry;
+- checkpoint + audit advanced + marker-unlink failure leaves a classified matching stale marker/audit and no duplicate crash on retry.
 
 ## Known remaining recovery gate
 
 The expected transition is intentionally checkpointed **before** marker finalization. This ordering prevents an interruption from consuming the marker and then falsely reporting the already-approved transition as a crash.
 
-Residual case:
-- checkpoint advances successfully;
-- audit write or marker unlink fails;
-- the service state is safe and will not be crash-reported again, but the leftover marker can block a future arm.
+Residual cases are intentionally fail-closed/reviewable:
+- checkpoint advances successfully but audit write fails;
+- checkpoint and audit advance but marker unlink fails;
+- malformed/insecure marker or audit state remains present for recovery review.
+The service transition is not crash-reported again once the checkpoint has advanced, but stale/invalid maintenance state can block a future arm until an operator reviews it.
 
 A read-only reconciliation classifier is now included. It distinguishes:
 1. clean checkpoint/no marker/no audit;
@@ -75,7 +86,9 @@ A read-only reconciliation classifier is now included. It distinguishes:
 3. checkpoint advanced + stale confirmed marker + missing audit;
 4. marker/audit mismatch;
 5. marker + matching audit, including stale-after-advance;
-6. invalid/missing checkpoint and invalid audit conditions.
+6. invalid/missing checkpoint;
+7. invalid/unsafe marker;
+8. invalid/unsafe audit.
 
 It performs **no cleanup**. Before unattended/live use, define an owner-reviewed recovery procedure for each classified state. Never auto-delete an uncertain marker/audit object.
 
