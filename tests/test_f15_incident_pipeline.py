@@ -68,8 +68,8 @@ class PipelineTests(unittest.TestCase):
 
     def test_auth_process_start_ticks_reach_detailed_report(self):
         incident = topology.auth_incident(
-            {"pid": 300, "start_ticks": 12345, "pane_pid": 20},
-            {"pid": 301, "start_ticks": 23456, "pane_pid": 20},
+            {"pid": 300, "start_ticks": 12345, "pane_pid": 20, "tmux_probe_status": "session_present_auth_present"},
+            {"pid": 301, "start_ticks": 23456, "pane_pid": 20, "tmux_probe_status": "session_present_auth_present"},
             True,
         )
         incident.update({
@@ -84,7 +84,27 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("Replacement start ticks: 23456", report)
         self.assertIn("Supervisor pane PID: 20", report)
         self.assertIn("Replacement supervisor pane PID: 20", report)
+        self.assertIn("Supervisor probe status: session_present_auth_present", report)
+        self.assertIn("Replacement supervisor probe status: session_present_auth_present", report)
         self.assertIn("Classification: PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN", report)
+
+
+    def test_auth_tmux_session_disappearance_reaches_detailed_report(self):
+        incident = topology.auth_incident(
+            {"pid": 400, "start_ticks": 34567, "pane_pid": 30, "tmux_probe_status": "session_present_auth_present"},
+            {"pid": None, "start_ticks": None, "pane_pid": None, "tmux_probe_status": "session_absent"},
+            False,
+        )
+        incident.update({
+            "incident_id": "fixture-auth-tmux-gone",
+            "filename_timestamp": "20261113T112003Z",
+        })
+        with tempfile.TemporaryDirectory() as tmp:
+            report = renderer.write_report(Path(tmp) / "Crash Logs", incident).read_text()
+        self.assertIn("Classification: PROCESS_DISAPPEARANCE_CAUSE_UNKNOWN", report)
+        self.assertIn("Replacement supervisor pane PID: UNKNOWN", report)
+        self.assertIn("Replacement supervisor probe status: session_absent", report)
+        self.assertIn("tmux session not present", report)
 
     def test_pm2_restart_without_cause_stays_unproven_in_report(self):
         incident = topology.world_incident(

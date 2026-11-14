@@ -144,6 +144,8 @@ def render_report(incident):
         ("Supervisor", _unknown(incident.get("supervisor"))),
         ("Supervisor pane PID", _unknown(incident.get("supervisor_pane_pid"))),
         ("Replacement supervisor pane PID", _unknown(incident.get("replacement_supervisor_pane_pid"))),
+        ("Supervisor probe status", _unknown(incident.get("supervisor_probe_status"))),
+        ("Replacement supervisor probe status", _unknown(incident.get("replacement_supervisor_probe_status"))),
         ("Process start", _unknown(incident.get("process_start"))),
         ("Process start epoch ms", _unknown(incident.get("process_start_epoch_ms"))),
         ("Process start ticks", _unknown(incident.get("process_start_ticks"))),
