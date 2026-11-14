@@ -262,6 +262,67 @@ class ExpectedMaintenanceStore:
         finally:
             checkpoint.os.close(dfd)
 
+
+    def classify_recovery(self) -> dict[str, Any]:
+        """Classify durable marker/audit/checkpoint state without mutating it."""
+        with checkpoint._exclusive_lock(self.lock_path):
+            marker = self._read_unlocked()
+            state = checkpoint._read_json(self.root / f"{self.service}.checkpoint.json")
+            audit = checkpoint._read_json(self.root / f"{self.service}.last-expected-maintenance.json")
+
+            if state is None or state.get("service") != self.service or not isinstance(state.get("identity"), dict):
+                return {"status": "CHECKPOINT_INVALID_OR_MISSING", "service": self.service}
+
+            if marker is None and audit is None:
+                return {"status": "CLEAN", "service": self.service}
+
+            if marker is None and audit is not None:
+                if (
+                    audit.get("service") == self.service
+                    and audit.get("result") == "EXPECTED_TRANSITION_CONFIRMED"
+                    and isinstance(audit.get("operation_id"), str)
+                ):
+                    return {
+                        "status": "AUDIT_ONLY_CLEAN",
+                        "service": self.service,
+                        "operation_id": audit["operation_id"],
+                    }
+                return {"status": "AUDIT_INVALID", "service": self.service}
+
+            marker_id = marker["operation_id"]
+            checkpoint_advanced = marker.get("before_identity") != state.get("identity")
+
+            if audit is None:
+                return {
+                    "status": "STALE_CONFIRMED_MARKER_AFTER_CHECKPOINT" if (
+                        checkpoint_advanced and marker.get("status") == "confirmed"
+                    ) else "ACTIVE_OR_EXPIRED_MARKER_NO_AUDIT",
+                    "service": self.service,
+                    "operation_id": marker_id,
+                    "checkpoint_advanced": checkpoint_advanced,
+                    "marker_status": marker["status"],
+                }
+
+            if (
+                audit.get("service") != self.service
+                or audit.get("result") != "EXPECTED_TRANSITION_CONFIRMED"
+                or audit.get("operation_id") != marker_id
+            ):
+                return {
+                    "status": "MARKER_AUDIT_MISMATCH",
+                    "service": self.service,
+                    "operation_id": marker_id,
+                    "checkpoint_advanced": checkpoint_advanced,
+                }
+
+            return {
+                "status": "STALE_MARKER_WITH_MATCHING_AUDIT" if checkpoint_advanced else "ACTIVE_MARKER_WITH_MATCHING_AUDIT",
+                "service": self.service,
+                "operation_id": marker_id,
+                "checkpoint_advanced": checkpoint_advanced,
+                "marker_status": marker["status"],
+            }
+
     def matches_expected(self, previous_identity: dict[str, Any], current_identity: dict[str, Any],
                          incident: dict[str, Any], observed_utc: datetime) -> bool:
         """Return True only for a confirmed, exact, non-fatal expected transition.
