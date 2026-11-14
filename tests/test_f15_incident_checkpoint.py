@@ -141,6 +141,26 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(seen, [])
         self.assertEqual(c.state()["identity"]["pid"], 31)
 
+
+    def test_auth_absent_recovery_then_later_disappearance_is_incident_one(self):
+        c=cp.IncidentCheckpoint(self.root,"Authserver")
+        seen=[]
+        c.process_auth(
+            {"pid":None,"start_ticks":None,"pane_pid":None,"tmux_probe_status":"session_absent"},
+            False, normalize_auth, seen.append,
+        )
+        c.process_auth(
+            {"pid":31,"start_ticks":200,"pane_pid":10,"tmux_probe_status":"session_present_auth_present"},
+            True, normalize_auth, seen.append,
+        )
+        event=c.process_auth(
+            {"pid":None,"start_ticks":None,"pane_pid":None,"tmux_probe_status":"session_absent"},
+            False, normalize_auth, seen.append,
+        )
+        self.assertEqual(event["incident_id"], "authserver-00000001")
+        self.assertEqual(c.state()["sequence"], 1)
+        self.assertEqual(len(seen), 1)
+
     def test_auth_tmux_session_disappearance_emits_incident(self):
         c=cp.IncidentCheckpoint(self.root,"Authserver")
         seen=[]
