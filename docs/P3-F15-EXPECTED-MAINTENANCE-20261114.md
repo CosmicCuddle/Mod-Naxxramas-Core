@@ -69,15 +69,15 @@ Residual case:
 - audit write or marker unlink fails;
 - the service state is safe and will not be crash-reported again, but the leftover marker can block a future arm.
 
-Before unattended/live use, add a read-only reconciliation classifier for:
-1. checkpoint advanced + matching confirmed marker + matching audit;
-2. checkpoint advanced + marker + missing audit;
-3. audit present + marker absent;
-4. marker/audit operation mismatch;
-5. malformed/symlink/insecure marker or audit;
-6. expired marker after checkpoint advancement.
+A read-only reconciliation classifier is now included. It distinguishes:
+1. clean checkpoint/no marker/no audit;
+2. audit-only clean;
+3. checkpoint advanced + stale confirmed marker + missing audit;
+4. marker/audit mismatch;
+5. marker + matching audit, including stale-after-advance;
+6. invalid/missing checkpoint and invalid audit conditions.
 
-Never auto-delete an uncertain marker/audit object.
+It performs **no cleanup**. Before unattended/live use, define an owner-reviewed recovery procedure for each classified state. Never auto-delete an uncertain marker/audit object.
 
 ## Remaining F15 gates
 
@@ -88,6 +88,7 @@ This child does not resolve:
 - actual overwrite owner/hook;
 - exact installed PM2/tmux topology, paths, runtime user, disk projection and running build/source fingerprint;
 - approved scheduler installation;
+- owner-reviewed recovery actions for reconciliation states;
 - live staging/rollback approval.
 
 No host, process, scheduler, log, database, configuration, DBC, client or gameplay state is changed by this candidate.
