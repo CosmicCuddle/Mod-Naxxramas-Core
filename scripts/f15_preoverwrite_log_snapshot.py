@@ -79,6 +79,7 @@ def _atomic_json(path: Path, obj: dict) -> None:
 
 
 def _open_source(path: Path):
+    _reject_symlink_ancestors(path, "source log")
     try:
         pre = path.lstat()
     except OSError:
@@ -143,9 +144,16 @@ def snapshot_file(source: Path, archive_root: Path, observed_utc: datetime | Non
                 block = os.pread(fd, min(CHUNK, before.st_size - copied), copied)
                 if not block:
                     raise Refused("source shortened during snapshot")
-                os.write(outfd, block)
+                remaining = memoryview(block)
+                while remaining:
+                    written = os.write(outfd, remaining)
+                    if written <= 0 or written > len(remaining):
+                        raise Refused("snapshot write made no valid progress")
+                    remaining = remaining[written:]
                 digest.update(block)
                 copied += len(block)
+            if os.lseek(outfd, 0, os.SEEK_END) != before.st_size:
+                raise Refused("snapshot output size mismatch")
             os.fsync(outfd)
         finally:
             os.close(outfd)
