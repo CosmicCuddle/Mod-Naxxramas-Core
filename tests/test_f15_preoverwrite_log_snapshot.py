@@ -51,7 +51,7 @@ class SnapshotTests(unittest.TestCase):
         target.write_text("x")
         link=self.logs/"link.log"
         link.symlink_to(target)
-        with self.assertRaises(OSError):
+        with self.assertRaises(snap.Refused):
             snap.snapshot_file(link,self.archive,NOW)
 
 
