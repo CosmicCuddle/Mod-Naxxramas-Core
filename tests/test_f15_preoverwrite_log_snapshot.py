@@ -51,8 +51,11 @@ class SnapshotTests(unittest.TestCase):
         target.write_text("x")
         link=self.logs/"link.log"
         link.symlink_to(target)
-        with self.assertRaises(OSError):
+        with self.assertRaises(snap.Refused):
             snap.snapshot_file(link,self.archive,NOW)
+        self.assertEqual(target.read_text(), "x")
+        self.assertTrue(link.is_symlink())
+        self.assertFalse(self.archive.exists())
 
 
     def test_fifo_source_refused_without_open_block(self):

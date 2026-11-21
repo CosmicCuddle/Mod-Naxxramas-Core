@@ -1,0 +1,43 @@
+name: F15 report privacy and disposable Linux gate
+
+on:
+  pull_request:
+    branches:
+      - release/cs01-phase-a-f15-promotion-20261114
+    paths:
+      - scripts/f15_crash_report_renderer.py
+      - tests/test_f15_report_privacy.py
+      - .github/workflows/f15-private-report-gate-20261121.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f15-private-report-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  disposable-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Checkout exact source head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run F15 tests with disposable fixtures only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(id -u)" -ne 0
+          python3 --version
+          python3 -B -m unittest discover -s tests -p 'test_f15_*.py' -v
+          git diff --check
+          git diff --exit-code
+      # No artifact upload/cache, server/DB launch, owner logs, service edits,
+      # deployment, feature enablement or privileged host commands.

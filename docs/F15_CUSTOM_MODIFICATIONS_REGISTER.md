@@ -62,3 +62,19 @@ When F15 advances:
 3. distinguish source-only, compiled, staged, gameplay/live and production states;
 4. never mark a later state proven merely because an earlier state passed;
 5. do not broaden F15 retention ownership to unrelated server logs or artifacts.
+
+
+## F15-REPORT-PRIVACY-20261121
+
+| Field | Record |
+| --- | --- |
+| Intended behaviour | Prevent known credential tails and history-row injection in human-readable crash reports; keep newest redacted context within 32768 UTF-8 bytes. |
+| Owning component | CosmicCuddle; F15 renderer. |
+| Source ref/version | Child of frozen #336 at `64e06361e1daaf5db6cfcfd2b07bc7375650c675`; exact child HEAD recorded in PR/review queue. |
+| Affected files | `scripts/f15_crash_report_renderer.py`, `tests/test_f15_report_privacy.py`, bounded Linux workflow and accompanying privacy note. |
+| Config/SQL/DBC/client dependencies | Python standard library; Linux/POSIX required for inherited storage tests. No SQL/config/DBC/client dependency. |
+| Known risks | Conservative redaction can omit diagnostic text; unknown secret formats are not guaranteed scrubbed. Existing report retry mismatches fail closed. Raw forensic evidence retains inherited private handling. |
+| Tests | 15 pure-renderer tests PASS locally; actual frozen-parent leak reproduction; unchanged storage AST guard. Full Linux suite outcome must be taken from exact-head CI evidence. |
+| Live status | Not installed; source only; no deployment, service action or live-log access. |
+| Decisions | Preserve frozen #336, storage/locking/retention and raw evidence. Do not interpret pure projection as Linux storage or PM2/tmux evidence. |
+| Rollback requirements | Revert/abandon source child; preserve existing reports/history/raw evidence. |
