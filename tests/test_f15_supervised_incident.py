@@ -67,7 +67,9 @@ class SupervisedIncidents(unittest.TestCase):
             self.assertEqual(adapter.recover_report(self.root / "Crash Logs", raw, iid), report)
             self.assertEqual(first, report.read_bytes())
         self.assertIn("retained checkpoint", report.read_text())
-        self.assertEqual((self.root / "Crash Logs" / "Crash-History.txt").read_text().count(iid), 1)
+        rows = (self.root / "Crash Logs" / "Crash-History.txt").read_text().splitlines()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].split("\t")[2], iid)
 
     def test_recovery_refuses_tampered_input(self):
         raw, bundle, iid = self.failed_run()
@@ -91,7 +93,9 @@ class SupervisedIncidents(unittest.TestCase):
         original = existing.read_bytes()
         self.assertEqual(adapter.recover_report(self.root / "Crash Logs", raw, iid), existing)
         self.assertEqual(existing.read_bytes(), original)
-        self.assertEqual((self.root / "Crash Logs" / "Crash-History.txt").read_text().count(iid), 1)
+        rows = (self.root / "Crash Logs" / "Crash-History.txt").read_text().splitlines()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].split("\t")[2], iid)
 
     def test_recovery_missing_evidence_never_spawns(self):
         import f15_raw_evidence_bundle as bundles
