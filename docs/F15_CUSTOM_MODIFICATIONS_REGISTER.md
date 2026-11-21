@@ -91,3 +91,17 @@ Risk: report failure requires manual reconciliation; oversized console is omitte
 from rendered input with a gap while originals remain private. No installed
 PM2/tmux adapter or deployment. Test results belong to exact-head CI records.
 Source only, not installed. Rollback: abandon/revert child, preserve evidence.
+
+
+### Supervised report recovery increment (2026-11-21)
+
+Source child of PR341 at cf875236e34fc85a2c3644051a331167e7424d5e.
+`recover_report` uses a completed verified raw bundle and original timestamp;
+it never launches a process. Descriptor-read report input is hash checked against
+the verified manifest. Missing/altered/ambiguous evidence is refused. Existing
+report/history idempotence remains inherited; no evidence is rewritten.
+Executable tests inject report/history failures, verify retry/no respawn,
+idempotence and tampered/missing evidence refusal. Exact Linux results are in
+the draft PR/review queue. Failures before complete bundle publication and
+pending partial report files still require inspection. No new live/config/SQL/
+DBC/client dependency; uninstalled. Rollback: revert child, preserve evidence.

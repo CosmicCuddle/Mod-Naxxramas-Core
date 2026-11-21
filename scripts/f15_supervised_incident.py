@@ -49,3 +49,38 @@ def supervise_and_report(output_root, archive_root, crash_root, raw_root, servic
                                             {"supervisor-exit.json": outcome},
                                             {"service": service, "source": "explicit-child-wait"})
     return run, outcome, report
+
+
+def recover_report(crash_root, raw_root, incident_id):
+    """Retry publication from completed private evidence only; never spawn.
+
+    Does not recover an incomplete bundle or a failure before bundle publication.
+    Existing mismatched reports and pending files retain fail-closed semantics.
+    """
+    import hashlib
+    import json
+    import f15_raw_evidence_bundle as bundles
+    import f15_crash_report_renderer as renderer
+
+    bundle = bundles.find_bundle(Path(raw_root), incident_id)
+    if bundle is None:
+        raise bundles.Refused("completed incident bundle required")
+    manifest, _ = bundles._verify_bundle(bundle)
+    if manifest.get("provenance", {}).get("source") != "explicit-child-wait":
+        raise bundles.Refused("supervised incident provenance required")
+    records = [rec for rec in manifest["artifacts"] if rec["name"] == "report-input.json"]
+    if len(records) != 1 or records[0]["size"] > bundles.MAX_ARTIFACT_BYTES:
+        raise bundles.Refused("one bounded report input required")
+    # Descriptor-bound private read; compare the bytes actually used against
+    # the verified manifest rather than trusting a later pathname reread.
+    data, _ = renderer._read_private_report(bundle / "report-input.json")
+    if len(data) != records[0]["size"] or hashlib.sha256(data).hexdigest() != records[0]["sha256"]:
+        raise bundles.Refused("report input changed during recovery")
+    incident = json.loads(data.decode("utf-8"))
+    renderer.validate_incident(incident)
+    if incident["incident_id"] != incident_id or incident["service"] != manifest["provenance"].get("service"):
+        raise bundles.Refused("incident identity differs from provenance")
+    if not renderer.STAMP_RE.fullmatch(str(incident.get("filename_timestamp", ""))):
+        raise bundles.Refused("original report timestamp required")
+    incident["raw_evidence_ref"] = str(bundle)
+    return renderer.ensure_report(Path(crash_root), incident)

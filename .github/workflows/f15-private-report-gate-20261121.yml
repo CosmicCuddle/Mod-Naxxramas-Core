@@ -3,7 +3,7 @@ name: F15 report privacy and disposable Linux gate
 on:
   pull_request:
     branches:
-      - feature/codex-f15-report-privacy-20261121
+      - feature/codex-f15-supervised-incidents-20261121
     paths:
       - scripts/f15_supervised_incident.py
       - tests/test_f15_supervised_incident.py
