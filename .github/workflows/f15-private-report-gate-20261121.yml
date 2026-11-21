@@ -3,8 +3,10 @@ name: F15 report privacy and disposable Linux gate
 on:
   pull_request:
     branches:
-      - release/cs01-phase-a-f15-promotion-20261114
+      - feature/codex-f15-report-privacy-20261121
     paths:
+      - scripts/f15_supervised_incident.py
+      - tests/test_f15_supervised_incident.py
       - scripts/f15_crash_report_renderer.py
       - tests/test_f15_report_privacy.py
       - .github/workflows/f15-private-report-gate-20261121.yml

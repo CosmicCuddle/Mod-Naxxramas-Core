@@ -78,3 +78,16 @@ When F15 advances:
 | Live status | Not installed; source only; no deployment, service action or live-log access. |
 | Decisions | Preserve frozen #336, storage/locking/retention and raw evidence. Do not interpret pure projection as Linux storage or PM2/tmux evidence. |
 | Rollback requirements | Revert/abandon source child; preserve existing reports/history/raw evidence. |
+
+
+### Supervised-report composition increment (2026-11-21)
+
+CosmicCuddle owns this F15 extension. Draft PR341 is a child of PR340
+`c460787efb0600ff5ca6617c78c40e522429f7e0`; exact implementation head is recorded
+in the PR. Files: `scripts/f15_supervised_incident.py`, its executable fixture
+tests and source note. Requires explicit execute=True for a new child, never
+attaches to or restarts existing services. No config/SQL/DBC/client dependency.
+Risk: report failure requires manual reconciliation; oversized console is omitted
+from rendered input with a gap while originals remain private. No installed
+PM2/tmux adapter or deployment. Test results belong to exact-head CI records.
+Source only, not installed. Rollback: abandon/revert child, preserve evidence.
