@@ -144,6 +144,45 @@ class SupervisedIncidents(unittest.TestCase):
         self.assertIn("Exit code: 7", report.read_text())
         self.assertIn("NONZERO_EXIT", report.read_text())
 
+    def test_launcher_preserves_nonzero_status(self):
+        result = self.cli("supervise", *self.cli_roots(), "--output-root", str(self.root / "output"),
+                          "--archive-root", str(self.root / "archive"), "--service", "Authserver",
+                          "--execute", "--launcher-mode", "--", sys.executable, "-c", "raise SystemExit(7)")
+        self.assertEqual(result.returncode, 7, result.stderr)
+
+    def test_launcher_forwards_stop_to_owned_child_and_reports_signal(self):
+        import subprocess
+        import time
+        ready = self.root / "ready"
+        child_code = "from pathlib import Path; import time; Path(" + repr(str(ready)) + ").touch(); time.sleep(10)"
+        command = [sys.executable, str(Path(adapter.__file__)), "supervise", *self.cli_roots(),
+                   "--output-root", str(self.root / "output"), "--archive-root", str(self.root / "archive"),
+                   "--service", "Worldserver", "--execute", "--launcher-mode", "--", sys.executable, "-c", child_code]
+        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            deadline = time.monotonic() + 5
+            while not ready.exists() and proc.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(ready.exists())
+            proc.send_signal(signal.SIGTERM)
+            out, err = proc.communicate(timeout=5)
+            self.assertEqual(proc.returncode, 143, err)
+            report = next((self.root / "Crash Logs").glob("*Worldserver*.txt"))
+            self.assertIn("Signal name: SIGTERM", report.read_text())
+            self.assertNotIn(str(self.root), out + err)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.communicate(timeout=5)
+
+    def test_opt_in_signal_handlers_are_restored(self):
+        before = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+        with adapter.supervisor.OwnedChildStops() as stops:
+            stops.request(signal.SIGTERM, None)
+            stops.request(signal.SIGTERM, None)
+            self.assertEqual(stops.pending, [signal.SIGTERM])
+        self.assertEqual(before, {sig: signal.getsignal(sig) for sig in before})
+
     def test_cli_recovers_and_sanitizes_missing_evidence_error(self):
         raw, _, iid = self.failed_run()
         result = self.cli("recover", *self.cli_roots(), "--incident-id", iid)
