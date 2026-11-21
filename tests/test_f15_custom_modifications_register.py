@@ -35,6 +35,7 @@ class F15RegisterTests(unittest.TestCase):
                 "F15-OPERATIONAL-CLI-20261113",
                 "F15-STAGING-PREFLIGHT-20261113",
                 "F15-STAGING-BACKUP-ROLLBACK-20261113",
+                "F15-REPORT-PRIVACY-20261121",
             },
         )
 

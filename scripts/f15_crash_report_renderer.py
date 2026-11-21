@@ -97,7 +97,7 @@ def sanitize_context(value):
     # could leave an unlabelled fragment of the secret in the report.
     raw = redact_text(value).encode("utf-8", "replace")
     if len(raw) > MAX_CONTEXT_BYTES:
-        prefix = "[TRUNCATED TO MOST RECENT REDACTED BYTES]\n"
+        prefix = "[TRUNCATED TO MOST RECENT BYTES: REDACTED]\n"
         tail = raw[-(MAX_CONTEXT_BYTES - len(prefix.encode("utf-8"))):]
         return prefix + tail.decode("utf-8", "ignore")
     return raw.decode("utf-8")
