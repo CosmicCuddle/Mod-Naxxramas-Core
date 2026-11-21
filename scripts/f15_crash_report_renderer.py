@@ -19,7 +19,12 @@ STAMP_RE = re.compile(r"^\d{8}T\d{6}Z$")
 MAX_CONTEXT_BYTES = 32768
 MAX_FIELD_CHARS = 4096
 SECRET_RE = re.compile(
-    r"(?i)(password|passwd|token|authorization|api[_-]?key|secret)\s*[:=]\s*\S+"
+    r"(?i)(?<![\w.-])(?P<key>[\w.-]+(?:[ \t]+key)?)[\"']?[ \t]*[:=][ \t]*"
+)
+FLAG_SECRET_RE = re.compile(r"(?P<key>--[\w.-]+)[ \t]+")
+URI_SECRET_RE = re.compile(r"(?i)\b(?P<scheme>[a-z][a-z0-9+.-]*://)[^/\s<>]+@")
+PRIVATE_KEY_RE = re.compile(
+    r"-----BEGIN (?P<kind>[A-Z0-9 ]*PRIVATE KEY)-----.*?(?:-----END (?P=kind)-----|\Z)", re.S
 )
 
 class Refused(RuntimeError):
@@ -28,23 +33,74 @@ class Refused(RuntimeError):
 def _unknown(value):
     return "UNKNOWN" if value is None or value == "" else str(value)
 
-def _clean(value, limit=MAX_FIELD_CHARS):
+def _quoted_value_closed(value):
+    if not value or value[0] not in "\"'":
+        return True
+    quote = value[:3] if value.startswith(('"""', "'''")) else value[0]
+    index = len(quote)
+    while index < len(value):
+        if value[index] == "\\":
+            index += 2
+        elif value.startswith(quote, index):
+            return True
+        else:
+            index += 1
+    return False
+
+
+def _sensitive_key(key):
+    compact = re.sub(r"[\W_]", "", key).casefold()
+    return compact in {"logindatabaseinfo", "worlddatabaseinfo", "characterdatabaseinfo"} or any(
+        word in compact for word in (
+            "password", "passwd", "pwd", "token", "authorization", "apikey", "secret",
+            "credential", "signature", "cookie", "privatekey",
+        )
+    )
+
+
+def redact_text(value):
     if value is None:
         return "UNKNOWN"
     text = str(value).replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
+    text = PRIVATE_KEY_RE.sub("[REDACTED PRIVATE KEY]", text)
+    text = URI_SECRET_RE.sub(lambda match: match.group("scheme") + "[REDACTED]@", text)
+    # Redact the whole sensitive value line, not its first whitespace token.
+    # Preserve preceding diagnostics and subsequent safe lines. A folded or
+    # unfinished quoted value is ambiguous: withhold its remaining text.
+    for pattern in (SECRET_RE, FLAG_SECRET_RE):
+        parts, cursor = [], 0
+        for match in pattern.finditer(text):
+            if match.start() < cursor or not _sensitive_key(match.group("key")):
+                continue
+            end = text.find("\n", match.end())
+            if end < 0:
+                end = len(text)
+            parts.append(text[cursor:match.start()] + match.group("key") + "=[REDACTED]")
+            value_text = text[match.end():end]
+            if not value_text.strip() or not _quoted_value_closed(value_text):
+                parts.append("\n[REDACTED REMAINDER: ambiguous multiline value]")
+                cursor = len(text)
+                break
+            cursor = end
+        text = "".join(parts) + text[cursor:]
+    return text
+
+
+def _clean(value, limit=MAX_FIELD_CHARS):
+    text = redact_text(value).encode("utf-8", "replace").decode("utf-8")
     if len(text) > limit:
         text = text[:limit] + "\n[TRUNCATED]"
     return text
 
 def sanitize_context(value):
-    text = _clean(value, MAX_CONTEXT_BYTES * 2)
-    raw = text.encode("utf-8", "replace")
-    prefix = ""
+    # Redact before taking a tail: otherwise dropping the credential's key
+    # could leave an unlabelled fragment of the secret in the report.
+    raw = redact_text(value).encode("utf-8", "replace")
     if len(raw) > MAX_CONTEXT_BYTES:
-        raw = raw[-MAX_CONTEXT_BYTES:]
-        prefix = "[TRUNCATED TO MOST RECENT BYTES]\n"
-    text = raw.decode("utf-8", "replace")
-    return prefix + SECRET_RE.sub(lambda m: m.group(1) + "=[REDACTED]", text)
+        prefix = "[TRUNCATED TO MOST RECENT REDACTED BYTES]\n"
+        tail = raw[-(MAX_CONTEXT_BYTES - len(prefix.encode("utf-8"))):]
+        return prefix + tail.decode("utf-8", "ignore")
+    return raw.decode("utf-8")
 
 def _reject_symlink_ancestors(path: Path, label: str) -> None:
     """Refuse any existing symlink component above path."""
@@ -261,9 +317,11 @@ def render_report(incident):
 
 
 def _history_line(incident, filename, stamp):
+    def field(value):
+        return _clean(value).replace("\t", " ").replace("\n", " ")
     return (
         f"{stamp}\t{incident['service']}\t{incident['incident_id']}\t"
-        f"{classification(incident)}\texit={_unknown(incident.get('exit_code'))}\t"
+        f"{field(classification(incident))}\texit={field(_unknown(incident.get('exit_code')))}\t"
         f"signal={_unknown(_signal_number(incident))}\treport={filename}\n"
     )
 
