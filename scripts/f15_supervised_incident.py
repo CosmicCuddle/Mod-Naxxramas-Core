@@ -84,3 +84,55 @@ def recover_report(crash_root, raw_root, incident_id):
         raise bundles.Refused("original report timestamp required")
     incident["raw_evidence_ref"] = str(bundle)
     return renderer.ensure_report(Path(crash_root), incident)
+
+
+def main(argv=None):
+    """Operator entry point; deliberately separate from observation-only CLI."""
+    import argparse
+    import sys
+    import f15_raw_evidence_bundle as bundles
+    import f15_crash_report_renderer as renderer
+    import f15_operator_collector as collector
+
+    parser = argparse.ArgumentParser(description="F15 explicit new-child diagnostics or completed-report recovery; no service installation")
+    modes = parser.add_subparsers(dest="mode", required=True)
+    launch = modes.add_parser("supervise")
+    launch.add_argument("--output-root", required=True)
+    launch.add_argument("--archive-root", required=True)
+    launch.add_argument("--crash-root", required=True)
+    launch.add_argument("--raw-root", required=True)
+    launch.add_argument("--service", choices=sorted(supervisor.SERVICES), required=True)
+    launch.add_argument("--execute", action="store_true")
+    launch.add_argument("--build-version")
+    launch.add_argument("--source-revision")
+    launch.add_argument("command", nargs=argparse.REMAINDER)
+    recover = modes.add_parser("recover")
+    recover.add_argument("--crash-root", required=True)
+    recover.add_argument("--raw-root", required=True)
+    recover.add_argument("--incident-id", required=True)
+    args = parser.parse_args(argv)
+    if args.mode == "supervise":
+        command = args.command[1:] if args.command[:1] == ["--"] else args.command
+        if not args.execute or not command:
+            print("F15 REFUSED: explicit --execute and child command required", file=sys.stderr)
+            return 2
+    try:
+        if args.mode == "recover":
+            recover_report(args.crash_root, args.raw_root, args.incident_id)
+            print("F15 report recovery completed")
+            return 0
+        _, outcome, _ = supervise_and_report(args.output_root, args.archive_root,
+            args.crash_root, args.raw_root, args.service, command, execute=True,
+            build_version=args.build_version, source_revision=args.source_revision)
+        print("F15 supervised exit report completed")
+        # Diagnostic tool status, matching the existing supervisor CLI. This is
+        # not a transparent launcher replacement for PM2/tmux child exit codes.
+        return 0 if outcome["exit_code"] == 0 and outcome["capture_error_type"] is None else 2
+    except (OSError, ValueError, bundles.Refused, renderer.Refused, collector.Refused):
+        print("F15 REFUSED: operation rejected; inspect retained private evidence", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())
