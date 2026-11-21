@@ -14,11 +14,11 @@ MAX_STREAM_BYTES = 65536
 
 def supervise_and_report(output_root, archive_root, crash_root, raw_root, service,
                          command, *, execute=False, poll_seconds=0.2,
-                         build_version=None, source_revision=None):
+                         build_version=None, source_revision=None, forward_stops=False):
     if execute is not True:
         raise supervisor.Refused("explicit child execution authorization required")
     run, outcome = supervisor.supervise(output_root, archive_root, service,
-                                        command, poll_seconds)
+                                        command, poll_seconds, forward_stops=forward_stops)
     # Only the newly created, privately owned run is read. Never read owner logs.
     context, gaps = [], []
     for name in ("stdout.raw", "stderr.raw"):
@@ -103,6 +103,7 @@ def main(argv=None):
     launch.add_argument("--raw-root", required=True)
     launch.add_argument("--service", choices=sorted(supervisor.SERVICES), required=True)
     launch.add_argument("--execute", action="store_true")
+    launch.add_argument("--launcher-mode", action="store_true", help="forward TERM/INT to owned child; return child status (not installed service integration)")
     launch.add_argument("--build-version")
     launch.add_argument("--source-revision")
     launch.add_argument("command", nargs=argparse.REMAINDER)
@@ -123,8 +124,12 @@ def main(argv=None):
             return 0
         _, outcome, _ = supervise_and_report(args.output_root, args.archive_root,
             args.crash_root, args.raw_root, args.service, command, execute=True,
-            build_version=args.build_version, source_revision=args.source_revision)
+            build_version=args.build_version, source_revision=args.source_revision,
+            forward_stops=args.launcher_mode)
         print("F15 supervised exit report completed")
+        if args.launcher_mode:
+            code = outcome["exit_code"]
+            return code if code >= 0 else 128 - code
         # Diagnostic tool status, matching the existing supervisor CLI. This is
         # not a transparent launcher replacement for PM2/tmux child exit codes.
         return 0 if outcome["exit_code"] == 0 and outcome["capture_error_type"] is None else 2

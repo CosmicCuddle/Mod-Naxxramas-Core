@@ -121,3 +121,19 @@ Tests use disposable Python children, default-off no-side-effects, literal shell
 metacharacters, nonzero status/report retention and recovery. Exact Linux results
 are recorded in PR/queue. No SQL/config/DBC/client changes, uninstalled. Rollback:
 revert child, preserve evidence. No authority to install or change live services.
+
+
+### Opt-in launcher lifecycle (2026-11-21)
+
+Child of PR343 c30103093cc0954a69ddec2c3c9dea67889b6bc6. --launcher-mode
+forwards TERM/INT only to the directly owned unreaped child, restores signal
+handlers, drains output and reports the observed exit. No process-group signalling,
+external PID attachment, forced escalation or restart. Default diagnostic mode
+is unchanged. Launcher status preserves child code or 128+signal after successful
+reporting. Reporting/refusal failures still return 2: this limitation must be
+resolved in the service-manager contract before any installation. A child ignoring
+stop signals can keep the wrapper waiting; no shutdown deadline is claimed.
+No production PM2/tmux integration is established by synthetic tests. Main-thread
+POSIX use only. Executable tests cover nonzero status, TERM forwarding/reporting
+and handler restoration. Exact results in PR/queue. Uninstalled; no config/SQL/
+DBC/client changes. Rollback: revert source child, preserve diagnostic evidence.

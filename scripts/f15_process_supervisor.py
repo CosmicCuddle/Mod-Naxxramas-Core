@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import signal
 import stat
 import subprocess
 import sys
@@ -32,7 +33,44 @@ def _new_log(path):
     fd = os.open(path, flags, 0o600)
     return os.fdopen(fd, "wb", buffering=0)
 
-def supervise(output_root, archive_root, service, command, poll_seconds=0.2):
+class OwnedChildStops:
+    """Optional main-thread stop forwarding, limited to the unreaped owned child."""
+    def __init__(self):
+        self.pending = []
+        self.previous = {}
+
+    def __enter__(self):
+        try:
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                self.previous[sig] = signal.signal(sig, self.request)
+        except BaseException:
+            self.__exit__(None, None, None)
+            raise
+        return self
+
+    def request(self, sig, frame):
+        if sig not in self.pending:
+            self.pending.append(sig)
+
+    def forward(self, child):
+        for sig in self.pending:
+            if child.poll() is None:
+                child.send_signal(sig)
+        self.pending.clear()
+
+    def __exit__(self, *args):
+        for sig, handler in self.previous.items():
+            signal.signal(sig, handler)
+
+
+def supervise(output_root, archive_root, service, command, poll_seconds=0.2, *, forward_stops=False):
+    if forward_stops:
+        with OwnedChildStops() as stops:
+            return _supervise(output_root, archive_root, service, command, poll_seconds, stops)
+    return _supervise(output_root, archive_root, service, command, poll_seconds)
+
+
+def _supervise(output_root, archive_root, service, command, poll_seconds=0.2, stops=None):
     if service not in SERVICES:
         raise Refused("service must be Worldserver or Authserver")
     if not command:
@@ -70,6 +108,8 @@ def supervise(output_root, archive_root, service, command, poll_seconds=0.2):
         capture_error = None
         try:
             while True:
+                if stops is not None:
+                    stops.forward(child)
                 if capture_error is None:
                     try:
                         collect_once(capture_root, sources, include_existing=True)
