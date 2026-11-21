@@ -48,6 +48,64 @@ class SupervisedIncidents(unittest.TestCase):
         self.assertIn("Signal name: SIGTERM", report.read_text())
         self.assertIn("does not prove an engine defect", report.read_text())
 
+    def failed_run(self):
+        import f15_crash_report_renderer as renderer
+        with mock.patch.object(renderer, "ensure_report", side_effect=OSError("injected report failure")):
+            with self.assertRaises(OSError):
+                self.launch("print('retained checkpoint')")
+        raw = self.root / "Crash Logs" / "Raw Evidence"
+        import json
+        bundle = next(raw.iterdir())
+        iid = json.loads((bundle / "manifest.json").read_text())["incident_id"]
+        return raw, bundle, iid
+
+    def test_recovery_never_respawns_and_is_idempotent(self):
+        raw, _, iid = self.failed_run()
+        with mock.patch.object(adapter.supervisor, "supervise", side_effect=AssertionError("must not spawn")):
+            report = adapter.recover_report(self.root / "Crash Logs", raw, iid)
+            first = report.read_bytes()
+            self.assertEqual(adapter.recover_report(self.root / "Crash Logs", raw, iid), report)
+            self.assertEqual(first, report.read_bytes())
+        self.assertIn("retained checkpoint", report.read_text())
+        rows = (self.root / "Crash Logs" / "Crash-History.txt").read_text().splitlines()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].split("\t")[2], iid)
+
+    def test_recovery_refuses_tampered_input(self):
+        raw, bundle, iid = self.failed_run()
+        (bundle / "report-input.json").write_text("{}")
+        import f15_raw_evidence_bundle as bundles
+        with self.assertRaises(bundles.Refused) as caught:
+            adapter.recover_report(self.root / "Crash Logs", raw, iid)
+        self.assertIn("mismatch", str(caught.exception))
+        self.assertFalse((self.root / "Crash Logs" / "Crash-History.txt").exists())
+
+    def test_recovery_finishes_history_after_report_publication(self):
+        import f15_crash_report_renderer as renderer
+        import json
+        with mock.patch.object(renderer, "_ensure_history_once", side_effect=OSError("injected history failure")):
+            with self.assertRaises(OSError):
+                self.launch("print('history recovery')")
+        raw = self.root / "Crash Logs" / "Raw Evidence"
+        bundle = next(raw.iterdir())
+        iid = json.loads((bundle / "manifest.json").read_text())["incident_id"]
+        existing = next((self.root / "Crash Logs").glob("*Authserver*.txt"))
+        original = existing.read_bytes()
+        self.assertEqual(adapter.recover_report(self.root / "Crash Logs", raw, iid), existing)
+        self.assertEqual(existing.read_bytes(), original)
+        rows = (self.root / "Crash Logs" / "Crash-History.txt").read_text().splitlines()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].split("\t")[2], iid)
+
+    def test_recovery_missing_evidence_never_spawns(self):
+        import f15_raw_evidence_bundle as bundles
+        raw = self.root / "raw"
+        raw.mkdir(mode=0o700)
+        with mock.patch.object(adapter.supervisor, "supervise") as spawn:
+            with self.assertRaises(bundles.Refused):
+                adapter.recover_report(self.root / "Crash Logs", raw, "missing")
+            spawn.assert_not_called()
+
     def test_oversized_stream_omitted_before_any_trim(self):
         run, _, report = self.launch("print('password=' + 'A'*70000 + 'SECRET_END')")
         text = report.read_text()
