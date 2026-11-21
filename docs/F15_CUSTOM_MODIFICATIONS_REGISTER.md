@@ -105,3 +105,19 @@ idempotence and tampered/missing evidence refusal. Exact Linux results are in
 the draft PR/review queue. Failures before complete bundle publication and
 pending partial report files still require inspection. No new live/config/SQL/
 DBC/client dependency; uninstalled. Rollback: revert child, preserve evidence.
+
+
+### Explicit incident CLI (2026-11-21)
+
+Source child of PR342 at cd2ec28c356b1b66fd294beb2191e9c173b267c4.
+`f15_supervised_incident.py supervise` requires --execute and an explicit command;
+`recover` only publishes from verified completed evidence. Existing observation
+CLI is untouched. Arguments are passed as a vector with no shell interpolation.
+Normal operational failures emit generic messages without exception/path details.
+Diagnostic status is 0 for clean complete supervision or successful recovery,
+2 for nonzero/signaled child, capture failure or refusal. It is not a transparent
+PM2/tmux launcher replacement; original child status remains in private evidence.
+Tests use disposable Python children, default-off no-side-effects, literal shell
+metacharacters, nonzero status/report retention and recovery. Exact Linux results
+are recorded in PR/queue. No SQL/config/DBC/client changes, uninstalled. Rollback:
+revert child, preserve evidence. No authority to install or change live services.
