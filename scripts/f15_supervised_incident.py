@@ -128,7 +128,7 @@ def _report_observed_run(run, outcome, crash_root, raw_root, service,
     if fingerprint["status"] != "SAMPLED":
         gaps.append("executable prelaunch fingerprint UNKNOWN: " + fingerprint["reason"])
     if outcome.get("stop_escalated"):
-        gaps.append("owned child killed after explicitly configured stop timeout")
+        gaps.append("SIGKILL requested for owned child after explicitly configured stop timeout")
     if outcome.get("exit_receipt_status") == "failed":
         gaps.append("supervisor exit receipt persistence failed; wait evidence recovered from memory")
     for name in ("stdout.raw", "stderr.raw"):

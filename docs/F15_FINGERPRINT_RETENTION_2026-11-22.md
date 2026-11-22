@@ -23,7 +23,9 @@ bound is promised. Do not infer the owner's binary/source/version from fixtures.
 Launcher receipts add boolean stop_escalated. Existing shared _receipt rejected
 all extra fields, blocking launcher raw archive/audit/retention. Permit only this
 one optional boolean for EXIT_FIELDS; keep legacy exact schemas, unknown-field
-refusal, receipt identity checks and retention ownership unchanged. This does not
+refusal, receipt identity checks and retention ownership unchanged. stop_escalated records a kill request, not proof of causal signal delivery: the
+child can exit between poll and signal. The report now says SIGKILL requested;
+observed wait status remains authoritative. This does not
 grant new deletion authority. Completed raw source logs stay untouched.
 
 Tests exercise the actual historical reader's rejection, the current reader,
