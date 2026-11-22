@@ -1,0 +1,38 @@
+name: F15 disposable real manager adapters
+on:
+  pull_request:
+    branches: [feature/codex-f15-bounded-stop-20261122]
+    paths:
+      - scripts/f15_operator_adapter.py
+      - tests/test_f15_operator_adapter.py
+      - tests/test_f15_real_managers.py
+      - .github/workflows/f15-operator-managers.yml
+permissions:
+  contents: read
+jobs:
+  disposable-managers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install disposable runner tools only
+        run: |
+          set -euo pipefail
+          command -v tmux || (sudo apt-get update -qq && sudo apt-get install -y tmux)
+          npm install --prefix "$RUNNER_TEMP/f15-tools" --ignore-scripts --no-audit --no-fund pm2@7.1.2
+      - name: Run real manager and full F15 regression tests
+        env:
+          F15_REAL_MANAGERS: '1'
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          export F15_PM2_BIN="$RUNNER_TEMP/f15-tools/node_modules/.bin/pm2"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          python3 -B -m unittest discover -s tests -p 'test_f15_*.py' -v
+          git diff --check
+# Isolated PM2_HOME/tmux socket and finite Python children. No owner services,
+# production logs, artifact upload, cache upload or automatic installation.

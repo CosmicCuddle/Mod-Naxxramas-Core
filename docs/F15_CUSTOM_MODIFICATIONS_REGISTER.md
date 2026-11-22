@@ -190,3 +190,18 @@ Uninstalled; no config/SQL/DBC/client changes. Timing depends on poll/capture I/
 not a hard real-time bound, no descendant/process-group control. Rollback source
 child now; future approved host rollback restores prior launcher after disabling
 new hooks and preserves evidence. Exact test results belong to PR/queue.
+
+
+### Independent operator adapter examples (2026-11-22)
+
+Owner CosmicCuddle. Isolated child of PR34704fa17cc7e630bbbab4f4394f0a906ca1ee34a4f.
+Plan emitter writes private no-overwrite PM2/tmux proposed plans without executing
+anything. PM2: one wrapper, fork/no-shell, no tree kill/autorestart, no wrapper
+escalation. tmux: dedicated socket/direct new wrapper argv, never external pane
+ownership. Files: f15_operator_adapter.py, two fixture test modules, bounded real
+manager workflow and examples/F15_OPERATOR_ADAPTERS.md. Real-manager tests opt in
+only on disposable Linux, private PM2_HOME/socket/temp root and finite Python
+children. Exact outcomes in PR/queue. No SQL/config/DBC/client or live change.
+Risks: manager hard-kill/window closure can orphan isolated child; stdin unavailable;
+owner restart/timeouts/versions remain unverified. Rollback source child now;
+future approved host rollback restores prior launch records and retains evidence.
