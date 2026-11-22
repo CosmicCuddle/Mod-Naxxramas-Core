@@ -12,6 +12,17 @@ import f15_process_supervisor as supervisor
 MAX_STREAM_BYTES = 65536
 
 
+class PostExitReportFailure(OSError):
+    """Report failed after a directly observed child exit; public text is generic."""
+    def __init__(self, exit_code):
+        super().__init__("report publication failed after observed child exit")
+        self.exit_code = exit_code
+
+
+def launcher_status(exit_code):
+    return exit_code if exit_code >= 0 else 128 - exit_code
+
+
 def supervise_and_report(output_root, archive_root, crash_root, raw_root, service,
                          command, *, execute=False, poll_seconds=0.2,
                          build_version=None, source_revision=None, forward_stops=False):
@@ -19,6 +30,17 @@ def supervise_and_report(output_root, archive_root, crash_root, raw_root, servic
         raise supervisor.Refused("explicit child execution authorization required")
     run, outcome = supervisor.supervise(output_root, archive_root, service,
                                         command, poll_seconds, forward_stops=forward_stops)
+    import f15_raw_evidence_bundle as bundles
+    import f15_crash_report_renderer as renderer
+    try:
+        return _report_observed_run(run, outcome, crash_root, raw_root, service,
+                                    build_version, source_revision)
+    except (OSError, ValueError, bundles.Refused, renderer.Refused) as exc:
+        raise PostExitReportFailure(outcome["exit_code"]) from exc
+
+
+def _report_observed_run(run, outcome, crash_root, raw_root, service,
+                         build_version, source_revision):
     # Only the newly created, privately owned run is read. Never read owner logs.
     context, gaps = [], []
     for name in ("stdout.raw", "stderr.raw"):
@@ -128,11 +150,13 @@ def main(argv=None):
             forward_stops=args.launcher_mode)
         print("F15 supervised exit report completed")
         if args.launcher_mode:
-            code = outcome["exit_code"]
-            return code if code >= 0 else 128 - code
+            return launcher_status(outcome["exit_code"])
         # Diagnostic tool status, matching the existing supervisor CLI. This is
         # not a transparent launcher replacement for PM2/tmux child exit codes.
         return 0 if outcome["exit_code"] == 0 and outcome["capture_error_type"] is None else 2
+    except PostExitReportFailure as exc:
+        print("F15 report publication failed; inspect retained private evidence", file=sys.stderr)
+        return launcher_status(exc.exit_code) if args.mode == "supervise" and args.launcher_mode else 2
     except (OSError, ValueError, bundles.Refused, renderer.Refused, collector.Refused):
         print("F15 REFUSED: operation rejected; inspect retained private evidence", file=sys.stderr)
         return 2
