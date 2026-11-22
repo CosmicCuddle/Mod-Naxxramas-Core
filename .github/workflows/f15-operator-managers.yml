@@ -1,8 +1,10 @@
 name: F15 disposable real manager adapters
 on:
   pull_request:
-    branches: [feature/codex-f15-bounded-stop-20261122]
+    branches: [feature/codex-f15-operator-adapters-20261122]
     paths:
+      - scripts/f15_supervised_incident.py
+      - tests/test_f15_diagnostic_health.py
       - scripts/f15_operator_adapter.py
       - tests/test_f15_operator_adapter.py
       - tests/test_f15_real_managers.py
