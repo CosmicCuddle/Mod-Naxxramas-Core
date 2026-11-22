@@ -25,6 +25,14 @@ SERVICES = {"Worldserver", "Authserver"}
 # each pass; no "complete" receipt is written while unread bytes remain.
 MAX_FINAL_DRAIN_POLLS = 1024
 
+class ExitReceiptFailure(OSError):
+    """Observed wait evidence survived in memory, but its receipt was not durable."""
+    def __init__(self, run, outcome):
+        super().__init__("observed child exit receipt could not be persisted")
+        self.run = run
+        self.outcome = dict(outcome, exit_receipt_status="failed")
+
+
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -149,7 +157,10 @@ def _supervise(output_root, archive_root, service, command, poll_seconds=0.2, st
                "capture": "complete_for_observed_run" if capture_error is None else "fail_closed",
                "capture_error_type": capture_error, "pid": child.pid,
                "capture_root": str(capture_root)}
-    atomic_write(run / "exit.json", json.dumps(outcome, sort_keys=True).encode())
+    try:
+        atomic_write(run / "exit.json", json.dumps(outcome, sort_keys=True).encode())
+    except (OSError, ValueError, Refused) as exc:
+        raise ExitReceiptFailure(run, outcome) from exc
     return run, outcome
 
 def main(argv=None):

@@ -221,6 +221,43 @@ class SupervisedIncidents(unittest.TestCase):
         self.assertEqual(status, 2)
         self.assertNotIn("PRIVATE_SECRET", err.getvalue())
 
+    def test_exit_receipt_failure_reports_memory_evidence_without_relaunch(self):
+        import contextlib
+        import io
+        import json
+        original = adapter.supervisor.atomic_write
+        def fail_exit(path, data):
+            if Path(path).name == "exit.json":
+                raise OSError("PRIVATE_RECEIPT_PATH")
+            return original(path, data)
+        cases = ((True, "pass", 0), (True, "raise SystemExit(7)", 7),
+                 (True, "import os,signal; os.kill(os.getpid(),signal.SIGTERM)", 143),
+                 (False, "pass", 2))
+        for index, (launcher, source, expected) in enumerate(cases):
+            with self.subTest(expected=expected, launcher=launcher):
+                err, out = io.StringIO(), io.StringIO()
+                root = self.root / str(index)
+                root.mkdir(mode=0o700)
+                args = ["supervise", "--crash-root", str(root / "Crash Logs"),
+                        "--raw-root", str(root / "Crash Logs" / "Raw Evidence"),
+                        "--output-root", str(root / "output"), "--archive-root", str(root / "archive"),
+                        "--service", "Authserver", "--execute", *(["--launcher-mode"] if launcher else []),
+                        "--", sys.executable, "-c", source]
+                with mock.patch.object(adapter.supervisor, "atomic_write", side_effect=fail_exit):
+                    with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+                        status = adapter.main(args)
+                self.assertEqual(status, expected)
+                self.assertIn("receipt persistence failed", err.getvalue())
+                self.assertNotIn("PRIVATE_RECEIPT_PATH", err.getvalue())
+                runs = list((root / "output" / "runs").iterdir())
+                self.assertEqual(len(runs), 1)
+                self.assertFalse((runs[0] / "exit.json").exists())
+                report = next((root / "Crash Logs").glob("*Authserver*.txt"))
+                self.assertIn("recovered from memory", report.read_text())
+                bundle = next((root / "Crash Logs" / "Raw Evidence").iterdir())
+                receipt = json.loads((bundle / "supervisor-exit.json").read_text())
+                self.assertEqual(receipt["exit_receipt_status"], "failed")
+
     def test_cli_recovers_and_sanitizes_missing_evidence_error(self):
         raw, _, iid = self.failed_run()
         result = self.cli("recover", *self.cli_roots(), "--incident-id", iid)
