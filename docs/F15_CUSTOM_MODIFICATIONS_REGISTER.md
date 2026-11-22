@@ -219,3 +219,17 @@ Tests inject actual private filesystem/report faults after finite children. Exac
 Linux results in PR/queue; no live deployment/config/SQL/DBC/client dependency.
 Risks: all-sink failure loses durable evidence; later report recovery does not
 rewrite original failed-attempt health. Rollback source child, preserve receipts.
+
+
+### Sampled executable and launcher retention compatibility (2026-11-22)
+
+Owner CosmicCuddle. Child of PR350061a22a4ac6a6b8a5c570b0c6c81a2789fcbe898.
+Bounded512MiB prelaunch regular-file SHA256 sample with descriptor metadata checks;
+UNKNOWN on missing/large/changed/nonregular input. Private bundle/report evidence,
+not kernel-executed identity; operator build/source remains declared. Shared exit
+receipt reader accepts only optional boolean stop_escalated, fixing launcher
+archive/audit/retention rejection. No wider deletion ownership. Exact-source old
+reader failure and real launcher retention fixtures preserve originals; fingerprint
+fault tests and Linux real-manager suite outcomes in PR/queue. Files and full risk/
+rollback details in F15_FINGERPRINT_RETENTION_2026-11-22.md. Uninstalled; no live
+config/SQL/DBC/client dependencies/changes. Rollback source child, retain evidence.

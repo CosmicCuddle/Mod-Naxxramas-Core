@@ -35,8 +35,12 @@ def _receipt(path, required):
         data = json.loads(path.read_bytes())
     except (OSError, UnicodeError, ValueError, TypeError) as exc:
         raise Refused("unreadable supervisor receipt") from exc
-    if not isinstance(data, dict) or set(data) != required:
+    if not isinstance(data, dict):
         raise Refused("unexpected supervisor receipt schema")
+    keys = set(data)
+    if keys != required:
+        if required != EXIT_FIELDS or keys != required | {"stop_escalated"} or type(data["stop_escalated"]) is not bool:
+            raise Refused("unexpected supervisor receipt schema")
     return data
 
 

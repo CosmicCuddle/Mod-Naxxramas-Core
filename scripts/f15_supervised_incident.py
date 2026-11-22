@@ -8,6 +8,7 @@ from pathlib import Path
 
 import f15_incident_pipeline as pipeline
 import f15_process_supervisor as supervisor
+from f15_executable_fingerprint import sample_executable
 
 MAX_STREAM_BYTES = 65536
 
@@ -28,6 +29,7 @@ def supervise_and_report(output_root, archive_root, crash_root, raw_root, servic
                          build_version=None, source_revision=None, forward_stops=False, stop_timeout=None):
     if execute is not True:
         raise supervisor.Refused("explicit child execution authorization required")
+    fingerprint = sample_executable(command[0]) if command else {"status":"UNKNOWN", "reason":"INVALID_COMMAND"}
     try:
         run, outcome = supervisor.supervise(output_root, archive_root, service,
                                             command, poll_seconds, forward_stops=forward_stops, stop_timeout=stop_timeout)
@@ -40,7 +42,7 @@ def supervise_and_report(output_root, archive_root, crash_root, raw_root, servic
     started = _health_write(run, "started", outcome)
     try:
         result = _report_observed_run(run, outcome, crash_root, raw_root, service,
-                                      build_version, source_revision)
+                                      build_version, source_revision, fingerprint)
         completed = _health_write(run, "report-complete", outcome)
         outcome["diagnostic_health_receipt_status"] = "complete" if started and completed else "failed"
         return result
@@ -120,9 +122,11 @@ def diagnostic_health(run):
 
 
 def _report_observed_run(run, outcome, crash_root, raw_root, service,
-                         build_version, source_revision):
+                         build_version, source_revision, fingerprint):
     # Only the newly created, privately owned run is read. Never read owner logs.
     context, gaps = [], []
+    if fingerprint["status"] != "SAMPLED":
+        gaps.append("executable prelaunch fingerprint UNKNOWN: " + fingerprint["reason"])
     if outcome.get("stop_escalated"):
         gaps.append("owned child killed after explicitly configured stop timeout")
     if outcome.get("exit_receipt_status") == "failed":
@@ -140,19 +144,20 @@ def _report_observed_run(run, outcome, crash_root, raw_root, service,
     now = datetime.now(timezone.utc)
     incident = {
         "service": service, "incident_id": service.lower() + "-" + run.name,
+        "executable": fingerprint.get("resolved_path"),
         "pid": outcome["pid"], "exit_code": code if code >= 0 else None,
         "signal": -code if code < 0 else None,
         "classification": "SIGNAL_EXIT" if code < 0 else ("CLEAN_EXIT" if code == 0 else "NONZERO_EXIT"),
         "classification_evidence": "direct child wait status; signal/nonzero alone does not prove an engine defect",
         "supervisor": "F15 explicit child supervisor (not PM2/tmux installed integration)",
         "restart_evidence": "no restart requested or performed",
-        "notes": "Original console and lifecycle receipts retained in private supervised run: " + str(run),
+        "notes": "Original console and lifecycle receipts retained in private supervised run: " + str(run) + "; executable sample is prelaunch evidence, not verified kernel execution identity; sampled-executable-sha256=" + fingerprint.get("sha256", "UNKNOWN") + "; build/source fields are operator-declared",
     }
     pipeline._decorate_common(incident, now, "\n".join(context), outcome["capture"],
                               "; ".join(gaps + ([outcome["capture_error_type"]] if outcome["capture_error_type"] else [])) or "none observed",
                               build_version, source_revision)
     report = pipeline._write_owned_incident(Path(crash_root), Path(raw_root), incident, now,
-                                            {"supervisor-exit.json": outcome},
+                                            {"supervisor-exit.json": outcome, "executable-fingerprint.json": fingerprint},
                                             {"service": service, "source": "explicit-child-wait"})
     return run, outcome, report
 
