@@ -37,11 +37,86 @@ def supervise_and_report(output_root, archive_root, crash_root, raw_root, servic
         run, outcome = exc.run, exc.outcome
     import f15_raw_evidence_bundle as bundles
     import f15_crash_report_renderer as renderer
+    started = _health_write(run, "started", outcome)
     try:
-        return _report_observed_run(run, outcome, crash_root, raw_root, service,
-                                    build_version, source_revision)
+        result = _report_observed_run(run, outcome, crash_root, raw_root, service,
+                                      build_version, source_revision)
+        completed = _health_write(run, "report-complete", outcome)
+        outcome["diagnostic_health_receipt_status"] = "complete" if started and completed else "failed"
+        return result
     except (OSError, ValueError, bundles.Refused, renderer.Refused) as exc:
+        _health_write(run, "report-failed", outcome)
         raise PostExitReportFailure(outcome["exit_code"]) from exc
+
+
+def _health_write(run, state, outcome):
+    """Independent immutable private receipt; failure never replaces child status."""
+    import json
+    import f15_crash_report_renderer as renderer
+    try:
+        renderer._private_dir(Path(run))
+        data = {"version": 1, "state": state, "exit_code": outcome["exit_code"],
+                "capture": outcome["capture"],
+                "exit_receipt_status": outcome.get("exit_receipt_status", "complete")}
+        renderer._exclusive_write(Path(run) / ("diagnostics-" + state + ".json"),
+                                  (json.dumps(data, sort_keys=True) + "\n").encode("utf-8"))
+        return True
+    except (OSError, ValueError, renderer.Refused):
+        return False
+
+
+def _read_health_receipt(path):
+    import os
+    import stat
+    import f15_crash_report_renderer as renderer
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o077 or st.st_size > 4096:
+            raise renderer.Refused("health receipt must be bounded private regular file")
+        data = os.pread(fd, 4097, 0)
+        if len(data) != st.st_size:
+            raise renderer.Refused("health receipt changed during read")
+        return data
+    finally:
+        os.close(fd)
+
+
+def diagnostic_health(run):
+    """No process liveness claim; report/receipt health only. Never creates files."""
+    import json
+    import f15_raw_evidence_bundle as bundles
+    import f15_crash_report_renderer as renderer
+    root = bundles._private_dir(Path(run), create=False)
+    records = {}
+    keys = {"version", "state", "exit_code", "capture", "exit_receipt_status"}
+    for state in ("started", "report-complete", "report-failed"):
+        path = root / ("diagnostics-" + state + ".json")
+        if path.with_name(path.name + ".pending").exists() or path.with_name(path.name + ".pending").is_symlink():
+            return "UNKNOWN_OR_PARTIAL", False
+        if path.exists() or path.is_symlink():
+            data = _read_health_receipt(path)
+            if len(data) > 4096:
+                return "UNKNOWN_OR_PARTIAL", False
+            record = json.loads(data.decode("utf-8"))
+            if (not isinstance(record, dict) or set(record) != keys or record["version"] != 1
+                or type(record["version"]) is not int or record["state"] != state or type(record["exit_code"]) is not int):
+                return "UNKNOWN_OR_PARTIAL", False
+            records[state] = record
+    started = records.get("started")
+    completed = records.get("report-complete")
+    failed = records.get("report-failed")
+    if failed and completed:
+        return "CONFLICTING_RECEIPTS", False
+    if failed:
+        return "REPORT_FAILED", False
+    if not started or not completed:
+        return "UNKNOWN_OR_PARTIAL", False
+    if any(started[k] != completed[k] for k in keys - {"state"}):
+        return "CONFLICTING_RECEIPTS", False
+    if completed["capture"] != "complete_for_observed_run" or completed["exit_receipt_status"] != "complete":
+        return "REPORT_COMPLETE_WITH_GAPS", False
+    return "REPORT_COMPLETE", True
 
 
 def _report_observed_run(run, outcome, crash_root, raw_root, service,
@@ -143,6 +218,8 @@ def main(argv=None):
     recover.add_argument("--crash-root", required=True)
     recover.add_argument("--raw-root", required=True)
     recover.add_argument("--incident-id", required=True)
+    health = modes.add_parser("health")
+    health.add_argument("--run-root", required=True)
     args = parser.parse_args(argv)
     if args.mode == "supervise":
         command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -150,6 +227,10 @@ def main(argv=None):
             print("F15 REFUSED: explicit --execute and child command required", file=sys.stderr)
             return 2
     try:
+        if args.mode == "health":
+            label, ok = diagnostic_health(args.run_root)
+            print("F15 diagnostics: " + label)
+            return 0 if ok else 2
         if args.mode == "recover":
             recover_report(args.crash_root, args.raw_root, args.incident_id)
             print("F15 report recovery completed")
@@ -162,11 +243,14 @@ def main(argv=None):
         receipt_failed = outcome.get("exit_receipt_status") == "failed"
         if receipt_failed:
             print("F15 exit receipt persistence failed; inspect retained private evidence", file=sys.stderr)
+        health_failed = outcome.get("diagnostic_health_receipt_status") == "failed"
+        if health_failed:
+            print("F15 diagnostic health receipt failed; inspect retained private evidence", file=sys.stderr)
         if args.launcher_mode:
             return launcher_status(outcome["exit_code"])
         # Diagnostic tool status, matching the existing supervisor CLI. This is
         # not a transparent launcher replacement for PM2/tmux child exit codes.
-        return 0 if outcome["exit_code"] == 0 and outcome["capture_error_type"] is None and not receipt_failed else 2
+        return 0 if outcome["exit_code"] == 0 and outcome["capture_error_type"] is None and not receipt_failed and not health_failed else 2
     except PostExitReportFailure as exc:
         print("F15 report publication failed; inspect retained private evidence", file=sys.stderr)
         return launcher_status(exc.exit_code) if args.mode == "supervise" and args.launcher_mode else 2

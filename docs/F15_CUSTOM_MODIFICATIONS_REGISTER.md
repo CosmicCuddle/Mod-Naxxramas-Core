@@ -205,3 +205,17 @@ children. Exact outcomes in PR/queue. No SQL/config/DBC/client or live change.
 Risks: manager hard-kill/window closure can orphan isolated child; stdin unavailable;
 owner restart/timeouts/versions remain unverified. Rollback source child now;
 future approved host rollback restores prior launch records and retains evidence.
+
+
+### Independent diagnostic health (2026-11-22)
+
+Owner CosmicCuddle. Child of PR3495a70282913906adf6dfd928d8be7c63845a0b404.
+Files: supervised incident composer, diagnostic-health test module, bounded real
+manager workflow, F15_DIAGNOSTIC_HEALTH_2026-11-22.md. Immutable private attempt
+receipts and read-only health CLI separate diagnostics from child exit success.
+Missing/partial/conflicting/failed/gapped evidence is unhealthy/UNKNOWN; no liveness
+claim. Atomic publication, bounded descriptor reads and no process launch on health.
+Tests inject actual private filesystem/report faults after finite children. Exact
+Linux results in PR/queue; no live deployment/config/SQL/DBC/client dependency.
+Risks: all-sink failure loses durable evidence; later report recovery does not
+rewrite original failed-attempt health. Rollback source child, preserve receipts.
