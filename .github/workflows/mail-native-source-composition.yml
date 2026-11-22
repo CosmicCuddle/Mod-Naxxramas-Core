@@ -1,0 +1,45 @@
+name: Mail actual-source send-path composition
+on:
+  pull_request:
+    branches: [feature/alt-mail-item-only-delay-20261114]
+    paths:
+      - tests/run_mail_real_header.py
+      - tests/run_mail_send_path.py
+      - tests/mail_send_path_doubles.hpp
+      - .github/workflows/mail-native-source-composition.yml
+permissions:
+  contents: read
+jobs:
+  source-composition:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: module
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/azerothcore-wotlk
+          ref: 9edf437e62218be610dfc4b3d797563217644ad1
+          path: core
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Execute source-coupled matrices with disposable sinks
+        working-directory: module
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git -C ../core rev-parse HEAD)" = 9edf437e62218be610dfc4b3d797563217644ad1
+          python3 -B tests/run_mail_real_header.py --core ../core --compiler '${{ matrix.compiler }}'
+          python3 -B tests/run_mail_send_path.py --core ../core --compiler '${{ matrix.compiler }}'
+          python3 -B -m unittest discover -s tests -p test_alt_mail_delay_source.py -v
+          git diff --check
+# No server/DB launch, artifact/cache upload or production files.
