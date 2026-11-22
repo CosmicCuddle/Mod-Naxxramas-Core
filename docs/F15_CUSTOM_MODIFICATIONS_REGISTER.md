@@ -137,3 +137,22 @@ No production PM2/tmux integration is established by synthetic tests. Main-threa
 POSIX use only. Executable tests cover nonzero status, TERM forwarding/reporting
 and handler restoration. Exact results in PR/queue. Uninstalled; no config/SQL/
 DBC/client changes. Rollback: revert source child, preserve diagnostic evidence.
+
+
+### Post-exit report failure status (2026-11-22)
+
+Child of PR344 53927e8eebf760d15ff587f3d8197f8fd4a2035e. Owner: CosmicCuddle.
+The supervised incident composer wraps expected report-stage errors after the
+supervisor returns observed wait evidence. Launcher mode preserves that child
+status even if report publication fails; diagnostic mode remains 2. A clean child
+can therefore return 0 with failed diagnostics: generic stderr explicitly reports
+failure and never claims completion. Operational monitoring must inspect diagnostic
+health separately. Pre-exit errors do not invent child status and remain 2.
+Original receipts/console remain private; completed bundles retain recovery support.
+Files: supervised incident composer, executable tests and bounded Linux workflow.
+Tests inject publication failures after real clean/nonzero/SIGTERM child exits,
+check one run per request, generic stderr/no success, and pre-exit refusal.
+Exact Linux result is in PR/queue. No new config/SQL/DBC/client dependencies,
+uninstalled; no production changes. Rollback: revert child and preserve evidence.
+Remaining limits: signal-ignoring children have no shutdown deadline; supervisor
+failure before its return (including exit receipt failure) has no status guarantee.

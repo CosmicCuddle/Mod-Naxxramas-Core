@@ -183,6 +183,44 @@ class SupervisedIncidents(unittest.TestCase):
             self.assertEqual(stops.pending, [signal.SIGTERM])
         self.assertEqual(before, {sig: signal.getsignal(sig) for sig in before})
 
+    def test_report_failure_preserves_observed_status_only_in_launcher_mode(self):
+        import contextlib
+        import io
+        import json
+        import f15_crash_report_renderer as renderer
+        for index, (launcher, source, expected) in enumerate((
+                (True, "raise SystemExit(7)", 7),
+                (True, "pass", 0),
+                (True, "import os,signal; os.kill(os.getpid(),signal.SIGTERM)", 143),
+                (False, "raise SystemExit(7)", 2))):
+            with self.subTest(launcher=launcher, expected=expected):
+                err, out = io.StringIO(), io.StringIO()
+                args = ["supervise", *self.cli_roots(), "--output-root", str(self.root / ("out" + str(index))),
+                        "--archive-root", str(self.root / ("archive" + str(index))), "--service", "Authserver",
+                        "--execute", *(["--launcher-mode"] if launcher else []), "--", sys.executable, "-c", source]
+                with mock.patch.object(renderer, "ensure_report", side_effect=OSError("PRIVATE_SECRET_PATH")):
+                    with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+                        status = adapter.main(args)
+                self.assertEqual(status, expected)
+                self.assertIn("publication failed", err.getvalue())
+                self.assertNotIn("PRIVATE_SECRET_PATH", err.getvalue())
+                self.assertNotIn("completed", out.getvalue())
+                runs = list((self.root / ("out" + str(index)) / "runs").iterdir())
+                self.assertEqual(len(runs), 1)
+                receipt = json.loads((runs[0] / "exit.json").read_text())
+                self.assertEqual(adapter.launcher_status(receipt["exit_code"]), expected if launcher else 7)
+
+    def test_launcher_pre_exit_failure_does_not_fabricate_child_status(self):
+        import contextlib
+        import io
+        with mock.patch.object(adapter.supervisor, "supervise", side_effect=OSError("PRIVATE_SECRET")):
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                status = adapter.main(["supervise", *self.cli_roots(), "--output-root", str(self.root / "out"),
+                    "--archive-root", str(self.root / "archive"), "--service", "Authserver", "--execute",
+                    "--launcher-mode", "--", sys.executable, "-c", "pass"])
+        self.assertEqual(status, 2)
+        self.assertNotIn("PRIVATE_SECRET", err.getvalue())
+
     def test_cli_recovers_and_sanitizes_missing_evidence_error(self):
         raw, _, iid = self.failed_run()
         result = self.cli("recover", *self.cli_roots(), "--incident-id", iid)
