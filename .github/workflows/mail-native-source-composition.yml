@@ -28,7 +28,7 @@ jobs:
           repository: CosmicCuddle/azerothcore-wotlk
           ref: 9edf437e62218be610dfc4b3d797563217644ad1
           path: core
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
       - name: Execute source-coupled matrices with disposable sinks
         working-directory: module

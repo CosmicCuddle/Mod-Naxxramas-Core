@@ -35,7 +35,8 @@ int main(){
  NaxxramasCoreAltMailDelay hook; int count=0;
  auto check=[&](int items,uint32 money,std::string body, MailCheckMask flags,MailMessageType type,MailStationery stationery,uint32 sa,uint32 ra,uint32 initial,uint32 expected){
   MailDraft draft("subject",body);Item item1(100),item2(101);
-  if(items>0)draft.AddItem(&item1);if(items>1)draft.AddItem(&item2);
+  if(items>0){draft.AddItem(&item1);}
+  if(items>1){draft.AddItem(&item2);}
   draft.AddMoney(money).AddCOD(items?50:0);
   if(draft.HasItems()!=(items>0) || draft.GetMoney()!=money || draft.GetBody()!=body)std::exit(2);
   MailReceiver receiver(2);MailSender sender(type,1,stationery);cache.a=sa;cache.b=ra;

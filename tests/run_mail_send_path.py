@@ -36,13 +36,15 @@ for(bool online:{false,true})for(bool custom:{false,true})for(int n:{0,1,2})for(
 ObjectAccessor::online=nullptr;
 for(auto type:{MAIL_NORMAL,MAIL_AUCTION,MAIL_CREATURE,MAIL_GAMEOBJECT})for(auto flags:{MAIL_CHECK_MASK_RETURNED,MAIL_CHECK_MASK_COD_PAYMENT}){
  enableCustom=true;MailDraft draft("subject","body");draft.AddItem(new Item(100));auto tx=std::make_shared<Transaction>();draft.SendMailTo(tx,MailReceiver(2),MailSender(type,1),flags,19);
- if(tx->rows[0].values[10]!="1019"||tx->rows[0].values[13]!=std::to_string(int(flags)))return 3;++count;
+ if(tx->rows[0].values[10]!="1019"||tx->rows[0].values[13]!=std::to_string(int(flags))){return 3;}
+ ++count;
 }
 for(int n:{0,1,2}){
  MailDraft draft("return","body");for(int i=0;i<n;++i)draft.AddItem(new Item(200+i));draft.AddMoney(123);
  auto tx=std::make_shared<Transaction>();draft.SendReturnToSender(5,1,2,tx);
  bool found=false;for(auto const& row:tx->rows)if(row.kind==CHAR_INS_MAIL){found=true;if(row.values.at(10)!="1000"||row.values.at(13)!=std::to_string(int(MAIL_CHECK_MASK_RETURNED)))return 4;}
- if(!found||draft.HasItems())return 5;++count;
+ if(!found||draft.HasItems()){return 5;}
+ ++count;
 }
 std::cout<<count<<" actual SendMailTo source cases PASS\n";}
 """
