@@ -174,3 +174,19 @@ changes. Rollback: revert child, preserve evidence. Memory-only evidence is lost
 if the wrapper also dies before the independent sink completes; this is not a
 promise of durable capture under total storage failure. Earlier startup/observation
 failures and unbounded signal-ignoring shutdown remain separate limitations.
+
+
+### Bounded owned-child stop contract (2026-11-22)
+
+PR347, parent PR346 600958cb11966b18d0a3caf17c55d8fa699e1514; exact HEAD in PR/queue.
+Owner CosmicCuddle. Optional --stop-timeout 0.1..300s requires forwarding; default
+remains off. Deadline does not reset on repeated TERM/INT. Only direct unreaped
+owned child may receive one SIGKILL; report/receipt explicitly mark escalation.
+Pending requests arriving during forwarding remain queued. Tests cover deadline
+edge reaped child, repeated/reentrant requests, invalid deadlines before launch,
+and real signal-ignoring child. See F15_ADAPTER_CONTRACT_2026-11-22.md for manager
+semantics, status/capture limits, future staging/backup/rollback prerequisites.
+Uninstalled; no config/SQL/DBC/client changes. Timing depends on poll/capture I/O;
+not a hard real-time bound, no descendant/process-group control. Rollback source
+child now; future approved host rollback restores prior launcher after disabling
+new hooks and preserves evidence. Exact test results belong to PR/queue.

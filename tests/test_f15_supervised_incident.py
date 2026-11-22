@@ -151,13 +151,19 @@ class SupervisedIncidents(unittest.TestCase):
         self.assertEqual(result.returncode, 7, result.stderr)
 
     def test_launcher_forwards_stop_to_owned_child_and_reports_signal(self):
+        self.check_launcher_stop(False)
+
+    def test_launcher_timeout_escalates_only_after_stop_request(self):
+        self.check_launcher_stop(True)
+
+    def check_launcher_stop(self, ignore_stop):
         import subprocess
         import time
         ready = self.root / "ready"
-        child_code = "from pathlib import Path; import time; Path(" + repr(str(ready)) + ").touch(); time.sleep(10)"
+        child_code = ("import signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); signal.signal(signal.SIGINT, signal.SIG_IGN); " if ignore_stop else "") + "from pathlib import Path; import time; Path(" + repr(str(ready)) + ").touch(); time.sleep(10)"
         command = [sys.executable, str(Path(adapter.__file__)), "supervise", *self.cli_roots(),
                    "--output-root", str(self.root / "output"), "--archive-root", str(self.root / "archive"),
-                   "--service", "Worldserver", "--execute", "--launcher-mode", "--", sys.executable, "-c", child_code]
+                   "--service", "Worldserver", "--execute", "--launcher-mode", *(["--stop-timeout", "0.1"] if ignore_stop else []), "--", sys.executable, "-c", child_code]
         proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             deadline = time.monotonic() + 5
@@ -165,15 +171,61 @@ class SupervisedIncidents(unittest.TestCase):
                 time.sleep(0.02)
             self.assertTrue(ready.exists())
             proc.send_signal(signal.SIGTERM)
+            if ignore_stop:
+                proc.send_signal(signal.SIGINT)
+                proc.send_signal(signal.SIGTERM)
             out, err = proc.communicate(timeout=5)
-            self.assertEqual(proc.returncode, 143, err)
+            self.assertEqual(proc.returncode, 137 if ignore_stop else 143, err)
             report = next((self.root / "Crash Logs").glob("*Worldserver*.txt"))
-            self.assertIn("Signal name: SIGTERM", report.read_text())
+            self.assertIn("Signal name: " + ("SIGKILL" if ignore_stop else "SIGTERM"), report.read_text())
+            if ignore_stop:
+                self.assertIn("explicitly configured stop timeout", report.read_text())
             self.assertNotIn(str(self.root), out + err)
         finally:
             if proc.poll() is None:
                 proc.kill()
                 proc.communicate(timeout=5)
+
+    def test_deadline_edge_reaped_child_is_never_killed(self):
+        stops = adapter.supervisor.OwnedChildStops(1)
+        child = mock.Mock()
+        child.poll.return_value = None
+        stops.request(signal.SIGTERM, None)
+        with mock.patch.object(adapter.supervisor.time, "monotonic", return_value=10):
+            stops.forward(child)
+        child.kill.assert_not_called()
+        child.poll.return_value = 0
+        with mock.patch.object(adapter.supervisor.time, "monotonic", return_value=11):
+            stops.forward(child)
+        child.kill.assert_not_called()
+        self.assertFalse(stops.escalated)
+
+    def test_repeated_requests_do_not_extend_deadline_or_lose_reentrant_signal(self):
+        stops = adapter.supervisor.OwnedChildStops(1)
+        child = mock.Mock()
+        child.poll.return_value = None
+        child.send_signal.side_effect = lambda sig: stops.request(signal.SIGINT, None)
+        stops.request(signal.SIGTERM, None)
+        with mock.patch.object(adapter.supervisor.time, "monotonic", return_value=10):
+            stops.forward(child)
+        self.assertEqual(stops.pending, [signal.SIGINT])
+        stops.request(signal.SIGTERM, None)
+        with mock.patch.object(adapter.supervisor.time, "monotonic", return_value=11):
+            stops.forward(child)
+            stops.forward(child)
+        self.assertEqual(stops.deadline, 11)
+        child.kill.assert_called_once()
+        self.assertTrue(stops.escalated)
+
+    def test_timeout_validation_refuses_before_launch(self):
+        with mock.patch.object(adapter.supervisor.subprocess, "Popen") as spawn:
+            for timeout in (0, -1, float("nan"), float("inf"), 301):
+                with self.assertRaises(adapter.supervisor.Refused):
+                    adapter.supervisor.supervise(None, None, "Authserver", [],
+                                                 forward_stops=True, stop_timeout=timeout)
+            with self.assertRaises(adapter.supervisor.Refused):
+                adapter.supervisor.supervise(None, None, "Authserver", [], stop_timeout=1)
+            spawn.assert_not_called()
 
     def test_opt_in_signal_handlers_are_restored(self):
         before = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}

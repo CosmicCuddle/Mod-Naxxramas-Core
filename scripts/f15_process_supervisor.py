@@ -43,7 +43,10 @@ def _new_log(path):
 
 class OwnedChildStops:
     """Optional main-thread stop forwarding, limited to the unreaped owned child."""
-    def __init__(self):
+    def __init__(self, timeout=None):
+        self.timeout = timeout
+        self.deadline = None
+        self.escalated = False
         self.pending = []
         self.previous = {}
 
@@ -61,19 +64,27 @@ class OwnedChildStops:
             self.pending.append(sig)
 
     def forward(self, child):
-        for sig in self.pending:
+        pending, self.pending = self.pending, []
+        if pending and self.deadline is None and self.timeout is not None:
+            self.deadline = time.monotonic() + self.timeout
+        for sig in pending:
             if child.poll() is None:
                 child.send_signal(sig)
-        self.pending.clear()
+        if self.deadline is not None and time.monotonic() >= self.deadline and not self.escalated:
+            if child.poll() is None:
+                child.kill()
+                self.escalated = True
 
     def __exit__(self, *args):
         for sig, handler in self.previous.items():
             signal.signal(sig, handler)
 
 
-def supervise(output_root, archive_root, service, command, poll_seconds=0.2, *, forward_stops=False):
+def supervise(output_root, archive_root, service, command, poll_seconds=0.2, *, forward_stops=False, stop_timeout=None):
+    if stop_timeout is not None and (not forward_stops or not isinstance(stop_timeout, (int, float)) or not 0.1 <= stop_timeout <= 300):
+        raise Refused("stop timeout requires forwarding and a finite 0.1..300 seconds")
     if forward_stops:
-        with OwnedChildStops() as stops:
+        with OwnedChildStops(stop_timeout) as stops:
             return _supervise(output_root, archive_root, service, command, poll_seconds, stops)
     return _supervise(output_root, archive_root, service, command, poll_seconds)
 
@@ -157,6 +168,8 @@ def _supervise(output_root, archive_root, service, command, poll_seconds=0.2, st
                "capture": "complete_for_observed_run" if capture_error is None else "fail_closed",
                "capture_error_type": capture_error, "pid": child.pid,
                "capture_root": str(capture_root)}
+    if stops is not None:
+        outcome["stop_escalated"] = stops.escalated
     try:
         atomic_write(run / "exit.json", json.dumps(outcome, sort_keys=True).encode())
     except (OSError, ValueError, Refused) as exc:
