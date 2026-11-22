@@ -64,12 +64,12 @@ class OwnedChildStops:
             self.pending.append(sig)
 
     def forward(self, child):
-        if self.pending and self.deadline is None and self.timeout is not None:
+        pending, self.pending = self.pending, []
+        if pending and self.deadline is None and self.timeout is not None:
             self.deadline = time.monotonic() + self.timeout
-        for sig in self.pending:
+        for sig in pending:
             if child.poll() is None:
                 child.send_signal(sig)
-        self.pending.clear()
         if self.deadline is not None and time.monotonic() >= self.deadline and not self.escalated:
             if child.poll() is None:
                 child.kill()
