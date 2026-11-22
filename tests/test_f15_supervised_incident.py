@@ -151,13 +151,19 @@ class SupervisedIncidents(unittest.TestCase):
         self.assertEqual(result.returncode, 7, result.stderr)
 
     def test_launcher_forwards_stop_to_owned_child_and_reports_signal(self):
+        self.check_launcher_stop(False)
+
+    def test_launcher_timeout_escalates_only_after_stop_request(self):
+        self.check_launcher_stop(True)
+
+    def check_launcher_stop(self, ignore_stop):
         import subprocess
         import time
         ready = self.root / "ready"
-        child_code = "from pathlib import Path; import time; Path(" + repr(str(ready)) + ").touch(); time.sleep(10)"
+        child_code = ("import signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); " if ignore_stop else "") + "from pathlib import Path; import time; Path(" + repr(str(ready)) + ").touch(); time.sleep(10)"
         command = [sys.executable, str(Path(adapter.__file__)), "supervise", *self.cli_roots(),
                    "--output-root", str(self.root / "output"), "--archive-root", str(self.root / "archive"),
-                   "--service", "Worldserver", "--execute", "--launcher-mode", "--", sys.executable, "-c", child_code]
+                   "--service", "Worldserver", "--execute", "--launcher-mode", *(["--stop-timeout", "0.1"] if ignore_stop else []), "--", sys.executable, "-c", child_code]
         proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
             deadline = time.monotonic() + 5
@@ -166,9 +172,11 @@ class SupervisedIncidents(unittest.TestCase):
             self.assertTrue(ready.exists())
             proc.send_signal(signal.SIGTERM)
             out, err = proc.communicate(timeout=5)
-            self.assertEqual(proc.returncode, 143, err)
+            self.assertEqual(proc.returncode, 137 if ignore_stop else 143, err)
             report = next((self.root / "Crash Logs").glob("*Worldserver*.txt"))
-            self.assertIn("Signal name: SIGTERM", report.read_text())
+            self.assertIn("Signal name: " + ("SIGKILL" if ignore_stop else "SIGTERM"), report.read_text())
+            if ignore_stop:
+                self.assertIn("explicitly configured stop timeout", report.read_text())
             self.assertNotIn(str(self.root), out + err)
         finally:
             if proc.poll() is None:

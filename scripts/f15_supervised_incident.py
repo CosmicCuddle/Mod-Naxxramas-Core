@@ -25,12 +25,12 @@ def launcher_status(exit_code):
 
 def supervise_and_report(output_root, archive_root, crash_root, raw_root, service,
                          command, *, execute=False, poll_seconds=0.2,
-                         build_version=None, source_revision=None, forward_stops=False):
+                         build_version=None, source_revision=None, forward_stops=False, stop_timeout=None):
     if execute is not True:
         raise supervisor.Refused("explicit child execution authorization required")
     try:
         run, outcome = supervisor.supervise(output_root, archive_root, service,
-                                            command, poll_seconds, forward_stops=forward_stops)
+                                            command, poll_seconds, forward_stops=forward_stops, stop_timeout=stop_timeout)
     except supervisor.ExitReceiptFailure as exc:
         # The wait was observed; try the independent bundle/report sink without
         # relaunching or falsely claiming the original receipt was durable.
@@ -48,6 +48,8 @@ def _report_observed_run(run, outcome, crash_root, raw_root, service,
                          build_version, source_revision):
     # Only the newly created, privately owned run is read. Never read owner logs.
     context, gaps = [], []
+    if outcome.get("stop_escalated"):
+        gaps.append("owned child killed after explicitly configured stop timeout")
     if outcome.get("exit_receipt_status") == "failed":
         gaps.append("supervisor exit receipt persistence failed; wait evidence recovered from memory")
     for name in ("stdout.raw", "stderr.raw"):
@@ -133,6 +135,7 @@ def main(argv=None):
     launch.add_argument("--service", choices=sorted(supervisor.SERVICES), required=True)
     launch.add_argument("--execute", action="store_true")
     launch.add_argument("--launcher-mode", action="store_true", help="forward TERM/INT to owned child; return child status (not installed service integration)")
+    launch.add_argument("--stop-timeout", type=float, help="opt-in seconds before killing owned child after TERM/INT; requires launcher mode")
     launch.add_argument("--build-version")
     launch.add_argument("--source-revision")
     launch.add_argument("command", nargs=argparse.REMAINDER)
@@ -154,7 +157,7 @@ def main(argv=None):
         _, outcome, _ = supervise_and_report(args.output_root, args.archive_root,
             args.crash_root, args.raw_root, args.service, command, execute=True,
             build_version=args.build_version, source_revision=args.source_revision,
-            forward_stops=args.launcher_mode)
+            forward_stops=args.launcher_mode, stop_timeout=args.stop_timeout)
         print("F15 supervised exit report completed")
         receipt_failed = outcome.get("exit_receipt_status") == "failed"
         if receipt_failed:
