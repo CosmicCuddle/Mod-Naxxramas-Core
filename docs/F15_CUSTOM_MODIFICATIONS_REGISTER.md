@@ -156,3 +156,21 @@ Exact Linux result is in PR/queue. No new config/SQL/DBC/client dependencies,
 uninstalled; no production changes. Rollback: revert child and preserve evidence.
 Remaining limits: signal-ignoring children have no shutdown deadline; supervisor
 failure before its return (including exit receipt failure) has no status guarantee.
+
+
+### Exit receipt persistence failure (2026-11-22)
+
+Owner CosmicCuddle. Source child of PR345 bb80604cef63ad95d96e413a45d0b60a4270a95b.
+An expected exit.json persistence failure after observed wait raises a typed
+ExitReceiptFailure with in-memory run/outcome. The incident composer attempts the
+independent bundle/report sink and records exit_receipt_status=failed plus an
+explicit capture gap. It never retries the child. Launcher status preserves the
+observed child code; diagnostic mode returns2 and generic stderr warns of the
+receipt failure even if reporting succeeds. Existing raw console remains private.
+Tests inject exit.json write failure after real clean/nonzero/SIGTERM exits and
+verify one run, absent receipt, recovered-memory report and marked bundle evidence.
+Exact Linux outcome is recorded in PR/queue. Uninstalled; no config/SQL/DBC/client
+changes. Rollback: revert child, preserve evidence. Memory-only evidence is lost
+if the wrapper also dies before the independent sink completes; this is not a
+promise of durable capture under total storage failure. Earlier startup/observation
+failures and unbounded signal-ignoring shutdown remain separate limitations.

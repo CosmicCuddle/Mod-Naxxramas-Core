@@ -28,8 +28,13 @@ def supervise_and_report(output_root, archive_root, crash_root, raw_root, servic
                          build_version=None, source_revision=None, forward_stops=False):
     if execute is not True:
         raise supervisor.Refused("explicit child execution authorization required")
-    run, outcome = supervisor.supervise(output_root, archive_root, service,
-                                        command, poll_seconds, forward_stops=forward_stops)
+    try:
+        run, outcome = supervisor.supervise(output_root, archive_root, service,
+                                            command, poll_seconds, forward_stops=forward_stops)
+    except supervisor.ExitReceiptFailure as exc:
+        # The wait was observed; try the independent bundle/report sink without
+        # relaunching or falsely claiming the original receipt was durable.
+        run, outcome = exc.run, exc.outcome
     import f15_raw_evidence_bundle as bundles
     import f15_crash_report_renderer as renderer
     try:
@@ -43,6 +48,8 @@ def _report_observed_run(run, outcome, crash_root, raw_root, service,
                          build_version, source_revision):
     # Only the newly created, privately owned run is read. Never read owner logs.
     context, gaps = [], []
+    if outcome.get("exit_receipt_status") == "failed":
+        gaps.append("supervisor exit receipt persistence failed; wait evidence recovered from memory")
     for name in ("stdout.raw", "stderr.raw"):
         with (run / name).open("rb") as stream:
             data = stream.read(MAX_STREAM_BYTES + 1)
@@ -149,11 +156,14 @@ def main(argv=None):
             build_version=args.build_version, source_revision=args.source_revision,
             forward_stops=args.launcher_mode)
         print("F15 supervised exit report completed")
+        receipt_failed = outcome.get("exit_receipt_status") == "failed"
+        if receipt_failed:
+            print("F15 exit receipt persistence failed; inspect retained private evidence", file=sys.stderr)
         if args.launcher_mode:
             return launcher_status(outcome["exit_code"])
         # Diagnostic tool status, matching the existing supervisor CLI. This is
         # not a transparent launcher replacement for PM2/tmux child exit codes.
-        return 0 if outcome["exit_code"] == 0 and outcome["capture_error_type"] is None else 2
+        return 0 if outcome["exit_code"] == 0 and outcome["capture_error_type"] is None and not receipt_failed else 2
     except PostExitReportFailure as exc:
         print("F15 report publication failed; inspect retained private evidence", file=sys.stderr)
         return launcher_status(exc.exit_code) if args.mode == "supervise" and args.launcher_mode else 2
