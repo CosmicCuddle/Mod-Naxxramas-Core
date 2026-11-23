@@ -1,0 +1,43 @@
+name: Mail native handler source composition
+on:
+  pull_request:
+    branches: [test/codex-mail-composition-20261122]
+    paths:
+      - tests/run_mail_handler_path.py
+      - tests/mail_handler_doubles.hpp
+      - tests/mail_handler_path_checks.hpp
+      - .github/workflows/mail-handler-source-composition.yml
+permissions:
+  contents: read
+jobs:
+  handler-composition:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: module
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: CosmicCuddle/azerothcore-wotlk
+          ref: 9edf437e62218be610dfc4b3d797563217644ad1
+          path: core
+          persist-credentials: false
+      - name: Execute actual sender and send/return composition
+        working-directory: module
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git -C ../core rev-parse HEAD)" = 9edf437e62218be610dfc4b3d797563217644ad1
+          python3 -B tests/run_mail_handler_path.py --core ../core --compiler '${{ matrix.compiler }}'
+          python3 -B tests/run_mail_real_header.py --core ../core --compiler '${{ matrix.compiler }}'
+          python3 -B tests/run_mail_send_path.py --core ../core --compiler '${{ matrix.compiler }}'
+          python3 -B -m unittest discover -s tests -p test_alt_mail_delay_source.py -v
+          git diff --check
+# Explicit packet/inventory/DB/registry seams; no server, DB, artifacts or activation.
