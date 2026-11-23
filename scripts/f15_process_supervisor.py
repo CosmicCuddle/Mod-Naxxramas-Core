@@ -121,9 +121,16 @@ def _supervise(output_root, archive_root, service, command, poll_seconds=0.2, st
                 {"service": service, "time_utc": utc_now(), "state": "launch_failed",
                  "error_type": type(exc).__name__}, sort_keys=True).encode())
             raise Refused("explicit child launch failed (details retained privately)") from exc
-        atomic_write(run / "running.json", json.dumps(
-            {"service": service, "time_utc": utc_now(), "state": "started",
-             "pid": child.pid}, sort_keys=True).encode())
+        running_receipt_failed = False
+        try:
+            atomic_write(run / "running.json", json.dumps(
+                {"service": service, "time_utc": utc_now(), "state": "started",
+                 "pid": child.pid}, sort_keys=True).encode())
+        except (OSError, ValueError, Refused):
+            # Popen succeeded: a diagnostic sink failure must not abandon the
+            # directly owned child or replace its eventual observed status.
+            # Keep collecting; retain any ambiguous .pending receipt untouched.
+            running_receipt_failed = True
         capture_error = None
         try:
             while True:
@@ -162,6 +169,10 @@ def _supervise(output_root, archive_root, service, command, poll_seconds=0.2, st
                  "state": "supervisor_interrupted", "last_known_pid": child.pid}, sort_keys=True).encode())
             # No claim that child exited; no unapproved kill signal.
             raise Refused("supervisor interrupted; child exit unobserved; review private run files")
+    if running_receipt_failed and capture_error is None:
+        # Existing fail-closed schema also prevents automatic retention from
+        # treating incomplete lifecycle evidence as a fully verified run.
+        capture_error = "RunningReceiptPersistenceFailure"
     classification = "clean_exit" if result == 0 else ("signaled_exit" if result < 0 else "nonzero_exit")
     outcome = {"service": service, "time_utc": utc_now(), "state": "exit_observed",
                "exit_code": result, "exit_kind": classification,

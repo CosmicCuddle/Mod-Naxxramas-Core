@@ -1,5 +1,19 @@
 # F15 Custom Modifications Register
 
+## Post-launch running receipt storage failure (2026-11-23)
+
+Owner CosmicCuddle. Source child of PR351854879f9cae3939cd0dc3123ff3ba91758f65ebf.
+Affected: process supervisor, running-receipt fault tests, focused real-manager
+workflow and F15_RUNNING_RECEIPT_FAILURE_2026-11-23.md. Continue waiting/capturing
+the directly owned child after expected running.json storage failure; preserve
+observed child exit and partial evidence, report fail-closed diagnostics. Console
+errors retain precedence; retention refuses incomplete lifecycle evidence. Exact
+parent regression and current finite-child/CLI/report/health/archive checks run
+in disposable Linux roots. Native World/Auth and installed-state remain untested.
+No new config/SQL/DBC/client/schema dependencies, no live change or activation.
+Rollback source child, retain all evidence; previous code abandons observation
+on this fault. Total storage failure can still prevent durable diagnostics.
+
 **Scope:** F15 crash/log preservation and operational tooling only.  
 **Owner:** CosmicCuddle.  
 **Authority:** This is a component register, not a claim that all server customisations are catalogued here.

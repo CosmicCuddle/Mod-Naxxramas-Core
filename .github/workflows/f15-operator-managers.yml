@@ -1,8 +1,10 @@
 name: F15 disposable real manager adapters
 on:
   pull_request:
-    branches: [feature/codex-f15-diagnostic-health-20261122]
+    branches: [feature/codex-f15-executable-fingerprint-20261122]
     paths:
+      - scripts/f15_process_supervisor.py
+      - tests/test_f15_running_receipt_failure.py
       - scripts/f15_supervised_retention.py
       - tests/test_f15_launcher_retention.py
       - scripts/f15_executable_fingerprint.py
