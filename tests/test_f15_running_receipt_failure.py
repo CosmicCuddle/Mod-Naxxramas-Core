@@ -37,11 +37,13 @@ class RunningReceiptFailures(unittest.TestCase):
             child.wait(timeout=10)
 
     @contextlib.contextmanager
-    def fail_running(self, module=supervisor, partial=False, capture_failure=False):
+    def fail_running(self, module=supervisor, partial=False, capture_failure=False, published=False):
         real_write, real_popen = module.atomic_write, subprocess.Popen
 
         def write(path, data):
             if path.name == "running.json":
+                if published:
+                    real_write(path, data)
                 if partial:
                     pending = path.with_name(path.name + ".pending")
                     fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -113,6 +115,17 @@ class RunningReceiptFailures(unittest.TestCase):
         self.assertIn("after", text)
         self.assertNotIn(SENTINEL, text)
         self.assertEqual(adapter.diagnostic_health(run), ("REPORT_COMPLETE_WITH_GAPS", False))
+
+    def test_post_publication_error_preserves_running_receipt_and_wait_evidence(self):
+        # Atomic publication can rename successfully before directory fsync fails.
+        with self.fail_running(published=True):
+            run, outcome = self.supervise()
+        started = json.loads((run / "running.json").read_bytes())
+        self.assertEqual(started["pid"], outcome["pid"])
+        self.assertEqual(started["state"], "started")
+        self.assertEqual(outcome["exit_code"], 7)
+        self.assertEqual(outcome["capture_error_type"], "RunningReceiptPersistenceFailure")
+        self.assertFalse((run / "running.json.pending").exists())
 
     def test_console_sink_error_remains_authoritative_when_both_sinks_fail(self):
         with self.fail_running(capture_failure=True):
